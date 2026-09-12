@@ -58,7 +58,9 @@ models:
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
@@ -94,7 +96,9 @@ models:
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
@@ -102,15 +106,17 @@ models:
         base_config: configs/experiments/defend_the_line/starvla_profile.yaml
         model_artifact:
           local_root: third_party/starVLA/results/Checkpoints/openvla_bridge_defend_the_line_single_latency_clean_data_exp1
-          checkpoint: checkpoints/steps_7000_state/model.safetensors
+          checkpoint: checkpoints/steps_7000_model.safetensors
           model_config: config.full.yaml
-          hf_repo: talha15032/openvla_bridge_defend_the_line_single_latency_clean_data_exp1
+          hf_repo: latency-sensitive-bench/openvla_bridge_defend_the_line_single_latency_clean_data_exp1
           hf_path: .
         checkpoint_kind: best
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
@@ -148,7 +154,9 @@ models:
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
@@ -164,7 +172,9 @@ models:
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
@@ -202,7 +212,9 @@ models:
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
@@ -218,7 +230,9 @@ models:
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
@@ -256,7 +270,9 @@ models:
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
@@ -272,7 +288,9 @@ models:
         session_count: 5
         eval_episodes: 10
         evaluation_seed: 42
-        calibrate_env_fps: false
+        calibrate_env_fps: true
+        target_latency_frames: 2
+        worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}

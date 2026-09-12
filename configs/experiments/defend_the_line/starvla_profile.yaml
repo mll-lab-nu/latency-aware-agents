@@ -26,12 +26,12 @@ policy:
   unnorm_key: new_embodiment
   prompt_mode: latency_neutral
   actions:
-    - NOOP
-    - ATTACK
-    - TURN_LEFT
-    - TURN_LEFT + ATTACK
-    - TURN_RIGHT
-    - TURN_RIGHT + ATTACK
+    - [0, 0]
+    - [0, 1]
+    - [1, 0]
+    - [1, 1]
+    - [2, 0]
+    - [2, 1]
 
 latency:
   method: zero
