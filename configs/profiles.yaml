@@ -59,7 +59,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -77,7 +77,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 0
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -97,7 +97,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -115,7 +115,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -135,7 +135,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 3
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -155,7 +155,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -173,7 +173,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -193,7 +193,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -213,7 +213,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -231,7 +231,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -251,7 +251,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -271,7 +271,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
@@ -289,7 +289,7 @@ models:
         eval_episodes: 10
         evaluation_seed: 42
         calibrate_env_fps: true
-        target_latency_frames: 2
+        target_latency_frames: 0
         worker_utilization_cap: 0.8
         simulation_parallel_envs: 1
         simulation_gpu: null
