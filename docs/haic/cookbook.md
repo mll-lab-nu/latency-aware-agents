@@ -12,6 +12,7 @@ runtime diagnostics, and the historical VLA training attempts.
 ## Fixed contract
 
 - Environment: `G1/haic/pull_cart`, seed 0, zero delay, native 50 Hz control.
+  `step_dt=0.02` with `physics_dt=0.005` means four physical substeps per control step.
 - Teacher: native HAIC PPO with a 605D normalized policy state. The completed
   500M-frame teacher is the fixed label source for the VLA route.
 - VLA input/output: 256x256 RGB plus the 605D state at 10 Hz, predicting a
@@ -29,6 +30,19 @@ runtime diagnostics, and the historical VLA training attempts.
   first-episode-per-environment evaluation. Treat motion progress, cart progress,
   and `pullcart_score` as the primary student metrics; success rate alone can
   remain zero while the policy is making measurable progress.
+
+## Shared collection implementation
+
+HAIC, Extreme Parkour, and Balance use `latency_bench/data/dagger.py` for online
+DAgger scheduling and bounded background I/O. Native adapters retain their own
+observations, teacher labels, action decoding, reset behavior, and shard formats.
+To add a task, implement `DaggerTaskAdapter` and register its native collection
+command and converter in `scripts/starvla/train_task.py`; the generic coordinator
+does not import model-specific training scripts.
+
+The Qwen3-VL backend caches only inference-time position/layout calculations,
+not image features. This benefits all three tasks when they use that backend;
+other model backends still benefit from shared background writing.
 
 ## Quick start
 

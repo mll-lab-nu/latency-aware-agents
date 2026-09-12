@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
+from functools import partial
 import fcntl
 import json
 import os
@@ -365,48 +366,95 @@ def evaluate(args, bundle: Path, teacher: Path, *, label: str) -> Path:
     return output_dir
 
 
+def _balance_dagger_collection(args, teacher, policy_path, directory, round_number):
+    command = [args.task_python, '-m', 'scripts.starvla.balance_dagger',
+        '--policy-config', policy_path, '--teacher-checkpoint', teacher,
+        '--output-dir', directory / 'raw', '--row-budget', 4 if args.smoke else 64000,
+        '--num-envs', 2 if args.smoke else 8, '--round', round_number]
+    collection = {'collector': 'scripts.starvla.balance_dagger',
+                  'seeds': [round_number * 1_000_000],
+                  'row_budget': 4 if args.smoke else 64000,
+                  'num_envs': 2 if args.smoke else 8,
+                  'inference_batch_size': 2 if args.smoke else 8,
+                  'vla_cadence': 1, 'action_horizon': 1}
+    if args.dagger_relabel_from is not None:
+        command.extend(['--relabel-from', args.dagger_relabel_from.resolve()])
+        collection = {'collector': 'scripts.starvla.balance_dagger',
+                      'relabel_from': str(args.dagger_relabel_from.resolve())}
+    return [(command, directory / 'collect.log')], collection
+
+
+def _parkour_dagger_collection(args, teacher, policy_path, directory, round_number):
+    command = [args.task_python, ROOT / 'third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py',
+        'dagger-collect', '--headless', '--device', args.simulator_device, '--checkpoint', teacher,
+        '--policy_config', policy_path, '--output_dir', directory / 'raw', '--num_envs', 2 if args.smoke else 192,
+        '--inference_device', args.inference_device, '--inference_batch_size', 2 if args.smoke else 32,
+        '--dagger_round', round_number, '--dagger_row_budget', 4 if args.smoke else 64000,
+        '--seed', round_number + 1, '--action_horizon', 1]
+    collection = {'collector': 'parkour_vla.py', 'seeds': [round_number + 1],
+                  'row_budget': 4 if args.smoke else 64000,
+                  'num_envs': 2 if args.smoke else 192,
+                  'inference_batch_size': 2 if args.smoke else 32,
+                  'vla_cadence': 5, 'action_horizon': 1}
+    return [(command, directory / 'collect.log')], collection
+
+
+def _haic_dagger_collection(args, teacher, policy_path, directory, round_number):
+    commands = []
+    for rank in range(1 if args.smoke else 2):
+        command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py',
+            'dagger-collect', '--headless', '--device', args.simulator_device, '--teacher-checkpoint', teacher,
+            '--policy-config', policy_path, '--output-dir', directory / 'raw' / f'rank-{rank}',
+            '--num-envs', 2 if args.smoke else 96, '--inference-device', args.inference_device,
+            '--inference-batch-size', 2 if args.smoke else 32, '--dagger-round', round_number,
+            '--row-budget', 4 if args.smoke else 32000, '--seed', rank + 1,
+            '--vla-cadence', 1, '--action-horizon', 1]
+        commands.append((command, directory / f'collect-{rank}.log'))
+    collection = {'collector': 'haic_vla.py', 'seeds': [1] if args.smoke else [1, 2],
+                  'row_budget': 4 if args.smoke else 32000,
+                  'num_envs': 2 if args.smoke else 96,
+                  'inference_batch_size': 2 if args.smoke else 32,
+                  'vla_cadence': 1, 'action_horizon': 1}
+    return commands, collection
+
+
+def _convert_haic_dagger(raw, converted, *, round_index, force):
+    from latency_bench.data.haic_dagger import convert_haic_dagger_shards_to_lerobot
+    from scripts.starvla.collect import canonicalize_haic_dataset
+
+    convert_haic_dagger_shards_to_lerobot(raw, converted, force=force, round_index=round_index)
+    canonicalize_haic_dataset(converted)
+    converted_val = converted.with_name(f'{converted.name}__val')
+    if converted_val.exists():
+        canonicalize_haic_dataset(converted_val)
+
+
 def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict,
                    round_number: int, bootstrap: Path, bootstrap_reference: dict) -> Path:
-    from latency_bench.data.haic_dagger import convert_haic_dagger_shards_to_lerobot
+    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
     from latency_bench.data.parkour_dagger import convert_parkour_dagger_shards_to_lerobot
-    from scripts.starvla.collect import canonicalize_haic_dataset
     from scripts.starvla.prepare_dataset import prepare_lerobot
+
+    # Task-native entrypoints register here; the collection core never imports task/model scripts.
+    collect, convert = {
+        'balance': (_balance_dagger_collection, partial(
+            convert_canonical_rollout_to_lerobot, action_carrier='native',
+            normalize_state=False, write_starvla_handoff=False)),
+        'parkour': (_parkour_dagger_collection, partial(
+            convert_parkour_dagger_shards_to_lerobot, round_index=round_number)),
+        'haic': (_haic_dagger_collection, partial(_convert_haic_dagger, round_index=round_number)),
+    }[args.task]
 
     directory = args.output_dir / 'dagger' / f'round-{round_number:02d}'
     directory.mkdir(parents=True, exist_ok=True)
     policy_path = directory / 'policy.yaml'
     policy_path.write_text(yaml.safe_dump(policy, sort_keys=False))
-    if args.task == 'parkour':
-        command = [args.task_python, ROOT / 'third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py',
-            'dagger-collect', '--headless', '--device', args.simulator_device, '--checkpoint', teacher,
-            '--policy_config', policy_path, '--output_dir', directory / 'raw', '--num_envs', 2 if args.smoke else 192,
-            '--inference_device', args.inference_device, '--inference_batch_size', 2 if args.smoke else 32,
-            '--dagger_round', round_number, '--dagger_row_budget', 4 if args.smoke else 64000,
-            '--seed', round_number + 1, '--action_horizon', 1]
-        run_command(command, directory / 'collect.log')
-    else:
-        for rank in range(1 if args.smoke else 2):
-            command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py',
-                'dagger-collect', '--headless', '--device', args.simulator_device, '--teacher-checkpoint', teacher,
-                '--policy-config', policy_path, '--output-dir', directory / 'raw' / f'rank-{rank}',
-                '--num-envs', 2 if args.smoke else 96, '--inference-device', args.inference_device,
-                '--inference-batch-size', 2 if args.smoke else 32, '--dagger-round', round_number,
-                '--row-budget', 4 if args.smoke else 32000, '--seed', rank + 1,
-                '--vla-cadence', 1, '--action-horizon', 1]
-            run_command(command, directory / f'collect-{rank}.log')
+    commands, collection = collect(args, teacher, policy_path, directory, round_number)
+    for command, log in commands:
+        run_command(command, log)
     converted = directory / '_converted'
-    if args.task == 'parkour':
-        convert_parkour_dagger_shards_to_lerobot(
-            directory / 'raw', converted, force=True, round_index=round_number
-        )
-    else:
-        convert_haic_dagger_shards_to_lerobot(
-            directory / 'raw', converted, force=True, round_index=round_number
-        )
-        canonicalize_haic_dataset(converted)
-        converted_val = converted.with_name(f'{converted.name}__val')
-        if converted_val.exists():
-            canonicalize_haic_dataset(converted_val)
+    convert(directory / 'raw', converted, force=True)
+
     converted_val = converted.with_name(f'{converted.name}__val')
     prepare_lerobot(
         args.task,
@@ -418,18 +466,7 @@ def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict
     shutil.rmtree(converted)
     if converted_val.exists():
         shutil.rmtree(converted_val)
-    if args.task == 'parkour':
-        collection = {'collector': 'parkour_vla.py', 'seeds': [round_number + 1],
-                      'row_budget': 4 if args.smoke else 64000,
-                      'num_envs': 2 if args.smoke else 192,
-                      'inference_batch_size': 2 if args.smoke else 32,
-                      'vla_cadence': 5, 'action_horizon': 1}
-    else:
-        collection = {'collector': 'haic_vla.py', 'seeds': [1] if args.smoke else [1, 2],
-                      'row_budget': 4 if args.smoke else 32000,
-                      'num_envs': 2 if args.smoke else 96,
-                      'inference_batch_size': 2 if args.smoke else 32,
-                      'vla_cadence': 1, 'action_horizon': 1}
+
     write_json(directory / 'provenance.json', {
         'task': task_spec(args.task).name, 'model': args.model, 'run_id': args.run_id,
         'round': round_number, 'kind': 'dagger', 'teacher': teacher_reference,
@@ -486,6 +523,8 @@ def main(argv=None) -> None:
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--dataset-dir', type=Path)
     parser.add_argument('--teacher-checkpoint', type=Path)
+    parser.add_argument('--dagger-relabel-from', type=Path,
+                        help='Relabel saved Balance raw DAgger data using the pre-action command state')
     parser.add_argument('--vla-python', type=Path)
     parser.add_argument('--task-python', type=Path)
     parser.add_argument('--num-gpus', type=int, default=2)

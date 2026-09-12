@@ -210,3 +210,19 @@ def test_haic_dagger_shard_requires_all_fields(tmp_path):
             arrays=arrays,
             video_path=video,
         )
+
+
+def test_failed_shard_write_leaves_no_partial_episode(tmp_path, monkeypatch):
+    from latency_bench.data.haic_dagger import write_haic_dagger_shard
+
+    video = tmp_path / "episode.mp4"
+    video.write_bytes(b"video")
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(np, "savez_compressed", fail)
+    with pytest.raises(OSError, match="disk full"):
+        write_haic_dagger_shard(
+            tmp_path, split="train", episode_idx=0,
+            arrays=_dagger_arrays(), video_path=video,
+        )
+    assert list((tmp_path / "rollout_shards/train").iterdir()) == []

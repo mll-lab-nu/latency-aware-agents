@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from latency_bench.data.episode_io import commit_episode
+
 from latency_bench.data.action_layouts import (
     GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC,
 )
@@ -76,15 +78,7 @@ def write_parkour_dagger_shard(
     payload["image_shape"] = arrays["image_shape"]
 
     target = _parkour_dagger_shard_dir(output_dir, split, episode_idx)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.tmp")
-    if temporary.exists():
-        shutil.rmtree(temporary)
-    temporary.mkdir()
-    np.savez_compressed(temporary / "episode.npz", **payload)
-    shutil.copyfile(video_path, temporary / "episode.mp4")
-    temporary.replace(target)
-    return target
+    return commit_episode(target, payload, video_path)
 
 
 def _shard_dirs(output_dir: Path | str, split: str) -> list[Path]:
