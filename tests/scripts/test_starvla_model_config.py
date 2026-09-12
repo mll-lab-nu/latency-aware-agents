@@ -13,6 +13,7 @@ def test_make_model_config_sets_h1_continuous_task_contract() -> None:
             task_objective=objective,
         )
         action_model = config["action_model"]
+        assert config["qwenvl"]["enable_gradient_checkpointing"] is True
         assert action_model["action_horizon"] == 1
         assert action_model["future_action_window_size"] == 0
         assert action_model["past_action_window_size"] == 0

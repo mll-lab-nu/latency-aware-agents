@@ -40,7 +40,7 @@ def make_model_config(
 
     config: dict[str, Any] = {
         "name": framework_name,
-        "qwenvl": {"base_vlm": backbone_path},
+        "qwenvl": {"base_vlm": backbone_path, "enable_gradient_checkpointing": True},
         "action_model": action_model,
     }
     if model == "wanoft":
