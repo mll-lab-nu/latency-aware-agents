@@ -13,7 +13,7 @@ Before execution, record these inputs in the run ledger:
 | `TASK` | Environment named in the execution request |
 | `ENV_FPS` | User-specified environment rate; otherwise the selected baseline's rate |
 | `OBS_FPS` | Explicit user value if supplied; otherwise preserve the baseline observation stride as described below |
-| `ZERO_BUNDLE` | Matching checkpoint under `OpenVLA/zero-latency/` in `latency-sensitive-bench/extra-envs-checkpoints` |
+| `ZERO_BUNDLE` | Matching checkpoint under `<task>/zero_latency/OpenVLA/` in `latency-sensitive-bench/extra-envs-checkpoints` |
 | `RUN_ID` | Unique UTC run identifier |
 | Baseline recipe | Actual source VLA config, teacher config and rollout metadata |
 
@@ -110,12 +110,12 @@ Use the requested new prefixes and retain old results:
 
 | Artifact | Repository | Path in repository |
 | --- | --- | --- |
-| Profile traces and fitted profile | Dataset: `latency-sensitive-bench/extra-envs-rollouts` | `profiling-new/<task>/<run_id>/` |
-| Small-model bundle | Model: `latency-sensitive-bench/extra-envs-checkpoints` | `small_models/profile-latency-new/<task>/<run_id>/` |
-| Raw and converted demonstrations | Dataset: `latency-sensitive-bench/extra-envs-rollouts` | `profile-latency-new/<task>/<run_id>/raw/` and `converted/` |
-| Final VLA inference bundle | Model: `latency-sensitive-bench/extra-envs-checkpoints` | `OpenVLA/profile-latency-new/<task>/<run_id>/` |
+| Profile traces and fitted profile | Dataset: `latency-sensitive-bench/Standard-Pipeline` | `<task>/profile_latency/profiling/` |
+| Small-model bundle | Model: `latency-sensitive-bench/extra-envs-checkpoints` | `<task>/profile_latency/small_model/` |
+| Raw demonstrations | Dataset: `latency-sensitive-bench/Standard-Pipeline` | `<task>/profile_latency/demonstrations/raw/` |
+| Final VLA inference bundle | Model: `latency-sensitive-bench/extra-envs-checkpoints` | `<task>/profile_latency/OpenVLA/` |
 
-Every downstream artifact records upstream run IDs, file hashes and exact Hub revisions. Preserve relative paths required by profile readers and inference loaders. Avoid mutable `latest` references. Verify uploaded file sizes/hashes and commit IDs before using the upload as evidence that local copies can be removed.
+Model bundles use `<task>/<zero_latency|profile_latency>/small_model/` and `<task>/<zero_latency|profile_latency>/OpenVLA/`. Dataset model-specific records use `OpenVLA/` and `baseline_OpenVLA/` to distinguish future model families. Directory names describe the environment, condition and stage; record run IDs, clocks and timestamps in metadata rather than folder names. Every downstream artifact records upstream run IDs, file hashes and exact Hub revisions. Preserve relative paths required by profile readers and inference loaders. Avoid mutable `latest` references. Verify uploaded file sizes/hashes and commit IDs before using the upload as evidence that local copies can be removed.
 
 ## 6. Stage instructions
 
@@ -141,7 +141,7 @@ Use the selected checkpoint's actual model preset if different. Confirm warmup, 
 
 Keep raw session traces, episode metrics, generated configs, warmup diagnostics, hardware metadata and the completed canonical profile/distribution/burst files. Fit only canonical observation attempts. The sample is `observation_to_action_latency`, including observation extraction, IPC, preprocessing, forward and decoding; isolated inference time is not a substitute. Exclude warmup from formal samples.
 
-Report admitted/attempted observations, capacity drops and latency mean/std/P50/P95/P99/max. Hand downstream stages the immutable profile inside the completed run directory. Upload separately to the specified `profiling-new` prefix instead of assuming the profiler's default `--publish` destination is correct.
+Report admitted/attempted observations, capacity drops and latency mean/std/P50/P95/P99/max. Hand downstream stages the immutable profile inside the completed run directory. Upload separately to the specified `<task>/profile_latency/profiling/` prefix instead of assuming the profiler's default `--publish` destination is correct.
 
 ### B: zero-latency VLA real-time baseline on 3090
 
@@ -204,7 +204,7 @@ The exporter currently uses action-delay IID semantics, not E's complete worker-
 
 Verify the resolved Sample Factory sampler method is actually `iid`: the logging label `profile_sample` means temporal sampling in the flat runtime config. The 10 FPS InvertedPendulum run exposed and fixed an override conversion that confused these values. After image replay, check actual per-episode returns in the materialized data against the original gate and reconcile probe/replay row counts. Probe acceptance metadata and exit code 0 alone do not prove that the exported trajectories satisfy the gate.
 
-Complete conversion before starting V. Upload both raw and converted data, including referenced images, while retaining relative paths. Keep these datasets off the 3090.
+Complete conversion before starting V. Upload raw data, including referenced images, while retaining relative paths. Generate converted datasets on the training server; do not publish a converted dataset copy. Keep these datasets off the 3090.
 
 ### V: train the VLA on H100
 

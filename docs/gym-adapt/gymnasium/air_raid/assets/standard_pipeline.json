@@ -1,12 +1,20 @@
 {
   "repository": "latency-sensitive-bench/Standard-Pipeline",
-  "revision": "38db3a094570f7ea6cdbf884aa1aabc9e06e552f",
-  "verified_files": 286,
+  "revision": "7d088338043f96511df41c74bc540e62d27aa417",
+  "verified_files": 285,
   "verification": "281 base files verified at initial archive revision; five additional report-source records downloaded and SHA256 verified at the child revision.",
   "raw_only": true,
   "old_sources_preserved": true,
-  "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid",
+  "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/air_raid",
   "initial_archive_revision": "b146f64423c2be23486e4513651caf4cc0f9edff",
   "supplemental_verified_files": 5,
-  "local_layout": "Report and display media only; original-file links resolve to the pinned archive."
+  "local_layout": "Report and display media only; original-file links resolve to the pinned archive.",
+  "previous_archive_revision": "1f5d8715e64a96748502a3e5574d64b4be825d43",
+  "bytes": 1340769026,
+  "model_reference_update": {
+    "model_revision": "98647be31ed0eac5743d6348eba25e85c4978f06",
+    "dataset_revision": "7d088338043f96511df41c74bc540e62d27aa417",
+    "references_and_checksums_verified": true,
+    "model_family_directory": "OpenVLA"
+  }
 }

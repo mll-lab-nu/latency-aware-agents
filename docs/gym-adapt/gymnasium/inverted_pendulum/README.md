@@ -13,9 +13,9 @@ workflow.
 
 The [10 FPS profile-latency run](index.html#profile-latency-new-10) tracks the
 measured profile and pipeline. Its
-[ledger](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/inverted_pendulum/profile_latency/provenance/pipeline/status.md)
+[ledger](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/provenance/pipeline/status.md)
 records the run independently.
 
 ## Standard Pipeline archive
 
-[Complete experiment archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/1ac0e2b05094319042c7213a23ce7b42a2320cfe/inverted_pendulum) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
+[Complete experiment archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
