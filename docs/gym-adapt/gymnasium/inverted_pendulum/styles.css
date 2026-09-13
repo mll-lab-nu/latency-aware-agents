@@ -129,7 +129,7 @@ a{color:#0d6872;text-underline-offset:.16em}
 .evidence-ledger article p:last-child{font-size:.84rem;margin-bottom:0}
 .media-gallery{display:grid;grid-template-columns:1fr;gap:1.2rem;margin:1.4rem 0}
 .media-gallery video{max-height:660px}
-.media-wide{width:100%}
+.media-wide{width:100%;margin:1.4rem 0}
 .status+ h3{margin-top:.6rem}
 @media (max-width:880px){.verification-grid,.evidence-ledger{grid-template-columns:repeat(2,minmax(0,1fr))}
 .media-pair{grid-template-columns:1fr}
@@ -143,3 +143,8 @@ a{color:#0d6872;text-underline-offset:.16em}
 .two-col>*,.implementation-table>div,.file-grid>*,.evidence-grid>*,.verification-grid>*,.evidence-ledger>*{min-width:0}
 .implementation-table code,.file-grid>article>code,.two-col code{overflow-wrap:anywhere;word-break:break-word}
 }
+
+/* Report navigation and evidence links use the existing color system. */
+.evidence-links{font-size:.88rem;overflow-wrap:anywhere}
+a:focus-visible,summary:focus-visible,video:focus-visible{outline:3px solid var(--teal);outline-offset:4px}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}

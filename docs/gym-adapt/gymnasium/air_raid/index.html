@@ -1,32 +1,49 @@
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AirRaid · agent-assisted Gymnasium adaptation</title><link rel="stylesheet" href="styles.css"></head>
-<body>
-  <a class="skip-link" href="#content">Skip to content</a>
-  <header class="hero"><div class="hero-inner">
-    <p class="eyebrow">latency-sensitive-bench / verified release example</p>
-    <h1>AirRaid: zero-latency Atari control with a four-frame policy view</h1>
-    <p class="lede">A verified PAL AirRaid adaptation using a native six-action catalog, raw-frame scheduling, Atari APPO, seeded random-noop resets, and FireReset evaluation.</p>
-    <div class="badges"><span>ALE/AirRaid-v5</span><span>PAL 50 Hz</span><span>L0</span><span>frame stack 4</span><span>APPO 10,006,528 frames</span><span>rollout / conversion / VLA VERIFIED</span></div>
-  </div></header>
-  <div class="layout"><aside class="toc" aria-label="Page contents"><a class="toc-title" href="#content">AirRaid adaptation</a><nav><a href="#status">Status</a><a href="#contract">Contract</a><a href="#training">Training</a><a href="#evaluation">Evaluation</a><a href="#vla">VLA</a><a href="#verification">Verification</a><a href="#evidence">Evidence</a><a href="#limits">Limits</a></nav></aside>
-  <main id="content">
-    <section id="status"><p class="section-kicker">01 · Outcome</p><h2>What was actually completed</h2>
-      <div class="status-grid">
-        <article><span class="status verified">VERIFIED</span><h3>Observation path</h3><p>The small model receives <code>(4,84,84) uint8</code>; native rendering remains <code>(250,160,3) RGB</code>.</p></article>
-        <article><span class="status verified">VERIFIED</span><h3>Small-model training</h3><p>Atari APPO completed 10,006,528 raw environment frames at zero action latency.</p></article>
-        <article><span class="status verified">VERIFIED</span><h3>Latency-bench evaluation</h3><p>Ten deterministic episodes used seeded 1–30 NOOP reset steps followed by FireReset.</p></article>
-        <article><span class="status verified">VERIFIED</span><h3>Teacher and VLA</h3><p>One hundred gated teacher episodes, native six-action conversion, 5k-step QwenOFT training, and L0/L2 evaluation are complete.</p></article>
-      </div>
-      <div class="metric-strip"><div><strong>2,557.5</strong><span>small-model L0 return</span></div><div><strong>2,000.0</strong><span>VLA L0 return</span></div><div><strong>681.25</strong><span>VLA L2 return</span></div><div><strong>5,000</strong><span>VLA SFT steps</span></div></div>
-      <div class="callout warning"><strong>Evaluation fidelity:</strong> loading only the checkpoint weights was insufficient. Correct evaluation also required <code>convnet_atari</code>, frame stack 4, and the checkpoint's <code>obs_scale=255</code>. Using <code>obs_scale=1</code> collapsed deterministic actions to NOOP.</div>
-    </section>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AirRaid — adaptation and latency experiments</title><link rel="stylesheet" href="styles.css?layout=experiment"></head><body><a class="skip-link" href="#main">Skip to content</a>
+<header class="hero">
+<div class="hero-inner">
+<p class="eyebrow">latency-sensitive-bench / experiment report</p>
+<h1>AirRaid</h1>
+<p class="lede">Autonomous environment adaptation, zero-latency policies, and profile-latency training with original data, model and evaluation evidence.</p>
 
-    <section id="contract"><p class="section-kicker">02 · Frozen contract</p><h2>Raw time, policy time, and reset behavior</h2>
-      <div class="two-col"><div><h3>API FACTS</h3><ul class="steps"><li><code>ALE/AirRaid-v5</code>, ALE 0.8.1, mode 1, difficulty 0.</li><li>Actions: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE.</li><li>PAL clock: 50 raw frames/s.</li><li>Native observation/render: <code>(250,160,3) uint8</code>.</li><li>Sticky actions disabled; emulator frameskip is 1.</li></ul></div>
-      <div><h3>EXPERIMENT DECISIONS</h3><ul class="steps"><li>Zero simulated action latency.</li><li>One policy decision every four raw frames: 12.5 Hz.</li><li>The small model receives four grayscale 84×84 frames.</li><li>Small-model training uses <code>noop_max=0</code>.</li><li>Teacher rollout and all reported evaluation use <code>noop_max=30</code> plus FireReset; VLA rows contain one current RGB image and no context images.</li></ul></div></div>
-      <p class="formula"><code>observation_stride = 50 / 12.5 = 4 raw frames</code> · <code>latency_raw_frames = 0</code></p>
-      <details open><summary>Task contract</summary><pre><code>env:
+<div class="badges"><span>Native environment semantics</span><span>RGB VLA input</span><span>50 / 12.5 FPS realtime evaluation</span><span>Complete pipeline</span></div>
+</div>
+</header>
+
+<div class="layout">
+<aside class="toc" aria-label="Table of contents"><a class="toc-title" href="#main">AirRaid</a>
+<nav><a href="#adaptation">01 · Adaptation</a><a href="#zero-small">02 · Zero-latency small model training &amp; evaluation</a><a href="#zero-vla">03 · Zero-latency VLA training &amp; evaluation</a><a href="#profiling">04 · Profiling</a><a href="#baseline-vla">05 · Baseline VLA evaluation</a><a href="#profile-small">06 · Profile-latency small model training &amp; evaluation</a><a href="#profile-vla">07 · Profile-latency VLA training &amp; evaluation</a></nav>
+</aside>
+
+<main id="main"><span id="content"></span>
+<section id="adaptation">
+<p class="section-kicker">01 / Adaptation</p>
+
+<h2>Adaptation</h2>
+<span id="verification"></span><span id="contract"></span><span id="status"></span>
+<p>The agent inspects native ALE frames, action meanings, raw timing and reset behavior, then builds the observation and action wrappers. Small-model control uses stacked Atari observations; VLA training uses rendered RGB and the same six-action catalog.</p>
+
+<h3>Raw time, policy time, and reset behavior</h3>
+
+
+<div class="two-col">
+<div>
+<h3>API FACTS</h3>
+<ul class="steps"><li><code>ALE/AirRaid-v5</code>, ALE 0.8.1, mode 1, difficulty 0.</li><li>Actions: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE.</li><li>PAL clock: 50 raw frames/s.</li><li>Native observation/render: <code>(250,160,3) uint8</code>.</li><li>Sticky actions disabled; emulator frameskip is 1.</li></ul></div>
+
+
+<div>
+<h3>EXPERIMENT DECISIONS</h3>
+<ul class="steps"><li>Zero simulated action latency.</li><li>One policy decision every four raw frames: 12.5 Hz.</li><li>The small model receives four grayscale 84×84 frames.</li><li>Small-model training uses <code>noop_max=0</code>.</li><li>Teacher rollout and all reported evaluation use <code>noop_max=30</code> plus FireReset; VLA rows contain one current RGB image and no context images.</li></ul></div>
+</div>
+
+
+<p class="formula"><code>observation_stride = 50 / 12.5 = 4 raw frames</code> · <code>latency_raw_frames = 0</code></p>
+
+
+<details open>
+<summary>Task contract</summary>
+
+<pre><code>env:
   name: gymnasium
   task_name: air_raid
   env_id: LatencyBench/AirRaid-v0
@@ -42,43 +59,324 @@ evaluation:
   deterministic: true
   eval_episodes: 10
   eval_max_steps: 3600</code></pre></details>
+
+
+<h3>Gates that caught the evaluation mismatch</h3>
+
+
+<div class="verification-grid"><article><span class="status verified">VERIFIED</span>
+<h3>FireReset</h3>
+
+<p>A reset probe confirms FIRE and RIGHT are applied after random NOOP initialization.</p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Frame stack</h3>
+
+<p>Train and eval both expose <code>(4,84,84)</code> to the policy.</p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Checkpoint preprocessing</h3>
+
+<p>Train and eval both use <code>obs_scale=255</code>.</p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Focused tests</h3>
+
+<p>AirRaid, Gymnasium adapter, and Sample Factory integration tests pass together.</p>
+</article></div>
+
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/adaptation/validation/focused_tests.txt">Tests</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/adaptation/validation/zero_latency_parity.json">Zero-latency parity</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/adaptation/validation/l1_scheduler_trace.json">Legacy L1 scheduler trace</a></p>
+
     </section>
 
-    <section id="training"><p class="section-kicker">03 · Training</p><h2>Sample Factory Atari parameters</h2>
-      <div class="table-wrap"><table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
-        <tr><td>Algorithm</td><td>APPO</td></tr><tr><td>Encoder</td><td><code>convnet_atari</code>, ReLU</td></tr><tr><td>Parallelism</td><td>16 workers × 8 envs, 2 worker splits</td></tr><tr><td>Rollout / batch</td><td>32 / 1024</td></tr><tr><td>Optimization</td><td>4 epochs, 4 batches per epoch</td></tr><tr><td>Learning rate</td><td>2.5e-4, linear decay</td></tr><tr><td>Entropy coefficient</td><td>0.01</td></tr><tr><td>Observation scale</td><td>255</td></tr><tr><td>Best training moving average</td><td>10,593</td></tr>
-      </tbody></table></div>
-      <p>Best checkpoint: <code>outputs/examples/gymnasium_air_raid/checkpoints/gymnasium_air_raid_zero_latency_atari_official_fast_10m/checkpoint_p0/best_000038656_9895936_reward_10593.000.pth</code>.</p>
-      <figure><img src="assets/air_raid/training_curve.png" width="1440" height="810" loading="lazy" alt="AirRaid zero-latency 10M-frame training curve"><figcaption><span class="status verified">VERIFIED</span> Mean training return from the synchronized server log.</figcaption></figure>
+<section id="zero-small">
+<p class="section-kicker">02 / Zero-latency small model training &amp; evaluation</p>
+
+<h2>Zero-latency small model training &amp; evaluation</h2>
+<span id="evaluation"></span><span id="training"></span>
+<h3>Sample Factory Atari parameters</h3>
+
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Field</th><th>Value</th></tr>
+</thead>
+
+<tbody>
+
+<tr><td>Algorithm</td><td>APPO</td></tr>
+
+<tr><td>Encoder</td><td><code>convnet_atari</code>, ReLU</td></tr>
+
+<tr><td>Parallelism</td><td>16 workers × 8 envs, 2 worker splits</td></tr>
+
+<tr><td>Rollout / batch</td><td>32 / 1024</td></tr>
+
+<tr><td>Optimization</td><td>4 epochs, 4 batches per epoch</td></tr>
+
+<tr><td>Learning rate</td><td>2.5e-4, linear decay</td></tr>
+
+<tr><td>Entropy coefficient</td><td>0.01</td></tr>
+
+<tr><td>Observation scale</td><td>255</td></tr>
+
+<tr><td>Best training moving average</td><td>10,593</td></tr>
+
+      </tbody>
+</table>
+</div>
+
+
+<p>Best checkpoint: <code>outputs/examples/gymnasium_air_raid/checkpoints/gymnasium_air_raid_zero_latency_atari_official_fast_10m/checkpoint_p0/best_000038656_9895936_reward_10593.000.pth</code>.</p>
+
+
+<figure><img src="assets/media/training_curve.png" width="1440" height="810" loading="lazy" alt="AirRaid zero-latency 10M-frame training curve"><figcaption><span class="status verified">VERIFIED</span> Mean training return from the synchronized server log.</figcaption></figure>
+
+
+<h3>Ten seeded random-noop + FireReset episodes</h3>
+
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Episode</th><th>Seed</th><th>Return</th><th>Raw steps</th></tr>
+</thead>
+
+<tbody>
+
+<tr><td>0</td><td>104729</td><td>2,300</td><td>3,600</td></tr>
+
+<tr><td>1</td><td>104730</td><td>3,050</td><td>3,600</td></tr>
+
+<tr><td>2</td><td>104731</td><td>2,050</td><td>3,600</td></tr>
+
+<tr><td>3</td><td>104732</td><td>3,150</td><td>3,600</td></tr>
+
+<tr><td>4</td><td>104733</td><td>2,125</td><td>3,600</td></tr>
+
+<tr><td>5</td><td>104734</td><td>3,150</td><td>3,600</td></tr>
+
+<tr><td>6</td><td>104735</td><td>1,825</td><td>3,600</td></tr>
+
+<tr><td>7</td><td>104736</td><td>2,125</td><td>3,600</td></tr>
+
+<tr><td>8</td><td>104737</td><td>2,950</td><td>3,600</td></tr>
+
+<tr><td>9</td><td>104738</td><td>2,850</td><td>3,600</td></tr>
+
+      </tbody>
+</table>
+</div>
+
+
+<p>Mean return <strong>2,557.5</strong>; standard deviation <strong>491.81</strong>; mean length <strong>3,600 raw frames</strong>.</p>
+
+
+<figure><img src="assets/media/eval_returns.png" width="1440" height="810" loading="lazy" alt="AirRaid L0 random-noop FireReset evaluation returns"><figcaption><span class="status verified">VERIFIED</span> Deterministic best-checkpoint returns under the final protocol.</figcaption></figure>
+
     </section>
 
-    <section id="evaluation"><p class="section-kicker">04 · Evaluation</p><h2>Ten seeded random-noop + FireReset episodes</h2>
-      <div class="table-wrap"><table><thead><tr><th>Episode</th><th>Seed</th><th>Return</th><th>Raw steps</th></tr></thead><tbody>
-        <tr><td>0</td><td>104729</td><td>2,300</td><td>3,600</td></tr><tr><td>1</td><td>104730</td><td>3,050</td><td>3,600</td></tr><tr><td>2</td><td>104731</td><td>2,050</td><td>3,600</td></tr><tr><td>3</td><td>104732</td><td>3,150</td><td>3,600</td></tr><tr><td>4</td><td>104733</td><td>2,125</td><td>3,600</td></tr><tr><td>5</td><td>104734</td><td>3,150</td><td>3,600</td></tr><tr><td>6</td><td>104735</td><td>1,825</td><td>3,600</td></tr><tr><td>7</td><td>104736</td><td>2,125</td><td>3,600</td></tr><tr><td>8</td><td>104737</td><td>2,950</td><td>3,600</td></tr><tr><td>9</td><td>104738</td><td>2,850</td><td>3,600</td></tr>
-      </tbody></table></div>
-      <p>Mean return <strong>2,557.5</strong>; standard deviation <strong>491.81</strong>; mean length <strong>3,600 raw frames</strong>.</p>
-      <figure><img src="assets/air_raid/eval_returns.png" width="1440" height="810" loading="lazy" alt="AirRaid L0 random-noop FireReset evaluation returns"><figcaption><span class="status verified">VERIFIED</span> Deterministic best-checkpoint returns under the final protocol.</figcaption></figure>
-    </section>
+<section id="zero-vla">
+<p class="section-kicker">03 / Zero-latency VLA training &amp; evaluation</p>
 
-    <section id="vla"><p class="section-kicker">05 · Teacher data and VLA</p><h2>The new random-reset dataset produces a usable L0 VLA</h2>
-      <div class="metric-strip"><div><strong>100 / 164</strong><span>accepted / attempted</span></div><div><strong>81k / 9k</strong><span>train / validation rows</span></div><div><strong>0.5578</strong><span>final train loss</span></div><div><strong>0.5552</strong><span>final validation loss</span></div></div>
-      <div class="two-col"><div><h3>Data and training</h3><ul class="steps"><li>Strict teacher gate: return greater than 2,500 under random-noop 30 plus FireReset.</li><li>Every accepted episode contains 3,600 raw frames and 900 decision rows.</li><li>Native six-dimensional categorical carrier; <code>context_window=0</code> and one current 224×224 RGB image.</li><li>QwenOFT / Qwen3-VL-4B-Instruct, scratch action head, <code>discrete_ce</code>, batch 16×1, 5,000 steps.</li></ul></div><div><h3>Latency-bench result</h3><div class="table-wrap"><table><thead><tr><th>Latency</th><th>Mean return</th><th>Std</th><th>Mean length</th><th>Full episodes</th></tr></thead><tbody><tr><td>L0</td><td>2,000.0</td><td>706.13</td><td>3,106.9</td><td>15 / 20</td></tr><tr><td>L2</td><td>681.25</td><td>277.92</td><td>2,449.75</td><td>2 / 20</td></tr></tbody></table></div></div></div>
-      <figure><img src="assets/air_raid/vla_eval.png" width="1800" height="810" loading="lazy" alt="AirRaid step-5000 QwenOFT return and episode length at L0 and L2"><figcaption><span class="status verified">VERIFIED</span> Final step-5000 checkpoint, 20 episodes per latency, 3,600 raw frames per episode.</figcaption></figure>
-      <div class="callout"><strong>Interpretation:</strong> the final VLA retains 78.2% of the small-model L0 mean return and completes 15 of 20 L0 episodes. Two raw frames of action latency still reduce mean return by 65.9%, so the model remains strongly latency-sensitive.</div>
-      <p><a href="https://huggingface.co/datasets/latency-sensitive-bench/extra-envs-rollouts/tree/main/Air_Raid/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep">Hugging Face teacher dataset</a> · <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/knol5701">W&amp;B training run</a></p>
-    </section>
+<h2>Zero-latency VLA training &amp; evaluation</h2>
+<span id="limits"></span><span id="evidence"></span><span id="vla"></span>
+<h3>The new random-reset dataset produces a usable L0 VLA</h3>
 
-    <section id="verification"><p class="section-kicker">06 · Verification</p><h2>Gates that caught the evaluation mismatch</h2>
-      <div class="verification-grid"><article><span class="status verified">VERIFIED</span><h3>FireReset</h3><p>A reset probe confirms FIRE and RIGHT are applied after random NOOP initialization.</p></article><article><span class="status verified">VERIFIED</span><h3>Frame stack</h3><p>Train and eval both expose <code>(4,84,84)</code> to the policy.</p></article><article><span class="status verified">VERIFIED</span><h3>Checkpoint preprocessing</h3><p>Train and eval both use <code>obs_scale=255</code>.</p></article><article><span class="status verified">VERIFIED</span><h3>Focused tests</h3><p>AirRaid, Gymnasium adapter, and Sample Factory integration tests pass together.</p></article></div>
-      <p><a href="assets/air_raid/focused_tests.txt">Tests</a> · <a href="assets/air_raid/zero_latency_parity.json">Zero-latency parity</a> · <a href="assets/air_raid/l1_scheduler_trace.json">Legacy L1 scheduler trace</a></p>
-    </section>
 
-    <section id="evidence"><p class="section-kicker">07 · Evidence</p><h2>Synchronized artifacts</h2>
-      <div class="evidence-ledger"><article><span class="status verified">VERIFIED</span><h3>Runtime</h3><p><a href="assets/air_raid/api_probe.json">API probe</a> · <a href="assets/air_raid/env_block.yaml">environment block</a></p></article><article><span class="status verified">VERIFIED</span><h3>Small model</h3><p><a href="assets/air_raid/small_model/config.json">config</a> · <a href="assets/air_raid/small_model/sf_log.txt">log</a> · <a href="assets/air_raid/small_model_eval_random_noop/queue_eval_latency_0.json">evaluation</a></p></article><article><span class="status verified">VERIFIED</span><h3>Teacher and conversion</h3><p><a href="assets/air_raid/teacher_rollout/metadata.json">metadata</a> · <a href="assets/air_raid/teacher_rollout/filter_report.json">filter report</a> · <a href="assets/air_raid/vla_dataset/manifest.json">manifest</a> · <a href="assets/air_raid/vla_dataset/mixture.json">mixture</a></p></article><article><span class="status verified">VERIFIED</span><h3>VLA training and evaluation</h3><p><a href="assets/air_raid/vla_training/config.full.yaml">resolved config</a> · <a href="assets/air_raid/vla_training/wandb_summary.json">W&amp;B summary</a> · <a href="assets/air_raid/vla_eval/step_5000.json">step-5000 result</a></p></article><article><span class="status verified">VERIFIED</span><h3>Integrity</h3><p><a href="assets/air_raid/SHA256SUMS">SHA256SUMS</a> · <a href="assets/air_raid/repro_scripts/build_release_media.py">media script</a></p></article></div>
-      <div class="media-pair"><figure><img src="assets/air_raid/reset.png" width="160" height="250" loading="lazy" alt="AirRaid native RGB reset frame"><figcaption>Native RGB reset frame.</figcaption></figure><figure><img src="assets/air_raid/action_catalog_trace.gif" width="160" height="250" loading="lazy" alt="AirRaid action catalog trace"><figcaption>Native six-action trace.</figcaption></figure></div>
-    </section>
+<div class="metric-strip">
+<div><strong>100 / 164</strong><span>accepted / attempted</span></div>
 
-    <section id="limits"><p class="section-kicker">08 · Limits</p><h2>What this result does and does not establish</h2><ul class="steps"><li>One small-model training seed and one VLA training run are reported.</li><li>Evaluation is capped at the shared 3,600-raw-frame budget and uses 20 episodes per latency.</li><li>Small-model training uses <code>noop_max=0</code>; the new teacher dataset and all reported evaluation use random-noop 30 plus FireReset.</li><li>The small model receives a four-frame grayscale stack, while the VLA receives one current RGB image.</li><li>L2 performance remains substantially below L0; this experiment does not establish latency robustness.</li></ul></section>
-  </main></div>
-  <footer>AirRaid adaptation record · small model, teacher rollout, QwenOFT training, and L0/L2 evaluation · 30 August 2026</footer>
+<div><strong>81k / 9k</strong><span>train / validation rows</span></div>
+
+<div><strong>0.5578</strong><span>final train loss</span></div>
+
+<div><strong>0.5552</strong><span>final validation loss</span></div>
+</div>
+
+
+<div class="two-col">
+<div>
+<h3>Data and training</h3>
+<ul class="steps"><li>Strict teacher gate: return greater than 2,500 under random-noop 30 plus FireReset.</li><li>Every accepted episode contains 3,600 raw frames and 900 decision rows.</li><li>Native six-dimensional categorical carrier; <code>context_window=0</code> and one current 224×224 RGB image.</li><li>QwenOFT / Qwen3-VL-4B-Instruct, scratch action head, <code>discrete_ce</code>, batch 16×1, 5,000 steps.</li></ul></div>
+
+<div>
+<h3>Latency-bench result</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Latency</th><th>Mean return</th><th>Std</th><th>Mean length</th><th>Full episodes</th></tr>
+</thead>
+
+<tbody>
+<tr><td>L0</td><td>2,000.0</td><td>706.13</td><td>3,106.9</td><td>15 / 20</td></tr>
+
+<tr><td>L2</td><td>681.25</td><td>277.92</td><td>2,449.75</td><td>2 / 20</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+
+
+<figure><img src="assets/media/vla_eval.png" width="1800" height="810" loading="lazy" alt="AirRaid step-5000 QwenOFT return and episode length at L0 and L2"><figcaption><span class="status verified">VERIFIED</span> Final step-5000 checkpoint, 20 episodes per latency, 3,600 raw frames per episode.</figcaption></figure>
+
+
+<div class="callout"><strong>Interpretation:</strong> the final VLA retains 78.2% of the small-model L0 mean return and completes 15 of 20 L0 episodes. Two raw frames of action latency still reduce mean return by 65.9%, so the model remains strongly latency-sensitive.</div>
+
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/zero_latency/demonstrations/raw">Hugging Face teacher dataset</a> · <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/knol5701">W&amp;B training run</a></p>
+
+
+<details>
+<summary>Source files and interpretation limits</summary>
+
+<h3>Synchronized artifacts</h3>
+
+
+<div class="evidence-ledger"><article><span class="status verified">VERIFIED</span>
+<h3>Runtime</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/adaptation/config/api_probe.json">API probe</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/adaptation/config/env_block.yaml">environment block</a></p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Small model</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/zero_latency/small_model/training/config.json">config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/zero_latency/small_model/training/sf_log.txt">log</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/zero_latency/small_model/evaluation/queue_eval_latency_0.json">evaluation</a></p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Teacher and conversion</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/zero_latency/demonstrations/raw/metadata.json">metadata</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/provenance/report_sources/zero_latency_filter_report.json">filter report</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/profiling/validation/manifest.source.json">manifest</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/provenance/report_sources/zero_latency_mixture.json">mixture</a></p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>VLA training and evaluation</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/zero_latency/vla/training/config.full.yaml">resolved config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/zero_latency/vla/training/wandb_summary.json">W&amp;B summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/zero_latency/vla/evaluation/step_5000.json">step-5000 result</a></p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Integrity</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/adaptation/validation/SHA256SUMS">SHA256SUMS</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/adaptation/execution/build_release_media.py">media script</a></p>
+</article></div>
+
+
+<div class="media-pair">
+<figure><img src="assets/media/reset.png" width="160" height="250" loading="lazy" alt="AirRaid native RGB reset frame"><figcaption>Native RGB reset frame.</figcaption></figure>
+
+<figure><img src="assets/media/action_catalog_trace.gif" width="160" height="250" loading="lazy" alt="AirRaid action catalog trace"><figcaption>Native six-action trace.</figcaption></figure>
+</div>
+
+
+<h3>What this result does and does not establish</h3>
+<ul class="steps"><li>One small-model training seed and one VLA training run are reported.</li><li>Evaluation is capped at the shared 3,600-raw-frame budget and uses 20 episodes per latency.</li><li>Small-model training uses <code>noop_max=0</code>; the new teacher dataset and all reported evaluation use random-noop 30 plus FireReset.</li><li>The small model receives a four-frame grayscale stack, while the VLA receives one current RGB image.</li><li>L2 performance remains substantially below L0; this experiment does not establish latency robustness.</li></ul></details>
+</section>
+
+<section id="profiling">
+<p class="section-kicker">04 / Profiling</p>
+
+<h2>Profiling</h2>
+<span id="profile-only-20260911"></span>
+
+
+<h3>Fresh RTX 3090 latency profile</h3>
+
+
+<p>This experiment : environment / observation FPS <strong>50 / 12.5</strong>, original zero-latency QwenOFT, 224×224 input, one inference worker. Five sessions of ten episodes, each capped at 60 seconds with native termination. The original observation stride is preserved.</p>
+
+
+<p>Measurement complete: five sessions × ten episodes, exit 0. 35,908 admitted / 35,908 attempted observations; 0 capacity drops. <a href="https://huggingface.co/datasets/latency-sensitive-bench/extra-envs-rollouts/tree/a8c1435341a50231ca828a4c68dbcb8a9ee88ab2/profiling-new/air_raid/20260911T023128Z-p-only4">Complete profile uploaded</a>; all 126 files verified. The measured profile is reused for latency-conditioned training. <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/provenance/report_sources/profiling_ledger.md">Run ledger and evidence</a>.</p>
+
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Mean ± std</th><th>P50</th><th>P95</th><th>P99</th><th>Maximum</th></tr>
+</thead>
+
+<tbody>
+<tr><td>58.41 ± 0.71 ms</td><td>58.58 ms</td><td>59.03 ms</td><td>59.97 ms</td><td>76.16 ms</td></tr>
+</tbody>
+</table>
+</div>
+
+
+<p>Source run <code>the archived run</code>. Canonical observation-to-action samples exclude warmup; capacity drops do not receive fabricated latency values. <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/profiling/summary.json">Measured summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/profiling/profile/profile.json">Profile manifest</a>.</p>
+
+
+      </section>
+
+<section id="baseline-vla">
+<p class="section-kicker">05 / Baseline VLA evaluation</p>
+
+<h2>Baseline VLA evaluation</h2>
+
+<p>Evaluate the zero-latency VLA on RTX 3090 with measured realtime latency, 20 episodes, seeds 42–61, 50/12.5 FPS and a 3,600-raw-frame cap. It reaches the cap in 11/20 episodes; there is one observation drop and no invalid or dropped actions.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Stage</th><th>Episodes</th><th>Return mean ± std</th><th>Mean raw steps</th><th>Evidence</th></tr>
+</thead>
+
+<tbody>
+<tr><td>B</td><td>20</td><td>878.75 ± 301.69</td><td>3,092.00</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/baseline_vla/evaluation/summary.json">Summary</a></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="profile-small">
+<p class="section-kicker">06 / Profile-latency small model training &amp; evaluation</p>
+
+<h2>Profile-latency small model training &amp; evaluation</h2>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Stage</th><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Evidence</th></tr>
+</thead>
+
+<tbody>
+<tr><td>E</td><td>10</td><td>3,242.50 ± 300.01</td><td>3,600.00</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/small_model/evaluation/summary.json">Summary</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>S completed 10,006,528 frames and its selected best checkpoint is uploaded and hash-verified: <a href="https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/5239c555ebce45d92cd3a0780d3b277becedb607/small_models/profile-latency-new/air_raid/20260911T054920Z-airraid">small-model bundle</a>. Training uses action-delay IID; E additionally simulates one worker's occupancy. Evaluation and rollout preserve random NOOP resets and FireReset; training preserves its original NOOP-free reset.</p>
+
+<p>E completed with all ten episodes above the original 2,500 return gate. </p>
+</section>
+
+<section id="profile-vla">
+<p class="section-kicker">07 / Profile-latency VLA training &amp; evaluation</p>
+
+<h2>Profile-latency VLA training &amp; evaluation</h2>
+<span id="profile-pipeline-20260911"></span>
+<p>R/C completed 100 accepted episodes and 90,000 rows (81,000 train / 9,000 validation). Actual replay returns all exceed 2,500 (minimum 2,575; mean 3,186.5), and each episode matches its probe seed, split, length and return. VLA training completed all 5,000 steps with exit 0 (batch 16, accumulation 1). Final train loss is 0.82926 and held-out validation loss is 0.68812. The <a href="https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/dc4229b5f513c4156fdc597be8887edd67e8896c/OpenVLA/profile-latency-new/air_raid/20260911T054920Z-airraid">final model bundle</a> is uploaded with all 22 files verified; the matched realtime evaluation completed 20 episodes on the 3090. <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/6ahbs76o">Online W&B</a> is finished. Both <a href="https://huggingface.co/datasets/latency-sensitive-bench/extra-envs-rollouts/tree/2fc5692235d290668e220b3d279991466876c929/profile-latency-new/air_raid/20260911T054920Z-airraid/raw">raw data</a> and <a href="https://huggingface.co/datasets/latency-sensitive-bench/extra-envs-rollouts/tree/f461b237f64cd1c9f108c291f6a1b194b043da6d/profile-latency-new/air_raid/20260911T054920Z-airraid/converted">converted data</a> are uploaded, with all 121 files verified. <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/provenance/report_sources/profile_latency_ledger.md">Stage ledger and frozen source contract</a>.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Training condition</th><th>Evaluation condition</th><th>Episodes</th><th>Return mean ± std</th><th>Mean raw steps</th><th>Latency mean / P95</th><th>Drops obs / actions / invalid</th><th>Status / evidence</th></tr>
+</thead>
+
+<tbody>
+
+<tr><td>Zero-latency VLA</td><td>3090 measured real-time, 50/12.5 FPS</td><td>20</td><td>878.75 ± 301.69</td><td>3,092</td><td>58.45 / 59.04 ms</td><td>1 / 0 / 0</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/baseline_vla/evaluation/summary.json">DONE · B</a></td></tr>
+
+
+<tr><td>Profile-latency small model</td><td>Simulated IID, one worker pool, 50/12.5 FPS</td><td>10</td><td>3,242.50 ± 300.01</td><td>3,600</td><td>58.40 / 59.03 ms</td><td>0 / 0 / 0</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/small_model/evaluation/summary.json">DONE · E</a></td></tr>
+
+
+<tr><td>Profile-latency VLA</td><td>3090 measured real-time, 50/12.5 FPS</td><td>20</td><td>2,353.75 ± 425.39</td><td>3,600</td><td>58.12 / 58.96 ms</td><td>1 / 0 / 0</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/vla/evaluation/summary.json">DONE · F</a></td></tr>
+
+    </tbody>
+</table>
+</div>
+
+<p><strong>Matched realtime comparison:</strong> mean return increased by 1,475.00 points (+167.85%) from 878.75 to 2,353.75. Episodes reaching the 3,600-frame evaluation cap increased from 11/20 to 20/20. F admitted 17,999/18,000 observations with one drop and no dropped or invalid actions. This is a descriptive comparison from one training run; the small-model E result uses simulated latency and is a separate evaluation condition. <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid/profile_latency/comparison.json">Comparison evidence</a>.</p>
+
+<p>F uses the new bundle's trained prompt key 3 (60 ms); its observed latency is measured independently. The 3,600-frame limit is the evaluation cap, while the original ALE limit remains unchanged.</p>
+</section>
+</main>
+</div>
+
+<footer><p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid">Complete experiment archive on Hugging Face</a> · <a href="assets/standard_pipeline.json">Archive verification receipt</a>. Demonstrations are distributed as raw data; conversion runs on the training server.</p>AirRaid · experiment report</footer>
 </body></html>

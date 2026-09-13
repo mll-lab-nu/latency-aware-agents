@@ -1,0 +1,11 @@
+{
+  "repository": "latency-sensitive-bench/Standard-Pipeline",
+  "revision": "1ac0e2b05094319042c7213a23ce7b42a2320cfe",
+  "verified_files": 344,
+  "bytes": 3465711009,
+  "verification": "Exact committed file set, size and LFS SHA256 / Git blob SHA1 verified; immutable upstream file hashes and raw Parquet row counts checked.",
+  "raw_only": true,
+  "old_sources_preserved": true,
+  "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/1ac0e2b05094319042c7213a23ce7b42a2320cfe/ant",
+  "local_layout": "Report, display media and archive index only."
+}

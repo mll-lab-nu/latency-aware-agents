@@ -1,0 +1,12 @@
+{
+  "repository": "latency-sensitive-bench/Standard-Pipeline",
+  "revision": "38db3a094570f7ea6cdbf884aa1aabc9e06e552f",
+  "verified_files": 286,
+  "verification": "281 base files verified at initial archive revision; five additional report-source records downloaded and SHA256 verified at the child revision.",
+  "raw_only": true,
+  "old_sources_preserved": true,
+  "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/38db3a094570f7ea6cdbf884aa1aabc9e06e552f/air_raid",
+  "initial_archive_revision": "b146f64423c2be23486e4513651caf4cc0f9edff",
+  "supplemental_verified_files": 5,
+  "local_layout": "Report and display media only; original-file links resolve to the pinned archive."
+}

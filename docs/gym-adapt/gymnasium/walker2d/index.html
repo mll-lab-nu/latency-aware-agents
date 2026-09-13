@@ -1,16 +1,45 @@
-<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Walker2D · continuous action adaptation</title><link rel="stylesheet" href="styles.css?v=20260901"></head>
-<body>
-<a class="skip-link" href="#content">Skip to content</a>
-<header class="hero"><div class="hero-inner"><p class="eyebrow">latency-sensitive-bench / verified release example</p><h1>Walker2D: native continuous control for RL and OpenVLA</h1><p class="lede">Walker2D keeps its native six torques and ordered seventeen-dimensional state end to end. The post-fix zero-latency evaluation aligns online observations to the QwenVLA model's saved image size: four of twenty trajectories now reach the full horizon, although the VLA remains well below the small model.</p><div class="badges"><span>Walker2d-v4 / Box(6)</span><span>17D state</span><span>OpenVLA native 6D</span><span>APPO 10,006,528 frames</span><span>POST-FIX L0 VERIFIED</span></div></div></header>
-<div class="layout"><aside class="toc" aria-label="Page contents"><a class="toc-title" href="#content">Walker2D adaptation</a><nav><a href="#status">Status</a><a href="#design">Action design</a><a href="#contract">Frozen contract</a><a href="#pipeline">Pipeline use</a><a href="#training">Training</a><a href="#evaluation">Evaluation</a><a href="#vla">VLA L0 evaluation</a><a href="#evidence">Evidence</a><a href="#limits">Limits</a></nav></aside>
-<main id="content">
-<section id="status"><p class="section-kicker">01 · Outcome</p><h2>Correct image sizing restores longer L0 control, not teacher-level performance</h2><div class="status-grid"><article><span class="status verified">VERIFIED</span><h3>Native Box(6)</h3><p>The wrapper clips and passes six <code>float32</code> torques directly to Walker2D.</p></article><article><span class="status verified">VERIFIED</span><h3>Small-model training</h3><p>The vendored Sample Factory MuJoCo recipe completed 10,006,528 frames and produced best and latest checkpoints.</p></article><article><span class="status verified">VERIFIED</span><h3>QwenOFT</h3><p>The 5k continuous-projector checkpoint preserves the 17D state and native six-dimensional action head.</p></article><article><span class="status verified">VERIFIED</span><h3>Post-fix VLA control</h3><p>The corrected L0 evaluation reaches 983.915 mean return and four full-horizon episodes.</p></article></div><div class="metric-strip"><div><strong>983.915</strong><span>QwenVLA L0 mean return</span></div><div><strong>469.5</strong><span>QwenVLA L0 mean length</span></div><div><strong>4 / 20</strong><span>full 1,000-step episodes</span></div><div><strong>26.3%</strong><span>of small-model mean return</span></div></div><div class="callout warning"><strong>Main result:</strong> matching online observations to the saved model image size produces materially longer Walker2D trajectories, but the VLA reaches only 26.3% of the small-model L0 mean return. The fix validates the evaluation input contract; it does not close the policy-quality gap.</div></section>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Walker2d — adaptation and latency experiments</title><link rel="stylesheet" href="styles.css?layout=experiment"></head><body><a class="skip-link" href="#main">Skip to content</a>
+<header class="hero">
+<div class="hero-inner">
+<p class="eyebrow">latency-sensitive-bench / experiment report</p>
+<h1>Walker2d</h1>
+<p class="lede">Autonomous environment adaptation, zero-latency policies, and profile-latency training with original data, model and evaluation evidence.</p>
 
-<section id="design"><p class="section-kicker">02 · Action-space design</p><h2>One dimension per physical actuator</h2><div class="two-col"><div><h3>Walker2D / RL</h3><ul class="steps"><li>Native action space: <code>Box(-1,1,(6,),float32)</code>.</li><li>Order: right thigh, right leg, right foot, left thigh, left leg, left foot.</li><li>APPO predicts six Gaussian means and six standard deviations.</li><li>Latency pending action is the six-dimensional zero vector.</li></ul></div><div><h3>OpenVLA</h3><ul class="steps"><li>The action head directly regresses the same six torque dimensions.</li><li>Rollout rows retain the same six-dimensional order.</li><li>No carrier padding or gripper placeholder is added.</li><li>Online decoding passes all six values to Walker2D.</li></ul></div></div></section>
+<div class="badges"><span>Native environment semantics</span><span>RGB VLA input</span><span>10 / 10 FPS realtime evaluation</span><span>Complete pipeline</span></div>
+</div>
+</header>
 
-<section id="contract"><p class="section-kicker">03 · Immutable task contract</p><h2>Frozen continuous action mapping</h2><details open><summary>Environment and carrier</summary><pre><code>env:
+<div class="layout">
+<aside class="toc" aria-label="Table of contents"><a class="toc-title" href="#main">Walker2d</a>
+<nav><a href="#adaptation">01 · Adaptation</a><a href="#zero-small">02 · Zero-latency small model training &amp; evaluation</a><a href="#zero-vla">03 · Zero-latency VLA training &amp; evaluation</a><a href="#profiling">04 · Profiling</a><a href="#baseline-vla">05 · Baseline VLA evaluation</a><a href="#profile-small">06 · Profile-latency small model training &amp; evaluation</a><a href="#profile-vla">07 · Profile-latency VLA training &amp; evaluation</a></nav>
+</aside>
+
+<main id="main"><span id="content"></span>
+<section id="adaptation">
+<p class="section-kicker">01 / Adaptation</p>
+
+<h2>Adaptation</h2>
+<span id="pipeline"></span><span id="contract"></span><span id="design"></span><span id="status"></span>
+<p>The agent derives the six-actuator order from the environment, retains the native torque vector, and implements continuous actions throughout the scheduler, teacher dataset and VLA head. It verifies the seventeen-dimensional state and saved image-size contract.</p>
+
+<h3>One dimension per physical actuator</h3>
+
+<div class="two-col">
+<div>
+<h3>Walker2D / RL</h3>
+<ul class="steps"><li>Native action space: <code>Box(-1,1,(6,),float32)</code>.</li><li>Order: right thigh, right leg, right foot, left thigh, left leg, left foot.</li><li>APPO predicts six Gaussian means and six standard deviations.</li><li>Latency pending action is the six-dimensional zero vector.</li></ul></div>
+
+<div>
+<h3>OpenVLA</h3>
+<ul class="steps"><li>The action head directly regresses the same six torque dimensions.</li><li>Rollout rows retain the same six-dimensional order.</li><li>No carrier padding or gripper placeholder is added.</li><li>Online decoding passes all six values to Walker2D.</li></ul></div>
+</div>
+
+<h3>Frozen continuous action mapping</h3>
+
+<details open>
+<summary>Environment and carrier</summary>
+
+<pre><code>env:
   task_name: walker2d_continuous_torque
   env_id: LatencyBench/Walker2dContinuous-v0
   action_space:
@@ -20,16 +49,142 @@
     low:  [-1, -1, -1, -1, -1, -1]
     high: [ 1,  1,  1,  1,  1,  1]
   noop_action: [0, 0, 0, 0, 0, 0]
-latency: {method: zero}</code></pre></details><p><a href="assets/walker2d/api_probe.json">API probe</a> · <a href="assets/walker2d/env_block.yaml">Complete env YAML</a></p></section>
+latency: {method: zero}</code></pre></details>
 
-<section id="pipeline"><p class="section-kicker">04 · Contract propagation</p><h2>No one-hot detour between RL and VLA</h2><div class="contract-flow"><article><h3>Sample Factory</h3><p>Native <code>Box(6)</code> creates a 12-parameter continuous policy head.</p></article><article><h3>Latency queue</h3><p>Six-value vectors are cloned, delayed, held, and applied directly.</p></article><article><h3>Teacher rollout</h3><p>Canonical rows store the actual six torque values.</p></article><article><h3>OpenVLA</h3><p>Conversion and decoding preserve all six dimensions unchanged.</p></article></div><div class="file-grid"><article><code>gymnasium_walker2d.py</code><p>Continuous task wrapper.</p></article><article><code>training/gymnasium_sf</code><p>Box-aware APPO and latency path.</p></article><article><code>sf_teacher_config.py</code><p>Continuous rollout contract.</p></article><article><code>starvla_lerobot.py</code><p>Native six-value StarVLA handoff.</p></article></div></section>
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/adaptation/validation/api_probe.json">API probe</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/adaptation/validation/env_block.yaml">Complete env YAML</a></p>
 
-<section id="training"><p class="section-kicker">05 · RL verification</p><h2>Ten million continuous-control frames</h2><div class="metric-strip"><div><strong>10,006,528</strong><span>frames</span></div><div><strong>5,638 FPS</strong><span>throughput</span></div><div><strong>4,212.219</strong><span>best training statistic</span></div><div><strong>12</strong><span>policy outputs</span></div></div><div class="media-gallery"><figure class="media-wide"><img src="assets/walker2d/training_curve.png" width="1440" height="810" loading="lazy" alt="Walker2D continuous APPO training curve"><figcaption><span class="status verified">VERIFIED</span> L0 APPO training curve using the vendored Sample Factory MuJoCo recipe.</figcaption></figure></div><details><summary>Training command and checkpoint</summary><pre><code>MUJOCO_GL=egl python -m training.train \
-  --config configs/examples/gymnasium/walker2d/small_model_train_sf_official_10m.yaml</code></pre><p>Best checkpoint: <code>/mnt/checkpoints/latency-sensitive-bench/small_models/walker2d/gymnasium_walker2d_continuous_zero_latency_sf_official_10m/checkpoint_p0/best_000013056_6684672_reward_4212.219.pth</code>.</p></details></section>
+<h3>No one-hot detour between RL and VLA</h3>
 
-<section id="evaluation"><p class="section-kicker">06 · Closed-loop evaluation</p><h2>Five latency conditions, ten episodes each</h2><div class="table-wrap"><table><thead><tr><th>Latency</th><th>ms</th><th>Mean return</th><th>Std return</th><th>Mean length</th></tr></thead><tbody><tr><td>L0</td><td>0</td><td>3743.507</td><td>996.072</td><td>888.1</td></tr><tr><td>L1</td><td>8</td><td>93.727</td><td>6.332</td><td>70.9</td></tr><tr><td>L2</td><td>16</td><td>115.681</td><td>5.698</td><td>76.0</td></tr><tr><td>L3</td><td>24</td><td>-3.812</td><td>0.424</td><td>22.6</td></tr><tr><td>L4</td><td>32</td><td>-7.902</td><td>0.172</td><td>18.0</td></tr></tbody></table></div><div class="media-gallery"><figure class="media-wide"><img src="assets/walker2d/eval_latency_sweep.png" width="1440" height="810" loading="lazy" alt="Walker2D continuous policy latency sweep"><figcaption><span class="status verified">VERIFIED</span> Mean and standard deviation across ten episodes.</figcaption></figure><figure class="media-wide"><img src="assets/walker2d/eval_episode_contact_sheet.png" width="1440" height="760" loading="lazy" alt="Walker2D L0 episode contact sheet"><figcaption><span class="status verified">VERIFIED</span> Representative L0 episode 8.</figcaption></figure><figure class="media-wide"><video controls preload="metadata" poster="assets/walker2d/eval_episode_contact_sheet.png" aria-label="Walker2D continuous-policy L0 evaluation"><source src="assets/walker2d/continuous_small_model_eval/eval_latency_0/videos/bin_00_episode_000008.mp4" type="video/mp4">Your browser does not support embedded MP4 video. <a href="assets/walker2d/continuous_small_model_eval/eval_latency_0/videos/bin_00_episode_000008.mp4">Download the video</a>.</video><figcaption><span class="status verified">VERIFIED</span> Complete L0 evaluation episode 8, return 4323.900.</figcaption></figure></div><div class="callout warning"><strong>Interpretation:</strong> the zero-latency policy is strong at L0 but fails under even one frame of action latency. Latency robustness requires mixed-latency training rather than relying on zero-latency optimization alone.</div></section>
+<div class="contract-flow"><article>
+<h3>Sample Factory</h3>
 
-<section id="vla"><p class="section-kicker">07 · Post-fix VLA evaluation</p><h2>Four trajectories reach the full L0 horizon</h2><div class="metric-strip"><div><strong>983.915 ± 373.086</strong><span>mean return ± std</span></div><div><strong>892.992</strong><span>median return</span></div><div><strong>469.5</strong><span>mean environment steps</span></div><div><strong>4 / 20</strong><span>full 1,000-step episodes</span></div></div><p>The final QwenOFT checkpoint uses the same high-return teacher data, native six-dimensional action head, L1 objective, batch 16, action horizon 1, 5,000-step budget, seed 42 training configuration, and a learned <code>17 → hidden_dim</code> state projection. The post-fix online evaluator requests the image size saved with that model.</p><div class="media-gallery"><figure class="media-wide"><img src="assets/walker2d/vla_l0_eval.png" width="1440" height="810" loading="lazy" alt="Walker2D small-model and post-fix QwenVLA L0 return and episode-length distributions"><figcaption><span class="status verified">VERIFIED</span> Small-model L0 distribution over 10 episodes and post-fix QwenVLA L0 distribution over 20 episodes; diamonds mark means.</figcaption></figure></div><div class="two-col"><div><h3>Closed-loop outcome</h3><ul class="steps"><li>Return range: 365.606–1,701.006; median 892.992.</li><li>Episode-length range: 181–1,000 steps; mean 469.5.</li><li>Four of twenty trajectories reach the full 1,000-step horizon.</li><li>No invalid or dropped actions occur.</li></ul></div><div><h3>Teacher gap</h3><ul class="steps"><li>Small-model L0 mean return: 3,743.507 across 10 episodes.</li><li>QwenVLA L0 mean return: 983.915 across 20 episodes.</li><li>QwenVLA reaches 26.3% of the small-model mean return.</li><li>The L0 rerun does not establish non-zero-latency robustness.</li></ul></div></div><div class="callout"><strong>Interpretation:</strong> the corrected image contract reveals meaningful closed-loop control, including full-horizon episodes, but the broad return distribution and remaining teacher gap make this a partial recovery rather than solved imitation.</div><details><summary>Continuous-state training and evaluation overrides</summary><pre><code>framework.action_model.loss_type=l1
+<p>Native <code>Box(6)</code> creates a 12-parameter continuous policy head.</p>
+</article><article>
+<h3>Latency queue</h3>
+
+<p>Six-value vectors are cloned, delayed, held, and applied directly.</p>
+</article><article>
+<h3>Teacher rollout</h3>
+
+<p>Canonical rows store the actual six torque values.</p>
+</article><article>
+<h3>OpenVLA</h3>
+
+<p>Conversion and decoding preserve all six dimensions unchanged.</p>
+</article></div>
+
+<div class="file-grid"><article><code>gymnasium_walker2d.py</code>
+<p>Continuous task wrapper.</p>
+</article><article><code>training/gymnasium_sf</code>
+<p>Box-aware APPO and latency path.</p>
+</article><article><code>sf_teacher_config.py</code>
+<p>Continuous rollout contract.</p>
+</article><article><code>starvla_lerobot.py</code>
+<p>Native six-value StarVLA handoff.</p>
+</article></div>
+</section>
+
+<section id="zero-small">
+<p class="section-kicker">02 / Zero-latency small model training &amp; evaluation</p>
+
+<h2>Zero-latency small model training &amp; evaluation</h2>
+<span id="evaluation"></span><span id="training"></span>
+<h3>Ten million continuous-control frames</h3>
+
+<div class="metric-strip">
+<div><strong>10,006,528</strong><span>frames</span></div>
+
+<div><strong>5,638 FPS</strong><span>throughput</span></div>
+
+<div><strong>4,212.219</strong><span>best training statistic</span></div>
+
+<div><strong>12</strong><span>policy outputs</span></div>
+</div>
+
+<div class="media-gallery">
+<figure class="media-wide"><img src="assets/media/training_curve.png" width="1440" height="810" loading="lazy" alt="Walker2D continuous APPO training curve"><figcaption><span class="status verified">VERIFIED</span> L0 APPO training curve using the vendored Sample Factory MuJoCo recipe.</figcaption></figure>
+</div>
+
+<details>
+<summary>Training command and checkpoint</summary>
+
+<pre><code>MUJOCO_GL=egl python -m training.train \
+  --config configs/examples/gymnasium/walker2d/small_model_train_sf_official_10m.yaml</code></pre>
+<p>Best checkpoint: <code>/mnt/checkpoints/latency-sensitive-bench/small_models/walker2d/gymnasium_walker2d_continuous_zero_latency_sf_official_10m/checkpoint_p0/best_000013056_6684672_reward_4212.219.pth</code>.</p>
+</details>
+
+<h3>Five latency conditions, ten episodes each</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Latency</th><th>ms</th><th>Mean return</th><th>Std return</th><th>Mean length</th></tr>
+</thead>
+
+<tbody>
+<tr><td>L0</td><td>0</td><td>3743.507</td><td>996.072</td><td>888.1</td></tr>
+
+<tr><td>L1</td><td>8</td><td>93.727</td><td>6.332</td><td>70.9</td></tr>
+
+<tr><td>L2</td><td>16</td><td>115.681</td><td>5.698</td><td>76.0</td></tr>
+
+<tr><td>L3</td><td>24</td><td>-3.812</td><td>0.424</td><td>22.6</td></tr>
+
+<tr><td>L4</td><td>32</td><td>-7.902</td><td>0.172</td><td>18.0</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="media-gallery">
+<figure class="media-wide"><img src="assets/media/eval_latency_sweep.png" width="1440" height="810" loading="lazy" alt="Walker2D continuous policy latency sweep"><figcaption><span class="status verified">VERIFIED</span> Mean and standard deviation across ten episodes.</figcaption></figure>
+
+<figure class="media-wide"><img src="assets/media/eval_episode_contact_sheet.png" width="1440" height="760" loading="lazy" alt="Walker2D L0 episode contact sheet"><figcaption><span class="status verified">VERIFIED</span> Representative L0 episode 8.</figcaption></figure>
+
+<figure class="media-wide"><video controls preload="metadata" poster="assets/media/eval_episode_contact_sheet.png" aria-label="Walker2D continuous-policy L0 evaluation"><source src="assets/media/bin_00_episode_000008.mp4" type="video/mp4">Your browser does not support embedded MP4 video. <a href="assets/media/bin_00_episode_000008.mp4">Download the video</a>.</video><figcaption><span class="status verified">VERIFIED</span> Complete L0 evaluation episode 8, return 4323.900.</figcaption></figure>
+</div>
+
+<div class="callout warning"><strong>Interpretation:</strong> the zero-latency policy is strong at L0 but fails under even one frame of action latency. Latency robustness requires mixed-latency training rather than relying on zero-latency optimization alone.</div>
+</section>
+
+<section id="zero-vla">
+<p class="section-kicker">03 / Zero-latency VLA training &amp; evaluation</p>
+
+<h2>Zero-latency VLA training &amp; evaluation</h2>
+<span id="limits"></span><span id="evidence"></span><span id="vla"></span>
+<h3>Four trajectories reach the full L0 horizon</h3>
+
+<div class="metric-strip">
+<div><strong>983.915 ± 373.086</strong><span>mean return ± std</span></div>
+
+<div><strong>892.992</strong><span>median return</span></div>
+
+<div><strong>469.5</strong><span>mean environment steps</span></div>
+
+<div><strong>4 / 20</strong><span>full 1,000-step episodes</span></div>
+</div>
+
+<p>The final QwenOFT checkpoint uses the same high-return teacher data, native six-dimensional action head, L1 objective, batch 16, action horizon 1, 5,000-step budget, seed 42 training configuration, and a learned <code>17 → hidden_dim</code> state projection. The post-fix online evaluator requests the image size saved with that model.</p>
+
+<div class="media-gallery">
+<figure class="media-wide"><img src="assets/media/vla_l0_eval.png" width="1440" height="810" loading="lazy" alt="Walker2D small-model and post-fix QwenVLA L0 return and episode-length distributions"><figcaption><span class="status verified">VERIFIED</span> Small-model L0 distribution over 10 episodes and post-fix QwenVLA L0 distribution over 20 episodes; diamonds mark means.</figcaption></figure>
+</div>
+
+<div class="two-col">
+<div>
+<h3>Closed-loop outcome</h3>
+<ul class="steps"><li>Return range: 365.606–1,701.006; median 892.992.</li><li>Episode-length range: 181–1,000 steps; mean 469.5.</li><li>Four of twenty trajectories reach the full 1,000-step horizon.</li><li>No invalid or dropped actions occur.</li></ul></div>
+
+<div>
+<h3>Teacher gap</h3>
+<ul class="steps"><li>Small-model L0 mean return: 3,743.507 across 10 episodes.</li><li>QwenVLA L0 mean return: 983.915 across 20 episodes.</li><li>QwenVLA reaches 26.3% of the small-model mean return.</li><li>The L0 rerun does not establish non-zero-latency robustness.</li></ul></div>
+</div>
+
+<div class="callout"><strong>Interpretation:</strong> the corrected image contract reveals meaningful closed-loop control, including full-horizon episodes, but the broad return distribution and remaining teacher gap make this a partial recovery rather than solved imitation.</div>
+
+<details>
+<summary>Continuous-state training and evaluation overrides</summary>
+
+<pre><code>framework.action_model.loss_type=l1
 framework.action_model.state_encoding=continuous_projector
 framework.action_model.state_dim=17
 framework.action_model.action_dim=6
@@ -43,10 +198,126 @@ python -m latency_bench.run \
   --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/openvla_runs/walker2d_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/checkpoints/steps_5000_pytorch_model.pt \
   --model-config-path /mnt/checkpoints/latency-sensitive-bench/openvla_runs/walker2d_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/config.full.yaml \
   --latency-raw-frames 0 \
-  --output-dir /mnt/results/latency-sensitive-bench/tasks/walker2d/starvla_eval_continuous_projector_image_size_fix_20260909</code></pre></details></section>
+  --output-dir /mnt/results/latency-sensitive-bench/tasks/walker2d/starvla_eval_continuous_projector_image_size_fix_20260909</code></pre></details>
 
-<section id="evidence"><p class="section-kicker">08 · Evidence ledger</p><h2>Compact artifacts preserve the current RL and VLA claims</h2><div class="evidence-ledger"><article><span class="status verified">VERIFIED</span><h3>RL training</h3><p><a href="assets/walker2d/continuous_small_model/config.json">config</a> · <a href="assets/walker2d/continuous_small_model/sf_log.txt">log</a></p></article><article><span class="status verified">VERIFIED</span><h3>RL evaluation</h3><p><a href="assets/walker2d/continuous_small_model_eval/queue_eval_results.jsonl">summaries</a> · <a href="assets/walker2d/continuous_small_model_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a></p></article><article><span class="status verified">VERIFIED</span><h3>Continuous-state QwenVLA</h3><p><a href="assets/walker2d/vla_training_continuous_projector/wandb-summary.json">training summary</a> · <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/dwi62y81">online run</a> · <a href="assets/walker2d/vla_eval_continuous_projector/queue_eval_latency_0.json">post-fix L0 summary</a> · <a href="assets/walker2d/vla_eval_continuous_projector/eval_latency_0/episode_metrics.jsonl">20 L0 episodes</a></p></article><article><span class="status verified">VERIFIED</span><h3>Video</h3><p><a href="assets/walker2d/continuous_small_model_eval/eval_latency_0/videos/bin_00_episode_000008.mp4">small-model L0 MP4</a></p></article><article><span class="status verified">VERIFIED</span><h3>Reproduction</h3><p><a href="assets/walker2d/repro_scripts/build_release_media.py">figure builder</a> · 18 focused projector/Walker contract tests passed remotely.</p></article></div></section>
+<details>
+<summary>Source files and interpretation limits</summary>
 
-<section id="limits"><p class="section-kicker">09 · Limits and next stage</p><h2>L0 control improves, but the model gap remains</h2><ul class="steps"><li>Continuous small-model training and L0–L4 evaluation remain verified.</li><li>The post-fix QwenVLA result uses one training seed and one 20-episode L0 seed block.</li><li>The corrected evaluation covers zero latency only and supports no non-zero-latency claim.</li><li>Four VLA episodes reach the full horizon, but mean return remains 73.7% below the small model.</li><li>The next discriminant experiment is a matched post-fix L0–L4 sweep before any latency-robustness conclusion.</li></ul><p>See the <a href="../../../gymnasium_adapter.md">normative guide</a> and <a href="../README.md">examples index</a>.</p></section>
-</main></div><footer>Walker2D continuous-action adaptation · post-fix QwenVLA L0 verified 9 September 2026</footer>
+<h3>Compact artifacts preserve the current RL and VLA claims</h3>
+
+<div class="evidence-ledger"><article><span class="status verified">VERIFIED</span>
+<h3>RL training</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/zero_latency/small_model/training/continuous_small_model/config.json">config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/zero_latency/small_model/training/continuous_small_model/sf_log.txt">log</a></p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>RL evaluation</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/zero_latency/small_model/evaluation/continuous_small_model_eval/queue_eval_results.jsonl">summaries</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/zero_latency/small_model/evaluation/continuous_small_model_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a></p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Continuous-state QwenVLA</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/zero_latency/vla/training/vla_training_continuous_projector/wandb-summary.json">training summary</a> · <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/dwi62y81">online run</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/zero_latency/vla/evaluation/vla_eval_continuous_projector/queue_eval_latency_0.json">post-fix L0 summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/zero_latency/vla/evaluation/vla_eval_continuous_projector/eval_latency_0/episode_metrics.jsonl">20 L0 episodes</a></p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Video</h3>
+
+<p><a href="assets/media/bin_00_episode_000008.mp4">small-model L0 MP4</a></p>
+</article><article><span class="status verified">VERIFIED</span>
+<h3>Reproduction</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/adaptation/repro_scripts/build_release_media.py">figure builder</a> · 18 focused projector/Walker contract tests passed remotely.</p>
+</article></div>
+
+<h3>L0 control improves, but the model gap remains</h3>
+<ul class="steps"><li>Continuous small-model training and L0–L4 evaluation remain verified.</li><li>The post-fix QwenVLA result uses one training seed and one 20-episode L0 seed block.</li><li>The corrected evaluation covers zero latency only and supports no non-zero-latency claim.</li><li>Four VLA episodes reach the full horizon, but mean return remains 73.7% below the small model.</li><li>The next discriminant experiment is a matched post-fix L0–L4 sweep before any latency-robustness conclusion.</li></ul>
+<p>See the <a href="../../../gymnasium_adapter.md">normative guide</a> and <a href="../README.md">examples index</a>.</p>
+</details>
+</section>
+
+<section id="profiling">
+<p class="section-kicker">04 / Profiling</p>
+
+<h2>Profiling</h2>
+
+<p>P completed five sessions × ten episodes with natural termination: 3,895 admitted canonical observation-to-action samples, no capacity drops, mean 70.496 ms, P95 72.069 ms, P99 74.436 ms. The original source clocks were 125 / 125 FPS; this run uses 10 / 10 FPS while preserving simulator physics, observation stride and raw-frame budgets. Repeated profiling sessions are not independent training seeds.</p>
+</section>
+
+<section id="baseline-vla">
+<p class="section-kicker">05 / Baseline VLA evaluation</p>
+
+<h2>Baseline VLA evaluation</h2>
+
+<p>Evaluate the zero-latency VLA with measured latency at 10/10 FPS, seeds 42–61, a 3,600-step outer cap and native 1,000-step TimeLimit. All 1,573 observations are admitted; there are no invalid or dropped actions.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Stage</th><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Evidence</th></tr>
+</thead>
+
+<tbody>
+<tr><td>B</td><td>20</td><td>103.65 ± 4.90</td><td>78.65</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/baseline_vla/evaluation/summary.json">Summary</a></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="profile-small">
+<p class="section-kicker">06 / Profile-latency small model training &amp; evaluation</p>
+
+<h2>Profile-latency small model training &amp; evaluation</h2>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Stage</th><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Evidence</th></tr>
+</thead>
+
+<tbody>
+<tr><td>E</td><td>10</td><td>4,102.87 ± 593.64</td><td>910.40</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/small_model/evaluation/summary.json">Summary</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Train the small model for 10,006,528 frames using the original APPO recipe and best-reward checkpoint selection, with the measured IID profile and 10/10 FPS. Independent simulated evaluation uses a one-worker pool, configuration seed 0 (actual seeds 104729–104738), and a 1,000-step raw cap. It admits all 9,104 observations. Training and rollout inject action-delay IID; evaluation additionally models worker occupancy.</p>
+</section>
+
+<section id="profile-vla">
+<p class="section-kicker">07 / Profile-latency VLA training &amp; evaluation</p>
+
+<h2>Profile-latency VLA training &amp; evaluation</h2>
+<span id="profile-pipeline-20260912"></span>
+<p>S completed 10,006,528 frames using the original APPO recipe and best-checkpoint selection. R accepted 100 episodes from 107 attempts at the unchanged strict return &gt;3,000 gate. The actual dataset has 96,730 rows: 87,052 train and 9,678 validation; all materialized returns pass the gate (minimum 3069.413). All seeds, splits and lengths match the probe; 99 returns match exactly. Episode 99 differs by 0.0000138283. Batch-sensitive FP32 actions provide a plausible numerical mechanism, not proof of sole causation. The original data and failed exact-match audit are preserved in the <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/provenance/execution/data_acceptance_decision.json">acceptance record</a>.</p>
+
+<p>V completed 5,000 steps with the original QwenOFT/Qwen3VL4B continuous-projector recipe, batch 16, seed 42, L1 loss and 200 held-out batches every 500 steps. Final training loss is 0.02517; held-out L1 is 0.03632. <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/vmndk81h">W&amp;B finished</a>. The matched comparison covers one VLA training seed and one 20-episode evaluation seed block; the simulated teacher result is separate evidence.</p>
+
+<div class="table-wrap"><table>
+<thead>
+<tr><th>Training condition</th><th>Evaluation condition</th><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Latency mean / P95 ms</th></tr>
+</thead>
+
+<tbody>
+
+<tr><td>L0 VLA · B</td><td>3090 realtime, measured</td><td>20</td><td>103.650 ± 4.904</td><td>78.65</td><td>70.176 / 71.752</td></tr>
+
+
+<tr><td>New IID teacher · E</td><td>Simulated IID, one worker pool</td><td>10</td><td>4102.871 ± 593.643</td><td>910.40</td><td>70.510 / 72.075 (sampled)</td></tr>
+
+
+<tr><td>New profile VLA · F</td><td>3090 realtime, measured</td><td>20</td><td>857.437 ± 971.038</td><td>400.25</td><td>70.581 / 72.072</td></tr>
+
+</tbody>
+</table></div>
+
+<p>The full profiling, teacher training, demonstration collection, conversion, VLA training and matched realtime evaluation pipeline completed. The new VLA improves mean return by 753.787 (8.27× baseline), with 17 of 20 paired seeds improving. Variability remains high: no final episode reaches the native 1,000-step limit, and only one exceeds return 3,000. This is improved control under this evaluation contract, not a solved environment.</p>
+
+<p>B and F share seeds 42–61, 10 / 10 FPS, a 3,600-step outer cap and native 1,000-step TimeLimit, 224 RGB, 17-dimensional state, six native torque actions and OSMesa/spawn. F episode lengths are 192–876. B admits all 1,573 observations; F admits 8,004 of 8,005 with one dropped observation. Both have zero invalid or dropped actions. E uses configuration seed 0 (actual seeds 104729–104738), raw cap 1,000, and admits all 9,104 observations. E latencies are sampled from the profile; they are not new hardware measurements. S/R inject action-delay IID; E additionally models worker occupancy/capacity.</p>
+
+<p>All required uploads are verified: profile <code>verified bundle</code> (109 files), teacher <code>verified bundle</code> (14), raw <code>verified bundle</code> (9), converted <code>verified bundle</code> (120), final VLA <code>verified bundle</code> (22). Full verification records are in the <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/provenance/pipeline/status.md">run ledger</a>.</p>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/provenance/pipeline/3090/P.summary.json">P summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/baseline_vla/evaluation/summary.json">B summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/small_model/evaluation/summary.json">E summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/vla/evaluation/summary.json">F summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/provenance/pipeline/paired_B_F.json">Paired B/F returns</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/vla/training/vla_completion.json">V completion</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/provenance/execution/data.upload.json">Dataset publication</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/vla/training/vla.upload.json">Final model publication</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d/profile_latency/provenance/pipeline/continuation.md">Completion ledger</a></p>
+</section>
+</main>
+</div>
+
+<footer><p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/1ac0e2b05094319042c7213a23ce7b42a2320cfe/walker2d">Complete experiment archive on Hugging Face</a> · <a href="assets/standard_pipeline.json">Archive verification receipt</a>. Only raw demonstrations are distributed; conversion runs on the training server.</p>Walker2d · experiment report</footer>
 </body></html>
