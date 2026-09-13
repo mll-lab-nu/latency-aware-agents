@@ -462,6 +462,7 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
         env_name,
         deadly_action_layout,
         deadly_multibinary_threshold,
+        asterix_action_layout,
         action_env_dim,
         gymnasium_action_space_type="discrete",
         action_values=None,
@@ -495,7 +496,7 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
     monkeypatch.setattr(
         starvla,
         "_load_rl_games_action_decode",
-        lambda: (decode_rl_games_actions, None),
+        lambda: (decode_rl_games_actions, None, None),
     )
     monkeypatch.setattr(
         starvla,

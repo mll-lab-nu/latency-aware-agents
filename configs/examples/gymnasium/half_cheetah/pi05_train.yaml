@@ -1,0 +1,104 @@
+# Preparation overlay; not a runnable profiling workload.
+task: half_cheetah
+env:
+  name: gymnasium
+  task_name: half_cheetah
+  env_id: LatencyBench/HalfCheetahContinuous-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_half_cheetah
+  make_kwargs:
+    base_env_id: HalfCheetah-v4
+    render_mode: rgb_array
+    base_make_kwargs: {}
+  env_fps: 10
+  obs_fps: 10.0
+  frame_stack: 1
+  state_space:
+    labels:
+    - front_tip_height
+    - front_tip_angle
+    - back_thigh_angle
+    - back_shin_angle
+    - back_foot_angle
+    - front_thigh_angle
+    - front_shin_angle
+    - front_foot_angle
+    - front_tip_x_velocity
+    - front_tip_z_velocity
+    - front_tip_angular_velocity
+    - back_thigh_angular_velocity
+    - back_shin_angular_velocity
+    - back_foot_angular_velocity
+    - front_thigh_angular_velocity
+    - front_shin_angular_velocity
+    - front_foot_angular_velocity
+  action_space:
+    type: box
+    labels:
+    - back_thigh_torque
+    - back_shin_torque
+    - back_foot_torque
+    - front_thigh_torque
+    - front_shin_torque
+    - front_foot_torque
+    low:
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    high:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    dtype: float32
+  noop_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  base_prompt: Make the Half Cheetah run forward as fast as possible. Predict six
+    continuous torques in [-1, 1] ordered as back thigh, back shin, back foot, front
+    thigh, front shin, and front foot.
+  obs_resize:
+  - 224
+  - 224
+source_manifest: ../pi05_sources/half_cheetah/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json
+hydra_overrides:
+- model=pi05
+- init=scratch
+- rl_games.action_carrier=native
+- checkpoint.load=none
+- trainer.pretrained_checkpoint=null
+- trainer.reload_modules=null
+- trainer.is_resume=false
+- framework.action_model.action_dim=6
+- framework.action_model.action_env_dim=6
+- framework.action_model.state_dim=17
+- ++framework.action_model.state_encoding=continuous_projector
+- framework.action_model.action_horizon=1
+- framework.action_model.future_action_window_size=0
+- framework.action_model.past_action_window_size=0
+- framework.action_model.num_inference_timesteps=4
+- datasets.vla_data.include_state=true
+deferred_bindings:
+  dataset_root: null
+  data_mix: null
+  custom_mixtures_path: null
+  base_model_revision: null
+  l0_bundle: null
+  profile_latency_distribution: null
+  profile_bundle: null
+source_clock:
+  env_fps: 20.0
+  obs_fps: 20.0
+  obs_stride_raw_frames: 1
+  rows_unit: decision_step
+data_reuse_status: Requires explicit timing/prompt derivation and reconversion; original
+  metadata is immutable.

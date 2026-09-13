@@ -1,0 +1,79 @@
+# Preparation overlay; not a runnable profiling workload.
+task: inverted_pendulum
+env:
+  name: gymnasium
+  task_name: inverted_pendulum
+  env_id: LatencyBench/InvertedPendulumDiscrete-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_mujoco
+  make_kwargs:
+    base_env_id: InvertedPendulum-v4
+    render_mode: rgb_array
+    force_values:
+    - -3.0
+    - -1.5
+    - 0.0
+    - 1.5
+    - 3.0
+    base_make_kwargs: {}
+  env_fps: 10.0
+  obs_fps: 10.0
+  frame_stack: 1
+  state_space:
+    labels:
+    - cart_position
+    - pole_angle
+    - cart_velocity
+    - pole_angular_velocity
+  noop_action: zero_force
+  action_map:
+    push_left_hard: 0
+    push_left_soft: 1
+    zero_force: 2
+    push_right_soft: 3
+    push_right_hard: 4
+  action_order:
+  - push_left_hard
+  - push_left_soft
+  - zero_force
+  - push_right_soft
+  - push_right_hard
+  base_prompt: 'Keep the pole upright by applying horizontal cart forces. Choose exactly
+    one action from: push_left_hard, push_left_soft, zero_force, push_right_soft,
+    push_right_hard.'
+  obs_resize:
+  - 224
+  - 224
+source_manifest: ../pi05_sources/inverted_pendulum/zero_latency/source_contract/manifest.json
+hydra_overrides:
+- model=pi05
+- init=scratch
+- rl_games.action_carrier=native
+- checkpoint.load=none
+- trainer.pretrained_checkpoint=null
+- trainer.reload_modules=null
+- trainer.is_resume=false
+- framework.action_model.action_dim=5
+- framework.action_model.action_env_dim=5
+- framework.action_model.state_dim=4
+- ++framework.action_model.state_encoding=continuous_projector
+- framework.action_model.action_horizon=1
+- framework.action_model.future_action_window_size=0
+- framework.action_model.past_action_window_size=0
+- framework.action_model.num_inference_timesteps=4
+- datasets.vla_data.include_state=true
+deferred_bindings:
+  dataset_root: null
+  data_mix: null
+  custom_mixtures_path: null
+  base_model_revision: null
+  l0_bundle: null
+  profile_latency_distribution: null
+  profile_bundle: null
+source_clock:
+  env_fps: 25.0
+  obs_fps: 25.0
+  obs_stride_raw_frames: 1
+  rows_unit: decision_step
+data_reuse_status: Requires explicit timing/prompt derivation and reconversion; original
+  metadata is immutable.

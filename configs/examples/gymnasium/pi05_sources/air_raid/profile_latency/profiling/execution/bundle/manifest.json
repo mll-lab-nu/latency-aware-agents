@@ -1,0 +1,92 @@
+{
+  "dataset_name": "air_raid_l0_random_noop_fire_reset_return_gt2500_100ep",
+  "env_name": "air_raid",
+  "episodes": 90,
+  "frames": 81000,
+  "task_prompts": [
+    "Protect both buildings from flying saucers. Choose exactly one action from: noop, fire, right, left, rightfire, leftfire. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 50 FPS and observations are emitted at 12.5 FPS. Choose the best next action."
+  ],
+  "format": "starvla_lerobot_v2_image_parquet",
+  "source": "/mnt/data/latency-sensitive-bench/raw_rollouts/Air_Raid/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep",
+  "integration_name": "gymnasium",
+  "task_name": "air_raid",
+  "action_layout": "gymnasium_discrete_v1",
+  "action_labels": [
+    "noop",
+    "fire",
+    "right",
+    "left",
+    "rightfire",
+    "leftfire"
+  ],
+  "carrier_action_labels": [
+    "noop",
+    "fire",
+    "right",
+    "left",
+    "rightfire",
+    "leftfire"
+  ],
+  "action_dim": 6,
+  "active_action_dim": 6,
+  "action_carrier": "native",
+  "rows_unit": "decision_step",
+  "obs_fps": 12.5,
+  "obs_stride_raw_frames": 4,
+  "uses_state": false,
+  "state_dim": 1,
+  "state_labels": [
+    "state"
+  ],
+  "state_normalization": null,
+  "robot_type": "rl_games_gymnasium",
+  "latency_prompt_map_path": "/workspace/tasks/20260911T023128Z-p-only4/air_raid/bundle/latency_prompt_map.json",
+  "custom_mixtures_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/_generated_mixtures/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep.json",
+  "gymnasium_task": {
+    "action_labels": [
+      "noop",
+      "fire",
+      "right",
+      "left",
+      "rightfire",
+      "leftfire"
+    ],
+    "action_values": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "base_prompt": "Protect both buildings from flying saucers. Choose exactly one action from: noop, fire, right, left, rightfire, leftfire.",
+    "env_fps": 50.0,
+    "env_id": "LatencyBench/AirRaid-v0",
+    "frame_stack": 4,
+    "make_kwargs": {
+      "base_env_id": "ALE/AirRaid-v5",
+      "base_make_kwargs": {
+        "difficulty": 0,
+        "frameskip": 1,
+        "full_action_space": false,
+        "max_num_frames_per_episode": 108000,
+        "mode": 1,
+        "obs_type": "rgb",
+        "repeat_action_probability": 0.0
+      },
+      "fire_reset": true,
+      "noop_max": 30,
+      "render_mode": "rgb_array",
+      "screen_size": 84
+    },
+    "noop_action_id": 0,
+    "obs_fps": 12.5,
+    "registration_imports": [
+      "latency_bench.envs.gymnasium_air_raid"
+    ],
+    "task_name": "air_raid"
+  },
+  "validation_dataset_name": "air_raid_l0_random_noop_fire_reset_return_gt2500_100ep__val",
+  "validation_episodes": 10,
+  "validation_frames": 9000
+}
