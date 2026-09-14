@@ -214,6 +214,11 @@ def _split_tuple_component_batches(component_batches: list[Any], batch_size: int
     ]
 
 
+def scale_box_action(action: np.ndarray, low: np.ndarray, high: np.ndarray) -> np.ndarray:
+    """Map FastTD3's normalized actions to native Box bounds, row by row."""
+    return (low + high) * 0.5 + action * ((high - low) * 0.5)
+
+
 def to_python_action(value: Any) -> Any:
     if isinstance(value, torch.Tensor):
         value = value.detach().cpu().numpy()

@@ -375,29 +375,25 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             "policy_type": self.policy_type,
             "checkpoint_global_step": self.checkpoint_global_step,
         }
-        if self.action_chunk_horizon == 1:
+        if self.cfg.algo == "FAST_TD3" and self.policy_type == "gymnasium_sf":
+            raw_chunk = np.asarray(raw_value, dtype=np.float32).reshape(self.action_chunk_horizon, -1)
+            native_space = self.config["env"]["action_space"]
+            native_chunk = sf_actions.scale_box_action(
+                raw_chunk, np.asarray(native_space["low"], dtype=np.float32),
+                np.asarray(native_space["high"], dtype=np.float32),
+            )
+            actions = [
+                sf_actions.resolve_action(row.tolist(), self.action_resolver, action_space=self.action_space)
+                for row in native_chunk
+            ]
             return PolicyOutput(
-                action=sf_actions.resolve_action(
-                    raw_value,
-                    self.action_resolver,
-                    action_space=self.action_space,
-                ),
-                raw_output=raw_value,
+                action=actions[0], action_chunk=actions if self.action_chunk_horizon > 1 else None,
+                raw_output=raw_chunk.tolist() if self.action_chunk_horizon > 1 else raw_chunk[0].tolist(),
                 metadata=metadata,
             )
-        raw_chunk = np.asarray(raw_value).reshape(self.action_chunk_horizon, -1)
-        action_chunk = [
-            sf_actions.resolve_action(
-                row.tolist(),
-                self.action_resolver,
-                action_space=self.action_space,
-            )
-            for row in raw_chunk
-        ]
         return PolicyOutput(
-            action=action_chunk[0],
-            action_chunk=action_chunk,
-            raw_output=raw_chunk.tolist(),
+            action=sf_actions.resolve_action(raw_value, self.action_resolver, action_space=self.action_space),
+            raw_output=raw_value,
             metadata=metadata,
         )
 

@@ -19,6 +19,7 @@ from training.common.latency_bench_periodic_eval import (
     build_latency_bench_config_from_training_config,
 )
 from training.gymnasium_sf.integration import (
+    ActionChunkWrapper,
     ChannelFirstFrameStackWrapper,
     G1RawRequestWrapper,
     GymnasiumActionCatalogWrapper,
@@ -383,10 +384,10 @@ def test_g1_action_chunks_follow_execution_sources_and_planned_windows(delays, e
         noop_action=np.zeros(43, dtype=np.float32),
     )
     latency.profile_sampler = _ChunkDelaySampler(delays, latency.clock)
-    env = G1RawRequestWrapper(latency, action_chunk_horizon=8, latency_env=latency)
+    env = ActionChunkWrapper(G1RawRequestWrapper(latency), horizon=8, obs_stride=1)
     observation, _ = env.reset(seed=1)
     assert env.action_space.shape == (344,)
-    assert observation["replay_clock"].shape == (7,)
+    assert observation["replay_clock"].shape == (1, 7)
     np.testing.assert_array_equal(observation["obs"], np.zeros(1))
 
     original_step = native.step
@@ -405,9 +406,81 @@ def test_g1_action_chunks_follow_execution_sources_and_planned_windows(delays, e
         observation, _, _, _, info = env.step(chunk.reshape(-1))
         admitted += info["command_admitted"]
         assert latency.profile_sampler.draws == admitted
-        traces.append(tuple(observation["replay_clock"][2:4]))
-        assert tuple(observation["replay_clock"][5:7]) == windows[frame]
+        traces.append(tuple(observation["replay_clock"][0, 2:4]))
+        assert tuple(observation["replay_clock"][0, 5:7]) == windows[frame]
         source, head = expected[frame]
         if source >= 0:
             np.testing.assert_allclose(native.native_actions[frame], absolute_action(chunks[source][head]))
     assert traces == expected[:len(traces)]
+
+
+@pytest.mark.parametrize("stride", [2, 3, 5])
+@pytest.mark.parametrize("truncated", [False, True])
+def test_chunk_trace_keeps_raw_transitions_and_partial_terminal_through_autoreset(stride, truncated):
+    """Long-lived Gymnasium/SF contract: raw credit survives transport grouping and reset."""
+    from sample_factory.algo.utils.make_env import NonBatchedVecEnv
+    from training.common.latency_wrapper import EpisodeMetricsWrapper
+
+    class Native(gym.Env):
+        observation_space = gym.spaces.Box(-np.inf, np.inf, (3,), dtype=np.float32)
+        action_space = gym.spaces.Box(-2.0, 2.0, (1,), dtype=np.float32)
+
+        def __init__(self):
+            self.state = np.zeros(3, dtype=np.float32)
+            self.native_actions = []
+
+        def reset(self, *, seed=None, options=None):
+            super().reset(seed=seed)
+            self.state.fill(0)
+            self.native_actions.clear()
+            return self.state, {}
+
+        def step(self, action):
+            self.native_actions.append(action.copy())
+            self.state[0] += action[0]
+            self.state[1] += 1
+            self.state[2] = action[0]
+            done = len(self.native_actions) == 2 * stride + 1
+            return self.state, action[0], done and not truncated, done and truncated, {}
+
+    native = Native()
+    latency = GymnasiumActionLatencyWrapper(
+        native, env_fps=30, obs_fps=30 / stride, hold_policy="hold",
+        ordering_policy="latest_ready", simulated_worker_capacity=1,
+        hold_last_chunk_action=True, add_latency_info=False, noop_action=np.zeros(1, dtype=np.float32),
+    )
+    latency.profile_sampler = _ChunkDelaySampler([(1, 1)], latency.clock)
+    env = NonBatchedVecEnv(EpisodeMetricsWrapper(ActionChunkWrapper(latency, 4, stride), frames_per_decision=stride))
+    obs, _ = env.reset(seed=1)
+    assert obs[0]["replay_length"] == 0
+    chunks = []
+    records = []
+    for request in range(3):
+        chunk = np.arange(4, dtype=np.float32) * 0.1 + request * 0.2
+        chunks.append(chunk)
+        obs, _, terminated, timeouts, infos = env.step([chunk])
+        if request == 2:
+            assert terminated == [not truncated] and timeouts == [truncated]
+            assert obs[0]["replay_length"] == 0
+            trace = infos[0]["final_observation"]
+            assert trace["replay_length"] == 1
+            assert infos[0]["episode_extra_stats"]["episode/raw_frames"] == 2 * stride + 1
+        else:
+            trace = obs[0]
+        records.append(trace)
+        for index in range(trace["replay_length"]):
+            frame = request * stride + index
+            source = ((frame - 1) // stride) * stride if frame else -1
+            head = min(frame - source, 3) if source >= 0 else -1
+            expected_action = 2 * chunks[source // stride][head] if source >= 0 else 0
+            assert trace["replay_rewards"][index] == pytest.approx(expected_action)
+            np.testing.assert_array_equal(trace["replay_clock"][index, :5], [0, frame, source, head, index == 0])
+            np.testing.assert_array_equal(trace["replay_clock"][index, 5:], [1, stride + 1] if source >= 0 else [-1, -1])
+            assert trace["replay_obs"][index, 1] == frame
+            assert trace["replay_obs"][index + 1, 1] == frame + 1
+            assert trace["replay_obs"][index + 1, 2] == pytest.approx(expected_action)
+    # Earlier records and terminal snapshots remain intact after native reset reuses its buffer.
+    np.testing.assert_array_equal(records[0]["replay_obs"][:, 1], np.arange(stride + 1))
+    assert records[-1]["replay_obs"][1, 1] == 2 * stride + 1
+    assert latency.profile_sampler.draws == 3
+    env.close()

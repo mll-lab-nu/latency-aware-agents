@@ -242,17 +242,20 @@ class _FakeIntegration:
         observation_space=object(),
         use_rnn: bool = False,
         action_chunk_horizon: int = 1,
+        algo: str = "APPO",
     ):
         self.action_space = action_space or Discrete(1)
         self.observation_space = observation_space
         self.use_rnn = bool(use_rnn)
         self.action_chunk_horizon = action_chunk_horizon
+        self.algo = algo
 
     def register_components(self):
         pass
 
     def build_sf_cfg_from_config(self, config):
         return SimpleNamespace(
+            algo=self.algo,
             policy_index=0,
             load_checkpoint_kind="latest",
             use_rnn=self.use_rnn,
@@ -838,8 +841,8 @@ def test_sample_factory_policy_unsqueezes_discrete_argmax_actions_before_preproc
     assert output.action.value == 4
 
 
-def test_sample_factory_policy_emits_chunk_from_physical_observation(monkeypatch):
-    horizon, action_dim = 8, 43
+@pytest.mark.parametrize("obs_dim,action_dim,horizon,bound", [(198, 43, 8, 1.0), (3, 1, 8, 2.0), (3, 1, 1, 2.0)])
+def test_sample_factory_policy_emits_chunk_from_physical_observation(monkeypatch, obs_dim, action_dim, horizon, bound):
     actor = _ChunkActorCritic(horizon * action_dim)
     _install_fake_sample_factory_modules(
         monkeypatch,
@@ -854,28 +857,35 @@ def test_sample_factory_policy_emits_chunk_from_physical_observation(monkeypatch
     config = _config("/tmp/model.pth")
     config["policy"]["deterministic"] = False
     config["env"]["noop_action"] = [0.0] * action_dim
+    del config["env"]["action_map"]
+    config["env"]["action_space"] = {"type": "box", "labels": [f"a{i}" for i in range(action_dim)], "low": [-bound] * action_dim, "high": [bound] * action_dim}
     action_space = Box(-1.0, 1.0, (horizon * action_dim,), dtype=np.float32)
     runner = sample_factory_common.SampleFactoryPolicyRunner(
         config=config,
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(
             action_space=action_space,
-            observation_space=Box(-np.inf, np.inf, (198,), dtype=np.float32),
-            action_chunk_horizon=horizon,
+            observation_space=Box(-np.inf, np.inf, (obs_dim,), dtype=np.float32),
+            action_chunk_horizon=horizon, algo="FAST_TD3",
         ),
         policy_type="gymnasium_sf",
     )
-    observation = Observation(data=np.zeros(198, dtype=np.float32), env_step=3, sim_time_ms=60.0)
+    observation = Observation(data=np.zeros(obs_dim, dtype=np.float32), env_step=3, sim_time_ms=60.0)
     output = runner.predict(observation)
 
-    assert len(output.action_chunk) == horizon
-    assert output.action is output.action_chunk[0]
-    np.testing.assert_allclose(output.raw_output, actor.actions.reshape(horizon, action_dim))
-    np.testing.assert_array_equal(actor.observations[0]["obs"], np.zeros((1, 198)))
+    if horizon > 1:
+        assert len(output.action_chunk) == horizon
+        assert output.action is output.action_chunk[0]
+    else:
+        assert output.action_chunk is None
+    np.testing.assert_allclose(output.raw_output, actor.actions.reshape(horizon, action_dim) if horizon > 1 else actor.actions.reshape(-1))
+    native = output.action_chunk if horizon > 1 else [output.action]
+    np.testing.assert_allclose([a.value for a in native], actor.actions.reshape(horizon, action_dim) * bound)
+    np.testing.assert_array_equal(actor.observations[0]["obs"], np.zeros((1, obs_dim)))
     batch = runner.predict_batch([observation, observation])
     assert len(batch) == 2
-    np.testing.assert_array_equal(actor.observations[1]["obs"], np.zeros((2, 198)))
-    assert all(len(item.action_chunk) == horizon for item in batch)
+    np.testing.assert_array_equal(actor.observations[1]["obs"], np.zeros((2, obs_dim)))
+    assert all((len(item.action_chunk) == horizon if horizon > 1 else item.action_chunk is None) for item in batch)
     assert all(item.raw_output == output.raw_output for item in batch)
 
 

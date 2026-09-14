@@ -18,6 +18,7 @@ from latency_bench.envs.gymnasium_task import (
     gymnasium_discrete_action_values,
     gymnasium_noop_action_id,
 )
+from latency_bench.integrations.sample_factory.actions import scale_box_action
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.factory import build_persistence_policy
 from training.common.config_adapter import (
@@ -158,80 +159,64 @@ class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
 
 
 class G1RawRequestWrapper(gym.ActionWrapper):
-    """Encode normalized G1 actions and attach chunk execution clocks for replay."""
+    """Convert normalized G1 joint requests to the native absolute joint order."""
 
-    def __init__(self, env, action_chunk_horizon: int = 1, latency_env=None):
+    def __init__(self, env):
         super().__init__(env)
-        self.action_dim = 29 + (14 if self.unwrapped._raw_learn_hands else 0)
-        self.action_chunk_horizon = action_chunk_horizon
-        self.latency_env = latency_env
+        action_dim = 29 + (14 if self.unwrapped._raw_learn_hands else 0)
+        self.action_space = gym.spaces.Box(-1.0, 1.0, (action_dim,), dtype=np.float32)
+
+    def action(self, action):
+        if action.ndim == 1:
+            return self.unwrapped.g1_absolute_request_from_raw_action(action)
+        return np.stack([self.unwrapped.g1_absolute_request_from_raw_action(row) for row in action])
+
+
+class ActionChunkWrapper(gym.Wrapper):
+    """Expose normalized FastTD3 actions and carry raw-frame execution traces."""
+
+    def __init__(self, env, horizon, obs_stride):
+        super().__init__(env)
+        self.horizon = horizon
+        self.native_action_space = env.action_space
         self.action_space = gym.spaces.Box(
-            -1.0,
-            1.0,
-            shape=(self.action_dim * action_chunk_horizon,),
-            dtype=np.float32,
+            -1.0, 1.0, (horizon * env.action_space.shape[0],), dtype=np.float32,
         )
-        if action_chunk_horizon > 1:
+        if horizon > 1:
             spaces = (
                 dict(env.observation_space.spaces)
-                if isinstance(env.observation_space, gym.spaces.Dict)
-                else {"obs": env.observation_space}
+                if isinstance(env.observation_space, gym.spaces.Dict) else {"obs": env.observation_space}
             )
             spaces.update(
-                replay_clock=gym.spaces.Box(
-                    -1, np.iinfo(np.int64).max, (7,), dtype=np.int64
-                ),
+                replay_obs=gym.spaces.Box(-np.inf, np.inf, (obs_stride + 1, *spaces["obs"].shape), dtype=np.float32),
+                replay_rewards=gym.spaces.Box(-np.inf, np.inf, (obs_stride,), dtype=np.float32),
+                replay_clock=gym.spaces.Box(-1, np.iinfo(np.int64).max, (obs_stride, 7), dtype=np.int64),
+                replay_length=gym.spaces.Box(0, obs_stride, (), dtype=np.int64),
             )
             self.observation_space = gym.spaces.Dict(spaces)
 
-    def action(self, action):
-        if self.action_chunk_horizon == 1:
-            return self.unwrapped.g1_absolute_request_from_raw_action(action)
-        chunk = np.asarray(action).reshape(self.action_chunk_horizon, self.action_dim)
-        return np.stack(
-            [self.unwrapped.g1_absolute_request_from_raw_action(row) for row in chunk]
-        )
-
-    def _chunk_observation(self, observation, applied_source, applied_index, admitted, applied_window):
-        result = observation if isinstance(observation, dict) else {"obs": observation}
-        return {
-            **result,
-            "replay_clock": np.asarray(
-                (
-                    self.latency_env.episode_idx,
-                    self.latency_env.env_step_idx,
-                    applied_source,
-                    applied_index,
-                    admitted,
-                    *applied_window,
-                ),
-                dtype=np.int64,
-            ),
-        }
-
     def reset(self, **kwargs):
         observation, info = self.env.reset(**kwargs)
-        if self.action_chunk_horizon == 1:
+        if self.horizon == 1:
             return observation, info
-        return self._chunk_observation(observation, -1, -1, False, (-1, -1)), info
+        trace = {
+            name: np.zeros(self.observation_space[name].shape, dtype=self.observation_space[name].dtype)
+            for name in ("replay_obs", "replay_rewards", "replay_clock", "replay_length")
+        }
+        return self._observation(observation, trace), info
+
+    @staticmethod
+    def _observation(observation, trace):
+        physical = observation if isinstance(observation, dict) else {"obs": observation}
+        return {**physical, **trace}
 
     def step(self, action):
-        observation, reward, terminated, truncated, info = self.env.step(self.action(action))
-        if self.action_chunk_horizon == 1:
-            return observation, reward, terminated, truncated, info
-        return (
-            self._chunk_observation(
-                observation,
-                info["applied_source_raw_frame"],
-                info["applied_chunk_index"],
-                info["command_admitted"],
-                info["applied_chunk_window"],
-            ),
-            reward,
-            terminated,
-            truncated,
-            info,
-        )
+        action = np.asarray(action).reshape(self.horizon, self.native_action_space.shape[0])
+        action = scale_box_action(action, self.native_action_space.low, self.native_action_space.high)
+        observation, reward, terminated, truncated, info = self.env.step(action[0] if self.horizon == 1 else action)
+        if self.horizon > 1:
+            observation = self._observation(observation, info["replay_trace"])
+        return observation, reward, terminated, truncated, info
 
 
 def make_gymnasium_sf_env(
@@ -248,8 +233,7 @@ def make_gymnasium_sf_env(
 
     make_kwargs = _gymnasium_make_kwargs(cfg)
     raw_g1_requests = (
-        cfg.gym_task_name == "g1_sonic_balance_simple"
-        and make_kwargs["control_mode"] == "raw_body_target"
+        "control_mode" in make_kwargs and make_kwargs["control_mode"] == "raw_body_target"
     )
     if raw_g1_requests:
         make_kwargs["control_mode"] = "direct_absolute_position"
@@ -312,9 +296,9 @@ def make_gymnasium_sf_env(
         ),
     )
     if raw_g1_requests:
-        env = G1RawRequestWrapper(
-            env, action_chunk_horizon=cfg.fasttd3_action_chunk_horizon, latency_env=env
-        )
+        env = G1RawRequestWrapper(env)
+    if cfg.algo == "FAST_TD3":
+        env = ActionChunkWrapper(env, cfg.fasttd3_action_chunk_horizon, clock.obs_stride_raw_frames)
     action_labels = (
         {
             action_id: name

@@ -2,7 +2,7 @@
 
 更新：2026-09-13。
 
-专用 milestone、update 诊断快照及精确停止脚手架已移除；普通 periodic/final 评估保留。下面的精确步数和诊断属于历史实验，新的 H8 二分消融进度见 [CHUNK_RL_ABLATION.md](CHUNK_RL_ABLATION.md)。
+专用 milestone、update 诊断快照及精确停止脚手架已移除；普通 periodic/final 评估保留。下面的精确步数和诊断属于历史实验，第一版消融结果与通用 D/E 用法见 [CHUNK_RL_ABLATION.md](CHUNK_RL_ABLATION.md)。
 
 **本轮修复有效：精确调度窗口、因果 context、保留旧 critic 初始化，恢复了 profile 可变延迟下的 action chunk 学习。**
 
@@ -178,7 +178,7 @@ y = R + (1-done) * gamma^duration
       * Q_target(next_execution_state, target_actor(next_issue_obs) * planned_mask)
 ```
 
-## 验证与运行入口
+## 历史验证与归档
 
 - G1 环境 77 项、FastTD3 39 项、相关定向检查 29 项通过；两组 32K smoke 完成，参数 finite 且 actor/critic/target 均更新。
 - 已有测试问题：oracle 测试导入缺失的 `OracleTransition`；一项 PPO fixture 缺 `fasttd3_action_chunk_horizon`，修改前也失败。
@@ -191,18 +191,4 @@ y = R + (1-done) * gamma^duration
 
 结果目录保存 `resolved_config.json`、`progress.jsonl`、`periodic/`、`matched_*.json`、`final.pth/json` 和 `old_final_new_controller.json`；日志在父目录的同名 `.log`。Periodic 每 1M 评估 8 场景，final 评估 25 场景，每场上限 1000 帧；recovery gate 为平均存活 ≥300 且 ≥100 比例 ≥0.8。Fixed 的 zero-transfer 使用未训练的 head 0，不作验收指标。
 
-在仓库根目录启动；复跑时更换 `--root`：
-
-```bash
-CUDA_VISIBLE_DEVICES=0 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MUJOCO_GL=egl \
-PYTHONPATH=.:third_party/sample-factory .venv/bin/python -u scripts/experiments/ppo_latency/balance.py \
-  --config configs/training/latency/balance_fasttd3_chunk_h8_zero.yaml --phase zero --device gpu \
-  --root outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/zero_fix_s1_20260912_r3
-
-CUDA_VISIBLE_DEVICES=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MUJOCO_GL=egl \
-PYTHONPATH=.:third_party/sample-factory .venv/bin/python -u scripts/experiments/ppo_latency/balance.py \
-  --config configs/training/latency/balance_fasttd3_chunk_h8_fixed40.yaml --phase fixed40 --device gpu \
-  --root outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/fixed40_fix_s1_20260912_r3
-```
-
-历史 TODO 已由上面的限幅对照和动态窗口实现推进；profile／zero 的新 6M 结果待回填。
+当前配置启动方式和后续 D/E 单独消融计划见 [CHUNK_RL_ABLATION.md](CHUNK_RL_ABLATION.md)。

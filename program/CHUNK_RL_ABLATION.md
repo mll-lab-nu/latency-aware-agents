@@ -2,7 +2,7 @@
 
 第一版消融已定稿：五个配置、四个 training seeds、每 seed 10M raw frames，共 20 个 run，训练和最终评估全部完成。
 
-**生产第一版的额外模块只保留 D（critic planned counts）和 E（planned head mask）。** Actor 使用 198D 物理输入，输出始终为 8×43=344D；critic 使用首次执行时的 198D 物理状态和 8D planned counts。探索和 target smoothing 使用独立高斯噪声，网络按实际宽度普通初始化。
+**生产第一版的额外模块只保留 D（critic planned counts）和 E（planned head mask）。** 本次 Balance 的 actor 使用 198D 物理输入，输出始终为 8×43=344D；critic 使用首次执行时的 198D 物理状态和 8D planned counts。探索和 target smoothing 使用独立高斯噪声，网络按实际宽度普通初始化。
 
 这是用户确定的 Occam 简化选择。**本轮没有直接训练“只保留 D/E”的组合，不能把它写成已验证的性能结论。** 后续将分别单独消融 D、E，具体实验协议另行确定。
 
@@ -65,7 +65,44 @@ A/B 删除后 C/H/J 失去作用对象，历史实验将它们合并为 ABCHJ。
 
 固定主干继续保留：按真实 source 串接 issue/execution，聚合实际 reward 和 γ^duration，正确处理 termination/timeout，保留经验方差修复、隐藏层、C51、优化器及 raw-frame 更新预算。
 
-D/E 的计划窗口在首次执行时，用复制的 sampler、admission、result timeline 和 scheduler 状态推演下一次交接；不推进物理环境或真实 sampler RNG。计划假设 episode 继续，提前终止不截掉 actor 的计划后缀；hold-tail 将超出 H 的次数累加到末 head。计划时钟仅供 replay 使用，不进入 actor。训练观测的 replay clock 保留 7 个字段，actor 和评估均真实使用 198D 输入。
+D/E 的计划窗口在首次执行时，用复制的 sampler、admission、result timeline 和 scheduler 状态推演下一次交接；不推进物理环境或真实 sampler RNG。计划假设 episode 继续，提前终止不截掉 actor 的计划后缀；hold-tail 将超出 H 的次数累加到末 head。计划时钟仅供 replay 使用，不进入 actor。每个原始帧的 replay clock 保留 7 个字段；本次 Balance 的 actor 和评估均真实使用 198D 输入。
+
+## 通用 D/E 算法与时钟语义
+
+算法入口仍为 `FAST_TD3`：`fasttd3_action_chunk_horizon=1` 沿用普通 FastTD3，`H>1` 使用 D/E。向量状态与有限边界连续 Box 动作的宽度由实际空间决定：actor 输入 `n_obs`、输出 `H*n_act`，critic 状态为 `n_obs+H`。198/344/206 是上述 Balance 实验的具体维度。
+
+共享配置位于 [fasttd3_chunk.yaml](../configs/training/algorithms/fasttd3_chunk.yaml)，默认 H=8、capacity=1、latest_ready、hold-tail，并提供 FastTD3 所需的同步、非 batched sampling 布局和既有算法参数。组合配置按 base 列表从左到右合并，本地字段最后覆盖。例如在 `configs/training/` 下组合既有 Walker2d 任务与算法：
+
+```yaml
+__base__:
+- ../examples/gymnasium/walker2d/small_model_train.yaml
+- algorithms/fasttd3_chunk.yaml
+```
+
+换任务时替换第一个 base；预算、profile、设备和日志路径属于任务配置。现有 G1 H8 配方也组合该共享配置，保留 6M raw-frame 预算。原生环境示例：[Pendulum-v1](../configs/examples/gymnasium/pendulum/fasttd3_chunk_train.yaml)、[Walker2d-v4](../configs/examples/gymnasium/walker2d/fasttd3_chunk_train.yaml)。启动命令：
+
+```bash
+.venv/bin/python -m training.train --config configs/examples/gymnasium/pendulum/fasttd3_chunk_train.yaml
+```
+
+动作在训练与评估中统一从 [-1, 1] 映射到原生 Box 边界，一维动作仍是长度为 1 的向量。G1 的关节编码只负责环境动作转换；chunk 与 replay 不依赖 task name 或 G1 状态宽度。
+
+对 `H>1`，令 `M=env_fps/obs_fps`，沿用现有 `EnvClock` 的整数 stride 契约。策略只在观测边界发请求；每个 head 对应一个原始帧，H 与 M 独立。环境每步返回物理边界状态 `obs`，以及以下训练记录，actor 只读取 `obs`：
+
+| 字段 | 形状 | 语义 |
+|---|---|---|
+| `replay_obs` | `[M+1, n_obs]` | 每个原始转移前后的物理状态快照 |
+| `replay_rewards` | `[M]` | 每个原始环境转移的 reward |
+| `replay_clock` | `[M, 7]` | episode、转移前原始帧、来源请求帧、head、admitted、计划窗口起止偏移 |
+| `replay_length` | 标量 | 本步实际有效原始帧数；reset 为 0 |
+
+Replay 消费 SF 的 `next_obs` 记录，按实际来源串接 segment，允许同一步内来源交接及跨步延续。Actor 状态取请求时观测，critic 状态取首次执行时物理状态与计划 counts。回报为 `Σγʲrⱼ`，bootstrap 折扣为 `γᴸ`；reward scale/clip 对每个原始帧生效一次，更新预算与 chunk episode 的 raw_frames 累计实际有效帧数。
+
+提前终止时只读取有效记录；真正终止不 bootstrap，timeout 丢弃最后未完整结束的 segment，两者同时出现时真正终止优先。计划 counts 保持假设 episode 继续的窗口，hold-tail 计入末 head；autoreset 保留终止 trace。改变观测频率也会改变请求时刻，因此轨迹和性能可能变化；逐帧 credit 的含义保持一致。
+
+现有同形状 D/E checkpoint 可恢复模型和 optimizer，replay 冷启动。旧 full checkpoint 继续使用对应冻结源码复现。通用化验证仅证明数据流与恢复可运行，不替代 D/E 的训练和性能实验。
+
+本次通用化通过 257 项相关检查（含 CUDA compile）。原生 Pendulum 训练 3,104 raw frames／8 次更新、Walker2d 训练 1,552／4 次更新，均完成保存、加载和单次／batch 评估。G1 的既有 QwenOFT temporal profile 在 stride=1/2/3、两个 latency seeds 下共检查 6,147 raw frames，计划交接与实际交接一致，预测未推进真实 RNG 或物理环境。三个既有 G1 H8 配方的配置值保持一致。
 
 ## 尚未解决的训练不稳定
 

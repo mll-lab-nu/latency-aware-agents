@@ -244,6 +244,7 @@ class ActionLatencyWrapper(gym.Wrapper):
             if not inserted_seed:
                 raise
             obs, info = self.env.reset(**kwargs)
+        self._raw_observation = obs
         info = dict(info or {})
         if self.add_latency_info:
             info.update(self._latency_info(self.current_latency_raw_frames))
@@ -391,7 +392,15 @@ class ActionLatencyWrapper(gym.Wrapper):
         truncated = False
         raw_frames_advanced = 0
         environment_applied_action = None
-        for _ in range(self.clock.obs_stride_raw_frames):
+        chunk_request = isinstance(action, np.ndarray) and action.ndim == 2
+        if chunk_request:
+            physical = self._raw_observation["obs"] if isinstance(self._raw_observation, dict) else self._raw_observation
+            replay_obs = np.zeros((self.clock.obs_stride_raw_frames + 1, *physical.shape), dtype=np.float32)
+            # Snapshot before stepping: native environments may reuse their observation buffer.
+            replay_obs[0] = physical
+            replay_rewards = np.zeros(self.clock.obs_stride_raw_frames, dtype=np.float32)
+            replay_clock = np.full((self.clock.obs_stride_raw_frames, 7), -1, dtype=np.int64)
+        for index in range(self.clock.obs_stride_raw_frames):
             applied_source_raw_frame = -1
             applied_source_obs_id = -1
             applied_chunk_index = -1
@@ -415,7 +424,17 @@ class ActionLatencyWrapper(gym.Wrapper):
                         applied_event.metadata["planned_chunk_window"] = self._planned_chunk_window(applied_event)
                     applied_chunk_window = applied_event.metadata["planned_chunk_window"]
             self.current_applied_action = clone_action(active_action.value)
+            if chunk_request:
+                replay_clock[index] = (
+                    self.episode_idx, self.env_step_idx, applied_source_raw_frame,
+                    applied_chunk_index, index == 0 and not observation_dropped,
+                    *applied_chunk_window,
+                )
             obs, reward, terminated, truncated, info = self.env.step(clone_action(active_action.value))
+            self._raw_observation = obs
+            if chunk_request:
+                replay_obs[index + 1] = obs["obs"] if isinstance(obs, dict) else obs
+                replay_rewards[index] = reward
             # accumulate rewards for raw frames
             total_reward += float(reward)
             step_info = dict(info or {})
@@ -433,6 +452,13 @@ class ActionLatencyWrapper(gym.Wrapper):
             raise RuntimeError("ActionLatencyWrapper did not advance any raw frames")
 
         info = dict(info or {})
+        if chunk_request:
+            info["replay_trace"] = {
+                "replay_obs": replay_obs,
+                "replay_rewards": replay_rewards,
+                "replay_clock": replay_clock,
+                "replay_length": np.asarray(raw_frames_advanced, dtype=np.int64),
+            }
         if saw_raw_reward:
             info["raw_reward"] = float(total_raw_reward)
         if self.add_latency_info:
@@ -513,6 +539,10 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.full_game_return = 0.0
         self.full_game_raw_return = 0.0
         self.full_game_length = 0
+        self.full_game_raw_frames = 0
+        self._has_chunk_trace = (
+            isinstance(env.observation_space, gym.spaces.Dict) and "replay_length" in env.observation_space.spaces
+        )
         self.issued_action_counts: dict[str, int] = defaultdict(int)
         self.issued_action_runs: dict[str, list[int]] = defaultdict(list)
         self._last_issued_action_label: str | None = None
@@ -524,6 +554,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.full_game_return = 0.0
         self.full_game_raw_return = 0.0
         self.full_game_length = 0
+        self.full_game_raw_frames = 0
         self.issued_action_counts.clear()
         self.issued_action_runs.clear()
         self._last_issued_action_label = None
@@ -597,6 +628,10 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.full_game_return += raw_reward
         self.full_game_raw_return += raw_reward
         self.full_game_length += 1
+        self.full_game_raw_frames += (
+            obs["replay_length"] if self._has_chunk_trace
+            else self.frames_per_decision
+        )
         done = bool(terminated or truncated)
         true_episode_end = is_true_atari_episode_end(terminated, truncated, info)
         if done:
@@ -606,7 +641,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
             extra_stats["episode/return"] = float(self.full_game_return)
             extra_stats["episode/raw_return"] = float(self.full_game_raw_return)
             extra_stats["episode/length"] = int(self.full_game_length)
-            extra_stats["episode/raw_frames"] = int(self.full_game_length * self.frames_per_decision)
+            extra_stats["episode/raw_frames"] = int(self.full_game_raw_frames)
             extra_stats["episode/index"] = int(self.episode_idx)
             extra_stats["episode/terminated"] = float(bool(terminated))
             extra_stats["episode/truncated"] = float(bool(truncated))
@@ -645,7 +680,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                 "return": float(self.full_game_return),
                 "raw_return": float(self.full_game_raw_return),
                 "length": int(self.full_game_length),
-                "raw_frames": int(self.full_game_length * self.frames_per_decision),
+                "raw_frames": int(self.full_game_raw_frames),
                 "latency_raw_frames": None if latency_raw_frames is None else int(latency_raw_frames),
                 "worker_index": int(self.worker_index),
                 "vector_index": int(self.vector_index),

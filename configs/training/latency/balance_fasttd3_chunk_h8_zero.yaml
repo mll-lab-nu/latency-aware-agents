@@ -1,4 +1,6 @@
-__base__: ../../examples/gymnasium/g1_sonic_balance_simple/fasttd3_train.yaml
+__base__:
+- ../../examples/gymnasium/g1_sonic_balance_simple/fasttd3_train.yaml
+- ../algorithms/fasttd3_chunk.yaml
 experiment:
   name: balance_fasttd3_chunk_h8_zero_6m_s1
 backend:
@@ -7,22 +9,13 @@ backend:
   extra_args:
   - --wandb_user=saberrr-zju
 
-# Each environment admits one outstanding inference request.
-executor:
-  simulated_worker_capacity: 1
 latency:
   add_latency_info: true
   fixed_latency_ms: null
   seed: 0
-scheduler:
-  ordering_policy: latest_ready
-  hold_last_chunk_action: true
 training:
   train_for_env_steps: 6000000
-  fasttd3_replay_capacity: 1000000
-  fasttd3_actor_action_l2: 0.0
   with_wandb: true
-  fasttd3_action_chunk_horizon: 8
 evaluation:
   eval_interval_steps: 1000000
 logging:

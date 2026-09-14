@@ -1,12 +1,11 @@
 # Delay RL / asymmetric critic references
 
-此前已做 FastTD3 critic-only transport augmentation；当前新增了 [capacity-aware DCAC 实验](../../scripts/experiments/dcac/README.md)，
-同时增广 actor/value 输入并进行因果前缀重采样。不把有限历史增广等同于无偏或完整 Markov 状态。
+这些文献讨论随机延迟下的信息状态、credit assignment 与非对称价值估计。
 
 | 文献 | 解决的问题 | 与当前实验的关系 |
 |---|---|---|
 | [Revisiting State Augmentation](stochastic_delay_state_augmentation.md) | 随机延迟下的信息状态与策略学习 | 原方案也增广 policy，不能当作 critic-only 保证 |
-| [Delay-Correcting Actor-Critic](dcac.md) | 随机延迟下的 credit assignment / 样本效率 | 新实验移植因果前缀重采样，并适配 capacity-one 的 busy admission |
+| [Delay-Correcting Actor-Critic](dcac.md) | 随机延迟下的 credit assignment / 样本效率 | 因果前缀重采样与执行来源的 credit assignment |
 | [Unbiased Asymmetric RL](unbiased_asymmetric_rl.md) | 部分可观测环境中的非对称价值估计偏差 | 历史与状态有不同职责，特权状态不自动消除偏差 |
 
 

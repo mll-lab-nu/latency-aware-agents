@@ -1,0 +1,36 @@
+# Compose after a task recipe to select FastTD3 with raw-frame chunk credit.
+backend:
+  algo: FAST_TD3
+executor:
+  simulated_worker_capacity: 1
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+  hold_last_chunk_action: true
+training:
+  num_workers: 128
+  num_envs_per_worker: 1
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 128
+  rollout: 1
+  recurrence: 1
+  num_epochs: 1
+  num_batches_per_epoch: 1
+  async_rl: false
+  batched_sampling: false
+  use_rnn: false
+  learning_rate: 0.0003
+  gamma: 0.99
+  normalize_input: false
+  normalize_returns: false
+  fasttd3_action_chunk_horizon: 8
+  fasttd3_replay_capacity: 1000000
+  fasttd3_replay_batch_size: 32768
+  fasttd3_transitions_per_update: 64
+  fasttd3_actor_action_l2: 0.0
+  fasttd3_compile: true
+  fasttd3_v_min: -250.0
+  fasttd3_v_max: 250.0
+  reward_scale: 1.0
+  reward_clip: 1000000000.0
