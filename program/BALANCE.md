@@ -1,5 +1,7 @@
 # Balance Simple / GR00T 工程状态
 
+> 2026-09-14 核查：当前产物、具体评测数值和未核验事项见 [PROGRESS](PROGRESS.md)；下文旧运行状态按原日期阅读。
+
 ## Latency command-RL 全链入口
 
 从仓库根目录运行：
@@ -12,7 +14,7 @@
 入口依次执行 profile、FastTD3 初始化/训练、issued absolute-request 数据导出、VLA 训练及原/新 VLA 的 zero/profile 对照。
 本轮明确使用已存在的 10k baseline；不是尚未产出的 15k 模型。短训改用同目录的
 `humanoidbench_balance_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
-smoke 不缩短正式 profile 协议。运行证据、恢复方法与正式实验门槛见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+smoke 不缩短正式 profile 协议。运行证据、恢复方法与正式实验门槛见 [latency handoff](LATENCY_RL_HANDOFF.zh-CN.md)。
 
 ## Goal and scope
 

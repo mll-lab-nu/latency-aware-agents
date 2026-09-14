@@ -70,15 +70,21 @@ python scripts/train.py algo=ppo_haic_finetune task=G1/haic/skateboard checkpoin
 
 PullCart 的 privileged observation 包含物体关节位置、速度、力矩、接触几何和动力学参数。其核心难点是机器人、接触物和下肢平衡之间的持续动力学耦合，而不是一次性的抓取时机。
 
-HAIC 已经实现 action-delay buffer：
+HAIC 论文确实考虑了 delay，但其定位是 **sim-to-real domain randomization**，不是论文的主要研究变量：
+
+- “Sim-to-Real Transfer”部分说明使用大规模 domain randomization 缩小 reality gap。
+- 附录 Table XI 在 Actuation 类别中列出 `Action Delay ~ U[40, 120] ms`。
+- 论文没有把不同 latency 下的性能或 latency-aware teacher 作为独立实验；这里的 delay 主要用于提高真机泛化和鲁棒性。
+- 附录还报告 HAIC 方法本身的平均 inference latency 只有 0.17 ms，低于 20 ms control period 的 1%，强调 world model 没有引入显著计算延迟。
+
+公开代码也已经实现 action-delay buffer：
 
 - policy step：20 ms；
 - Isaac physics step：5 ms；
-- 默认每个 episode 随机 `min_delay=2, max_delay=6`，即 10–30 ms actuator delay；
-- buffer 支持跨 control-step 的 delay，可直接扩大到更高 latency 档位；
-- 同时包含 action smoothing。
+- release 配置为 `min_delay=2, max_delay=6`，并包含 action smoothing；
+- buffer 支持跨 control-step 的 delay，可扩大到更高 latency 档位。
 
-这意味着无需另写 delay wrapper，只需扩大 delay distribution，并在同一个 delayed environment 中重新训练 PPO teacher。
+需要注意，当前 release 配置的 `2–6` 与论文报告的 `40–120 ms` 不能直接按字面对应；正式实验前需要核对代码版本和 delay 单位。尽管如此，论文和代码都证明该 PPO teacher pipeline 已经把 action delay 放在 environment 内训练。我们的区别是将 latency 从 sim-to-real nuisance randomization 提升为显式研究变量，并据此训练 latency-aware teacher 和生成 demonstrations。
 
 推荐顺序：
 
@@ -95,6 +101,7 @@ HAIC 已经实现 action-delay buffer：
 来源：
 
 - [HAIC 官方仓库](https://github.com/ldt29/HAIC)
+- [HAIC 论文 PDF](https://haic-humanoid.github.io/static/haic.pdf)
 - [PullCart task 配置](https://github.com/ldt29/HAIC/blob/main/cfg/task/G1/haic/pull_cart.yaml)
 - [默认 latency 配置](https://github.com/ldt29/HAIC/blob/main/cfg/task/base/tracking-base.yaml)
 - [Action delay 实现](https://github.com/ldt29/HAIC/blob/main/active_adaptation/envs/mdp/action.py)
