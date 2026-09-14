@@ -1,213 +1,87 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A transparent Gymnasium adaptation record for users and the required reporting template for adaptation agents.">
-  <title>Gym Adapt — InvertedPendulum walkthrough and agent report template</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <header class="hero">
-    <div class="hero-inner">
-      <p class="eyebrow">latency-sensitive-bench / release tutorial</p>
-      <h1>From a Gymnasium task to a latency-sensitive baseline</h1>
-      <p class="lede">A transparent agent-assisted adaptation of MuJoCo <code>InvertedPendulum-v4</code>, executed on a clean RTX 5090 server. Users can inspect what changed and continue the baseline pipeline; agents should reproduce this level of decision, command, artifact, and status reporting for every new task.</p>
-      <div class="badges"><span>offline HTML</span><span>probe + parity: VERIFIED</span><span>small-model L1: VERIFIED</span><span>fixed latency: L1 / 40 ms</span><span class="not-run">teacher / VLA: NOT RUN</span></div>
-    </div>
-  </header>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="InvertedPendulum adaptation, zero-latency training and measured profile-latency experiments with original evidence."><title>InvertedPendulum — adaptation and latency experiments</title><link rel="stylesheet" href="styles.css?layout=experiment"></head><body><a class="skip-link" href="#main">Skip to content</a>
+<header class="hero">
+<div class="hero-inner">
+<p class="eyebrow">latency-sensitive-bench / experiment report</p>
+<h1>InvertedPendulum</h1>
+<p class="lede">From autonomous environment adaptation to zero-latency policies and profile-latency training. One ordered force catalog connects state-based control, RGB+state VLA learning and measured realtime evaluation.</p>
 
-  <div class="layout">
-    <aside class="toc" aria-label="Table of contents">
-      <a class="toc-title" href="#main">Gym Adapt</a>
-      <nav>
-        <a href="#audience">How to use this page</a>
-        <a href="#scope">1. What this proves</a>
-        <a href="#contract">2. Decisions and contract</a>
-        <a href="#discovery">3. What the agent reads</a>
-        <a href="#conversation">4. Agent ↔ user handoff</a>
-        <a href="#generation">5. Files the agent generates</a>
-        <a href="#pipeline">6. How the pipeline consumes them</a>
-        <a href="#matrix">Contract propagation matrix</a>
-        <a href="#commands">7. Reproducible commands</a>
-        <a href="#evidence">8. Evidence ledger</a>
-        <a href="#boundaries">9. Scope and isolation</a>
-        <a href="#delivery">10. Required agent deliverable</a>
-        <a href="#prompt">11. Copyable agent prompt</a>
-      </nav>
-    </aside>
+<div class="badges"><span>4D state</span><span>5 force actions</span><span>224×224 VLA input</span><span>10 FPS realtime evaluation</span><span>Complete pipeline</span></div>
+</div>
+</header>
 
-    <main id="main">
-      <section id="audience">
-        <p class="section-kicker">how to use this page</p>
-        <h2>One worked example, two audiences</h2>
-        <div class="two-col">
-          <div class="callout success"><strong>For a user:</strong> follow the adaptation from API probe to a verified latency-sensitive small-model experiment. Review the decisions and artifacts, then use the command ledger to continue teacher rollout, LeRobot conversion, basic OpenVLA SFT, and final evaluation. Commands marked <code>NOT RUN</code> are instructions, not claimed results.</div>
-          <div class="callout"><strong>For an adaptation agent:</strong> this page is both a process example and the required final-report format. A new adaptation should expose the same separation of API facts, user decisions, generated files, contract propagation, exact commands, linked evidence, continuation steps, isolation, and limitations.</div>
-        </div>
-        <p>The normative implementation guide is <a href="../../../gymnasium_adapter.md"><code>docs/gymnasium_adapter.md</code></a>. This HTML page explains and evidences one execution of that guide; it does not replace the contract or authorize an agent to invent missing scientific choices.</p>
-      </section>
+<div class="layout">
+<aside class="toc" aria-label="Table of contents"><a class="toc-title" href="#main">InvertedPendulum</a>
+<nav><a href="#adaptation">01 · Adaptation</a><a href="#zero-small">02 · Zero-latency small model training &amp; evaluation</a><a href="#zero-vla">03 · Zero-latency VLA training &amp; evaluation</a><a href="#profiling">04 · Profiling</a><a href="#baseline-vla">05 · Baseline VLA evaluation</a><a href="#profile-small">06 · Profile-latency small model training &amp; evaluation</a><a href="#profile-vla">07 · Profile-latency VLA training &amp; evaluation</a></nav>
+</aside>
 
-      <section id="scope">
-        <p class="section-kicker">01 / scope</p>
-        <h2>The objective is a traceable adaptation, not an automatic claim</h2>
-        <p>This is the release path for a Gymnasium task whose controller can be exposed as a finite, ordered catalog. It preserves the chosen Gymnasium construction, native observation, reward, <code>terminated</code>, and <code>truncated</code>, while the benchmark contributes a raw-step clock and an action scheduler.</p>
-        <div class="callout warning"><strong>Why InvertedPendulum is useful:</strong> its native action space is <code>Box(shape=(1,))</code>. A generic discrete small-model/OpenVLA pipeline cannot infer a meaningful discretization. The five forces below are an explicit user-owned experiment definition.</div>
-        <div class="verification-grid">
-          <article><span class="status verified">VERIFIED</span><h3>API probe</h3><p>Gymnasium 0.29.1, MuJoCo 3.3.7, Box action, 4-D observation, 25 Hz clock, and 480×480 RGB render captured.</p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Wrapper + parity</h3><p>The five executed steps of a seeded zero-latency trace matched the task-owned wrapper exactly through termination: observations, rewards, termination and truncation.</p></article>
-          <article><span class="status verified">VERIFIED</span><h3>L1 scheduler</h3><p>The issued action becomes ready one raw frame later; zero-force ID 2 is applied before the first result arrives.</p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Small-model RL + eval</h3><p>APPO completed 1,015,808 frames; the saved checkpoint completed ten 1,000-step L1 evaluation episodes.</p></article>
-          <article><span class="status notrun">NOT RUN</span><h3>Teacher → conversion → VLA</h3><p>Commands and handoff contracts are documented, but no rollout dataset, conversion, SFT, or VLA evaluation was executed.</p></article>
-        </div>
-      </section>
+<main id="main">
+<section id="adaptation">
+<p class="section-kicker">01 / Adaptation</p>
 
-      <section id="contract">
-        <p class="section-kicker">02 / one immutable contract</p>
-        <h2>In this demonstration, I act as the user and make the non-API decisions</h2>
-        <p>The agent may inspect facts; it must ask before fixing semantics. The resulting contract is copied into the checkpoint, teacher metadata, LeRobot manifest, saved model configuration, and final evaluation.</p>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Field</th><th>API fact</th><th>User decision</th><th>Generated artifact</th></tr></thead>
-          <tbody>
-            <tr><td>Package / environment ID</td><td>The pinned runtime registers v2 and v4; requesting v5 raises <code>VersionNotFound</code>.</td><td>Keep <code>gymnasium[mujoco]==0.29.1</code> and select <code>InvertedPendulum-v4</code>.</td><td><code>base_env_id: InvertedPendulum-v4</code> in the emitted env block and four configs.</td></tr>
-            <tr><td>Native spaces</td><td>Action <code>Box(-3,3,(1,),float32)</code>; observation <code>Box(...,(4,),float64)</code>.</td><td>Keep the native 4-D observation; adapt control to a finite catalog for the supported baseline.</td><td>Task wrapper advertises <code>Discrete(5)</code>, then rebuilds a one-element float32 Box action.</td></tr>
-            <tr><td>Action catalog</td><td>The API provides bounds, not semantic bins.</td><td><code>[-3,-1.5,0,1.5,3]</code> N, ordered hard-left → hard-right.</td><td><code>force_values</code>, <code>action_map</code>, and <code>action_order</code>; active categorical dimension = 5.</td></tr>
-            <tr><td>No-op</td><td>The API does not designate a safe delayed action.</td><td><code>zero_force</code> is the safe no-op.</td><td>No-op catalog ID 2 stored in config/checkpoint and used by the L1 scheduler.</td></tr>
-            <tr><td>Clock</td><td><code>dt=0.04 s</code>, frame skip 2 × model timestep 0.02 s, render FPS 25.</td><td>One environment <code>step()</code> is one raw tick; observe every tick.</td><td><code>env_fps: 25</code>, <code>obs_fps: 25</code>, fixed 40 ms → L1.</td></tr>
-            <tr><td>Task semantics</td><td>Zero-action probe returns reward 1.0 with separate false <code>terminated</code>/<code>truncated</code>.</td><td>Preserve native observation, reward, termination and truncation.</td><td>Wrapper delegates <code>reset()</code>/<code>step()</code>; generic adapter adds benchmark metadata only.</td></tr>
-            <tr><td>RGB and prompt</td><td><code>rgb_array</code> renders HWC uint8 at 480×480.</td><td>Use one current RGB image and the explicit balance prompt.</td><td><code>render_mode</code>, <code>frame_stack: 1</code>, and <code>base_prompt</code> shared downstream.</td></tr>
-            <tr><td>Budgets</td><td>No API fact determines experiment duration.</td><td>RL target 1M; rollout 200 episodes; basic SFT default 2,000 steps.</td><td>Training config; rollout and SFT commands. Only the RL budget has been executed.</td></tr>
-          </tbody>
-        </table></div>
-        <p class="formula"><code>obs_stride_raw_frames = env_fps / obs_fps = 1</code> &nbsp;·&nbsp; <code>latency_raw_frames = ceil(latency_ms × env_fps / 1000) = ceil(40 × 25 / 1000) = 1</code></p>
-      </section>
+<h2>Adaptation</h2>
 
-      <section id="discovery">
-        <p class="section-kicker">03 / API discovery</p>
-        <h2>What an agent can obtain directly, before it asks the user anything</h2>
-        <div class="callout warning"><strong>Version resolution is part of adaptation.</strong> The <a href="https://gymnasium.farama.org/environments/mujoco/inverted_pendulum/">current official environment page</a> documents <code>InvertedPendulum-v5</code>. The requested server pin, Gymnasium 0.29.1, does not register v5: the probe returned <code>VersionNotFound: ... provides [v2, v4]</code>. The agent surfaced this mismatch and the simulated user explicitly chose v4 rather than silently changing the dependency pin.</div>
-        <div class="two-col">
-          <div>
-            <h3>Direct probe</h3>
-            <ol class="steps">
-              <li>Install the exact package/version in the experiment environment. The VLA environment must receive the same task package before a later SFT/eval run; that stage was not installed or run here.</li>
-              <li><code>gym.make(id, render_mode="rgb_array")</code>, then <code>reset(seed=0)</code>.</li>
-              <li>Read action/observation space type, shape, bounds, dtype, reset observation, <code>unwrapped.dt</code>, and one rendered RGB frame.</li>
-              <li>Record the exact constructor arguments and raw API behavior. Do not infer an action vocabulary from Box bounds.</li>
-            </ol>
-          </div>
-          <div class="artifact-card">
-            <p class="artifact-label"><span class="status verified">VERIFIED</span> synchronized probe report</p>
-            <p><a href="assets/inverted_pendulum/api_probe.json"><code>assets/inverted_pendulum/api_probe.json</code></a></p>
-            <pre aria-label="Probe report excerpt"><code>{
-  "env_id": "InvertedPendulum-v4",
-  "action_space": {"type": "Box", "shape": [1],
-                   "low": [-3.0], "high": [3.0]},
-  "observation_space": {"type": "Box", "shape": [4],
-                        "dtype": "float64"},
-  "unwrapped_dt_seconds": 0.04,
-  "native_env_fps": 25.0,
-  "render_mode": "rgb_array"
-}</code></pre>
-            <small>The shape/bounds/dtype are API facts. The five force values in the same report are tagged <code>user_approved</code>.</small>
-          </div>
-        </div>
-        <details open><summary>Complete information collected automatically from the runtime API</summary>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Probe surface</th><th>Captured value</th><th>What the agent does with it</th></tr></thead>
-            <tbody>
-              <tr><td>Installed distributions</td><td>Gymnasium 0.29.1; MuJoCo 3.3.7</td><td>Records the dependency boundary and detects that the requested v5 ID is unavailable.</td></tr>
-              <tr><td><code>env.spec</code></td><td>Resolved ID, entry point, constructor kwargs, and 1,000-step time limit</td><td>Freezes the actual task implementation rather than relying on the name alone.</td></tr>
-              <tr><td>Action space</td><td>Box type, shape <code>[1]</code>, bounds <code>[-3,3]</code>, float32</td><td>Detects that the finite-catalog baseline needs a task-owned action wrapper; it does not choose the bins.</td></tr>
-              <tr><td>Observation space</td><td>Box type, shape <code>[4]</code>, float64; seeded reset sample and info keys</td><td>Confirms that Sample Factory can consume the native vector and records reset behavior for parity.</td></tr>
-              <tr><td>One zero-action step</td><td>Reward 1.0; <code>terminated=false</code>; <code>truncated=false</code>; info keys</td><td>Captures the five-value step API and a minimal native behavior sample without declaring zero force a safe no-op.</td></tr>
-              <tr><td>Render API</td><td>HWC uint8 RGB, 480×480; render modes and metadata FPS</td><td>Confirms that later teacher/VLA stages can use raw RGB while small-model RL keeps the 4-D state.</td></tr>
-              <tr><td>Physics timing</td><td><code>dt=0.04</code>, <code>frame_skip=2</code>, model timestep 0.02, 25 Hz</td><td>Presents the evidence needed for the user to approve one <code>env.step()</code> as one raw tick.</td></tr>
-            </tbody>
-          </table></div>
-          <p>The synchronized <a href="assets/inverted_pendulum/api_probe.json">full JSON report</a> retains the exact values. Any task goal, action semantics, safe no-op, latency target, preprocessing, or experiment budget remains a user decision.</p>
-        </details>
-        <div class="media-pair">
-          <figure><img src="assets/inverted_pendulum/reset.png" width="480" height="480" loading="lazy" alt="Verified InvertedPendulum RGB frame immediately after reset"><figcaption>Verified reset render: HWC uint8, 480×480.</figcaption></figure>
-          <figure><img src="assets/inverted_pendulum/fixed_positive_action.gif" width="480" height="480" loading="lazy" alt="Short verified rendering sequence under a fixed positive force"><figcaption>Verified render sequence under a fixed positive native force. This visualizes the API; it is not a learned policy rollout.</figcaption></figure>
-        </div>
-        <details><summary>Exact recorded scaffold command and outputs</summary><pre><code>MUJOCO_GL=egl .venv/bin/python scripts/scaffold_gymnasium_mujoco.py \
-  --base-env-id InvertedPendulum-v4 \
-  --render-mode rgb_array \
-  --report-path artifacts/inverted_pendulum/api_probe.json \
-  --env-yaml-path artifacts/inverted_pendulum/env_block.yaml</code></pre>
-          <p>Synced outputs: <a href="assets/inverted_pendulum/api_probe.json">API report</a>, <a href="assets/inverted_pendulum/env_block.yaml">env block</a>, and <a href="assets/inverted_pendulum/scaffold_stdout.txt">full stdout</a>.</p>
-          <p><strong>Important:</strong> the scaffold stops here. It does not generate the task-owned wrapper, the four experiment configs, or tests. The agent creates those files after the user approves the action/timing/task decisions.</p>
-        </details>
-      </section>
+<p>The agent inspects the environment API, derives the action and observation contract, implements the adapter, and verifies native behavior before training. The task is to keep the pole upright by applying horizontal cart forces. Reward is 1 per surviving step, so episode return equals episode length, capped at 1,000.</p>
 
-      <section id="conversation">
-        <p class="section-kicker">04 / transparent handoff</p>
-        <h2>The agent stops at choices that an API cannot answer</h2>
-        <div class="conversation">
-          <div class="bubble agent"><b>Agent, after probing</b><p>The official page now describes v5, but your pinned Gymnasium 0.29.1 runtime raised <code>VersionNotFound</code> and offers v2/v4. The available v4 task has a continuous one-dimensional force in [−3, 3] at 25 Hz. Please decide whether to change the dependency or use v4, then choose a force catalog/order, safe no-op, native-vs-modified task semantics, observation rate, language objective, and budgets.</p></div>
-          <div class="bubble user"><b>Simulated user decision for this example</b><p>Keep the reproducible Gymnasium 0.29.1 pin and use v4. Use five symmetric forces <code>[-3,-1.5,0,1.5,3]</code>, with zero force as no-op. Preserve native observation/reward/termination. Treat every MuJoCo <code>step()</code> as a raw 40-ms frame and use observations at 25 Hz. Use the supplied balance prompt, L1 (40 ms), 1M RL steps, 200 rollout episodes, and basic 2,000-step OpenVLA SFT.</p></div>
-          <div class="bubble agent"><b>Agent, after confirmation</b><p>I will create a task-owned wrapper, freeze that exact catalog in four configs, verify zero-latency parity against the wrapped task, and keep the original legacy integrations untouched. I will not claim that the five-force catalog approximates the continuous optimum.</p></div>
-        </div>
-      </section>
+<h3>Inspect the environment and choose the representation</h3>
 
-      <section id="generation">
-        <p class="section-kicker">05 / generated implementation</p>
-        <h2>How the agent turns the decision into runnable files</h2>
-        <div class="file-grid">
-          <article><code>latency_bench/envs/gymnasium_mujoco.py</code><p>Registers <code>LatencyBench/InvertedPendulumDiscrete-v0</code>. <code>InvertedPendulumDiscreteActionEnv.step()</code> maps policy ID → chosen scalar → native float32 array.</p></article>
-          <article><code>scripts/scaffold_gymnasium_mujoco.py</code><p>Probes the pinned API and emits only a report plus the accepted <code>env</code> block. Constants are visibly named <code>USER_APPROVED_…</code>.</p></article>
-          <article><code>configs/examples/gymnasium/inverted_pendulum/</code><p>The agent—not the scaffold—creates four grouped configs: small-model train/eval, latency-bench eval, and StarVLA eval.</p></article>
-          <article><code>tests/envs/test_gymnasium_mujoco.py</code><p>The agent adds semantic tests for registration, the ID-to-native-force mapping, probe output, and the frozen task contract.</p></article>
-        </div>
-        <details><summary>Wrapper core: a discrete ID becomes the exact native action</summary><pre><code>class InvertedPendulumDiscreteActionEnv(gym.Wrapper):
-    def __init__(..., force_values, ...):
-        env = gym.make(base_env_id, render_mode=render_mode, ...)
-        super().__init__(env)
-        self.force_values = force_values
-        self.action_space = Discrete(len(force_values))
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Environment fact</th><th>Agent adaptation decision</th></tr>
+</thead>
 
-    def step(self, action):
-        force = self.force_values[action]
-        native_action = np.asarray([force], dtype=self.env.action_space.dtype)
-        return self.env.step(native_action)</code></pre></details>
-        <details><summary>Frozen env block shared by all four configs</summary><pre><code>env:
-  name: gymnasium
-  task_name: inverted_pendulum_discrete
-  env_id: LatencyBench/InvertedPendulumDiscrete-v0
-  registration_imports: [latency_bench.envs.gymnasium_mujoco]
-  make_kwargs:
-    base_env_id: InvertedPendulum-v4
-    render_mode: rgb_array
-    force_values: [-3.0, -1.5, 0.0, 1.5, 3.0]
-    base_make_kwargs: {}
-  env_fps: 25
-  obs_fps: 25
-  frame_stack: 1
-  noop_action: zero_force
-  action_map: {push_left_hard: 0, push_left_soft: 1, zero_force: 2,
-               push_right_soft: 3, push_right_hard: 4}
-  action_order: [push_left_hard, push_left_soft, zero_force,
-                 push_right_soft, push_right_hard]
-  base_prompt: Keep the pole upright by applying horizontal cart forces ...</code></pre></details>
-        <details><summary>The four configuration roles</summary><div class="table-wrap"><table><thead><tr><th>Config</th><th>Role</th><th>Artifact it expects or emits</th></tr></thead><tbody>
-        <tr><td><code>small_model_train.yaml</code></td><td>APPO training at fixed L1</td><td><span class="status verified">VERIFIED</span> checkpoint + flattened task contract</td></tr>
-        <tr><td><code>small_model_eval.yaml</code></td><td>checkpoint evaluation</td><td><span class="status verified">VERIFIED</span> ten-episode small-model latency metrics + video</td></tr>
-        <tr><td><code>latency_bench_eval.yaml</code></td><td>environment/scheduler smoke</td><td><span class="status verified">VERIFIED</span> API/parity/L1 evidence</td></tr>
-        <tr><td><code>starvla_eval.yaml</code></td><td>OpenVLA online evaluation</td><td><span class="status notrun">NOT RUN</span> requires checkpoint, saved config, manifest and prompt map</td></tr>
-        </tbody></table></div></details>
-      </section>
+<tbody>
+<tr><td>Native action: one float32 force in [−3, 3]</td><td>Expose five symmetric forces: −3, −1.5, 0, 1.5, 3. Preserve exact native force values when applying the selected action.</td></tr>
 
-      <section id="pipeline">
-        <p class="section-kicker">06 / baseline dataflow</p>
-        <h2>One contract travels through every basic experiment</h2>
-        <figure class="flow-figure">
+<tr><td>Native observation: four float64 values</td><td>Retain cart position, pole angle, cart velocity and pole angular velocity for the small model. The RGB+state VLA also receives these four ordered values.</td></tr>
+
+<tr><td>RGB rendering: HWC uint8, 480×480</td><td>Use one current frame; resize to the saved VLA input size of 224×224. Preserve the unmodified render for API inspection.</td></tr>
+
+<tr><td>One step: frame skip 2 × simulator timestep 0.02 s</td><td>Treat each step as one raw tick. Native training clocks are 25/25 FPS; profile experiments use 10/10 FPS without changing physics or observation stride.</td></tr>
+
+<tr><td>The installed runtime supports InvertedPendulum-v4</td><td>Use the registered task and retain native reset, reward, termination and the 1,000-step TimeLimit.</td></tr>
+
+<tr><td>Delayed actions need an initial action</td><td>Use action ID 2, zero force, before the first result is available; hold the last applied action between updates. Zero force is neutral actuation, not a guarantee of balance.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The five-action discretization is an explicit engineering choice for the categorical policy head, not a property inferred from Box bounds or a claim of continuous-control optimality.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Policy ID</th><th>Action label</th><th>Native force</th></tr>
+</thead>
+
+<tbody>
+<tr><td>0</td><td>push_left_hard</td><td>−3</td></tr>
+
+<tr><td>1</td><td>push_left_soft</td><td>−1.5</td></tr>
+
+<tr><td>2</td><td>zero_force</td><td>0</td></tr>
+
+<tr><td>3</td><td>push_right_soft</td><td>1.5</td></tr>
+
+<tr><td>4</td><td>push_right_hard</td><td>3</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Implement and propagate the contract</h3>
+
+<p><code>LatencyBench/InvertedPendulumDiscrete-v0</code> wraps the native task with <code>Discrete(5)</code>. Its step method converts the selected ID into a one-element native float32 action. The generic Gymnasium adapter imports the registration module and delegates reset and step; Sample Factory adds the action catalog and latency scheduler. The exporter restores the same environment from the checkpoint, and conversion produces a five-class one-hot action carrier, ordered state, manifest and latency prompt map.</p>
+
+<p>The VLA used here is <strong>QwenOFT with Qwen3-VL-4B-Instruct</strong>, stored under the project’s OpenVLA artifact namespace. It consumes RGB plus discretized-text state and predicts one of the five actions. An older RGB-only scratch launcher is not the model trained in these experiments.</p>
+
+<figure class="flow-figure">
           <svg viewBox="0 0 1120 354" role="img" aria-labelledby="flow-title flow-desc">
-            <title id="flow-title">Generic Gymnasium latency-sensitive pipeline</title><desc id="flow-desc">The task contract enters the adapter and reaches small-model training, teacher rollout, LeRobot conversion, OpenVLA SFT, and final evaluation. Contract comparison guards the final VLA evaluation.</desc>
+            <title id="flow-title">Generic Gymnasium latency-sensitive pipeline</title><desc id="flow-desc">The task contract enters the adapter and reaches small-model training, teacher rollout, LeRobot conversion, QwenOFT SFT, and final evaluation. Contract comparison guards the final VLA evaluation.</desc>
             <defs>
-              <marker id="flow-arrow" viewBox="0 0 8 8" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L8 4L0 8Z"/></marker>
-              <marker id="flow-arrow-eval" viewBox="0 0 8 8" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L8 4L0 8Z"/></marker>
+              <marker id="flow-arrow" viewBox="0 0 8 8" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+<path d="M0 0L8 4L0 8Z"/></marker>
+              <marker id="flow-arrow-eval" viewBox="0 0 8 8" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+<path d="M0 0L8 4L0 8Z"/></marker>
             </defs>
 
             <rect class="svg-contract" x="24" y="20" width="1072" height="64" rx="12"/>
@@ -227,7 +101,7 @@
               <rect x="242" y="120" width="184" height="112" rx="10"/>
               <text x="260" y="145" class="svg-stage">02 · POLICY</text>
               <text x="260" y="170" class="svg-title">Small-model RL</text>
-              <text x="260" y="196" class="svg-small">catalog + L1 scheduler</text>
+              <text x="260" y="196" class="svg-small">catalog + delay scheduler</text>
               <text x="260" y="216" class="svg-small">contract checkpoint</text>
             </g>
             <g class="svg-box">
@@ -247,207 +121,301 @@
             <g class="svg-box">
               <rect x="896" y="120" width="184" height="112" rx="10"/>
               <text x="914" y="145" class="svg-stage">05 · VLA</text>
-              <text x="914" y="170" class="svg-title">OpenVLA SFT</text>
-              <text x="914" y="196" class="svg-small">single RGB input</text>
+              <text x="914" y="170" class="svg-title">QwenOFT SFT</text>
+              <text x="914" y="196" class="svg-small">RGB + state input</text>
               <text x="914" y="216" class="svg-small">saved task contract</text>
             </g>
 
-            <path class="flow-arrow" d="M214 176H234"/>
-            <path class="flow-arrow" d="M432 176H452"/>
-            <path class="flow-arrow" d="M650 176H670"/>
-            <path class="flow-arrow" d="M868 176H888"/>
+
+<path class="flow-arrow" d="M214 176H234"/>
+
+<path class="flow-arrow" d="M432 176H452"/>
+
+<path class="flow-arrow" d="M650 176H670"/>
+
+<path class="flow-arrow" d="M868 176H888"/>
 
             <rect class="svg-eval" x="390" y="270" width="340" height="64" rx="10"/>
             <text x="412" y="295" class="svg-stage svg-stage-eval">06 · EVALUATION</text>
             <text x="412" y="319" class="svg-title">Final latency-bench eval</text>
-            <path class="flow-arrow flow-return" d="M988 232V302H738"/>
+
+<path class="flow-arrow flow-return" d="M988 232V302H738"/>
             <text x="846" y="288" text-anchor="middle" class="svg-route-label">load model · verify contract</text>
           </svg>
           <figcaption>Each stage may add its own artifact, but it does not independently redefine actions, timing, or environment construction.</figcaption>
         </figure>
-        <div class="implementation-table">
-          <div><h3>1. Evaluation adapter</h3><p><code>factory.register_env_adapter("gymnasium")</code> selects <code>GymnasiumEnvAdapter</code>. It imports <code>registration_imports</code>, calls <code>gymnasium.make(env_id, **make_kwargs)</code>, passes action values to <code>step()</code>, and adds only benchmark metadata.</p></div>
-          <div><h3>2. RL integration</h3><p><code>training.gymnasium_sf.integration.build_cli_args_from_config()</code> serializes the contract into Sample Factory arguments. <code>make_gymnasium_sf_env()</code> imports registration modules, applies <code>GymnasiumActionCatalogWrapper</code>, then <code>GymnasiumActionLatencyWrapper</code>. <code>EnvClock</code> and <code>ActionScheduler</code> use ID 2 as the configured zero-force no-op.</p></div>
-          <div><h3>3. Teacher handoff</h3><p><code>sf_teacher_config._rollout_task_contract()</code> and <code>_gymnasium_task_metadata()</code> strictly restore the generic task from checkpoint fields. The exporter must not receive <code>--env-name</code>. It would write train/val parquet plus <code>integration_name: gymnasium</code> metadata.</p></div>
-          <div><h3>4. VLA handoff and evaluation</h3><p><code>latency_bench.envs.gymnasium_task.gymnasium_task_contract()</code> materializes all 11 fields. Conversion would write an unpadded five-class one-hot carrier (<code>active_action_dim=5</code>), distinct from the original Box width 1. Generic StarVLA consumes rendered RGB only: <code>include_state=false</code>, so the small model's 4-D observation is not passed as VLA state. <code>_validate_gymnasium_starvla_contract()</code> strictly compares eval YAML, dataset manifest, and saved model config.</p></div>
+
+<p class="evidence-links"><a href="../../../../latency_bench/envs/gymnasium_mujoco.py">Action wrapper</a> · <a href="../../../../latency_bench/envs/gymnasium.py">Gymnasium adapter</a> · <a href="../../../../training/gymnasium_sf/integration.py">RL integration</a> · <a href="../../../gymnasium_adapter.md">Adaptation guide</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/validation/env_block.yaml">Probed environment config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/manifest.json">VLA task manifest</a></p>
+
+<h3>Verify the adaptation</h3>
+
+<p>At seed 123, reset and all five executed steps before termination matched the native task under the same mapped forces: observations, rewards, termination and truncation. The planned sequence contained eight actions. A fixed-L1 scheduler check verified a 40 ms delay at 25 FPS and initial no-op ID 2. The focused generic/MuJoCo test run passed 76 tests with 7 warnings; a broader dependency check had 122 passes and 13 failures from an absent legacy Flappy dependency.</p>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/validation/api_probe.json">API probe</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/fixed_l1_validation/logs/05_inverted_pendulum_api_probe.txt">Probe log</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/validation/scaffold_stdout.txt">Scaffold output</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/validation/zero_latency_parity.json">Parity trace</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/repro_scripts/zero_latency_parity.py">Parity script</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/validation/l1_scheduler_trace.json">L1 scheduler trace</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/repro_scripts/l1_scheduler_trace.py">Scheduler script</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/fixed_l1_validation/logs/03_generic_mujoco_tests.txt">Test log</a> · <a href="https://gymnasium.farama.org/environments/mujoco/inverted_pendulum/">Environment documentation</a></p>
+
+<div class="media-pair">
+
+<figure><img src="assets/media/reset.png" width="480" height="480" loading="lazy" alt="Verified InvertedPendulum RGB frame immediately after reset"><figcaption>Verified reset render: HWC uint8, 480×480.</figcaption></figure>
+
+
+<figure><img src="assets/media/fixed_positive_action.gif" width="480" height="480" loading="lazy" alt="Short verified rendering sequence under a fixed positive force"><figcaption>Verified render sequence under a fixed positive native force. This visualizes the API; it is not a learned policy rollout.</figcaption></figure>
+
         </div>
-        <div id="matrix" class="matrix-block">
-          <h3>Field-by-field propagation matrix</h3>
-          <p>The green columns were exercised in the server run. The gray columns describe implemented handoff code that was not executed for this example.</p>
-          <div class="table-wrap"><table class="matrix">
-            <thead><tr><th>Contract field</th><th>Environment / four YAMLs</th><th>Small-model checkpoint</th><th>Teacher metadata</th><th>LeRobot manifest</th><th>OpenVLA + final eval</th></tr></thead>
-            <tbody>
-              <tr><td><code>task_name</code></td><td class="cell-verified">semantic ID</td><td class="cell-verified"><code>gym_task_name</code></td><td class="cell-notrun"><code>env_name</code> / task</td><td class="cell-notrun"><code>task_name</code></td><td class="cell-notrun">model/live task match</td></tr>
-              <tr><td><code>env_id</code></td><td class="cell-verified">registered wrapper ID</td><td class="cell-verified"><code>gym_env_id</code></td><td class="cell-notrun">checkpoint task copy</td><td class="cell-notrun"><code>gymnasium_task</code></td><td class="cell-notrun">three-way equality</td></tr>
-              <tr><td><code>registration_imports</code></td><td class="cell-verified">imports wrapper module</td><td class="cell-verified">JSON field</td><td class="cell-notrun">re-registers task</td><td class="cell-notrun">manifest field</td><td class="cell-notrun">reconstructs + checks</td></tr>
-              <tr><td><code>make_kwargs</code></td><td class="cell-verified">v4, RGB, five forces</td><td class="cell-verified">JSON field</td><td class="cell-notrun">reconstructs exact env</td><td class="cell-notrun">manifest field</td><td class="cell-notrun">reconstructs + checks</td></tr>
-              <tr><td><code>action_labels</code></td><td class="cell-verified"><code>action_order</code></td><td class="cell-verified">ordered JSON labels</td><td class="cell-notrun">one-hot row meaning</td><td class="cell-notrun">active labels</td><td class="cell-notrun">logit ID → label</td></tr>
-              <tr><td><code>action_values</code></td><td class="cell-verified">catalog IDs 0…4</td><td class="cell-verified">ordered JSON values</td><td class="cell-notrun">row action ID</td><td class="cell-notrun">task contract</td><td class="cell-notrun">label → wrapper ID</td></tr>
-              <tr><td><code>noop_action_id</code></td><td class="cell-verified">zero-force = 2</td><td class="cell-verified"><code>gym_noop_action_id</code></td><td class="cell-notrun">task metadata</td><td class="cell-notrun">task contract</td><td class="cell-notrun">scheduler initialization</td></tr>
-              <tr><td><code>base_prompt</code></td><td class="cell-verified">balance instruction</td><td class="cell-verified"><code>gym_base_prompt</code></td><td class="cell-notrun">per-row prompt basis</td><td class="cell-notrun">prompt map</td><td class="cell-notrun">training + online prompt</td></tr>
-              <tr><td><code>env_fps</code></td><td class="cell-verified">25 raw ticks/s</td><td class="cell-verified">25</td><td class="cell-notrun">clock metadata</td><td class="cell-notrun">task contract</td><td class="cell-notrun">latency conversion</td></tr>
-              <tr><td><code>obs_fps</code></td><td class="cell-verified">25 decisions/s</td><td class="cell-verified">25</td><td class="cell-notrun">decision row rate</td><td class="cell-notrun">FPS / stride</td><td class="cell-notrun">input cadence check</td></tr>
-              <tr><td><code>frame_stack</code></td><td class="cell-verified">1</td><td class="cell-verified">1</td><td class="cell-notrun">one current RGB</td><td class="cell-notrun">image modality</td><td class="cell-notrun">single-image mode</td></tr>
-            </tbody>
-          </table></div>
-          <p class="legend"><span class="legend-verified">VERIFIED on server</span><span class="legend-notrun">implemented path, NOT RUN for this task</span></p>
+
+<details>
+<summary>Additional fixed-L1 adapter validation: training curve and complete rollout</summary>
+
+<p>This separate validation uses fixed L1 (40 ms at 25 FPS), not zero latency. APPO completed 1,015,808 frames at an overall 2,888.1 training FPS. Ten evaluation episodes each reached 1,000 steps: return 1,000 ± 0, mean length 1,000, scheduled latency 40 ms. The full video is episode 6, rendered at 480×480 and 25 FPS for 40 seconds.</p>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/fixed_l1_validation/small_model/config.json">Fixed-L1 config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/fixed_l1_validation/small_model/sf_log.txt">Training log</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/fixed_l1_validation/small_model_eval/queue_eval_latency_1.json">Evaluation JSON</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/adaptation/fixed_l1_validation/logs/10_eval_stdout.txt">Evaluation output</a></p>
+
+<div class="media-gallery">
+
+<figure class="media-wide"><img src="assets/media/training_curve.png" width="1260" height="720" loading="lazy" alt="Training curve derived from the synchronized APPO episode metrics"><figcaption><span class="status verified">VERIFIED</span> APPO episode-return evidence generated from the synchronized training metrics.</figcaption></figure>
+
+
+<figure class="media-wide"><img src="assets/media/eval_episode_contact_sheet.png" width="1600" height="640" loading="lazy" alt="Frames sampled across a complete 40-second small-model evaluation episode"><figcaption><span class="status verified">VERIFIED</span> Contact sheet sampled across one complete 1,000-step, 40-second evaluation episode.</figcaption></figure>
+
+
+<figure class="media-wide"><video controls preload="metadata" poster="assets/media/eval_episode_contact_sheet.png" aria-label="Complete small-model InvertedPendulum evaluation episode"><source src="assets/media/bin_00_episode_000006.mp4" type="video/mp4">Your browser does not support embedded MP4 video. <a href="assets/media/bin_00_episode_000006.mp4">Download the episode video</a>.</video><figcaption><span class="status verified">VERIFIED</span> Full episode 6: H.264, 480×480, 25 FPS, 40 seconds. This is a small-model evaluation, not a VLA rollout.</figcaption></figure>
+
         </div>
-      </section>
+</details>
+</section>
 
-      <section id="commands">
-        <p class="section-kicker">07 / command ledger</p>
-        <h2>Exact server commands, generated artifacts, and status</h2>
-        <p>Every <strong>VERIFIED</strong> block below is the command the agent actually ran on <code>vast-5090</code>; it also serves as the user's reproducible runbook. The two <strong>NOT RUN</strong> blocks are user-facing next-stage commands only and must not be read as execution evidence.</p>
-        <div class="server-card"><span class="status verified">VERIFIED SERVER</span><p><strong>vast-5090:</strong> Ubuntu container, Python 3.12.13, NVIDIA GeForce RTX 5090 (32,607 MiB), driver 590.48.01, Torch 2.11.0+cu128, Gymnasium 0.29.1, MuJoCo 3.3.7, Sample Factory 2.1.1. The project virtual environment occupied 7.4 GiB. Headless MuJoCo rendering used EGL, so every probe/train/eval command was prefixed with <code>MUJOCO_GL=egl</code>.</p></div>
-        <details><summary>0. Recorded server setup — VERIFIED</summary><pre><code># The server had no Conda. /venv/main supplied Python 3.12.13.
-source /venv/main/bin/activate
+<section id="zero-small">
+<p class="section-kicker">02 / Zero-latency small model training &amp; evaluation</p>
 
-# Public GitHub clone required authentication in this session, so the clean
-# experiment checkout was made from an existing server checkout.
-git clone --local --no-hardlinks \
-  /workspace/latency-sensitive-bench /workspace/gym-adapt-mujoco-5090
-cd /workspace/gym-adapt-mujoco-5090
-git checkout gym-adapt
-git submodule update --init third_party/sample-factory
+<h2>Zero-latency small model training &amp; evaluation</h2>
 
-uv venv --python /venv/main/bin/python .venv
-source .venv/bin/activate
-uv pip install torch --index-url https://download.pytorch.org/whl/cu128
-uv pip install -e '.[dev]' -e third_party/sample-factory \
-  'gymnasium[mujoco]==0.29.1' 'mujoco==3.3.7' imageio
-uv pip check</code></pre><p><code>uv pip check</code> reported 112 compatible packages. The local checkout command is retained as evidence of the original run; release users should clone the published repository and select the release ref.</p></details>
-        <details><summary>1. Probe, generated env block, parity, L1 trace, and tests — VERIFIED</summary><pre><code>MUJOCO_GL=egl .venv/bin/python scripts/scaffold_gymnasium_mujoco.py \
-  --base-env-id InvertedPendulum-v4 \
-  --render-mode rgb_array \
-  --report-path artifacts/inverted_pendulum/api_probe.json \
-  --env-yaml-path artifacts/inverted_pendulum/env_block.yaml
+<p>Train the state-based categorical policy with zero injected latency at 25/25 FPS. The original 1M-frame budget completed at 1,015,808 frames. Best-reward selection chose the checkpoint at 581,632 frames with training reward statistic 1,000; this statistic is not an independent evaluation mean.</p>
 
-MUJOCO_GL=egl .venv/bin/python \
-  artifacts/inverted_pendulum/repro_scripts/zero_latency_parity.py
-MUJOCO_GL=egl .venv/bin/python \
-  artifacts/inverted_pendulum/repro_scripts/l1_scheduler_trace.py
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Training field</th><th>Value</th></tr>
+</thead>
 
-# Focused reproduction selection. The exact server subset command was not
-# retained; the server's preserved result log is linked below.
-MUJOCO_GL=egl .venv/bin/python -m pytest -q \
-  tests/envs/test_gymnasium_env_adapter.py \
-  tests/envs/test_gymnasium_mujoco.py \
-  tests/training/test_gymnasium_sf.py \
-  tests/data/test_generic_gymnasium_teacher_export.py \
-  tests/policies/test_generic_gymnasium_starvla_policy.py</code></pre><p>Preserved server result: <strong>76 passed</strong> with 7 upstream deprecation warnings in 5.52 s for the generic/MuJoCo subset. An earlier broader focused run reported 122 passes and 13 failures caused by the absent legacy Flappy dependency; it is not presented as a generic-path failure. The zero-latency parity trace reported exact equality; the L1 trace verified one-raw-frame delayed application.</p></details>
-        <details open><summary>2. Complete fixed-L1 APPO training — VERIFIED</summary><pre><code>MUJOCO_GL=egl .venv/bin/python -m training.train \
-  --config configs/examples/gymnasium/inverted_pendulum/small_model_train.yaml</code></pre><p>Result: <strong>1,015,808 collected environment frames</strong> at an overall <strong>2,888.1 FPS</strong>. The final checkpoint is:</p><pre><code>outputs/examples/gymnasium_inverted_pendulum/checkpoints/
-gymnasium_inverted_pendulum_discrete_fixed_l1/checkpoint_p0/
-checkpoint_000001984_1015808.pth</code></pre><p>The synchronized <a href="assets/inverted_pendulum/small_model/config.json">Sample Factory config</a> records the flattened environment, action, no-op, prompt, timing and latency fields.</p></details>
-        <details open><summary>3. Ten-episode fixed-L1 small-model evaluation — VERIFIED</summary><pre><code>MUJOCO_GL=egl .venv/bin/python -m latency_bench.run \
-  --config configs/examples/gymnasium/inverted_pendulum/small_model_eval.yaml \
-  --checkpoint-path outputs/examples/gymnasium_inverted_pendulum/checkpoints/\
-gymnasium_inverted_pendulum_discrete_fixed_l1/checkpoint_p0/\
-checkpoint_000001984_1015808.pth \
-  --episode-count 10</code></pre><p>Result: all 10 episodes reached the v4 time limit of 1,000 steps with return 1,000; summary mean return 1,000.0, standard deviation 0.0, mean length 1,000.0, and measured scheduled latency 40 ms. This is evidence that the pipeline ran; it is not a broad policy-quality or continuous-control optimality claim.</p></details>
-        <details><summary>4. Teacher rollout and LeRobot conversion — NOT RUN in this tutorial</summary><pre><code>conda activate latency
-python scripts/rollout_data/export_sf_teacher_dataset.py \
-  --checkpoint-root outputs/examples/gymnasium_inverted_pendulum/checkpoints/\
-gymnasium_inverted_pendulum_discrete_fixed_l1 \
-  --output-dir outputs/examples/gymnasium_inverted_pendulum/teacher_fixed_l1 \
-  --max-episodes 200 --max-steps-per-episode 1000 \
-  --val-fraction 0.1 --num-envs 1 --replay-num-envs 1 \
-  --device cuda --deterministic --filter-preset none \
-  --context-window 1 --export-image-size 224,224
+<tbody>
+<tr><td>Algorithm / network</td><td>APPO · MLP 512×512 · no RNN</td></tr>
 
-python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
-  outputs/examples/gymnasium_inverted_pendulum/teacher_fixed_l1 \
-  third_party/starVLA/playground/Datasets/rl_games \
-  inverted_pendulum_discrete_fixed_l1 --action-carrier native</code></pre><p><strong>Do not pass <code>--env-name</code> for a Gymnasium checkpoint.</strong> The exporter reads the semantic task identity from the checkpoint contract and rejects relabeling. Expected—but absent—artifacts are <code>train.parquet</code>, <code>val.parquet</code>, paired LeRobot datasets, manifests, a latency prompt map, and a generated train/validation mixture. Here, <code>--action-carrier native</code> means an unpadded five-way categorical carrier (<code>active_action_dim=5</code>), not the original one-dimensional continuous Box vector.</p></details>
-        <details><summary>5. Basic OpenVLA SFT and final evaluation — NOT RUN in this tutorial</summary><pre><code>cd third_party/starVLA
-conda activate starvla_rl_games_openvla
-WANDB_MODE=disabled WANDB_ENTITY=disabled WANDB_PROJECT=starvla_inverted_pendulum \
-bash commands/openvla/train_gymnasium_openvla.sh \
-  playground/Datasets/rl_games inverted_pendulum_discrete_fixed_l1 \
-  playground/Datasets/rl_games/_generated_mixtures/inverted_pendulum_discrete_fixed_l1.json
+<tr><td>Training seed / budget</td><td>0 / 1,000,000 target frames</td></tr>
 
-cd ../..
-python -m latency_bench.run \
-  --config configs/examples/gymnasium/inverted_pendulum/starvla_eval.yaml \
-  --checkpoint-path &lt;model.safetensors&gt; \
-  --model-config-path &lt;config.full.yaml&gt; \
-  --task-manifest-path &lt;manifest.json&gt; \
-  --latency-prompt-map-path &lt;latency_prompt_map.json&gt; \
-  --latency-raw-frames 1 --episode-start 0 --episode-count 20</code></pre><p>The launcher fixes the supported initial path: OpenVLA, scratch initialization, one current RGB image, an unpadded five-way categorical carrier, no KV memory, and no StarVLA online env evaluation during SFT. No checkpoint or VLA evaluation result exists for this demonstration.</p></details>
-      </section>
+<tr><td>Sampling</td><td>1 worker × 16 environments · rollout 64</td></tr>
 
-      <section id="evidence">
-        <p class="section-kicker">08 / evidence ledger</p>
-        <h2>Server evidence synchronized into this release</h2>
-        <div class="evidence-ledger">
-          <article><span class="status verified">VERIFIED</span><h3>Probe</h3><p>Gym 0.29.1 / MuJoCo 3.3.7, spaces, dt, render and v5 failure.</p><p><a href="assets/inverted_pendulum/api_probe.json">API JSON</a> · <a href="assets/inverted_pendulum/logs/05_inverted_pendulum_api_probe.txt">probe log</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Zero-latency parity</h3><p>Seed 123; reset and all five steps executed before termination matched exactly. The planned trace contained eight actions.</p><p><a href="assets/inverted_pendulum/zero_latency_parity.json">parity JSON</a> · <a href="assets/inverted_pendulum/repro_scripts/zero_latency_parity.py">reproduction script</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Fixed L1 scheduler</h3><p>40 ms at 25 Hz = one raw frame; first applied action is no-op ID 2.</p><p><a href="assets/inverted_pendulum/l1_scheduler_trace.json">scheduler trace</a> · <a href="assets/inverted_pendulum/repro_scripts/l1_scheduler_trace.py">reproduction script</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Tests</h3><p>76 passed, 7 warnings, 5.52 seconds.</p><p><a href="assets/inverted_pendulum/logs/03_generic_mujoco_tests.txt">pytest log</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>APPO training</h3><p>1,015,808 frames; 2,888.1 overall FPS; final checkpoint saved.</p><p><a href="assets/inverted_pendulum/small_model/sf_log.txt">training log</a> · <a href="assets/inverted_pendulum/small_model/config.json">resolved config</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Small-model evaluation</h3><p>10 × 1,000 steps, return 1,000 each, scheduled latency 40 ms.</p><p><a href="assets/inverted_pendulum/small_model_eval/queue_eval_latency_1.json">summary JSON</a> · <a href="assets/inverted_pendulum/logs/10_eval_stdout.txt">stdout</a></p></article>
-        </div>
-        <div class="media-gallery">
-          <figure class="media-wide"><img src="assets/inverted_pendulum/training_curve.png" width="1260" height="720" loading="lazy" alt="Training curve derived from the synchronized APPO episode metrics"><figcaption><span class="status verified">VERIFIED</span> APPO episode-return evidence generated from the synchronized training metrics.</figcaption></figure>
-          <figure class="media-wide"><img src="assets/inverted_pendulum/eval_episode_contact_sheet.png" width="1600" height="640" loading="lazy" alt="Frames sampled across a complete 40-second small-model evaluation episode"><figcaption><span class="status verified">VERIFIED</span> Contact sheet sampled across one complete 1,000-step, 40-second evaluation episode.</figcaption></figure>
-          <figure class="media-wide"><video controls preload="metadata" poster="assets/inverted_pendulum/eval_episode_contact_sheet.png" aria-label="Complete small-model InvertedPendulum evaluation episode"><source src="assets/inverted_pendulum/small_model_eval/videos/bin_00_episode_000006.mp4" type="video/mp4">Your browser does not support embedded MP4 video. <a href="assets/inverted_pendulum/small_model_eval/videos/bin_00_episode_000006.mp4">Download the episode video</a>.</video><figcaption><span class="status verified">VERIFIED</span> Full episode 6: H.264, 480×480, 25 FPS, 40 seconds. This is a small-model evaluation, not a VLA rollout.</figcaption></figure>
-        </div>
-        <div class="callout warning"><strong>Still NOT RUN:</strong> teacher rollout, train/validation parquet export, LeRobot conversion, OpenVLA SFT, and StarVLA online evaluation. Consequently, this example has no teacher dataset, converted dataset manifest, OpenVLA checkpoint, VLA rollout, or VLA metric. The later-stage commands document the implemented baseline path only.</div>
-      </section>
+<tr><td>Batch / learning rate</td><td>1,024 / 0.000303</td></tr>
 
-      <section id="boundaries">
-        <p class="section-kicker">09 / separation and support boundary</p>
-        <h2>The generic path is additive; legacy paths retain their own behavior</h2>
-        <p><code>env.name: gymnasium</code> is registered separately in <code>latency_bench.envs.factory</code>. Flappy Bird, Demon Attack, and Deadly Corridor retain their existing dedicated builders and training integrations. The generic project does not rewrite their action mappings, preprocessing, raw clocks, data exporters, or StarVLA configurations.</p>
-        <p>The measured relation <code>L1 = 40 ms</code> is specific to this accepted v4 clock (<code>env_fps=25</code>). A different Gymnasium task must probe and approve its own raw-tick meaning and rate; the agent must not copy 40 ms from this example.</p>
-        <div class="two-col"><div class="callout success"><strong>Supported baseline path:</strong> Gymnasium five-value API; finite, ordered JSON-stable policy catalog; Sample Factory-compatible observation; <code>rgb_array</code> HWC render; one documented raw <code>step()</code>. A task-owned wrapper is the normal bridge when native actions are not JSON-stable.</div><div class="callout warning"><strong>Not a first-release claim:</strong> native continuous OpenVLA actions, automatic discretization, <code>MultiDiscrete</code>/<code>MultiBinary</code> generic VLA heads, policy frame stacks/RNN/memory experiments, generic GPU batched rendering, or multi-image/VLA variants.</div></div>
-      </section>
+<tr><td>Observation / action</td><td>4D native state / five force IDs</td></tr>
 
-      <section id="delivery">
-        <p class="section-kicker">10 / required agent deliverable</p>
-        <h2>A new adaptation must end with an equally transparent report</h2>
-        <p>Code generation is only part of an agent-assisted adaptation. The agent should create a self-contained report at <code>docs/gym-adapt/gymnasium/&lt;task_name&gt;/index.html</code>, link it from <code>docs/gym-adapt/gymnasium/README.md</code>, reuse this page's information hierarchy and styles, and store curated evidence inside the task directory. Existing reports must not be overwritten. Large checkpoints and raw experiment directories remain in ignored local or external storage.</p>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Required report section</th><th>What the user must be able to verify</th></tr></thead>
-          <tbody>
-            <tr><td>Scope and status</td><td>Pinned package/env ID, objective, latency, support boundary, and a truthful stage-by-stage summary.</td></tr>
-            <tr><td>Facts and decisions</td><td>Exact API observations, every question asked, the user's answers, and which values were proposals versus approved choices.</td></tr>
-            <tr><td>Frozen contract and generated files</td><td>The complete resolved environment contract, wrapper/registration, four configs, tests, and policy-ID-to-native-action mapping.</td></tr>
-            <tr><td>Pipeline propagation</td><td>How each field enters the adapter, small-model checkpoint, teacher metadata, LeRobot manifest, StarVLA config, and final validation.</td></tr>
-            <tr><td>Commands and evidence</td><td>Exact commands, runtime, paths, exit status, logs, traces, metrics, images/video, manifests, and checkpoints that actually exist.</td></tr>
-            <tr><td>Continuation runbook</td><td>The first unexecuted stage and all remaining basic rollout, conversion, OpenVLA SFT, and latency-bench eval commands with task-specific paths.</td></tr>
-            <tr><td>Isolation and limitations</td><td>Legacy regression status, blockers, unsupported modes, and claims the smoke run does not establish.</td></tr>
-          </tbody>
-        </table></div>
-        <div class="callout warning"><strong>Status is evidence-backed:</strong> use <code>VERIFIED</code> only when the linked artifact supports the claim; use <code>NOT RUN</code> for documented future commands; use <code>BLOCKED</code> with the exact blocker. Never place an expected artifact in the evidence ledger as though it was produced.</div>
-      </section>
+<tr><td>Latency / clock</td><td>Zero injected latency / 25 FPS environment and observations</td></tr>
+</tbody>
+</table>
+</div>
 
-      <section id="prompt">
-        <p class="section-kicker">11 / start an agent-assisted adaptation</p>
-        <h2>Give an agent this prompt plus the existing adaptation guide</h2>
-        <p>For a different Gymnasium environment, replace only the bracketed fields. The agent should first report API facts and unanswered scientific choices, then wait for answers before registering a wrapper or freezing configs.</p>
-        <pre class="prompt"><code>Read docs/gymnasium_adapter.md and docs/gym-adapt/gymnasium/README.md. Adapt [ENV_ID] from
-[PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate
-env.name=gymnasium path. My task objective is: [OBJECTIVE]. Target latency is
-[LATENCY]. Please first probe the exact Gymnasium API and report: constructor
-arguments, action/observation spaces, reset/step/render behavior, native timing,
-and anything you cannot infer. Ask me to decide any action catalog/order/no-op,
-raw-tick meaning, preprocessing, reward/termination policy, prompt, and budgets.
-After I answer, create a task-owned wrapper only if needed; generate grouped
-small-model train/eval, latency-bench eval, and StarVLA eval configs; preserve
-the resulting task contract across checkpoint, rollout, conversion, SFT, and
-final eval; run parity/compatibility tests; and keep every legacy environment
-path untouched. Record commands, generated files, artifact paths, and which
-stages were actually run. Create a self-contained adaptation report such as
-docs/gym-adapt/gymnasium/[TASK_NAME]/index.html that follows the worked examples.
-Separate API facts from my decisions, show the frozen contract and generated
-files, document the pipeline consumers, preserve exact commands and evidence,
-explain how I can continue rollout/SFT/eval, and mark every stage VERIFIED,
-NOT RUN, or BLOCKED.
-Do not invent results.</code></pre>
-      </section>
-    </main>
-  </div>
-  <footer><p>Gym Adapt · worked adaptation, user continuation runbook, and agent delivery template · <a href="../../../gymnasium_adapter.md">normative adaptation guide</a></p></footer>
-</body>
-</html>
+<h3>Rollout quality evidence</h3>
+
+<p>The saved teacher supplied 100 accepted episodes from 100 attempts under the strict return &gt;900 gate. All 100 reached 1,000 raw steps, producing 100,000 decision rows. This is exporter quality evidence, not an independent held-out small-model evaluation. A separate L0 small-model evaluation summary is not present in the synchronized evidence; the fixed-L1 validation above must not be substituted for it.</p>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/config.json">Resolved L0 teacher config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/inverted_pendulum_l0_small_model_train.yaml">L0 training YAML</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_records/small_train.log">Complete L0 training log</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/metadata.json">Original teacher rollout metadata</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/provenance/execution/baseline_contract.json">Source training contract</a></p>
+</section>
+
+<section id="zero-vla">
+<p class="section-kicker">03 / Zero-latency VLA training &amp; evaluation</p>
+
+<h2>Zero-latency VLA training &amp; evaluation</h2>
+
+<p>Convert the teacher demonstrations to native five-class LeRobot actions with one 224×224 RGB frame and four ordered state values. The dataset contains 100 episodes / 100,000 rows, split into 90,000 training and 10,000 validation rows. All accepted returns are strictly above 900.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Training field</th><th>Value</th></tr>
+</thead>
+
+<tbody>
+<tr><td>Model / state encoding</td><td>QwenOFT · Qwen3-VL-4B-Instruct · discretized-text state</td></tr>
+
+<tr><td>Objective</td><td>Five-class discrete cross-entropy</td></tr>
+
+<tr><td>Training steps / seed</td><td>2,000 / 42</td></tr>
+
+<tr><td>Batch / accumulation</td><td>8 × 2 = 16 effective samples</td></tr>
+
+<tr><td>Optimizer / schedule</td><td>AdamW · cosine decay · 100 warmup steps</td></tr>
+
+<tr><td>Held-out validation</td><td>Every 500 steps · 200 batches</td></tr>
+
+<tr><td>Training latency / clocks</td><td>Zero / 25 FPS environment and observations</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Fixed-latency evaluation of the trained VLA</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Evaluation latency</th><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Full horizon</th></tr>
+</thead>
+
+<tbody>
+<tr><td>L0 · 0 ms</td><td>20</td><td>707.15 ± 357.20</td><td>707.15</td><td>11/20</td></tr>
+
+<tr><td>L2 · 80 ms</td><td>20</td><td>15.45 ± 4.41</td><td>15.45</td><td>0/20</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The saved post-training evaluation uses a 1,000-step cap, 224×224 input and configured evaluation seed 42. Individual seed values are null in the archived JSON, so an exact per-seed pairing is not claimed. These fixed-latency results are separate from the measured realtime baseline below.</p>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_records/vla_eval.json">Original L0/L2 evaluation JSON</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/config.full.yaml">Complete VLA training and evaluation config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/manifest.json">Dataset manifest</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/dataset_statistics.json">Normalization statistics</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/latency_prompt_map.json">Latency prompt map</a></p>
+</section>
+
+<section id="profiling">
+<p class="section-kicker">04 / Profiling</p>
+
+<h2>Profiling</h2>
+
+<p>Profile the zero-latency VLA on RTX 3090 at 10/10 FPS with one inference worker, 224×224 RGB and four state values. Use five sessions × ten episodes, seeds 42–51 in each session, a 600-raw-step cap and natural termination. OSMesa rendering and spawn-based environment processes are used throughout measured evaluation.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Samples admitted / attempted</th><th>Capacity drops</th><th>Mean ± std</th><th>P50 / P95 / P99</th><th>Maximum</th></tr>
+</thead>
+
+<tbody>
+<tr><td>984 / 985</td><td>1 (0.102%)</td><td>67.09 ± 3.35 ms</td><td>67.23 / 71.26 / 74.64 ms</td><td>105.25 ms</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Measure observation-to-action latency, including extraction, IPC, preprocessing, inference and decoding. Exclude warmup. One of 984 admitted samples exceeded the 100 ms raw tick; dropped observations receive no fabricated latency. Repeated sessions characterize latency, not independent training seeds.</p>
+
+<figure class="media-wide"><img src="assets/media/latency_profile.png" loading="lazy" alt="RTX 3090 latency distribution at 10 FPS"><figcaption>Measured observation-to-action distribution from five profiling sessions.</figcaption></figure>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/provenance/report_sources/profile_b33ba9913c.json">Immutable profile</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/provenance/report_sources/latency_distribution_ea2d1a200e.json">IID distribution</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/provenance/report_sources/latency_burst_model_9c21048f21.json">Burst model</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/provenance/pipeline/3090/P.validation.json">Profiling validation</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/provenance/execution/P.upload.json">Profile publication receipt</a></p>
+</section>
+
+<section id="baseline-vla">
+<p class="section-kicker">05 / Baseline VLA evaluation</p>
+
+<h2>Baseline VLA evaluation</h2>
+
+<p>Evaluate the same zero-latency-trained VLA under measured realtime execution. No profile delay is added on top of measured latency. This establishes the comparison for the profile-trained VLA.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Episodes / seeds</th><th>Clocks</th><th>Return mean ± std</th><th>Mean steps</th><th>Latency mean / P95</th></tr>
+</thead>
+
+<tbody>
+<tr><td>20 / 42–61</td><td>10 / 10 FPS</td><td>19.80 ± 6.21</td><td>19.80</td><td>67.22 / 71.28 ms</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The 1,000-step horizon, RGB/state/action contract and renderer are held constant for the final comparison. There were 394 admitted observations out of 396, two capacity drops and no invalid actions.</p>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/baseline_OpenVLA/evaluation/summary.json">Baseline summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/baseline_OpenVLA/evaluation/traces/episode_metrics.jsonl">Per-episode results</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/baseline_OpenVLA/evaluation/traces/observation_attempts.jsonl">Canonical latency records</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/baseline_OpenVLA/evaluation/records/B.yaml">Resolved evaluation config</a></p>
+</section>
+
+<section id="profile-small">
+<p class="section-kicker">06 / Profile-latency small model training &amp; evaluation</p>
+
+<h2>Profile-latency small model training &amp; evaluation</h2>
+
+<p>Retrain the small model from the original initialization with the measured IID latency distribution and 10/10 FPS clocks. Preserve the 1M-frame target, APPO optimizer, network, batch and sampling recipe; training seed 0 is unchanged. Independent evaluation uses configuration seed 42. Training completed 1,015,808 frames. Best-reward selection chose the checkpoint at 974,848 frames, with training statistic 586.690.</p>
+
+<h3>Independent simulated evaluation</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Episodes / actual seeds</th><th>Return mean ± std</th><th>Mean steps</th><th>Pass return &gt;900</th><th>Sampled latency mean / P95</th></tr>
+</thead>
+
+<tbody>
+<tr><td>10 / 104771–104780</td><td>791.90 ± 280.04</td><td>791.90</td><td>6/10</td><td>67.09 / 71.26 ms</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Evaluation uses a simulated one-worker inference pool with capacity 1 and a 1,000-step cap. It admitted 7,914 observations, dropped five, and recorded no invalid actions. Training and exporter inject action-delay IID only; evaluation additionally models worker occupancy and capacity drops. The strict data gate remains &gt;900.</p>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/small_model/training/small_selection.json">Checkpoint selection</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/small_model/training/small_upload.json">Complete teacher publication</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/small_model/evaluation/summary.json">Evaluation summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/small_model/evaluation/traces/episode_metrics.jsonl">Per-episode results</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/small_model/evaluation/records/E.yaml">Resolved evaluation config</a></p>
+
+<details>
+<summary>IID sampler correction and data validation</summary>
+
+<p>The exporter override previously mapped IID to temporal sampling. The corrected export preserves IID; profiling, baseline, training and independent evaluation remain valid. Failed probe/data evidence is retained, but was not used for VLA training. Every materialized trajectory passed the strict return gate and matched its accepted probe record.</p>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/provenance/pipeline/iid_override_fix.md">Sampler correction and validation</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/demonstrations/validation/materialized_data_validation.json">Actual episode audit</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/demonstrations/validation/replay_quality_audit.json">Replay quality audit</a></p>
+</details>
+</section>
+
+<section id="profile-vla">
+<p class="section-kicker">07 / Profile-latency VLA training &amp; evaluation</p>
+
+<h2>Profile-latency VLA training &amp; evaluation</h2>
+<span id="profile-latency-new-10"></span>
+<p>Train the VLA on corrected profile-latency demonstrations, retaining the zero-latency model’s architecture and 2,000-step recipe. The 100 accepted episodes contain 99,333 rows: 89,398 training rows and 9,935 validation rows across a 90/10 episode split. Every actual return exceeds 900 (minimum 912; mean 993.33), and materialized rows match the accepted probe records.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Training field</th><th>Value</th></tr>
+</thead>
+
+<tbody>
+<tr><td>Input / action</td><td>224×224 RGB + four state values / five-class categorical</td></tr>
+
+<tr><td>Steps / batch / seed</td><td>2,000 / 8 × 2 accumulation / 42</td></tr>
+
+<tr><td>Loss / held-out loss</td><td>Cross-entropy · final train 0.000365 · validation 0.05910</td></tr>
+
+<tr><td>Validation / completion</td><td>Every 500 steps · 200 batches · exit 0</td></tr>
+
+<tr><td>Artifacts</td><td>Corrected raw and converted data verified; complete final model bundle verified (22 files)</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Matched realtime evaluation</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Model</th><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Latency mean / P95</th></tr>
+</thead>
+
+<tbody>
+<tr><td>Zero-latency-trained VLA</td><td>20</td><td>19.80 ± 6.21</td><td>19.80</td><td>67.22 / 71.28 ms</td></tr>
+
+<tr><td>Profile-latency-trained VLA</td><td>20</td><td>586.85 ± 457.53</td><td>586.85</td><td>67.22 / 70.00 ms</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Both evaluations use seeds 42–61, 10/10 FPS and a 1,000-step cap. The profile-trained VLA reached the full horizon in 11/20 episodes. It admitted 11,736 of 11,737 observations, with one capacity drop and no invalid or dropped actions. The new bundle uses trained prompt key 1 (100 ms). The gain in mean return is 567.05; variability remains high and the result covers one training run.</p>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/summary.json">Final evaluation summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/traces/episode_metrics.jsonl">Per-episode results</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/traces/observation_attempts.jsonl">Canonical latency records</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/records/F.yaml">Final evaluation config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/training/vla_completion.json">Training completion and losses</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/demonstrations/validation/materialized_data_validation.json">Dataset audit</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/provenance/execution/data.upload.json">Dataset publication</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/training/vla.upload.json">Model publication</a> · <a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/2l05j32i">W&B training record</a> · <a href="https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/inverted_pendulum/profile_latency/OpenVLA">Complete model bundle</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/provenance/pipeline/status.md">Complete experiment evidence</a></p>
+
+<h3>Realtime policy demonstration</h3>
+
+<p>A separately recorded demonstration uses selected seed 43: return 1,000 over 1,000 steps at 10 FPS, with no observation drops or invalid actions. This selected success illustrates behavior and is not another statistical evaluation. Its measured latency is 66.81 ms mean / 69.69 ms P95.</p>
+
+<div class="media-gallery">
+<figure><video controls preload="metadata" poster="assets/media/first.png" aria-label="Profile-trained VLA realtime demonstration"><source src="assets/media/bin_00_episode_000000.mp4" type="video/mp4"><a href="assets/media/bin_00_episode_000000.mp4">Download VLA demonstration</a></video><figcaption>Profile-trained VLA, selected seed 43. Full 1,000-step episode; recorded actions were replay-verified.</figcaption></figure>
+</div>
+
+<p class="evidence-links"><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/demonstration/summary.json">Demonstration metrics</a> · <a href="assets/media/first.png">First frame</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/demonstration/middle.png">Middle frame</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/demonstration/last.png">Final frame</a></p>
+</section>
+</main>
+</div>
+
+<footer><p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum">Complete experiment archive on Hugging Face</a> · <a href="assets/standard_pipeline.json">Archive verification receipt</a>. Only raw demonstrations are distributed; conversion runs on the training server.</p>
+<p>InvertedPendulum · experiment report · <a href="../../../gymnasium_adapter.md">Adaptation guide</a></p>
+</footer>
+</body></html>

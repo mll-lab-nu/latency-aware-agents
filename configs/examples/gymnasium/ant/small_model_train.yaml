@@ -1,5 +1,5 @@
 experiment:
-  name: gymnasium_ant_rgb_state_zero_latency_10m
+  name: gymnasium_ant_zero_latency_10m
   seed: 2222
 
 backend:
@@ -15,7 +15,7 @@ executor:
 
 env:
   name: gymnasium
-  task_name: ant_rgb_state
+  task_name: ant
   env_id: LatencyBench/AntContinuous-v0
   registration_imports: [latency_bench.envs.gymnasium_ant]
   make_kwargs:

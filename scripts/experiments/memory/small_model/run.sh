@@ -13,6 +13,10 @@ SPECS=(
   configs/experiments/memory/small_model/deadly_corridor.yaml
   configs/experiments/memory/small_model/asterix_zero_latency.yaml
   configs/experiments/memory/small_model/atlantis_zero_latency.yaml
+  configs/experiments/memory/small_model/asterix_latency_024.yaml
+  configs/experiments/memory/small_model/atlantis_latency_024.yaml
+  configs/experiments/memory/small_model/air_raid_latency_024.yaml
+  configs/experiments/memory/small_model/defend_the_line_latency_024.yaml
 )
 TRAIN_MANIFESTS=(
   configs/train/memory/small_model/flappy/extended/manifest.tsv
@@ -20,6 +24,10 @@ TRAIN_MANIFESTS=(
   configs/train/memory/small_model/deadly_corridor/manifest.tsv
   configs/train/memory/small_model/asterix/zero_latency/manifest.tsv
   configs/train/memory/small_model/atlantis/zero_latency/manifest.tsv
+  configs/train/memory/small_model/asterix/latency_024/manifest.tsv
+  configs/train/memory/small_model/atlantis/latency_024/manifest.tsv
+  configs/train/memory/small_model/air_raid/latency_024/manifest.tsv
+  configs/train/memory/small_model/defend_the_line/latency_024/manifest.tsv
 )
 EVAL_MANIFESTS=(
   configs/train/memory/small_model/flappy/capped/manifest.tsv
@@ -29,6 +37,10 @@ EVAL_MANIFESTS=(
   configs/train/memory/small_model/deadly_corridor/manifest.tsv
   configs/train/memory/small_model/asterix/zero_latency/manifest.tsv
   configs/train/memory/small_model/atlantis/zero_latency/manifest.tsv
+  configs/train/memory/small_model/asterix/latency_024/manifest.tsv
+  configs/train/memory/small_model/atlantis/latency_024/manifest.tsv
+  configs/train/memory/small_model/air_raid/latency_024/manifest.tsv
+  configs/train/memory/small_model/defend_the_line/latency_024/manifest.tsv
 )
 RESULTS_ROOT="outputs/memory/small_model"
 PAPER_DIR="paper/latency-sensitive-vla/exps/memory/small_model"
@@ -45,7 +57,7 @@ Usage:
   run.sh build-data [--results-root PATH] [--output PATH]
   run.sh plot [--data PATH] [--output-dir PATH]
   run.sh published-plot --results-root PATH [--output-dir PATH]
-  run.sh all --gpus CSV [--upload-workers N] [--max-upload-attempts N]
+  run.sh all --gpus CSV [--match TEXT] [--upload-workers N] [--max-upload-attempts N]
 EOF
 }
 
@@ -235,11 +247,13 @@ case "${command}" in
     ;;
   all)
     gpus=""
+    match=""
     upload_workers=2
     max_upload_attempts=3
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --gpus) gpus="$2"; shift 2 ;;
+        --match) match="$2"; shift 2 ;;
         --upload-workers) upload_workers="$2"; shift 2 ;;
         --max-upload-attempts) max_upload_attempts="$2"; shift 2 ;;
         *) usage; exit 2 ;;
@@ -249,12 +263,12 @@ case "${command}" in
       usage
       exit 2
     fi
-    generate_configs "" ""
-    run_compute_stage train "${gpus}" "" false "${TRAIN_MANIFESTS[@]}"
-    run_compute_stage eval "${gpus}" "" false "${EVAL_MANIFESTS[@]}"
+    generate_configs "" "${match}"
+    run_compute_stage train "${gpus}" "${match}" false "${TRAIN_MANIFESTS[@]}"
+    run_compute_stage eval "${gpus}" "${match}" false "${EVAL_MANIFESTS[@]}"
     build_local_data "${RESULTS_ROOT}" "${PAPER_OUTPUT_DIR}/data.csv"
     plot_data "${PAPER_OUTPUT_DIR}/data.csv" "${PAPER_FIGURE_DIR}"
-    run_upload_stage "" "${upload_workers}" "${max_upload_attempts}" false
+    run_upload_stage "${match}" "${upload_workers}" "${max_upload_attempts}" false
     ;;
   *)
     usage

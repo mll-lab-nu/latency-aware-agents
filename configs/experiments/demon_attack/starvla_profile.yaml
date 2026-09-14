@@ -1,0 +1,57 @@
+__base__:
+  - ../../base/demon_attack.yaml
+
+experiment:
+  name: starvla_demon_attack_profile
+  seed: 42
+
+backend:
+  run_mode: eval
+
+executor:
+  mode: simulated
+
+env:
+  env_fps: 60
+  obs_fps: 15
+  frame_stack: 4
+  obs_resize: [224, 224]
+  clip_reward: false
+
+policy:
+  type: starvla
+  checkpoint_path: ""
+  model_config_path: ""
+  device: cuda
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  actions:
+    - NOOP
+    - FIRE
+    - RIGHT
+    - LEFT
+    - RIGHTFIRE
+    - LEFTFIRE
+
+latency:
+  method: measured
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_raw_reward: true
+  eval_latency_values: null
+  eval_suites:
+    fixed: []
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_demon_attack_profile
+  video:
+    enabled: false
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

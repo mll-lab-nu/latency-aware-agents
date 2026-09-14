@@ -1,0 +1,91 @@
+# Preparation overlay; not a runnable profiling workload.
+task: hopper
+env:
+  state_space:
+    labels:
+    - torso_height
+    - torso_angle
+    - thigh_angle
+    - leg_angle
+    - foot_angle
+    - torso_x_velocity
+    - torso_z_velocity
+    - torso_angular_velocity
+    - thigh_angular_velocity
+    - leg_angular_velocity
+    - foot_angular_velocity
+  name: gymnasium
+  task_name: hopper
+  env_id: LatencyBench/Hopper-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_hopper
+  make_kwargs:
+    base_env_id: Hopper-v4
+    render_mode: rgb_array
+    base_make_kwargs:
+      forward_reward_weight: 1.0
+      ctrl_cost_weight: 0.001
+      healthy_reward: 1.0
+      terminate_when_unhealthy: true
+      reset_noise_scale: 0.005
+      exclude_current_positions_from_observation: true
+  env_fps: 10
+  obs_fps: 10.0
+  frame_stack: 1
+  action_space:
+    type: box
+    labels:
+    - thigh_torque
+    - leg_torque
+    - foot_torque
+    low:
+    - -1.0
+    - -1.0
+    - -1.0
+    high:
+    - 1.0
+    - 1.0
+    - 1.0
+    dtype: float32
+  noop_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  base_prompt: Move the Hopper robot forward while keeping its torso upright. Predict
+    three continuous torques in [-1, 1] ordered as thigh, leg, and foot.
+  obs_resize:
+  - 224
+  - 224
+source_manifest: ../pi05_sources/hopper/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json
+hydra_overrides:
+- model=pi05
+- init=scratch
+- rl_games.action_carrier=native
+- checkpoint.load=none
+- trainer.pretrained_checkpoint=null
+- trainer.reload_modules=null
+- trainer.is_resume=false
+- framework.action_model.action_dim=3
+- framework.action_model.action_env_dim=3
+- framework.action_model.state_dim=11
+- ++framework.action_model.state_encoding=continuous_projector
+- framework.action_model.action_horizon=1
+- framework.action_model.future_action_window_size=0
+- framework.action_model.past_action_window_size=0
+- framework.action_model.num_inference_timesteps=4
+- datasets.vla_data.include_state=true
+deferred_bindings:
+  dataset_root: null
+  data_mix: null
+  custom_mixtures_path: null
+  base_model_revision: null
+  l0_bundle: null
+  profile_latency_distribution: null
+  profile_bundle: null
+source_clock:
+  env_fps: 125.0
+  obs_fps: 125.0
+  obs_stride_raw_frames: 1
+  rows_unit: decision_step
+data_reuse_status: Requires explicit timing/prompt derivation and reconversion; original
+  metadata is immutable.

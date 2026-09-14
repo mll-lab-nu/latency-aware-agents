@@ -1,0 +1,14 @@
+__base__: latency_bench_eval.yaml
+
+experiment:
+  name: gymnasium_inverted_pendulum_starvla_profile
+
+policy:
+  type: starvla
+  checkpoint_path: outputs/models/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k/checkpoints/steps_2000_pytorch_model.pt
+  model_config_path: outputs/models/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k/config.full.yaml
+  task_manifest_path: configs/examples/gymnasium/inverted_pendulum/task_manifest.json
+  device: cuda
+
+logging:
+  output_dir: outputs/examples/gymnasium_inverted_pendulum/starvla_profile

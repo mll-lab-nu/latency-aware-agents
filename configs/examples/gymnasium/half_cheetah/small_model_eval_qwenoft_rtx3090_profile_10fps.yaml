@@ -1,0 +1,32 @@
+__base__: small_model_train_qwenoft_rtx3090_profile_10fps.yaml
+
+experiment:
+  name: gymnasium_half_cheetah_qwenoft_rtx3090_profile_10fps_eval_10ep
+
+backend:
+  run_mode: eval
+
+executor:
+  simulated_worker_capacity: 1
+
+policy:
+  type: gymnasium_sf
+  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/small_models/half_cheetah/gymnasium_half_cheetah_qwenoft_rtx3090_profile_10fps_10m/checkpoint_p0/best_000019544_10006528_reward_1576.738.pth
+  checkpoint_kind: best
+  device: cuda
+  deterministic: true
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah/rtx3090_profile_10fps_small_model_eval
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

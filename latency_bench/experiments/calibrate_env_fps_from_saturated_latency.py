@@ -205,9 +205,9 @@ def measure_policy_latency_in_current_process(
         "skip": int(skip),
         "latency_samples_ms": latency_values,
         "total_latency_ms": _summary(latency_values),
-        "policy_build_example_ms": _summary(build_values),
-        "policy_wrapper_predict_action_ms": _summary(wrapper_values),
-        "policy_decode_ms": _summary(decode_values),
+        "policy_build_example_ms": build_values,
+        "policy_wrapper_predict_action_ms": wrapper_values,
+        "policy_decode_ms": decode_values,
     }
 
 

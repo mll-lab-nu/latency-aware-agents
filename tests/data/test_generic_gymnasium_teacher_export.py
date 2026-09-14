@@ -886,7 +886,7 @@ def test_starvla_lerobot_converter_normalizes_gymnasium_state_from_train(tmp_pat
     _write_generic_export(
         raw_export,
         rows,
-        task_name="inverted_pendulum_rgb_state",
+        task_name="inverted_pendulum",
         include_state=True,
         state_labels=["cart_position", "pole_angle"],
     )

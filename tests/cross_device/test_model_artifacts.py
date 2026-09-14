@@ -27,7 +27,7 @@ def _spec(tmp_path: Path) -> dict:
 
 def test_task_presets_define_model_and_runtime_artifact_coordinates():
     inverted_pendulum = load_profile_spec(
-        "configs/profiles.yaml", "qwenoft", "inverted_pendulum_rgb_state"
+        "configs/profiles.yaml", "qwenoft", "inverted_pendulum"
     )
     mikasa = load_profile_spec(
         "configs/profiles.yaml", "qwenoft", "mikasa_intercept_grab_fast"
@@ -43,12 +43,36 @@ def test_task_presets_define_model_and_runtime_artifact_coordinates():
     assert inverted_pendulum["model_artifact"]["checkpoint"] == (
         "checkpoints/steps_2000_pytorch_model.pt"
     )
-    assert mikasa["model_artifact"]["checkpoint"] == (
-        "checkpoints/steps_5000_pytorch_model.pt"
-    )
+    assert mikasa["model_artifact"]["checkpoint"] == "checkpoints/model.pt"
     assert balance["model_artifact"]["hf_path"].endswith("gr00t-n1.7-10k-v1")
     assert parkour["runtime_artifact"]["checkpoint"] == "model_14999.pt"
     assert haic["runtime_artifact"]["checkpoint"] == "checkpoint_final.pt"
+
+
+@pytest.mark.parametrize(
+    ("model_id", "workload_id", "hf_path"),
+    [
+        ("qwenoft", "mikasa_intercept_grab_fast", "zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h1/mikasa_intercept_grab_fast_qwenoft_formal_latest_r8gpu8_20260907T082154Z"),
+        ("qwenpi_v3", "mikasa_intercept_grab_fast", "zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z"),
+        ("qwengr00t", "mikasa_intercept_grab_fast", "zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h1/mikasa_intercept_grab_fast_qwengr00t_formal_latest_r8gpu7_20260907T075003Z"),
+        ("wanoft", "mikasa_intercept_grab_fast", "zero-latency/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z"),
+        ("qwenoft", "g1_sonic_balance_simple", "zero-latency/humanoidbench-balance-simple/vla/starvla-qwenoft-h1/humanoidbench_balance_simple_qwenoft_formal_latest"),
+        ("qwenpi_v3", "g1_sonic_balance_simple", "zero-latency/humanoidbench-balance-simple/vla/starvla-qwenpi_v3-h1/humanoidbench_balance_simple_qwenpi_v3_formal_latest"),
+        ("qwengr00t", "g1_sonic_balance_simple", "zero-latency/humanoidbench-balance-simple/vla/starvla-qwengr00t-h1/humanoidbench_balance_simple_qwengr00t_formal_latest"),
+        ("wanoft", "g1_sonic_balance_simple", "zero-latency/humanoidbench-balance-simple/vla/starvla-wanoft-h1/humanoidbench_balance_simple_wanoft_formal_latest"),
+    ],
+)
+def test_starvla_h1_profile_artifacts(model_id, workload_id, hf_path):
+    spec = load_profile_spec("configs/profiles.yaml", model_id, workload_id)
+
+    assert spec["model_artifact"]["hf_path"] == hf_path
+    assert spec["model_artifact"]["checkpoint"] == "checkpoints/model.pt"
+    assert spec["model_artifact"]["model_config"] == "config.yaml"
+    assert spec["session_count"] == 5
+    assert spec["eval_episodes"] == 50
+    assert spec["simulation_gpu"] == (
+        "cuda:0" if workload_id == "mikasa_intercept_grab_fast" else None
+    )
 
 
 def test_local_model_root_resolves_exact_checkpoint_and_provenance(tmp_path):
@@ -170,6 +194,44 @@ def test_model_path_override_keeps_exact_relative_checkpoint(tmp_path):
 
     assert resolved["checkpoint_path"] == str(checkpoint.resolve())
     assert resolved["model_provenance"]["source"] == "local"
+
+
+def test_explicit_hf_artifact_override_forces_download_even_with_local_root(tmp_path, monkeypatch):
+    spec = _spec(tmp_path)
+    local_root = Path(spec["model_artifact"]["local_root"])
+    (local_root / "checkpoints").mkdir(parents=True)
+    (local_root / "checkpoints/final.pt").touch()
+
+    snapshot = tmp_path / "snapshot"
+    checkpoint = snapshot / "alt/repo/weights/final.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.touch()
+    calls = {}
+    spec["model_artifact"].update(
+        {
+            "hf_repo": "org/alt",
+            "hf_path": "alt/repo",
+            "checkpoint": "weights/final.pt",
+        }
+    )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(
+            snapshot_download=lambda **kwargs: (
+                calls.update(snapshot=kwargs) or str(snapshot)
+            ),
+        ),
+    )
+
+    resolved = resolve_model_artifacts(spec, hf_artifacts=True)
+
+    assert resolved["checkpoint_path"] == str(checkpoint)
+    assert calls["snapshot"]["repo_id"] == "org/alt"
+    assert calls["snapshot"]["repo_type"] == "model"
+    assert calls["snapshot"]["allow_patterns"] == ["alt/repo/**"]
+    assert resolved["model_provenance"]["source"] == "hf"
 
 
 def test_model_config_resolves_from_the_same_artifact_root(tmp_path):
@@ -313,3 +375,70 @@ def test_protocol_forwards_model_path(monkeypatch):
     assert captured["model_path"] == Path("/tmp/model")
     assert captured["hf_artifacts"] is False
     assert captured["kwargs"] == {"resume_run_id": None, "publish": True}
+
+
+def test_protocol_forwards_explicit_hf_artifact_overrides(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        protocol,
+        "load_profile_spec",
+        lambda *_args: {
+            "model_id": "task",
+            "workload_id": "workload",
+            "model_artifact": {
+                "local_root": "/tmp/local",
+                "checkpoint": "checkpoints/default.pt",
+                "hf_repo": "org/default",
+                "hf_path": "default/path",
+                "model_config": "config.default.yaml",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        protocol,
+        "resolve_model_artifacts",
+        lambda spec, *, model_path, hf_artifacts: (
+            captured.update(
+                model_path=model_path,
+                hf_artifacts=hf_artifacts,
+                artifact=dict(spec["model_artifact"]),
+            )
+            or dict(spec)
+        ),
+    )
+    monkeypatch.setattr(
+        protocol,
+        "run_profile",
+        lambda spec, **kwargs: (
+            captured.update(spec=spec, kwargs=kwargs) or {"RUN_ID": "run_1"}
+        ),
+    )
+
+    protocol.main(
+        [
+            "run",
+            "--model",
+            "task",
+            "--workload",
+            "workload",
+            "--hf-repo-id",
+            "org/override",
+            "--hf-path",
+            "runs/alt",
+            "--hf-checkpoint",
+            "checkpoints/final.pt",
+            "--hf-model-config",
+            "config.full.yaml",
+        ]
+    )
+
+    assert captured["model_path"] is None
+    assert captured["hf_artifacts"] is True
+    assert captured["artifact"] == {
+        "local_root": "/tmp/local",
+        "checkpoint": "checkpoints/final.pt",
+        "hf_repo": "org/override",
+        "hf_path": "runs/alt",
+        "model_config": "config.full.yaml",
+    }
+    assert captured["kwargs"] == {"resume_run_id": None, "publish": False}

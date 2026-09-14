@@ -1,7 +1,7 @@
 __base__: small_model_train.yaml
 
 experiment:
-  name: gymnasium_inverted_pendulum_discrete_fixed_l1
+  name: gymnasium_inverted_pendulum_fixed_l1
 
 backend:
   run_mode: eval

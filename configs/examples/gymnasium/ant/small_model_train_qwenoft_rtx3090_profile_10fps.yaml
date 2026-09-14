@@ -1,0 +1,11 @@
+__base__: small_model_train_qwenoft_rtx3090_profile.yaml
+
+experiment:
+  name: gymnasium_ant_qwenoft_rtx3090_profile_10fps_10m
+
+env:
+  env_fps: 10.0
+  obs_fps: 10.0
+
+logging:
+  output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/rtx3090_profile_10fps_small_model_train

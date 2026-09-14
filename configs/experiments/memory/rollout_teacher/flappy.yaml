@@ -31,4 +31,4 @@ sweeps:
     frame_stack:
       - 4
     obs_fps:
-      - 30
+      - 13

@@ -9,7 +9,7 @@ backend:
 latency:
   method: iid
   fixed_latency_ms: null
-  profile_path: results/profiling/runs/qwenoft/1x-rtx3090/air_raid/instance_52d3de13cd88ad3f/20260905T082123460474Z/profile/profile.json
+  profile_path: results/profiling/runs/qwenoft/1x-rtx3090/air_raid/instance_859cf1e47bca6046/20260905T170041210210Z/profile/profile.json
   profile_worker_slot: 0
   seed: 0
   add_latency_info: false

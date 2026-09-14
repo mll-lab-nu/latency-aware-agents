@@ -14,6 +14,7 @@ from latency_bench.latency.burst_profile import (
 )
 from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.eval.driver import run_from_config
+from latency_bench.eval.reporting import _summary_latency_label
 from latency_bench.logging.metrics import compute_episode_metrics
 from latency_bench.logging.summary import build_queue_eval_summary
 from latency_bench.logging.wandb_eval import eval_scalar_payload
@@ -140,6 +141,15 @@ def _write_profile(tmp_path: Path) -> Path:
         profile_dir / "profile.json",
     )
     return profile_dir
+
+
+def test_iid_profile_with_null_fixed_latency_uses_profile_label():
+    config = {
+        "executor": {"mode": "simulated"},
+        "latency": {"method": "iid", "fixed_latency_ms": None},
+    }
+
+    assert _summary_latency_label(config) == "profile_sample"
 
 
 @pytest.mark.parametrize("injected_name", ["env", "env_backend"])

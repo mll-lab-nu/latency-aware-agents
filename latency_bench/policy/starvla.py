@@ -419,6 +419,7 @@ def decode_starvla_action(
     vector: npt.NDArray[Any],
     env_name: str,
     action_by_raw_id: Mapping[int, Action],
+    action_layout: str | None = None,
 ) -> tuple[Action, dict[str, Any]]:
     deadly_layout = None
     if str(env_name) == "deadly_corridor":
@@ -434,11 +435,20 @@ def decode_starvla_action(
                 f"values, got {action_dim}"
             )
         deadly_layout = deadly_layouts[action_dim]
+    asterix_layout = None
+    if str(env_name) == "asterix":
+        action_dim = int(np.asarray(vector).shape[-1])
+        if action_layout is not None:
+            asterix_layout = str(action_layout).strip().lower()
+        else:
+            asterix_layout = "factorized_6" if action_dim < 9 else "discrete_9"
 
-    decode_rl_games_actions, _ = _load_rl_games_action_decode()
+    decode_rl_games_actions, _, _ = _load_rl_games_action_decode()
     prediction = decode_rl_games_actions(
         normalized_actions=np.asarray(vector),
         env_name=str(env_name),
+        deadly_action_layout=deadly_layout,
+        asterix_action_layout=asterix_layout,
     )
     action, metadata = action_from_starvla_payload(
         payload=np.asarray(prediction["actions"]),
@@ -462,6 +472,8 @@ def decode_starvla_action(
                 [0, 0, 0, 1],
             )
             metadata["raw_action_id"] = semantic_actions.index(action.value)
+    if asterix_layout is not None:
+        metadata["action_layout"] = asterix_layout
     return action, metadata
 
 
@@ -608,6 +620,43 @@ def _load_starvla_model_config(path: str | Path) -> dict[str, Any]:
     return _normalized_model_cfg(OmegaConf.load(path))
 
 
+def _resolve_starvla_backbone_path(model_cfg: Mapping[str, Any]) -> str | None:
+    from huggingface_hub import snapshot_download
+
+    repo_id: str | None = None
+    allow_patterns = None
+    if "backbone" in model_cfg:
+        backbone = model_cfg["backbone"]
+        if isinstance(backbone, Mapping) and "repo_id" in backbone:
+            repo_id = str(backbone["repo_id"])
+            allow_patterns = backbone.get("allow_patterns")
+    if repo_id is None:
+        base_vlm = (
+            model_cfg.get("framework", {})
+            .get("qwenvl", {})
+            .get("base_vlm")
+        )
+        if base_vlm is not None:
+            base_name = Path(str(base_vlm)).name
+            if base_name == "Qwen3-VL-4B-Instruct":
+                repo_id = "Qwen/Qwen3-VL-4B-Instruct"
+            elif base_name == "Qwen3-VL-4B-Instruct-Action":
+                repo_id = "StarVLA/Qwen3-VL-4B-Instruct-Action"
+            elif base_name == "Qwen2.5-VL-3B-Instruct-Action":
+                repo_id = "StarVLA/Qwen2.5-VL-3B-Instruct-Action"
+    if repo_id is None:
+        return None
+    return snapshot_download(
+        repo_id,
+        allow_patterns=allow_patterns,
+        local_dir=(
+            STARVLA_ROOT
+            / "playground/Pretrained_models"
+            / repo_id.split("/")[-1]
+        ),
+    )
+
+
 def _apply_model_family_include_state_compat(cfg: Any) -> None:
     from omegaconf import OmegaConf
 
@@ -695,9 +744,13 @@ def apply_starvla_model_input_config(
     else:
         if not raw_image_transform:
             return
-        if model_cfg["framework"]["kv_memory"]["enabled"]:
+        framework_cfg = model_cfg["framework"]
+        kv_cfg = framework_cfg["kv_memory"] if "kv_memory" in framework_cfg else {}
+        kv_memory_enabled = bool(kv_cfg["enabled"]) if "enabled" in kv_cfg else False
+        if kv_memory_enabled:
             return
-        if vla_data["image_mode"] == "single":
+        image_mode = str(vla_data["image_mode"]) if "image_mode" in vla_data else "single"
+        if image_mode == "single":
             return
         input_frame_count = int(vla_data["num_obs_frames"])
 
@@ -710,7 +763,7 @@ def apply_starvla_model_input_config(
 
 
 def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
-    """Read checkpoint metadata before env construction and size its frame stack."""
+    """Apply the saved checkpoint input contract before env construction."""
     if config["policy"]["type"] != "starvla":
         return
 
@@ -726,6 +779,9 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
 
         saved_model_cfg, _norm_stats = read_mode_config(policy_cfg["checkpoint_path"])
         model_cfg = _normalized_model_cfg(saved_model_cfg)
+    if config["env"]["name"] == "gymnasium":
+        image_size = model_cfg["rl_games"]["env_eval"]["image_size"]
+        config["env"]["obs_resize"] = [image_size, image_size]
     image_transform_cfg = (
         policy_cfg["image_transform_config"]
         if "image_transform_config" in policy_cfg
@@ -756,14 +812,15 @@ def _profiler_stage(profiler: Any, name: str) -> Any:
     return profiler.time(name) if profiler is not None else nullcontext()
 
 
-def _load_rl_games_action_decode() -> tuple[Any, Any]:
+def _load_rl_games_action_decode() -> tuple[Any, Any, Any]:
     _ensure_starvla_path()
     from deployment.model_server.rl_games_action_decode import (
         decode_rl_games_actions,
+        resolve_asterix_action_decode_spec,
         resolve_deadly_action_decode_spec,
     )
 
-    return decode_rl_games_actions, resolve_deadly_action_decode_spec
+    return decode_rl_games_actions, resolve_deadly_action_decode_spec, resolve_asterix_action_decode_spec
 
 
 class LiveStarVlaWrapper:
@@ -797,12 +854,20 @@ class LiveStarVlaWrapper:
         (
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
+            resolve_asterix_action_decode_spec,
         ) = _load_rl_games_action_decode()
+        self._action_layout = action_layout
+        self._multibinary_threshold = multibinary_threshold
         if self._rl_games_env_name == "deadly_corridor":
             self._action_layout, self._multibinary_threshold = resolve_deadly_action_decode_spec(
                 model_cfg,
                 action_layout=action_layout,
                 multibinary_threshold=multibinary_threshold,
+            )
+        elif self._rl_games_env_name == "asterix":
+            self._action_layout = resolve_asterix_action_decode_spec(
+                model_cfg,
+                action_layout=action_layout,
             )
 
     def reset_memory(self, slot_id: int | None = None) -> None:
@@ -840,6 +905,11 @@ class LiveStarVlaWrapper:
                     if self._rl_games_env_name == "deadly_corridor"
                     else None
                 ),
+                asterix_action_layout=(
+                    self._action_layout
+                    if self._rl_games_env_name == "asterix"
+                    else None
+                ),
                 **decode_kwargs,
             )
 
@@ -850,6 +920,35 @@ def sha256_text(value: str) -> str:
 
 def sha256_array(value: npt.NDArray[Any]) -> str:
     return hashlib.sha256(np.ascontiguousarray(value).tobytes()).hexdigest()
+
+
+_LEGACY_GYMNASIUM_TASK_NAMES = {
+    "ant_rgb_state": "ant",
+    "half_cheetah_rgb_state": "half_cheetah",
+    "hopper_rgb_state": "hopper",
+    "humanoid_rgb_state": "humanoid",
+    "inverted_pendulum_rgb_state": "inverted_pendulum",
+    "swimmer_rgb_state": "swimmer",
+    "walker2d_rgb_state": "walker2d",
+}
+
+
+def _canonical_gymnasium_contract_namespace(
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    canonical = dict(contract)
+    task_name = canonical["task_name"]
+    if task_name in _LEGACY_GYMNASIUM_TASK_NAMES:
+        canonical["task_name"] = _LEGACY_GYMNASIUM_TASK_NAMES[task_name]
+    if canonical["env_id"] == "LatencyBench/HopperRgbState-v0":
+        canonical["env_id"] = "LatencyBench/Hopper-v0"
+    canonical["registration_imports"] = [
+        "latency_bench.envs.gymnasium_hopper"
+        if module == "latency_bench.envs.gymnasium_hopper_rgb_state"
+        else module
+        for module in canonical["registration_imports"]
+    ]
+    return canonical
 
 
 def _validate_gymnasium_starvla_contract(
@@ -866,17 +965,23 @@ def _validate_gymnasium_starvla_contract(
         "gymnasium_training_task_contract", manifest["gymnasium_task"]
     )
     comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
-    if comparable_eval_contract != expected:
+    if _canonical_gymnasium_contract_namespace(
+        comparable_eval_contract
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA training contract or dataset manifest"
         )
     if manifest["integration_name"] != "gymnasium":
         raise ValueError("StarVLA task manifest is not a Gymnasium handoff")
-    if manifest["gymnasium_task"] != expected:
+    if _canonical_gymnasium_contract_namespace(
+        manifest["gymnasium_task"]
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
         )
-    if model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] != expected:
+    if _canonical_gymnasium_contract_namespace(
+        model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]
+    ) != _canonical_gymnasium_contract_namespace(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA model config"
         )
@@ -954,6 +1059,11 @@ def build_starvla_policy(
         semantic_env_name = integration_env_name
         action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
         base_prompt = env_cfg["base_prompt"] if "base_prompt" in env_cfg else None
+        model_cfg = (
+            _load_starvla_model_config(policy_cfg["model_config_path"])
+            if "model_config_path" in policy_cfg
+            else None
+        )
     unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
     wrapper_cls = _load_policy_wrapper_class()
     wrapper_kwargs: dict[str, Any] = dict(
@@ -976,6 +1086,10 @@ def build_starvla_policy(
             else None
         ),
     )
+    if model_cfg is not None:
+        backbone_path = _resolve_starvla_backbone_path(model_cfg)
+        if backbone_path is not None:
+            wrapper_kwargs["backbone_path"] = backbone_path
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
@@ -990,12 +1104,6 @@ def build_starvla_policy(
     latency_prompt_key = policy_cfg.get("latency_prompt_key")
     prompt_mode = policy_cfg.get("prompt_mode")
     image_transform_config = policy_cfg.get("image_transform_config")
-    if integration_env_name != "gymnasium":
-        model_cfg = (
-            _load_starvla_model_config(policy_cfg["model_config_path"])
-            if "model_config_path" in policy_cfg
-            else None
-        )
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],

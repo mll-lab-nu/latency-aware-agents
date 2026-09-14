@@ -250,6 +250,21 @@ def test_rollout_config_reads_checkpoint_config_without_rebuilding_nested_traini
     assert metadata["checkpoint_config"]["simulator"] == "gpu"
 
 
+@pytest.mark.parametrize("method", ["iid", "temporal"])
+def test_profile_latency_override_preserves_sampler_method(method):
+    from latency_bench.data.sf_teacher_runtime import _apply_latency_to_flat_cfg
+    from training.common.latency_config import sample_factory_latency_params_from_flat_config
+
+    cfg = SimpleNamespace()
+    _apply_latency_to_flat_cfg(
+        cfg,
+        {"method": method, "profile_path": "profile.json", "profile_worker_slot": 0, "seed": 0},
+    )
+
+    params = sample_factory_latency_params_from_flat_config(cfg, env_fps=10)
+    assert params.profile_method == method
+
+
 def test_latency_config_override_is_explicit_rollout_override(tmp_path):
     from latency_bench.data.sf_teacher_config import load_rollout_training_config
 
@@ -412,7 +427,9 @@ def test_dataset_image_uses_latest_env_raw_rgb_frame():
 def test_teacher_prompts_cover_rollout_envs():
     from latency_bench.data.prompts import BASE_PROMPTS
 
-    assert set(BASE_PROMPTS) == {"flappy", "demon_attack", "deadly_corridor", "defend_the_line"}
+    assert set(BASE_PROMPTS) == {
+        "flappy", "demon_attack", "deadly_corridor", "defend_the_line", "asterix", "atlantis"
+    }
 
 
 def test_batch_observations_keeps_already_batched_mapping_observation():
@@ -2804,7 +2821,7 @@ def test_prepare_starvla_lerobot_dataset_uploads_converted_root(monkeypatch, tmp
                 "repo_id": "user/demon_attack_train_lerobot",
                 "repo_type": "dataset",
                 "allow_patterns": ["demon_attack_train/**", "demon_attack_train__val/**"],
-                "commit_message": "Upload StarVLA LeRobot dataset",
+                "commit_message": "Upload LeRobot dataset",
                 "token": "env-token",
             },
         ),
