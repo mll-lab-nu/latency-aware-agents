@@ -250,6 +250,21 @@ def test_rollout_config_reads_checkpoint_config_without_rebuilding_nested_traini
     assert metadata["checkpoint_config"]["simulator"] == "gpu"
 
 
+@pytest.mark.parametrize("method", ["iid", "temporal"])
+def test_profile_latency_override_preserves_sampler_method(method):
+    from latency_bench.data.sf_teacher_runtime import _apply_latency_to_flat_cfg
+    from training.common.latency_config import sample_factory_latency_params_from_flat_config
+
+    cfg = SimpleNamespace()
+    _apply_latency_to_flat_cfg(
+        cfg,
+        {"method": method, "profile_path": "profile.json", "profile_worker_slot": 0, "seed": 0},
+    )
+
+    params = sample_factory_latency_params_from_flat_config(cfg, env_fps=10)
+    assert params.profile_method == method
+
+
 def test_latency_config_override_is_explicit_rollout_override(tmp_path):
     from latency_bench.data.sf_teacher_config import load_rollout_training_config
 

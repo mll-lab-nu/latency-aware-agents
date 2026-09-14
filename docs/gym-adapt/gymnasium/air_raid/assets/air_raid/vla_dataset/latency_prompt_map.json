@@ -1,7 +1,0 @@
-{
-  "0": {
-    "prompt": "Protect both buildings from flying saucers. Choose exactly one action from: noop, fire, right, left, rightfire, leftfire. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 50 FPS and observations are emitted at 12.5 FPS. Choose the best next action.",
-    "latency_raw_frames": 0,
-    "latency_ms": 0.0
-  }
-}

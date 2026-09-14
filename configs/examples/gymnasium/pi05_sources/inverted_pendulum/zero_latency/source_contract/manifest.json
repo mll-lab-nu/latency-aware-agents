@@ -1,0 +1,109 @@
+{
+  "dataset_name": "inverted_pendulum_rgb_state_l0_return_gt900_100ep",
+  "env_name": "inverted_pendulum_rgb_state",
+  "episodes": 90,
+  "frames": 90000,
+  "task_prompts": [
+    "Keep the pole upright by applying horizontal cart forces. Choose exactly one action from: push_left_hard, push_left_soft, zero_force, push_right_soft, push_right_hard. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 25 FPS and observations are emitted at 25 FPS. Choose the best next action."
+  ],
+  "format": "starvla_lerobot_v2_image_parquet",
+  "source": "/mnt/data/latency-sensitive-bench/raw_rollouts/Inverted_Pendulum/inverted_pendulum_rgb_state_l0_return_gt900_100ep",
+  "integration_name": "gymnasium",
+  "task_name": "inverted_pendulum_rgb_state",
+  "action_layout": "gymnasium_discrete_v1",
+  "action_labels": [
+    "push_left_hard",
+    "push_left_soft",
+    "zero_force",
+    "push_right_soft",
+    "push_right_hard"
+  ],
+  "carrier_action_labels": [
+    "push_left_hard",
+    "push_left_soft",
+    "zero_force",
+    "push_right_soft",
+    "push_right_hard"
+  ],
+  "action_dim": 5,
+  "active_action_dim": 5,
+  "action_carrier": "native",
+  "rows_unit": "decision_step",
+  "obs_fps": 25.0,
+  "obs_stride_raw_frames": 1,
+  "uses_state": true,
+  "state_dim": 4,
+  "state_labels": [
+    "cart_position",
+    "pole_angle",
+    "cart_velocity",
+    "pole_angular_velocity"
+  ],
+  "state_normalization": {
+    "type": "min_max",
+    "min": [
+      -0.11953195929527283,
+      -0.0844595655798912,
+      -1.0126903057098389,
+      -2.4344401359558105
+    ],
+    "max": [
+      0.031501103192567825,
+      0.07465080916881561,
+      1.022529125213623,
+      2.4336230754852295
+    ]
+  },
+  "robot_type": "rl_games_gymnasium",
+  "latency_prompt_map_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/inverted_pendulum_rgb_state_l0_return_gt900_100ep/latency_prompt_map.json",
+  "custom_mixtures_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/_generated_mixtures/inverted_pendulum_rgb_state_l0_return_gt900_100ep.json",
+  "gymnasium_task": {
+    "action_labels": [
+      "push_left_hard",
+      "push_left_soft",
+      "zero_force",
+      "push_right_soft",
+      "push_right_hard"
+    ],
+    "action_values": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "base_prompt": "Keep the pole upright by applying horizontal cart forces. Choose exactly one action from: push_left_hard, push_left_soft, zero_force, push_right_soft, push_right_hard.",
+    "env_fps": 25.0,
+    "env_id": "LatencyBench/InvertedPendulumDiscrete-v0",
+    "frame_stack": 1,
+    "make_kwargs": {
+      "base_env_id": "InvertedPendulum-v4",
+      "base_make_kwargs": {},
+      "force_values": [
+        -3.0,
+        -1.5,
+        0.0,
+        1.5,
+        3.0
+      ],
+      "render_mode": "rgb_array"
+    },
+    "noop_action_id": 2,
+    "obs_fps": 25.0,
+    "registration_imports": [
+      "latency_bench.envs.gymnasium_mujoco"
+    ],
+    "state_space": {
+      "labels": [
+        "cart_position",
+        "pole_angle",
+        "cart_velocity",
+        "pole_angular_velocity"
+      ]
+    },
+    "task_name": "inverted_pendulum_rgb_state"
+  },
+  "validation_dataset_name": "inverted_pendulum_rgb_state_l0_return_gt900_100ep__val",
+  "validation_episodes": 10,
+  "validation_frames": 10000
+}

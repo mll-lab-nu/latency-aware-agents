@@ -1,0 +1,7 @@
+{
+  "0": {
+    "prompt": "Keep the pole upright by applying horizontal cart forces. Choose exactly one action from: push_left_hard, push_left_soft, zero_force, push_right_soft, push_right_hard. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 25 FPS and observations are emitted at 25 FPS. Choose the best next action.",
+    "latency_raw_frames": 0,
+    "latency_ms": 0.0
+  }
+}

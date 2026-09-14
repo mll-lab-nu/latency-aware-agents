@@ -1,0 +1,78 @@
+# Preparation overlay; not a runnable profiling workload.
+task: air_raid
+env:
+  name: gymnasium
+  task_name: air_raid
+  env_id: LatencyBench/AirRaid-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_air_raid
+  make_kwargs:
+    base_env_id: ALE/AirRaid-v5
+    render_mode: rgb_array
+    screen_size: 84
+    noop_max: 30
+    base_make_kwargs:
+      obs_type: rgb
+      frameskip: 1
+      repeat_action_probability: 0.0
+      full_action_space: false
+      mode: 1
+      difficulty: 0
+      max_num_frames_per_episode: 108000
+    fire_reset: true
+  env_fps: 50.0
+  obs_fps: 12.5
+  frame_stack: 4
+  noop_action: noop
+  action_map:
+    noop: 0
+    fire: 1
+    right: 2
+    left: 3
+    rightfire: 4
+    leftfire: 5
+  action_order:
+  - noop
+  - fire
+  - right
+  - left
+  - rightfire
+  - leftfire
+  base_prompt: 'Protect both buildings from flying saucers. Choose exactly one action
+    from: noop, fire, right, left, rightfire, leftfire.'
+  obs_resize:
+  - 224
+  - 224
+source_manifest: ../pi05_sources/air_raid/profile_latency/profiling/execution/bundle/manifest.json
+hydra_overrides:
+- model=pi05
+- init=scratch
+- rl_games.action_carrier=native
+- checkpoint.load=none
+- trainer.pretrained_checkpoint=null
+- trainer.reload_modules=null
+- trainer.is_resume=false
+- framework.action_model.action_dim=6
+- framework.action_model.action_env_dim=6
+- framework.action_model.state_dim=0
+- ++framework.action_model.state_encoding=continuous_projector
+- framework.action_model.action_horizon=1
+- framework.action_model.future_action_window_size=0
+- framework.action_model.past_action_window_size=0
+- framework.action_model.num_inference_timesteps=4
+- datasets.vla_data.include_state=false
+deferred_bindings:
+  dataset_root: null
+  data_mix: null
+  custom_mixtures_path: null
+  base_model_revision: null
+  l0_bundle: null
+  profile_latency_distribution: null
+  profile_bundle: null
+source_clock:
+  env_fps: 50.0
+  obs_fps: 12.5
+  obs_stride_raw_frames: 4
+  rows_unit: decision_step
+data_reuse_status: Image-only raw contract available; rebind converted dataset and
+  verify reset/image pipeline before use.

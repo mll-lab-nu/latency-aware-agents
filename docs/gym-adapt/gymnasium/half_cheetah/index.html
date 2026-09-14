@@ -1,64 +1,38 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HalfCheetah · Gymnasium adaptation</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <a class="skip-link" href="#content">Skip to content</a>
-  <header class="hero">
-    <div class="hero-inner">
-      <p class="eyebrow">latency-sensitive-bench / verified Gymnasium adaptation</p>
-      <h1>HalfCheetah: native six-torque control at zero latency</h1>
-      <p class="lede">A task-owned wrapper preserves HalfCheetah-v4's native continuous action space. The completed RGB+state pipeline carries its 17-dimensional proprioceptive observation and six applied torques through teacher rollout, QwenOFT training, and latency-bench evaluation.</p>
-      <div class="badges">
-        <span>HalfCheetah-v4 / Box(6)</span>
-        <span>17D state</span>
-        <span>20 Hz</span>
-        <span>L0 APPO · 10M</span>
-        <span>RGB+state QwenVLA · VERIFIED</span>
-      </div>
-    </div>
-  </header>
-  <div class="layout">
-    <aside class="toc">
-      <a class="toc-title" href="#content">HalfCheetah</a>
-      <nav>
-        <a href="#status">Status</a>
-        <a href="#contract">Contract</a>
-        <a href="#training">Training</a>
-        <a href="#evaluation">Evaluation</a>
-        <a href="#vla">RGB+state VLA</a>
-        <a href="#evidence">Evidence</a>
-        <a href="#limits">Limits</a>
-      </nav>
-    </aside>
-    <main id="content">
-      <section id="status">
-        <p class="section-kicker">01 · Outcome</p>
-        <h2>The native continuous adaptation trains successfully</h2>
-        <div class="status-grid">
-          <article><span class="status verified">VERIFIED</span><h3>Independent wrapper</h3><p><code>HalfCheetahContinuousActionEnv</code> owns construction, six-dimensional clipping, and <code>applied_action</code> recording.</p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Training</h3><p>Synchronous Sample Factory APPO completed 10,006,528 L0 environment frames.</p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Evaluation</h3><p>The best checkpoint completed L0–L4, ten deterministic 1,000-step episodes per latency.</p></article>
-          <article><span class="status verified">VERIFIED</span><h3>RGB+state VLA</h3><p>100 teacher episodes, native 6D conversion, 5k QwenOFT training, and L0/L2 closed-loop evaluation completed.</p></article>
-        </div>
-        <div class="metric-strip">
-          <div><strong>5,414.259</strong><span>L0 mean return</span></div>
-          <div><strong>740.002</strong><span>L0 std return</span></div>
-          <div><strong>10 / 10</strong><span>L0 full episodes</span></div>
-          <div><strong>8,135 FPS</strong><span>training throughput</span></div>
-        </div>
-      </section>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HalfCheetah — adaptation and latency experiments</title><link rel="stylesheet" href="styles.css?layout=experiment"></head><body><a class="skip-link" href="#main">Skip to content</a>
+<header class="hero">
+<div class="hero-inner">
+<p class="eyebrow">latency-sensitive-bench / experiment report</p>
+<h1>HalfCheetah</h1>
+<p class="lede">Autonomous environment adaptation, zero-latency policies, and profile-latency training with original data, model and evaluation evidence.</p>
 
-      <section id="contract">
-        <p class="section-kicker">02 · Frozen contract</p>
-        <h2>Task-owned semantics, shared execution machinery</h2>
-        <div class="two-col">
-          <div>
-            <h3>Runtime facts</h3>
+<div class="badges"><span>Native environment semantics</span><span>RGB VLA input</span><span>10 / 10 FPS realtime evaluation</span><span>Complete pipeline</span></div>
+</div>
+</header>
+
+<div class="layout">
+<aside class="toc" aria-label="Table of contents"><a class="toc-title" href="#main">HalfCheetah</a>
+<nav><a href="#adaptation">01 · Adaptation</a><a href="#zero-small">02 · Zero-latency small model training &amp; evaluation</a><a href="#zero-vla">03 · Zero-latency VLA training &amp; evaluation</a><a href="#profiling">04 · Profiling</a><a href="#baseline-vla">05 · Baseline VLA evaluation</a><a href="#profile-small">06 · Profile-latency small model training &amp; evaluation</a><a href="#profile-vla">07 · Profile-latency VLA training &amp; evaluation</a></nav>
+</aside>
+
+<main id="main"><span id="content"></span>
+<section id="adaptation">
+<p class="section-kicker">01 / Adaptation</p>
+
+<h2>Adaptation</h2>
+<span id="contract"></span><span id="status"></span>
+<p>The agent inspects the six actuators and seventeen-dimensional observation, preserves native torque control and physics, and implements the wrapper and RGB+state data path. Applied actions remain traceable through training, rollout and evaluation.</p>
+
+
+
+<h3>Task-owned semantics, shared execution machinery</h3>
+
+
+<div class="two-col">
+
+<div>
+
+<h3>Runtime facts</h3>
+
             <ul class="steps">
               <li><code>HalfCheetah-v4</code>, Gymnasium 0.29.1, MuJoCo 3.3.7.</li>
               <li>Observation: <code>Box(-inf, inf, (17,), float64)</code>.</li>
@@ -67,8 +41,12 @@
               <li>RGB render: 480×480×3 through NVIDIA EGL.</li>
             </ul>
           </div>
-          <div>
-            <h3>Adaptation decisions</h3>
+
+
+<div>
+
+<h3>Adaptation decisions</h3>
+
             <ul class="steps">
               <li>Order: back thigh, back shin, back foot, front thigh, front shin, front foot.</li>
               <li>Pending no-op: <code>[0,0,0,0,0,0]</code>.</li>
@@ -77,70 +55,154 @@
               <li>Wrapper clips to native bounds and records the exact applied vector.</li>
             </ul>
           </div>
+
         </div>
-        <div class="callout"><strong>Parallel structure:</strong> HalfCheetah does not import or reuse Walker2D or Inverted Pendulum task code. Each task owns its wrapper and factory; only the generic adapter, Sample Factory integration, and latency scheduler are shared.</div>
+
+
+<div class="callout"><strong>Parallel structure:</strong> HalfCheetah does not import or reuse Walker2D or Inverted Pendulum task code. Each task owns its wrapper and factory; only the generic adapter, Sample Factory integration, and latency scheduler are shared.</div>
+
       </section>
 
-      <section id="training">
-        <p class="section-kicker">03 · Small-model training</p>
-        <h2>Vendored Sample Factory MuJoCo recipe</h2>
-        <div class="metric-strip">
-          <div><strong>10,006,528</strong><span>environment frames</span></div>
-          <div><strong>seed 2222</strong><span>training seed</span></div>
-          <div><strong>5,331.187</strong><span>best training statistic</span></div>
-          <div><strong>~20.5 min</strong><span>wall time</span></div>
+<section id="zero-small">
+<p class="section-kicker">02 / Zero-latency small model training &amp; evaluation</p>
+
+<h2>Zero-latency small model training &amp; evaluation</h2>
+<p>L0 evaluation return is 5,414.259 ± 740.002; all 10 episodes reach the full horizon. Training throughput is 8,135 FPS.</p>
+
+<span id="evaluation"></span><span id="training"></span>
+
+
+<h3>Vendored Sample Factory MuJoCo recipe</h3>
+
+
+<div class="metric-strip">
+
+<div><strong>10,006,528</strong><span>environment frames</span></div>
+
+
+<div><strong>seed 2222</strong><span>training seed</span></div>
+
+
+<div><strong>5,331.187</strong><span>best training statistic</span></div>
+
+
+
+
         </div>
-        <p>The run uses synchronous APPO, a 64×64 tanh MLP, rollout 64, batch 1024, two epochs, learning rate 0.00295 with linear decay, normalized observations and returns, and no recurrent policy.</p>
-        <div class="media-gallery">
-          <figure><img src="assets/half_cheetah/training_curve.png" width="1440" height="810" loading="lazy" alt="HalfCheetah APPO training curve"><figcaption><span class="status verified">VERIFIED</span> Zero-latency training reward across 10M frames.</figcaption></figure>
+
+
+<p>The run uses synchronous APPO, a 64×64 tanh MLP, rollout 64, batch 1024, two epochs, learning rate 0.00295 with linear decay, normalized observations and returns, and no recurrent policy.</p>
+
+
+<div class="media-gallery">
+
+<figure><img src="assets/media/training_curve.png" width="1440" height="810" loading="lazy" alt="HalfCheetah APPO training curve"><figcaption><span class="status verified">VERIFIED</span> Zero-latency training reward across 10M frames.</figcaption></figure>
+
         </div>
-        <details>
-          <summary>Training command and checkpoint</summary>
-          <pre><code>MUJOCO_GL=egl PYTHONPATH=. conda run -n latency \
+
+
+<details>
+
+<summary>Training command and checkpoint</summary>
+
+
+<pre><code>MUJOCO_GL=egl PYTHONPATH=. conda run -n latency \
   python -m training.train \
   --config configs/examples/gymnasium/half_cheetah/small_model_train.yaml</code></pre>
-          <p>Best checkpoint: <code>/mnt/checkpoints/latency-sensitive-bench/small_models/half_cheetah/gymnasium_half_cheetah_continuous_zero_latency_10m/checkpoint_p0/best_000019008_9732096_reward_5331.187.pth</code>.</p>
-        </details>
-      </section>
 
-      <section id="evaluation">
-        <p class="section-kicker">04 · Closed-loop evaluation</p>
-        <h2>Strong L0 policy, severe latency sensitivity</h2>
-        <div class="metric-strip">
-          <div><strong>5,414.259</strong><span>L0 / 0 ms</span></div>
-          <div><strong>−650.771</strong><span>L1 / 50 ms</span></div>
-          <div><strong>−454.339</strong><span>L2 / 100 ms</span></div>
-          <div><strong>−52.836</strong><span>L3 / 150 ms</span></div>
-          <div><strong>655.866</strong><span>L4 / 200 ms</span></div>
+<p>Best checkpoint: <code>/mnt/checkpoints/latency-sensitive-bench/small_models/half_cheetah/gymnasium_half_cheetah_continuous_zero_latency_10m/checkpoint_p0/best_000019008_9732096_reward_5331.187.pth</code>.</p>
+
+        </details>
+
+
+
+
+<h3>Strong L0 policy, severe latency sensitivity</h3>
+
+
+<div class="metric-strip">
+
+<div><strong>5,414.259</strong><span>L0 / 0 ms</span></div>
+
+
+<div><strong>−650.771</strong><span>L1 / 50 ms</span></div>
+
+
+<div><strong>−454.339</strong><span>L2 / 100 ms</span></div>
+
+
+<div><strong>−52.836</strong><span>L3 / 150 ms</span></div>
+
+
+<div><strong>655.866</strong><span>L4 / 200 ms</span></div>
+
         </div>
-        <div class="callout warning"><strong>Interpretation:</strong> all runs reach the fixed 1,000-step horizon because HalfCheetah does not terminate on unhealthy posture. The L1–L4 values therefore measure locomotion quality, not survival. The non-monotonic partial recovery at L4 is a closed-loop phase effect and does not indicate latency robustness.</div>
-        <div class="media-gallery">
-          <figure><img src="assets/half_cheetah/eval_latency_sweep.png" width="1440" height="810" loading="lazy" alt="HalfCheetah return under five action latencies"><figcaption><span class="status verified">VERIFIED</span> Mean ± std over ten episodes at each latency.</figcaption></figure>
-          <figure><img src="assets/half_cheetah/eval_l0_returns.png" width="1440" height="810" loading="lazy" alt="HalfCheetah L0 returns for ten episodes"><figcaption><span class="status verified">VERIFIED</span> Individual L0 returns; seven episodes exceed 5,500 and the lowest reaches 3,227.</figcaption></figure>
-          <figure><img src="assets/half_cheetah/eval_episode_contact_sheet.png" width="1440" height="760" loading="lazy" alt="HalfCheetah L0 episode contact sheet"><figcaption><span class="status verified">VERIFIED</span> Representative L0 episode 5, return 5,566.609.</figcaption></figure>
-          <figure><video controls preload="metadata" poster="assets/half_cheetah/eval_episode_contact_sheet.png"><source src="assets/half_cheetah/small_model_eval/eval_latency_0/videos/bin_00_episode_000005.mp4" type="video/mp4">Your browser does not support embedded MP4 video.</video><figcaption><span class="status verified">VERIFIED</span> The only archived video: L0 episode 5.</figcaption></figure>
+
+
+<div class="callout warning"><strong>Interpretation:</strong> all runs reach the fixed 1,000-step horizon because HalfCheetah does not terminate on unhealthy posture. The L1–L4 values therefore measure locomotion quality, not survival. The non-monotonic partial recovery at L4 is a closed-loop phase effect and does not indicate latency robustness.</div>
+
+
+<div class="media-gallery">
+
+<figure><img src="assets/media/eval_latency_sweep.png" width="1440" height="810" loading="lazy" alt="HalfCheetah return under five action latencies"><figcaption><span class="status verified">VERIFIED</span> Mean ± std over ten episodes at each latency.</figcaption></figure>
+
+
+<figure><img src="assets/media/eval_l0_returns.png" width="1440" height="810" loading="lazy" alt="HalfCheetah L0 returns for ten episodes"><figcaption><span class="status verified">VERIFIED</span> Individual L0 returns; seven episodes exceed 5,500 and the lowest reaches 3,227.</figcaption></figure>
+
+
+<figure><img src="assets/media/eval_episode_contact_sheet.png" width="1440" height="760" loading="lazy" alt="HalfCheetah L0 episode contact sheet"><figcaption><span class="status verified">VERIFIED</span> Representative L0 episode 5, return 5,566.609.</figcaption></figure>
+
+
+<figure><video controls preload="metadata" poster="assets/media/eval_episode_contact_sheet.png"><source src="assets/media/bin_00_episode_000005.mp4" type="video/mp4">Your browser does not support embedded MP4 video.</video><figcaption><span class="status verified">VERIFIED</span> The only archived video: L0 episode 5.</figcaption></figure>
+
         </div>
-        <details>
-          <summary>Evaluation command</summary>
-          <pre><code>MUJOCO_GL=egl PYTHONPATH=. conda run -n latency \
+
+
+<details>
+
+<summary>Evaluation command</summary>
+
+
+<pre><code>MUJOCO_GL=egl PYTHONPATH=. conda run -n latency \
   python -m latency_bench.run \
   --config configs/examples/gymnasium/half_cheetah/small_model_eval.yaml \
   --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/small_models/half_cheetah/gymnasium_half_cheetah_continuous_zero_latency_10m/checkpoint_p0/best_000019008_9732096_reward_5331.187.pth</code></pre>
         </details>
+
       </section>
 
-      <section id="vla">
-        <p class="section-kicker">05 · RGB+state VLA</p>
-        <h2>State input closes much of the L0 teacher gap</h2>
-        <div class="metric-strip">
-          <div><strong>100</strong><span>accepted teacher episodes</span></div>
-          <div><strong>90k / 10k</strong><span>train / validation rows</span></div>
-          <div><strong>0.01570</strong><span>final train loss</span></div>
-          <div><strong>0.01861</strong><span>final validation loss</span></div>
+<section id="zero-vla">
+<p class="section-kicker">03 / Zero-latency VLA training &amp; evaluation</p>
+
+<h2>Zero-latency VLA training &amp; evaluation</h2>
+<span id="limits"></span><span id="evidence"></span><span id="vla"></span>
+
+
+<h3>State input closes much of the L0 teacher gap</h3>
+
+
+<div class="metric-strip">
+
+<div><strong>100</strong><span>accepted teacher episodes</span></div>
+
+
+<div><strong>90k / 10k</strong><span>train / validation rows</span></div>
+
+
+<div><strong>0.01570</strong><span>final train loss</span></div>
+
+
+<div><strong>0.01861</strong><span>final validation loss</span></div>
+
         </div>
-        <div class="two-col">
-          <div>
-            <h3>Data and model contract</h3>
+
+
+<div class="two-col">
+
+<div>
+
+<h3>Data and model contract</h3>
+
             <ul class="steps">
               <li>Rollout gate: episode return strictly greater than 3,000; 100 accepted from 101 attempts.</li>
               <li>One 224×224 raw RGB image plus the native ordered 17D observation per row.</li>
@@ -149,8 +211,12 @@
               <li>No context frames; every row represents one 20 Hz decision step.</li>
             </ul>
           </div>
-          <div>
-            <h3>QwenVLA training</h3>
+
+
+<div>
+
+<h3>QwenVLA training</h3>
+
             <ul class="steps">
               <li>QwenOFT with Qwen3-VL-4B-Instruct and a native 6D MLP action head.</li>
               <li>5,000 steps, L1 action loss, batch 16×1, seed 42.</li>
@@ -159,37 +225,90 @@
               <li><a href="https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/8aycwnmt">W&B run 8aycwnmt</a>.</li>
             </ul>
           </div>
-        </div>
-        <div class="metric-strip">
-          <div><strong>3,675.246</strong><span>QwenVLA L0 mean</span></div>
-          <div><strong>1,032.705</strong><span>QwenVLA L0 std</span></div>
-          <div><strong>160.110</strong><span>QwenVLA L2 mean</span></div>
-          <div><strong>112.558</strong><span>QwenVLA L2 std</span></div>
-        </div>
-        <div class="callout warning"><strong>Closed-loop result:</strong> all 40 VLA episodes reached 1,000 steps. At L0 the VLA retains 67.9% of the small model's mean return, but variance is high and four episodes fall below 2,100. A two-frame / 100 ms action delay collapses forward locomotion to a mean return of 160.11.</div>
-        <div class="media-gallery">
-          <figure><img src="assets/half_cheetah/vla_eval_returns.png" width="1440" height="810" loading="lazy" alt="HalfCheetah RGB plus state QwenVLA L0 and L2 returns"><figcaption><span class="status verified">VERIFIED</span> Final-checkpoint latency-bench evaluation, 20 episodes per latency.</figcaption></figure>
-        </div>
-      </section>
 
-      <section id="evidence">
-        <p class="section-kicker">06 · Evidence</p>
-        <h2>Curated, reproducible artifacts</h2>
-        <div class="evidence-ledger">
-          <article><span class="status verified">VERIFIED</span><h3>API probe</h3><p><a href="assets/half_cheetah/api_probe.json">runtime facts</a> · <a href="assets/half_cheetah/env_block.yaml">frozen env block</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Training</h3><p><a href="assets/half_cheetah/small_model/config.json">resolved config</a> · <a href="assets/half_cheetah/small_model/sf_log.txt">log</a> · <a href="assets/half_cheetah/small_model/episode_metrics.jsonl.gz">metrics</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Evaluation</h3><p><a href="assets/half_cheetah/small_model_eval/queue_eval_results.jsonl">all summaries</a> · <a href="assets/half_cheetah/small_model_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>RGB+state rollout</h3><p><a href="assets/half_cheetah/rollout/metadata.json">metadata</a> · <a href="assets/half_cheetah/vla_dataset/manifest.json">converted manifest</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>QwenVLA training</h3><p><a href="assets/half_cheetah/vla_training/config.yaml">run config</a> · <a href="assets/half_cheetah/vla_training/config.full.yaml">full config</a> · <a href="assets/half_cheetah/vla_training/summary.jsonl">saved steps</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>QwenVLA evaluation</h3><p><a href="assets/half_cheetah/vla_eval/queue_eval_results.jsonl">L0/L2 summaries</a> · <a href="assets/half_cheetah/vla_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a> · <a href="assets/half_cheetah/vla_eval/eval_latency_2/episode_metrics.jsonl">L2 episodes</a></p></article>
-          <article><span class="status verified">VERIFIED</span><h3>Reproduction</h3><p><a href="assets/half_cheetah/repro_scripts/build_release_media.py">media builder</a> · 23 focused contract/export tests passed locally and remotely</p></article>
         </div>
-        <p>Environment facts follow the <a href="https://gymnasium.farama.org/environments/mujoco/half_cheetah/">Gymnasium HalfCheetah documentation</a>. The training recipe and reference result follow the vendored <a href="https://huggingface.co/andrewzhang505/sample-factory-2-mujoco-halfcheetah">Sample Factory HalfCheetah model record</a>.</p>
-      </section>
 
-      <section id="limits">
-        <p class="section-kicker">07 · Limits</p>
-        <h2>Current boundary</h2>
+
+<div class="metric-strip">
+
+<div><strong>3,675.246</strong><span>QwenVLA L0 mean</span></div>
+
+
+<div><strong>1,032.705</strong><span>QwenVLA L0 std</span></div>
+
+
+<div><strong>160.110</strong><span>QwenVLA L2 mean</span></div>
+
+
+<div><strong>112.558</strong><span>QwenVLA L2 std</span></div>
+
+        </div>
+
+
+<div class="callout warning"><strong>Closed-loop result:</strong> all 40 VLA episodes reached 1,000 steps. At L0 the VLA retains 67.9% of the small model's mean return, but variance is high and four episodes fall below 2,100. A two-frame / 100 ms action delay collapses forward locomotion to a mean return of 160.11.</div>
+
+
+<div class="media-gallery">
+
+<figure><img src="assets/media/vla_eval_returns.png" width="1440" height="810" loading="lazy" alt="HalfCheetah RGB plus state QwenVLA L0 and L2 returns"><figcaption><span class="status verified">VERIFIED</span> Final-checkpoint latency-bench evaluation, 20 episodes per latency.</figcaption></figure>
+
+        </div>
+
+
+<details>
+<summary>Source files and interpretation limits</summary>
+
+
+
+<h3>Curated, reproducible artifacts</h3>
+
+
+<div class="evidence-ledger">
+          <article><span class="status verified">VERIFIED</span>
+<h3>API probe</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/adaptation/validation/api_probe.json">runtime facts</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/adaptation/validation/env_block.yaml">frozen env block</a></p>
+</article>
+          <article><span class="status verified">VERIFIED</span>
+<h3>Training</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/small_model/training/small_model/config.json">resolved config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/small_model/training/small_model/sf_log.txt">log</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/small_model/training/small_model/episode_metrics.jsonl.gz">metrics</a></p>
+</article>
+          <article><span class="status verified">VERIFIED</span>
+<h3>Evaluation</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/small_model/evaluation/small_model_eval/queue_eval_results.jsonl">all summaries</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/small_model/evaluation/small_model_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a></p>
+</article>
+          <article><span class="status verified">VERIFIED</span>
+<h3>RGB+state rollout</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/demonstrations/validation/metadata.json">metadata</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json">converted manifest</a></p>
+</article>
+          <article><span class="status verified">VERIFIED</span>
+<h3>QwenVLA training</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/OpenVLA/training/vla_training/config.yaml">run config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/OpenVLA/training/vla_training/config.full.yaml">full config</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/OpenVLA/training/vla_training/summary.jsonl">saved steps</a></p>
+</article>
+          <article><span class="status verified">VERIFIED</span>
+<h3>QwenVLA evaluation</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/OpenVLA/evaluation/vla_eval/queue_eval_results.jsonl">L0/L2 summaries</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/OpenVLA/evaluation/vla_eval/eval_latency_0/episode_metrics.jsonl">L0 episodes</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/OpenVLA/evaluation/vla_eval/eval_latency_2/episode_metrics.jsonl">L2 episodes</a></p>
+</article>
+          <article><span class="status verified">VERIFIED</span>
+<h3>Reproduction</h3>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/adaptation/repro_scripts/build_release_media.py">media builder</a> · 23 focused contract/export tests passed locally and remotely</p>
+</article>
+        </div>
+
+
+<p>Environment facts follow the <a href="https://gymnasium.farama.org/environments/mujoco/half_cheetah/">Gymnasium HalfCheetah documentation</a>. The training recipe and reference result follow the vendored <a href="https://huggingface.co/andrewzhang505/sample-factory-2-mujoco-halfcheetah">Sample Factory HalfCheetah model record</a>.</p>
+
+
+
+
+<h3>Current boundary</h3>
+
         <ul class="steps">
           <li>One training seed was run; the L0 mean remains below the published Sample Factory reference of 6,262.56 ± 67.29.</li>
           <li>The policy was trained only at zero latency and predictably fails under a one-frame delay.</li>
@@ -197,9 +316,135 @@
           <li>One QwenVLA seed was trained; L0 succeeds on average but remains substantially below the small-model teacher and has high episode variance.</li>
           <li>QwenVLA was evaluated only at L0 and L2; the L2 result shows that this L0-trained policy is not latency robust.</li>
         </ul>
+      </details>
+</section>
+
+<section id="profiling">
+<p class="section-kicker">04 / Profiling</p>
+
+<h2>Profiling</h2>
+<span id="profile-only-20260911"></span>
+
+
+<h3>Fresh RTX 3090 latency profile</h3>
+
+
+<p>This experiment : environment / observation FPS <strong>10 / 10</strong>, original zero-latency QwenOFT, 224×224 input, one inference worker. Five sessions of ten episodes, each capped at 60 seconds with native termination. MuJoCo dynamics and the original observation stride are unchanged.</p>
+
+
+<p>Measurement complete: five sessions × ten episodes, exit 0. 29,997 admitted / 30,000 attempted observations; 3 capacity drops. <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/profiling">Complete profile uploaded</a>; all 127 files verified. The measured profile is reused for the baseline and latency-conditioned training. <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/profiling/status.md">Run ledger and evidence</a>.</p>
+
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Mean ± std</th><th>P50</th><th>P95</th><th>P99</th><th>Maximum</th></tr>
+</thead>
+
+<tbody>
+<tr><td>71.82 ± 1.07 ms</td><td>71.87 ms</td><td>73.09 ms</td><td>74.27 ms</td><td>112.49 ms</td></tr>
+</tbody>
+</table>
+</div>
+
+
+<p>Source run <code>the archived run</code>. Canonical observation-to-action samples exclude warmup; capacity drops do not receive fabricated latency values. <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/profiling/summary.json">Measured summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/provenance/report_sources/profile_5580e62896.json">Profile manifest</a>.</p>
+
+
       </section>
-    </main>
-  </div>
-  <footer>HalfCheetah adaptation · verified 27 August 2026</footer>
-</body>
-</html>
+
+<section id="baseline-vla">
+<p class="section-kicker">05 / Baseline VLA evaluation</p>
+
+<h2>Baseline VLA evaluation</h2>
+<span id="realtime-baseline-20260911"></span>
+
+
+<h3>Zero-latency VLA at 10 FPS on RTX 3090</h3>
+
+
+<p>This experiment completed 20 episodes, seeds 42–61, at environment / observation FPS 10 / 10. The exact zero-latency model from profiling was evaluated with 224×224 input, its original state/action encoding, one inference worker and measured realtime latency. The original 3,600-step evaluation cap and native 1,000-step TimeLimit were preserved.</p>
+
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Latency mean / P95</th><th>Admitted / attempted</th><th>Observation drops</th><th>Action drops / invalid</th></tr>
+</thead>
+
+<tbody>
+<tr><td>20</td><td>357.85 ± 285.91</td><td>1,000.00</td><td>71.61 / 72.92 ms</td><td>20,000 / 20,000</td><td>0</td><td>0 / 0</td></tr>
+</tbody>
+</table>
+</div>
+
+
+<p>20/20 episodes reached the native 1,000-step limit; 0/20 ended earlier. Recorded episode endings do not separate terminated and truncated flags. Measured latency uses admitted canonical observation-to-action samples and excludes warmup; drops are counted separately.</p>
+
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/baseline_OpenVLA/evaluation/summary.json">Verified summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/resolve/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/baseline_OpenVLA/evaluation/traces/episode_metrics.jsonl">Per-episode results</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/baseline/3090/baseline_contract.json">Model and evaluation contract</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/baseline/status.md">Stage ledger and complete evidence</a>.</p>
+
+  </section>
+
+<section id="profile-small">
+<p class="section-kicker">06 / Profile-latency small model training &amp; evaluation</p>
+
+<h2>Profile-latency small model training &amp; evaluation</h2>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Stage</th><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Evidence</th></tr>
+</thead>
+
+<tbody>
+<tr><td>E</td><td>10</td><td>5,217.47 ± 108.45</td><td>1,000.00</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/small_model/evaluation/summary.json">Summary</a></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Run <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/pipeline/status.md">the archived run</a> reuses the completed profile and baseline above. H100 completed the original 10M-frame teacher recipe (actual 10,006,528 frames), seed 2222, with the new IID latency distribution and 10 / 10 FPS clocks. Native physics, 17D state, 6D torque actions and raw-step budgets are preserved. Training finished with exit code 0. The original best-reward selection picked the final-frame checkpoint (training reward statistic 4,867.430; this is not an evaluation mean). All 14 files in the complete teacher bundle are published and verified. RTX 3090 completed the simulated teacher evaluation; all 10 episodes exceed the original data gate. </p>
+
+<p>The bounded action-delay-IID exporter probe passed the original strict return &gt;3,000 gate in 11/12 attempts (mean 5,021.28; range 2,773.79–5,442.57), so the gate remains unchanged. The independent E evaluation also passes 10/10 (range 5,038.43–5,395.98). E admits all 10,000 observations with no drops or invalid actions; simulated latency mean/P95 is 71.83/73.09 ms. </p>
+
+<p><a href="https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/half_cheetah/profile_latency/small_model">Verified teacher bundle</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/small_model/training/small_upload.json">Upload receipt</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/demonstrations/validation/gate_revision.json">Gate evidence</a>.</p>
+
+<p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/pipeline/continuation.md">Continuation contract</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/pipeline/input_sha256.json">Input hashes</a>.</p>
+</section>
+
+<section id="profile-vla">
+<p class="section-kicker">07 / Profile-latency VLA training &amp; evaluation</p>
+
+<h2>Profile-latency VLA training &amp; evaluation</h2>
+<span id="profile-pipeline-20260912"></span>
+<p>Data collection and conversion both completed with exit code 0. The actual dataset contains 100 episodes and 100,000 rows (90 training / 10 validation episodes). VLA training completed all 5,000 steps with exit code 0; W&amp;B is finished. Final train L1 is 0.01947 and held-out L1 is 0.05284. All 123 dataset files are already published and verified. All 22 inference bundle files are published and verified. Matched RTX 3090 evaluation completed with exit code 0: all 20 episodes, seeds 42–61, using the verified final checkpoint.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Training condition</th><th>Evaluation condition</th><th>Episodes</th><th>Return mean ± std</th><th>Mean steps</th><th>Status</th></tr>
+</thead>
+
+<tbody>
+
+<tr><td>Zero-latency VLA</td><td>3090 measured realtime, 10/10 FPS</td><td>20</td><td>357.85 ± 285.91</td><td>1,000</td><td>DONE · B</td></tr>
+
+
+<tr><td>Profile-latency small model</td><td>Simulated IID, one worker pool, 10/10 FPS</td><td>10</td><td>5,217.47 ± 108.45</td><td>1,000</td><td><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/small_model/evaluation/summary.json">DONE · E</a></td></tr>
+
+
+<tr><td>Profile-latency VLA</td><td>3090 measured realtime, 10/10 FPS</td><td>20</td><td>288.53 ± 248.11</td><td>1,000</td><td>DONE · F</td></tr>
+
+    </tbody>
+</table>
+</div>
+
+<p><strong>No average return improvement in this matched run.</strong> The profile-trained VLA scores 288.53 ± 248.11 versus baseline 357.85 ± 285.91: mean paired difference −69.32 (−19.4%), with 8/20 seeds improving. F observation-to-action latency is 72.00 / 73.28 ms mean/P95, close to B’s 71.61 / 72.92 ms. F admits 19,999/20,000 observations, with one observation drop and zero invalid or dropped actions. All episodes reach the native 1,000-step horizon; this does not establish successful locomotion. These are one-training-seed results, and the simulated teacher evaluation is a separate condition. <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/OpenVLA/evaluation/summary.json">F summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/pipeline/3090/BF.paired.json">Per-seed B/F comparison</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/OpenVLA/evaluation/records/F.evidence_sha256.json">Complete trace hashes</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/OpenVLA/training/vla.upload.json">Verified model upload</a>.</p>
+
+<p>The full collection probe accepted 100/106 attempts (6 rejected). All 100 materialized trajectories pass the unchanged gate (mean 5,180.70; minimum 3,199.61). Every episode’s seed, split, length and return exactly match the probe. The actual manifest and latency prompt map (keys 1 and 2) are bound to both 10 FPS training contracts. The original 5,000-step QwenOFT recipe retains its discretized-text state encoding. Teacher training/export use action-delay IID; E additionally models worker occupancy. F repeats B's 20 seeds and horizons.</p>
+</section>
+</main>
+</div>
+
+<footer><p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah">Complete experiment archive on Hugging Face</a> · <a href="assets/standard_pipeline.json">Archive verification receipt</a>. Only raw demonstrations are distributed; conversion runs on the training server.</p>HalfCheetah · experiment report</footer>
+</body></html>

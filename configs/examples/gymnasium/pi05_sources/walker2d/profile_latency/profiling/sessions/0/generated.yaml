@@ -1,0 +1,172 @@
+experiment:
+  name: walker2d_P_20260912T092949Z-walker2d
+  seed: 42
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cuda
+  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/walker2d
+  restart_behavior: overwrite
+  run_mode: eval
+executor:
+  mode: realtime
+  inference_devices:
+  - cuda:0
+env:
+  name: gymnasium
+  task_name: walker2d
+  env_id: LatencyBench/Walker2dContinuous-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_walker2d
+  make_kwargs:
+    base_env_id: Walker2d-v4
+    render_mode: rgb_array
+    base_make_kwargs:
+      forward_reward_weight: 1.0
+      ctrl_cost_weight: 0.001
+      healthy_reward: 1.0
+      terminate_when_unhealthy: true
+      reset_noise_scale: 0.005
+      exclude_current_positions_from_observation: true
+  env_fps: 10
+  obs_fps: 10.0
+  frame_stack: 1
+  action_space:
+    type: box
+    labels:
+    - right_thigh_torque
+    - right_leg_torque
+    - right_foot_torque
+    - left_thigh_torque
+    - left_leg_torque
+    - left_foot_torque
+    low:
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    high:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    dtype: float32
+  noop_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  base_prompt: Move the Walker2d robot forward while keeping its torso upright. Predict
+    six continuous torques in [-1, 1] ordered as right thigh, right leg, right foot,
+    left thigh, left leg, and left foot.
+  state_space:
+    labels:
+    - torso_height
+    - torso_angle
+    - right_thigh_angle
+    - right_leg_angle
+    - right_foot_angle
+    - left_thigh_angle
+    - left_leg_angle
+    - left_foot_angle
+    - torso_x_velocity
+    - torso_z_velocity
+    - torso_angular_velocity
+    - right_thigh_angular_velocity
+    - right_leg_angular_velocity
+    - right_foot_angular_velocity
+    - left_thigh_angular_velocity
+    - left_leg_angular_velocity
+    - left_foot_angular_velocity
+  obs_resize:
+  - 224
+  - 224
+latency:
+  method: measured
+  device: cuda:0
+  sync_cuda: true
+  model_id: qwenoft
+  gpu_class: 1x-rtx3090
+  workload_id: walker2d
+  instance_id: instance_859cf1e47bca6046
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+policy:
+  type: starvla
+  checkpoint_path: /workspace/tasks/20260912T092949Z-walker2d/bundle/checkpoints/steps_5000_pytorch_model.pt
+  model_config_path: /workspace/tasks/20260912T092949Z-walker2d/bundle/config.full.yaml
+  task_manifest_path: /workspace/tasks/20260912T092949Z-walker2d/bundle/manifest.json
+  device: cuda:0
+  latency_prompt_map_path: /workspace/tasks/20260912T092949Z-walker2d/bundle/latency_prompt_map.json
+  latency_prompt_key: 0
+  prompt_mode: raw
+  worker_python_executable: /venv/starvla_rl_games_openvla/bin/python
+training:
+  train_for_env_steps: 10000000
+  num_workers: 8
+  num_envs_per_worker: 8
+  worker_num_splits: 2
+  num_policies: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 1
+  num_epochs: 2
+  num_batches_per_epoch: 4
+  max_policy_lag: 300
+  learning_rate: 0.00295
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.2
+  ppo_clip_value: 0.2
+  value_loss_coeff: 1.3
+  max_grad_norm: 3.5
+  exploration_loss_coeff: 0.0
+  async_rl: false
+  batched_sampling: false
+  use_rnn: false
+  encoder_mlp_layers:
+  - 64
+  - 64
+  normalize_input: true
+  normalize_returns: true
+  save_every_sec: 600
+  keep_checkpoints: 5
+  lr_schedule: linear_decay
+  kl_loss_coeff: 0.1
+  serial_mode: false
+  nonlinearity: tanh
+  adaptive_stddev: false
+  policy_initialization: torch_default
+  initial_stddev: 1.0
+  shuffle_minibatches: false
+  value_bootstrap: true
+evaluation:
+  eval_interval_steps: null
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_max_steps: 600
+  eval_deterministic: true
+  eval_latency_values: null
+logging:
+  output_dir: /workspace/tasks/20260912T092949Z-walker2d/profiling/runs/qwenoft/1x-rtx3090/walker2d/instance_859cf1e47bca6046/20260912T093545326611Z/sessions/0
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  realtime_pipeline_profile: true
+provenance:
+  model_provenance:
+    source: local
+    repo_id: latency-sensitive-bench/extra-envs-checkpoints
+    path_in_repo: OpenVLA/zero-latency/walker2d_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k
+    checkpoint: checkpoints/steps_5000_pytorch_model.pt
+    model_config: config.full.yaml

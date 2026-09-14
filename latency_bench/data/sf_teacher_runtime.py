@@ -82,7 +82,11 @@ def _apply_latency_to_flat_cfg(cfg: Any, latency_cfg: Mapping[str, Any]) -> None
         cfg: Mutable Sample Factory config object.
         latency_cfg: Nested latency config mapping.
     """
-    maybe_set_cli_override(cfg, "latency_type", latency_type_from_config(latency_cfg))
+    maybe_set_cli_override(
+        cfg,
+        "latency_type",
+        "iid" if latency_cfg["method"] == "iid" else latency_type_from_config(latency_cfg),
+    )
     field_map = {
         "fixed_latency_ms": "fixed_latency_ms",
         "mean_latency_ms": "mean_latency_ms",

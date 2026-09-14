@@ -1,0 +1,94 @@
+{
+  "date": "2026-09-13",
+  "benchmark_revision": "bfd0560a24c9bab9fcef63ff4d632c64876a7889",
+  "starvla_revision": "f364fdf080434aea14bb2a19931e017f0af32d87",
+  "model_alias": "pi-0.5 -> QwenPI_v3",
+  "scratch_error": "pi-0.5 scratch is not supported",
+  "configured_pi05_profile_workloads": [
+    "flappy",
+    "demon_attack",
+    "deadly_corridor"
+  ],
+  "environment_contracts": [
+    {
+      "environment": "air_raid",
+      "active_action_dim": 6,
+      "state_dim": null,
+      "pi05_profile_preset": false,
+      "bridge_result": {
+        "action_dim": 7,
+        "action_env_dim": 6,
+        "action_horizon": 1,
+        "state_dim": 7,
+        "future_action_window_size": 0
+      }
+    },
+    {
+      "environment": "inverted_pendulum",
+      "active_action_dim": 5,
+      "state_dim": 4,
+      "pi05_profile_preset": false,
+      "bridge_result": {
+        "action_dim": 7,
+        "action_env_dim": 5,
+        "action_horizon": 1,
+        "state_dim": 7,
+        "future_action_window_size": 0
+      }
+    },
+    {
+      "environment": "hopper",
+      "active_action_dim": 3,
+      "state_dim": 11,
+      "pi05_profile_preset": false,
+      "bridge_result": {
+        "action_dim": 7,
+        "action_env_dim": 3,
+        "action_horizon": 1,
+        "state_dim": 7,
+        "future_action_window_size": 0
+      }
+    },
+    {
+      "environment": "half_cheetah",
+      "active_action_dim": 6,
+      "state_dim": 17,
+      "pi05_profile_preset": false,
+      "bridge_result": {
+        "action_dim": 7,
+        "action_env_dim": 6,
+        "action_horizon": 1,
+        "state_dim": 7,
+        "future_action_window_size": 0
+      }
+    },
+    {
+      "environment": "walker2d",
+      "active_action_dim": 6,
+      "state_dim": 17,
+      "pi05_profile_preset": false,
+      "bridge_result": {
+        "action_dim": 7,
+        "action_env_dim": 6,
+        "action_horizon": 1,
+        "state_dim": 7,
+        "future_action_window_size": 0
+      }
+    },
+    {
+      "environment": "ant",
+      "active_action_dim": 8,
+      "state_dim": 27,
+      "pi05_profile_preset": false,
+      "bridge_error": "Bridge initialization uses a 7D action carrier, but task=gymnasium resolved active action dim=8. Use native/scratch initialization, or a task layout that fits the 7D bridge carrier."
+    },
+    {
+      "environment": "humanoid",
+      "active_action_dim": 17,
+      "state_dim": 376,
+      "pi05_profile_preset": false,
+      "bridge_error": "Bridge initialization uses a 7D action carrier, but task=gymnasium resolved active action dim=17. Use native/scratch initialization, or a task layout that fits the 7D bridge carrier."
+    }
+  ],
+  "scope": "Local source/config/runtime helper audit. No training, remote GPU run, Hub checkpoint metadata refresh, or implementation change."
+}

@@ -1,0 +1,184 @@
+{
+  "dataset_name": "walker2d_rgb_state_l0_return_gt3000_100ep",
+  "env_name": "walker2d_rgb_state",
+  "episodes": 90,
+  "frames": 85160,
+  "task_prompts": [
+    "Move the Walker2d robot forward while keeping its torso upright. Predict six continuous torques in [-1, 1] ordered as right thigh, right leg, right foot, left thigh, left leg, and left foot. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 125 FPS and observations are emitted at 125 FPS. Choose the best next action."
+  ],
+  "format": "starvla_lerobot_v2_image_parquet",
+  "source": "/mnt/data/latency-sensitive-bench/raw_rollouts/Walker2D/walker2d_rgb_state_l0_return_gt3000_100ep",
+  "integration_name": "gymnasium",
+  "task_name": "walker2d_rgb_state",
+  "action_layout": "gymnasium_continuous_v1",
+  "action_labels": [
+    "right_thigh_torque",
+    "right_leg_torque",
+    "right_foot_torque",
+    "left_thigh_torque",
+    "left_leg_torque",
+    "left_foot_torque"
+  ],
+  "carrier_action_labels": [
+    "right_thigh_torque",
+    "right_leg_torque",
+    "right_foot_torque",
+    "left_thigh_torque",
+    "left_leg_torque",
+    "left_foot_torque"
+  ],
+  "action_dim": 6,
+  "active_action_dim": 6,
+  "action_carrier": "native",
+  "rows_unit": "decision_step",
+  "obs_fps": 125.0,
+  "obs_stride_raw_frames": 1,
+  "uses_state": true,
+  "state_dim": 17,
+  "state_labels": [
+    "torso_height",
+    "torso_angle",
+    "right_thigh_angle",
+    "right_leg_angle",
+    "right_foot_angle",
+    "left_thigh_angle",
+    "left_leg_angle",
+    "left_foot_angle",
+    "torso_x_velocity",
+    "torso_z_velocity",
+    "torso_angular_velocity",
+    "right_thigh_angular_velocity",
+    "right_leg_angular_velocity",
+    "right_foot_angular_velocity",
+    "left_thigh_angular_velocity",
+    "left_leg_angular_velocity",
+    "left_foot_angular_velocity"
+  ],
+  "state_normalization": {
+    "type": "min_max",
+    "min": [
+      0.8001501560211182,
+      -0.9963381290435791,
+      -1.2083065509796143,
+      -2.6031124591827393,
+      -1.4880801439285278,
+      -1.7395809888839722,
+      -2.8114991188049316,
+      -1.4173651933670044,
+      -1.9014521837234497,
+      -5.880380630493164,
+      -10.0,
+      -10.0,
+      -10.0,
+      -10.0,
+      -10.0,
+      -10.0,
+      -10.0
+    ],
+    "max": [
+      1.4312387704849243,
+      0.9942846298217773,
+      0.35824716091156006,
+      0.42332249879837036,
+      1.4080666303634644,
+      0.19403602182865143,
+      0.508411705493927,
+      1.1665540933609009,
+      9.758368492126465,
+      2.7117056846618652,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0,
+      10.0
+    ]
+  },
+  "robot_type": "rl_games_gymnasium",
+  "latency_prompt_map_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/walker2d_rgb_state_l0_return_gt3000_100ep/latency_prompt_map.json",
+  "custom_mixtures_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/_generated_mixtures/walker2d_rgb_state_l0_return_gt3000_100ep.json",
+  "gymnasium_task": {
+    "action_space": {
+      "dtype": "float32",
+      "high": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "labels": [
+        "right_thigh_torque",
+        "right_leg_torque",
+        "right_foot_torque",
+        "left_thigh_torque",
+        "left_leg_torque",
+        "left_foot_torque"
+      ],
+      "low": [
+        -1.0,
+        -1.0,
+        -1.0,
+        -1.0,
+        -1.0,
+        -1.0
+      ],
+      "type": "box"
+    },
+    "base_prompt": "Move the Walker2d robot forward while keeping its torso upright. Predict six continuous torques in [-1, 1] ordered as right thigh, right leg, right foot, left thigh, left leg, and left foot.",
+    "env_fps": 125.0,
+    "env_id": "LatencyBench/Walker2dContinuous-v0",
+    "frame_stack": 1,
+    "make_kwargs": {
+      "base_env_id": "Walker2d-v4",
+      "base_make_kwargs": {
+        "ctrl_cost_weight": 0.001,
+        "exclude_current_positions_from_observation": true,
+        "forward_reward_weight": 1.0,
+        "healthy_reward": 1.0,
+        "reset_noise_scale": 0.005,
+        "terminate_when_unhealthy": true
+      },
+      "render_mode": "rgb_array"
+    },
+    "noop_action": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "obs_fps": 125.0,
+    "registration_imports": [
+      "latency_bench.envs.gymnasium_walker2d"
+    ],
+    "state_space": {
+      "labels": [
+        "torso_height",
+        "torso_angle",
+        "right_thigh_angle",
+        "right_leg_angle",
+        "right_foot_angle",
+        "left_thigh_angle",
+        "left_leg_angle",
+        "left_foot_angle",
+        "torso_x_velocity",
+        "torso_z_velocity",
+        "torso_angular_velocity",
+        "right_thigh_angular_velocity",
+        "right_leg_angular_velocity",
+        "right_foot_angular_velocity",
+        "left_thigh_angular_velocity",
+        "left_leg_angular_velocity",
+        "left_foot_angular_velocity"
+      ]
+    },
+    "task_name": "walker2d_rgb_state"
+  },
+  "validation_dataset_name": "walker2d_rgb_state_l0_return_gt3000_100ep__val",
+  "validation_episodes": 10,
+  "validation_frames": 9664
+}

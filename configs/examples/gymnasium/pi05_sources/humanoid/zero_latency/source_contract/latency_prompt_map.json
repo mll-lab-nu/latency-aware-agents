@@ -1,0 +1,7 @@
+{
+  "0": {
+    "prompt": "Make the Humanoid walk forward as fast as possible without falling. Predict seventeen continuous torques in [-0.4, 0.4] ordered as abdomen y, abdomen z, abdomen x, right hip x, right hip z, right hip y, right knee, left hip x, left hip z, left hip y, left knee, right shoulder 1, right shoulder 2, right elbow, left shoulder 1, left shoulder 2, and left elbow. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 66.6667 FPS and observations are emitted at 66.6667 FPS. Choose the best next action.",
+    "latency_raw_frames": 0,
+    "latency_ms": 0.0
+  }
+}
