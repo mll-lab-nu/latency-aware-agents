@@ -1,0 +1,13 @@
+__base__: balance_fasttd3_chunk_h8_fixed40.yaml
+
+experiment:
+  name: balance_fasttd3_chunk_h8_qwenoft_6m_s1
+
+latency:
+  method: temporal
+  fixed_latency_ms: null
+  profile_path: results/profiling/profiles/qwenoft/1x-rtx3090/g1_sonic_balance_simple/instance_3a0d42681a03715c/profile.json
+  profile_worker_slot: 0
+
+logging:
+  wandb_name: balance_fasttd3_chunk_h8_qwenoft_6m_s1

@@ -191,5 +191,6 @@ class ActionScheduler:
             if not isinstance(action, Action):
                 action = Action(value=action)
             self._current_action = action
+            event.metadata["chunk_index"] = len(chunk) - 1
             return action
         return self.noop_action

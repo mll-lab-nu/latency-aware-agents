@@ -115,5 +115,6 @@ def test_chunk_underflow_is_counted_and_can_hold_last_action():
     assert scheduler.update(2, 200.0) is chunk[0]
     assert scheduler.underflow_count == 1
     assert scheduler.underflow_frames == 2
+    assert scheduler.get_applied_events()[0].metadata["chunk_index"] == 0
     assert scheduler.underflow_duration_ms == 200.0
     assert scheduler.get_applied_events()[0].metadata["underflow_frames"] == 2

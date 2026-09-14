@@ -4,9 +4,11 @@ from types import SimpleNamespace
 
 import gymnasium as gym
 import numpy as np
+import pytest
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
+from latency_bench.latency.sample import LatencySample
 from latency_bench.envs.gymnasium_task import (
     gymnasium_discrete_action_labels,
     gymnasium_discrete_action_values,
@@ -18,6 +20,7 @@ from training.common.latency_bench_periodic_eval import (
 )
 from training.gymnasium_sf.integration import (
     ChannelFirstFrameStackWrapper,
+    G1RawRequestWrapper,
     GymnasiumActionCatalogWrapper,
     GymnasiumActionLatencyWrapper,
     GymnasiumStateInfoWrapper,
@@ -300,3 +303,111 @@ def test_periodic_eval_preserves_generic_task_contract(tmp_path):
     assert config["policy"]["type"] == "gymnasium_sf"
     assert config["policy"]["checkpoint_path"] == str(tmp_path / "checkpoint.pth")
     assert config["backend"]["run_mode"] == "eval"
+
+
+class _VectorActionTraceEnv(gym.Env):
+    observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
+    action_space = gym.spaces.Box(low=-10.0, high=10.0, shape=(43,), dtype=np.float32)
+
+    def __init__(self):
+        self.native_actions = []
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        self.native_actions.clear()
+        return np.zeros(1, dtype=np.float32), {}
+
+    def step(self, action):
+        self.native_actions.append(np.asarray(action).copy())
+        return np.zeros(1, dtype=np.float32), 0.0, False, False, {}
+
+
+class _ChunkDelaySampler:
+    """Deterministic, cloneable timing stream for the wrapper scheduling contract."""
+    def __init__(self, delays, clock):
+        self.delays = delays
+        self.clock = clock
+        self.draws = 0
+
+    def sample(self, context):
+        ready, service = self.delays[self.draws % len(self.delays)]
+        self.draws += 1
+        return LatencySample.from_action_ready(
+            action_ready_raw_frames=ready, worker_service_raw_frames=service,
+            worker_service_ms=service * self.clock.frame_ms, clock=self.clock,
+        )
+
+
+@pytest.mark.parametrize("delays,expected,windows", [([(0, 0)],
+  [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0)],
+  [(0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1)]),
+ ([(2, 2)],
+  [(-1, -1), (-1, -1), (0, 2), (0, 3), (2, 2), (2, 3), (4, 2), (4, 3)],
+  [(-1, -1), (-1, -1), (2, 4), (2, 4), (2, 4), (2, 4), (2, 4), (2, 4)]),
+ ([(2, 2), (3, 3), (2, 2)],
+  [(-1, -1), (-1, -1), (0, 2), (0, 3), (0, 4), (2, 3), (2, 4), (5, 2)],
+  [(-1, -1), (-1, -1), (2, 5), (2, 5), (2, 5), (3, 5), (3, 5), (2, 4)]),
+ ([(2, 3)],
+  [(-1, -1), (-1, -1), (0, 2), (0, 3), (0, 4), (3, 2), (3, 3), (3, 4)],
+  [(-1, -1), (-1, -1), (2, 5), (2, 5), (2, 5), (2, 5), (2, 5), (2, 5)]),
+ ([(3, 2)],
+  [(-1, -1), (-1, -1), (-1, -1), (0, 3), (0, 4), (2, 3), (2, 4), (4, 3)],
+  [(-1, -1), (-1, -1), (-1, -1), (3, 5), (3, 5), (3, 5), (3, 5), (3, 5)]),
+ ([(3, 2), (2, 2)],
+  [(-1, -1), (-1, -1), (-1, -1), (0, 3), (2, 2), (2, 3), (2, 4), (4, 3)],
+  [(-1, -1), (-1, -1), (-1, -1), (3, 4), (2, 5), (2, 5), (2, 5), (3, 4)]),
+ ([(2, 10)],
+  [(-1, -1), (-1, -1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 7), (0, 7)],
+  [(-1, -1), (-1, -1), (2, 12), (2, 12), (2, 12), (2, 12), (2, 12), (2, 12), (2, 12), (2, 12)])])
+@pytest.mark.parametrize("terminal_frame", [None, 4])
+def test_g1_action_chunks_follow_execution_sources_and_planned_windows(delays, expected, windows, terminal_frame):
+    native = _VectorActionTraceEnv()
+    native._raw_learn_hands = True
+    from latency_bench.envs.humanoidbench_sonic import MUJOCO_INDEX_FOR_POLICY
+
+    def absolute_action(action):
+        joint = 1.0 + 3.0 * action
+        return np.concatenate((joint[:29][MUJOCO_INDEX_FOR_POLICY], joint[29:]))
+
+    native.g1_absolute_request_from_raw_action = absolute_action
+    latency = GymnasiumActionLatencyWrapper(
+        native,
+        fixed_latency_raw_frames=2,
+        env_fps=10,
+        obs_fps=10,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        simulated_worker_capacity=1,
+        add_latency_info=True,
+        hold_last_chunk_action=True,
+        noop_action=np.zeros(43, dtype=np.float32),
+    )
+    latency.profile_sampler = _ChunkDelaySampler(delays, latency.clock)
+    env = G1RawRequestWrapper(latency, action_chunk_horizon=8, latency_env=latency)
+    observation, _ = env.reset(seed=1)
+    assert env.action_space.shape == (344,)
+    assert observation["replay_clock"].shape == (7,)
+    np.testing.assert_array_equal(observation["obs"], np.zeros(1))
+
+    original_step = native.step
+    def step(action):
+        obs, reward, _, truncated, info = original_step(action)
+        return obs, reward, len(native.native_actions) == terminal_frame, truncated, info
+    native.step = step
+    traces = []
+    chunks = []
+    admitted = 0
+    for frame in range(len(expected) if terminal_frame is None else terminal_frame):
+        chunk = np.stack(
+            [np.full(43, frame * 0.1 + index * 0.01, dtype=np.float32) for index in range(8)]
+        )
+        chunks.append(chunk)
+        observation, _, _, _, info = env.step(chunk.reshape(-1))
+        admitted += info["command_admitted"]
+        assert latency.profile_sampler.draws == admitted
+        traces.append(tuple(observation["replay_clock"][2:4]))
+        assert tuple(observation["replay_clock"][5:7]) == windows[frame]
+        source, head = expected[frame]
+        if source >= 0:
+            np.testing.assert_allclose(native.native_actions[frame], absolute_action(chunks[source][head]))
+    assert traces == expected[:len(traces)]

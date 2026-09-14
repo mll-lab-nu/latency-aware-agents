@@ -241,10 +241,12 @@ class _FakeIntegration:
         action_space=None,
         observation_space=object(),
         use_rnn: bool = False,
+        action_chunk_horizon: int = 1,
     ):
         self.action_space = action_space or Discrete(1)
         self.observation_space = observation_space
         self.use_rnn = bool(use_rnn)
+        self.action_chunk_horizon = action_chunk_horizon
 
     def register_components(self):
         pass
@@ -254,6 +256,7 @@ class _FakeIntegration:
             policy_index=0,
             load_checkpoint_kind="latest",
             use_rnn=self.use_rnn,
+            fasttd3_action_chunk_horizon=self.action_chunk_horizon,
         )
 
     def make_reference_env(self, cfg):
@@ -287,6 +290,25 @@ class _BatchDiscreteActorCritic:
 
     def action_distribution(self):
         return SimpleNamespace(argmax_actions=self.last_argmax_actions)
+
+
+class _ChunkActorCritic:
+    def __init__(self, action_dim: int):
+        self.actions = torch.linspace(-0.8, 0.8, action_dim).reshape(1, action_dim)
+        self.observations = []
+
+    def eval(self):
+        pass
+
+    def model_to_device(self, device):
+        self.actions = self.actions.to(device)
+
+    def __call__(self, normalized_obs, rnn_states):
+        self.observations.append(normalized_obs)
+        return {
+            "actions": self.actions.expand(normalized_obs["obs"].shape[0], -1),
+            "new_rnn_states": rnn_states,
+        }
 
 
 class _BatchRnnActorCritic:
@@ -816,6 +838,47 @@ def test_sample_factory_policy_unsqueezes_discrete_argmax_actions_before_preproc
     assert output.action.value == 4
 
 
+def test_sample_factory_policy_emits_chunk_from_physical_observation(monkeypatch):
+    horizon, action_dim = 8, 43
+    actor = _ChunkActorCritic(horizon * action_dim)
+    _install_fake_sample_factory_modules(
+        monkeypatch,
+        load_from_checkpoint=lambda cfg: cfg,
+        actor_critic_factory=lambda cfg, observation_space, action_space: actor,
+    )
+    monkeypatch.setattr(
+        sf_runtime,
+        "load_sample_factory_policy_state_dict",
+        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+    )
+    config = _config("/tmp/model.pth")
+    config["policy"]["deterministic"] = False
+    config["env"]["noop_action"] = [0.0] * action_dim
+    action_space = Box(-1.0, 1.0, (horizon * action_dim,), dtype=np.float32)
+    runner = sample_factory_common.SampleFactoryPolicyRunner(
+        config=config,
+        action_resolver=ActionResolver(config["env"]),
+        integration_module=_FakeIntegration(
+            action_space=action_space,
+            observation_space=Box(-np.inf, np.inf, (198,), dtype=np.float32),
+            action_chunk_horizon=horizon,
+        ),
+        policy_type="gymnasium_sf",
+    )
+    observation = Observation(data=np.zeros(198, dtype=np.float32), env_step=3, sim_time_ms=60.0)
+    output = runner.predict(observation)
+
+    assert len(output.action_chunk) == horizon
+    assert output.action is output.action_chunk[0]
+    np.testing.assert_allclose(output.raw_output, actor.actions.reshape(horizon, action_dim))
+    np.testing.assert_array_equal(actor.observations[0]["obs"], np.zeros((1, 198)))
+    batch = runner.predict_batch([observation, observation])
+    assert len(batch) == 2
+    np.testing.assert_array_equal(actor.observations[1]["obs"], np.zeros((2, 198)))
+    assert all(len(item.action_chunk) == horizon for item in batch)
+    assert all(item.raw_output == output.raw_output for item in batch)
+
+
 def test_sample_factory_predict_batch_size_1_matches_predict_for_discrete_policy(monkeypatch):
     runner, actor = _build_discrete_runner(monkeypatch)
     observation = Observation(
@@ -1090,7 +1153,6 @@ def test_sample_factory_predict_batch_multidiscrete_returns_tuple_per_slot(monke
     "action_space",
     [
         Tuple((Tuple((Discrete(2), Discrete(2))), Discrete(2))),
-        Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32),
         object(),
     ],
 )

@@ -21,7 +21,7 @@ from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, Late
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from latency_bench.executors._simulated_timeline import SimulatedResultTimeline, SimulatedWorkerCapacity
 from latency_bench.latency.sample import LatencySample
-from latency_bench.latency.samplers import build_episode_sampler_factory
+from latency_bench.latency.samplers import HiddenRegimeSampler, IidInverseCdfSampler, build_episode_sampler_factory
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.factory import build_persistence_policy
 from training.common.latency_config import (
@@ -84,6 +84,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         profile_method: str = "iid",
         simulated_worker_capacity: int | None = None,
         max_pending_actions: int | None = None,
+        hold_last_chunk_action: bool = False,
     ):
         super().__init__(env)
         self.base_latency_seed = int(seed)
@@ -146,6 +147,7 @@ class ActionLatencyWrapper(gym.Wrapper):
             noop_action=Action(value=clone_action(self.noop_action), name="noop", is_noop=True),
             persistence_policy=build_persistence_policy(self.hold_policy),
             ordering_policy=self.ordering_policy,
+            hold_last_chunk_action=hold_last_chunk_action,
         )
         self.result_timeline = SimulatedResultTimeline(ordering_policy=self.ordering_policy)
         self.latency_distribution_sampler = None
@@ -247,6 +249,57 @@ class ActionLatencyWrapper(gym.Wrapper):
             info.update(self._latency_info(self.current_latency_raw_frames))
         return obs, info
 
+    def _planned_chunk_window(self, event: ActionEvent) -> tuple[int, int]:
+        """Replay-only handoff clock assuming the episode continues.
+
+        Run the existing admission/result/scheduler rules on cloned timing
+        state. Physics, actor inputs and the live sampler are never advanced.
+        Immutable profile tables are shared; only sampler state is copied.
+        """
+        shadow = copy.copy(self)
+        memo = {}
+        if isinstance(self.profile_sampler, (HiddenRegimeSampler, IidInverseCdfSampler)):
+            memo[id(self.profile_sampler.distributions)] = self.profile_sampler.distributions
+        if isinstance(self.profile_sampler, HiddenRegimeSampler):
+            for table in (self.profile_sampler.model, self.profile_sampler.rank_processes, self.profile_sampler.pre_worker_time):
+                memo[id(table)] = table
+        shadow.profile_sampler = copy.deepcopy(self.profile_sampler, memo)
+        shadow.latency_distribution_sampler = copy.deepcopy(self.latency_distribution_sampler)
+        shadow.worker_capacity = copy.deepcopy(self.worker_capacity)
+        shadow.result_timeline = copy.deepcopy(self.result_timeline)
+        shadow.action_scheduler = ActionScheduler(
+            self.clock, self.action_scheduler.noop_action,
+            copy.deepcopy(self.action_scheduler.persistence_policy), self.ordering_policy,
+            hold_last_chunk_action=self.action_scheduler.hold_last_chunk_action,
+        )
+        for pending in copy.deepcopy(self.action_scheduler.get_pending_events()):
+            shadow.action_scheduler.enqueue(pending)
+        while True:
+            shadow.env_step_idx += 1
+            # Boundary arrivals are visible before the next admission, as in step().
+            released, _ = shadow.result_timeline.release_arrived(shadow.env_step_idx)
+            for pending in released:
+                shadow.action_scheduler.enqueue(pending)
+            if shadow.worker_capacity is not None:
+                shadow.worker_capacity.release_ready(shadow.env_step_idx)
+            if shadow.env_step_idx % self.clock.obs_stride_raw_frames == 0:
+                shadow.decision_step_idx += 1
+                if shadow.worker_capacity is None or shadow.worker_capacity.can_submit():
+                    worker = None if shadow.worker_capacity is None else shadow.worker_capacity.assign_worker()
+                    sample = shadow._next_latency_sample(worker_slot=worker)
+                    shadow._enqueue_action_event(
+                        self.noop_action, sample.action_ready_raw_frames,
+                        latency_sample=sample, worker_id=worker,
+                    )
+                    if shadow.worker_capacity is not None:
+                        shadow.worker_capacity.submit(worker, shadow.env_step_idx + sample.worker_service_raw_frames)
+            released, _ = shadow.result_timeline.release_arrived(shadow.env_step_idx)
+            for pending in released:
+                shadow.action_scheduler.enqueue(pending)
+            shadow.action_scheduler.update(shadow.env_step_idx, self.clock.step_to_time_ms(shadow.env_step_idx))
+            if shadow.action_scheduler.applied_event_count:
+                return event.apply_raw_frame - event.obs_env_step, shadow.env_step_idx - event.obs_env_step
+
     def _enqueue_action_event(
         self,
         action,
@@ -257,9 +310,11 @@ class ActionLatencyWrapper(gym.Wrapper):
     ) -> int:
         obs_env_step = int(self.env_step_idx)
         ready_raw_frame = obs_env_step + int(latency_raw_frames)
+        action_chunk = clone_action(action) if isinstance(action, np.ndarray) and action.ndim == 2 else None
+        event_action = action_chunk[0] if action_chunk is not None else action
         event = ActionEvent(
             action_id=int(self._next_action_id),
-            action=Action(value=clone_action(action), name=str(action), is_noop=False),
+            action=Action(value=clone_action(event_action), name=str(event_action), is_noop=False),
             obs_env_step=obs_env_step,
             ready_time_ms=self.clock.step_to_time_ms(ready_raw_frame),
             ready_step_float=float(ready_raw_frame),
@@ -269,6 +324,7 @@ class ActionLatencyWrapper(gym.Wrapper):
             ),
             latency_raw_frames=int(latency_raw_frames),
             ready_raw_frame=ready_raw_frame,
+            action_chunk=action_chunk,
             metadata={
                 "worker_id": worker_id,
                 "worker_service_ms": latency_sample.worker_service_ms,
@@ -338,10 +394,13 @@ class ActionLatencyWrapper(gym.Wrapper):
         for _ in range(self.clock.obs_stride_raw_frames):
             applied_source_raw_frame = -1
             applied_source_obs_id = -1
+            applied_chunk_index = -1
+            applied_chunk_window = (-1, -1)
             released_events, _ = self.result_timeline.release_arrived(self.env_step_idx)
             for released_event in released_events:
                 self.action_scheduler.enqueue(released_event)
             # for each raw frame step, ask scheduler which action should be taken
+            applied_event_count = self.action_scheduler.applied_event_count
             active_action = self.action_scheduler.update(
                 current_step=int(self.env_step_idx),
                 current_time_ms=self.clock.step_to_time_ms(int(self.env_step_idx)),
@@ -350,6 +409,11 @@ class ActionLatencyWrapper(gym.Wrapper):
                 applied_event = self.action_scheduler.latest_applied_event
                 applied_source_raw_frame = applied_event.obs_env_step
                 applied_source_obs_id = applied_event.latency.obs_id
+                if applied_event.action_chunk is not None:
+                    applied_chunk_index = applied_event.metadata["chunk_index"]
+                    if self.action_scheduler.applied_event_count != applied_event_count:
+                        applied_event.metadata["planned_chunk_window"] = self._planned_chunk_window(applied_event)
+                    applied_chunk_window = applied_event.metadata["planned_chunk_window"]
             self.current_applied_action = clone_action(active_action.value)
             obs, reward, terminated, truncated, info = self.env.step(clone_action(active_action.value))
             # accumulate rewards for raw frames
@@ -392,6 +456,8 @@ class ActionLatencyWrapper(gym.Wrapper):
             info["obs_stride_raw_frames"] = int(self.clock.obs_stride_raw_frames)
             info["applied_source_raw_frame"] = applied_source_raw_frame
             info["applied_source_obs_id"] = applied_source_obs_id
+            info["applied_chunk_index"] = applied_chunk_index
+            info["applied_chunk_window"] = applied_chunk_window
             info["raw_done"] = terminated or truncated
         if environment_applied_action is not None:
             info["applied_action"] = environment_applied_action

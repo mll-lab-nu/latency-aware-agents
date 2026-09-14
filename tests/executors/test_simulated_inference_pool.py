@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, LatencyRecord, Observation, OrderingPolicy, PolicyOutput
 from latency_bench.envs.base import DummyEnvAdapter
@@ -26,10 +28,14 @@ from latency_bench.utils.io import load_jsonl_records
 class PureObsPolicy(PolicyRunner):
     """Action is a pure function of the observation, so prediction order is irrelevant."""
 
+    def __init__(self, horizon=1):
+        self.horizon = horizon
+
     def predict(self, observation: Observation) -> PolicyOutput:
         obs_id = observation.metadata["obs_id"]
         return PolicyOutput(
             action=Action(value=f"a{obs_id}", name=f"a{obs_id}"),
+            action_chunk=[Action(f"a{obs_id}-{i}") for i in range(self.horizon)] if self.horizon > 1 else None,
             metadata={"predicted_obs_id": obs_id},
         )
 
@@ -127,7 +133,7 @@ class FakeInferencePool:
 LATENCY_SCRIPT = [2, 5, 1, 2, 3, 1, 4, 1, 2, 2] * 30
 
 
-def _build_executor(tmp_path: Path, *, pool: FakeInferencePool | None) -> SimulatedLatencyExecutor:
+def _build_executor(tmp_path: Path, *, pool: FakeInferencePool | None, horizon=1) -> SimulatedLatencyExecutor:
     clock = EnvClock(env_fps=30.0, obs_fps=30.0)
     env = DummyEnvAdapter(env_fps=30.0, max_steps=40)
     action_scheduler = ActionScheduler(
@@ -138,7 +144,7 @@ def _build_executor(tmp_path: Path, *, pool: FakeInferencePool | None) -> Simula
     )
     return SimulatedLatencyExecutor(
         env=env,
-        policy=None if pool is not None else PureObsPolicy(),
+        policy=None if pool is not None else PureObsPolicy(horizon),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
         latency_source=ScriptedRawFrameSampler(list(LATENCY_SCRIPT)),
         action_scheduler=action_scheduler,
@@ -173,15 +179,16 @@ def _comparable_metrics(metrics) -> list[dict]:
     ]
 
 
-def test_pooled_execution_is_identical_to_inline(tmp_path):
+@pytest.mark.parametrize("horizon", [1, 8])
+def test_pooled_execution_is_identical_to_inline(tmp_path, horizon):
     inline_dir = tmp_path / "inline"
     pooled_dir = tmp_path / "pooled"
-    inline_metrics = _run_episodes(_build_executor(inline_dir, pool=None))
+    inline_metrics = _run_episodes(_build_executor(inline_dir, pool=None, horizon=horizon))
 
     # Delay pattern: every third observation takes 4 polls, others 1, so
     # results habitually return out of submission order.
-    pool = FakeInferencePool(PureObsPolicy(), worker_count=2, delay_for_obs=lambda obs_id: 4 if obs_id % 3 == 0 else 1)
-    pooled_metrics = _run_episodes(_build_executor(pooled_dir, pool=pool))
+    pool = FakeInferencePool(PureObsPolicy(horizon), worker_count=2, delay_for_obs=lambda obs_id: 4 if obs_id % 3 == 0 else 1)
+    pooled_metrics = _run_episodes(_build_executor(pooled_dir, pool=pool, horizon=horizon))
 
     assert _comparable_metrics(pooled_metrics) == _comparable_metrics(inline_metrics)
     for name in ("steps.jsonl", "actions.jsonl", "latencies.jsonl"):

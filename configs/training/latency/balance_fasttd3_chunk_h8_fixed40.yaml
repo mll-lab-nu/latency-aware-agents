@@ -1,0 +1,11 @@
+__base__: balance_fasttd3_chunk_h8_zero.yaml
+
+experiment:
+  name: balance_fasttd3_chunk_h8_fixed40_6m_s1
+
+latency:
+  method: fixed
+  fixed_latency_ms: 40.0
+
+logging:
+  wandb_name: balance_fasttd3_chunk_h8_fixed40_6m_s1

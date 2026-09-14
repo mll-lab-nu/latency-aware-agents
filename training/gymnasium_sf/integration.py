@@ -152,20 +152,86 @@ class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
             ),
             persistence_policy=build_persistence_policy(self.hold_policy),
             ordering_policy=self.ordering_policy,
+            hold_last_chunk_action=self.action_scheduler.hold_last_chunk_action,
         )
         self.current_applied_action = clone_action(self.noop_action)
 
 
 class G1RawRequestWrapper(gym.ActionWrapper):
-    """Keep FastTD3 normalized actions outside the absolute-request latency queue."""
+    """Encode normalized G1 actions and attach chunk execution clocks for replay."""
 
-    def __init__(self, env):
+    def __init__(self, env, action_chunk_horizon: int = 1, latency_env=None):
         super().__init__(env)
-        action_dim = 29 + (14 if self.unwrapped._raw_learn_hands else 0)
-        self.action_space = gym.spaces.Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
+        self.action_dim = 29 + (14 if self.unwrapped._raw_learn_hands else 0)
+        self.action_chunk_horizon = action_chunk_horizon
+        self.latency_env = latency_env
+        self.action_space = gym.spaces.Box(
+            -1.0,
+            1.0,
+            shape=(self.action_dim * action_chunk_horizon,),
+            dtype=np.float32,
+        )
+        if action_chunk_horizon > 1:
+            spaces = (
+                dict(env.observation_space.spaces)
+                if isinstance(env.observation_space, gym.spaces.Dict)
+                else {"obs": env.observation_space}
+            )
+            spaces.update(
+                replay_clock=gym.spaces.Box(
+                    -1, np.iinfo(np.int64).max, (7,), dtype=np.int64
+                ),
+            )
+            self.observation_space = gym.spaces.Dict(spaces)
 
     def action(self, action):
-        return self.unwrapped.g1_absolute_request_from_raw_action(action)
+        if self.action_chunk_horizon == 1:
+            return self.unwrapped.g1_absolute_request_from_raw_action(action)
+        chunk = np.asarray(action).reshape(self.action_chunk_horizon, self.action_dim)
+        return np.stack(
+            [self.unwrapped.g1_absolute_request_from_raw_action(row) for row in chunk]
+        )
+
+    def _chunk_observation(self, observation, applied_source, applied_index, admitted, applied_window):
+        result = observation if isinstance(observation, dict) else {"obs": observation}
+        return {
+            **result,
+            "replay_clock": np.asarray(
+                (
+                    self.latency_env.episode_idx,
+                    self.latency_env.env_step_idx,
+                    applied_source,
+                    applied_index,
+                    admitted,
+                    *applied_window,
+                ),
+                dtype=np.int64,
+            ),
+        }
+
+    def reset(self, **kwargs):
+        observation, info = self.env.reset(**kwargs)
+        if self.action_chunk_horizon == 1:
+            return observation, info
+        return self._chunk_observation(observation, -1, -1, False, (-1, -1)), info
+
+    def step(self, action):
+        observation, reward, terminated, truncated, info = self.env.step(self.action(action))
+        if self.action_chunk_horizon == 1:
+            return observation, reward, terminated, truncated, info
+        return (
+            self._chunk_observation(
+                observation,
+                info["applied_source_raw_frame"],
+                info["applied_chunk_index"],
+                info["command_admitted"],
+                info["applied_chunk_window"],
+            ),
+            reward,
+            terminated,
+            truncated,
+            info,
+        )
 
 
 def make_gymnasium_sf_env(
@@ -238,6 +304,7 @@ def make_gymnasium_sf_env(
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(cfg.add_latency_info),
         max_pending_actions=cfg.max_pending_actions,
+        hold_last_chunk_action=cfg.hold_last_chunk_action,
         noop_action=(
             cfg.gym_noop_action_id
             if action_space_contract["type"] == "discrete"
@@ -245,7 +312,9 @@ def make_gymnasium_sf_env(
         ),
     )
     if raw_g1_requests:
-        env = G1RawRequestWrapper(env)
+        env = G1RawRequestWrapper(
+            env, action_chunk_horizon=cfg.fasttd3_action_chunk_horizon, latency_env=env
+        )
     action_labels = (
         {
             action_id: name
@@ -322,6 +391,7 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--simulated-worker-capacity", dest="simulated_worker_capacity", type=int)
     parser.add_argument("--add-latency-info", type=str2bool, default=False)
     parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
+    parser.add_argument("--hold-last-chunk-action", type=str2bool, default=False)
     parser.add_argument(
         "--hold-policy",
         dest="hold_policy",
@@ -394,6 +464,8 @@ def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
     append_cli_arg(args, "--frame-stack", env_cfg["frame_stack"])
     append_cli_arg(args, "--hold-policy", scheduler_cfg["hold_policy"])
     append_cli_arg(args, "--ordering-policy", scheduler_cfg["ordering_policy"])
+    if "hold_last_chunk_action" in scheduler_cfg:
+        append_cli_arg(args, "--hold-last-chunk-action", scheduler_cfg["hold_last_chunk_action"])
     append_cli_arg(args, "--use_env_info_cache", False)
     return args
 
