@@ -815,6 +815,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         )
         event_metadata = dict(completion.policy_output.metadata)
         event_metadata["frame_ms"] = self.clock.frame_ms
+        event_metadata["worker_service_raw_frames"] = self.clock.latency_ms_to_raw_frames(completion.worker_service_time_ms)
         if completion.profile is not None:
             event_metadata[REALTIME_PROFILE_METADATA_KEY] = completion.profile
         if discard_reason is not None:

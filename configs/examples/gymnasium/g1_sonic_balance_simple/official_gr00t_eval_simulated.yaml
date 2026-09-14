@@ -25,7 +25,6 @@ env:
     camera_name: head_camera
     control_mode: direct_absolute_position
     gr00t_balance_teacher_observation_state: true
-    target_velocity_ramp_time_s: 0.1
   env_fps: 50
   # GR00T predicts 40 repeated-current actions; re-plan on every 50 Hz frame.
   obs_fps: 50

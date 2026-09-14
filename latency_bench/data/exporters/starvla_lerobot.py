@@ -451,6 +451,11 @@ def _write_episode(
             [row["density_weight"] for row in rows], type=pa.float32()
         ),
     }
+    if rows and "issued_command_chunk" in rows[0]:
+        columns["issued_command_chunk"] = pa.array(
+            [row["issued_command_chunk"] for row in rows],
+            type=pa.list_(pa.list_(pa.float32(), action_dim), len(rows[0]["issued_command_chunk"])),
+        )
     if rows and "action_id" in rows[0]:
         columns["action_id"] = pa.array(
             [row["action_id"] for row in rows], type=pa.int64()
@@ -604,7 +609,7 @@ def _write_metadata(
                 },
                 "video": {"image": {"original_key": "observation.image"}},
                 "annotation": {
-                    "human.action.task_description": {"original_key": "task_index"}
+                    "human.task_description": {"original_key": "task_index"}
                 },
             },
             indent=2,
@@ -706,6 +711,8 @@ def _convert_split(
                     state_max = np.asarray(state_normalization["max"], dtype=np.float32)
                     state = min_max_normalize_state(state, state_min, state_max)
                 out_row["state"] = state.tolist()
+            if "issued_command_chunk" in row:
+                out_row["issued_command_chunk"] = row["issued_command_chunk"]
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
             if "context_images" in row and row["context_images"] is not None:
@@ -746,6 +753,14 @@ def _convert_split(
         actor_observation_shape=actor_observation_shape,
         termination_shape=termination_shape,
     )
+    if rows and "issued_command_chunk" in rows[0]:
+        info_path = output_dir / "meta/info.json"
+        info = json.loads(info_path.read_text())
+        info["features"]["issued_command_chunk"] = {
+            "dtype": "float32", "shape": [len(rows[0]["issued_command_chunk"]), len(action_labels)],
+            "names": action_labels,
+        }
+        info_path.write_text(json.dumps(info, indent=2) + "\n")
     return {
         "dataset_name": output_dir.name,
         "env_name": env_name,

@@ -483,12 +483,6 @@ def test_flappy_sf_resize_does_not_change_env_screen_size():
     assert base_env.screen_size == (288, 512)
 
 
-
-
-
-
-
-
 def test_flappy_sf_shape_mismatch_fails_fast():
     from latency_bench.policy.sample_factory_common import validate_sample_factory_obs_shape
 
@@ -650,6 +644,22 @@ def test_action_latency_wrapper_uses_iid_profile_action_latency(tmp_path):
     assert values == [1, 1, 1, 1]
 
 
+def test_profile_max_latency_includes_generated_burst_residual_and_pre_worker_time():
+    from latency_bench.latency.samplers import HiddenRegimeSampler
+    from training.common.latency_config import profile_sampler_max_latency_raw_frames
+
+    sampler = HiddenRegimeSampler.__new__(HiddenRegimeSampler)
+    sampler.distributions = {"0": {"steady": {
+        "observation_to_action_latency_ms": {"latency_ms": [20., 40.]},
+        "worker_service_time_ms": {"latency_ms": [20., 35.]},
+    }}}
+    sampler.rank_processes = [{"level_ms": {"latency_ms": [50.]}, "level_residual_ms": {"latency_ms": [5.]}}]
+    sampler.pre_worker_time = {"latency_ms": [8.]}
+    sampler.model = {"spike_threshold_ms_by_worker_slot": {"0": 45.}}
+    # A generated action-ready delay can exceed the measured burst level maximum.
+    assert profile_sampler_max_latency_raw_frames(sampler, worker_slot=0, env_fps=50) == 4
+
+
 def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp_path):
     from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
@@ -676,7 +686,7 @@ def test_temporal_action_latency_stream_continues_across_resets(monkeypatch):
 
     delays = iter([20.0, 40.0])
     sampler = SimpleNamespace(
-        distributions={"0": {"all": {"observation_to_action_latency_ms": {"latency_ms": [20.0, 40.0]}}}},
+        distributions={"0": {"all": {"observation_to_action_latency_ms": {"latency_ms": [20.0, 40.0]}, "worker_service_time_ms": {"latency_ms": [20.0, 40.0]}}}},
         sample=lambda context: LatencySample.from_latency_ms(
             next(delays), clock=EnvClock(env_fps=50, obs_fps=50)
         ),
@@ -1419,8 +1429,6 @@ def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_me
     assert event["time_limit_truncated"] is True
     assert event["done_reason"] == "truncated"
     assert event["action/issued_flap_ratio"] == pytest.approx(1.0 / 3.0)
-
-
 
 
 def test_flappy_reward_trace_records_raw_return(tmp_path):

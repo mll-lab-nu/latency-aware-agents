@@ -109,13 +109,14 @@ def test_parse_fixed_eval_suite_supports_explicit_latency_list(tmp_path: Path):
     assert suites[0].fixed_latency_values == [0, 1, 2, 3, 4]
 
 
-def test_parse_iid_eval_suites_uses_explicit_name_and_profile_provenance(tmp_path: Path):
+@pytest.mark.parametrize("method", ["iid", "temporal"])
+def test_parse_profile_eval_suites_uses_explicit_name_and_profile_provenance(tmp_path: Path, method):
     from latency_bench.eval.suites import parse_eval_suites
 
     config = _suite_config(tmp_path)
     profile_path = tmp_path / "profiles" / "rtx_3090" / "profile.json"
     config["evaluation"]["eval_suites"] = {
-        "iid": [
+        method: [
             {
                 "name": "rtx_3090",
                 "profile_path": str(profile_path),
@@ -128,7 +129,7 @@ def test_parse_iid_eval_suites_uses_explicit_name_and_profile_provenance(tmp_pat
 
     assert [suite.name for suite in suites] == ["rtx_3090"]
     assert suites[0].latency_config == {
-        "method": "iid",
+        "method": method,
         "profile_path": str(profile_path),
         "seed": 42,
     }

@@ -1,0 +1,45 @@
+__base__: ../../examples/gymnasium/g1_sonic_balance_simple/fasttd3_train.yaml
+
+experiment:
+  name: g1_sonic_balance_simple_raw_ramp_fasttd3_real_profile_chain2_s1
+  seed: 1
+
+backend:
+  device: cpu
+  train_dir: outputs/tasks/humanoidbench_balance_simple/real_profile_chain2/native/checkpoints
+  restart_behavior: overwrite
+  actor_worker_gpus: []
+  initial_model_path: results/humanoidbench_g1_balance_control_comparison_fasttd3_25m/checkpoints/g1_sonic_balance_simple_raw_ramp_0p1s_fasttd3_25000000steps_s1/checkpoint_p0/best_000325980_20864000_reward_702.976.pth
+
+executor:
+  mode: simulated
+  simulated_worker_capacity: 1
+
+latency:
+  method: temporal
+  profile_path: /home/xinyuan/balance-latency-smoke/smoke_profile_session0/profile.json
+  profile_worker_slot: 0
+  seed: 123
+  add_latency_info: true
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+
+training:
+  train_for_env_steps: 4096
+  num_workers: 1
+  num_envs_per_worker: 1
+  rollout: 16
+  batch_size: 16
+  fasttd3_replay_capacity: 4096
+  fasttd3_replay_batch_size: 16
+  fasttd3_transitions_per_update: 16
+  fasttd3_compile: false
+  save_every_sec: 1
+  keep_checkpoints: 2
+
+logging:
+  output_dir: outputs/tasks/humanoidbench_balance_simple/real_profile_chain2/native/train
+  wandb_project: ""
+  wandb_name: g1_sonic_balance_simple_raw_ramp_fasttd3_real_profile_chain2_s1

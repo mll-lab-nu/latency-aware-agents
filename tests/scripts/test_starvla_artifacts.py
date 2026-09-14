@@ -5,14 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from huggingface_hub.utils import EntryNotFoundError, filter_repo_objects
+from huggingface_hub.utils import filter_repo_objects
 
 from scripts.starvla import artifacts, train_task
 
 
 def test_publication_uploads_only_inference_bundle_and_incremental_data(tmp_path, monkeypatch):
     uploads = []
-    tree_calls = []
 
     def upload_folder(**kwargs):
         source = Path(kwargs['folder_path'])
@@ -22,17 +21,11 @@ def test_publication_uploads_only_inference_bundle_and_incremental_data(tmp_path
         uploads.append((kwargs, {name: (source / name).read_bytes() for name in files}))
         return SimpleNamespace(oid=f'commit-{len(uploads)}')
 
-    def missing_tree(*args, **kwargs):
-        tree_calls.append(kwargs)
-        raise EntryNotFoundError('missing')
-
     monkeypatch.setattr(
         artifacts,
         'HfApi',
         lambda **_: SimpleNamespace(
             upload_folder=upload_folder,
-            repo_info=lambda *args, **kwargs: SimpleNamespace(sha='head'),
-            list_repo_tree=missing_tree,
         ),
     )
     dataset = tmp_path / 'dataset'
@@ -44,8 +37,6 @@ def test_publication_uploads_only_inference_bundle_and_incremental_data(tmp_path
     round_revision = artifacts.publish_dataset(dataset, task='haic_pull_cart', model='qwenoft',
                                                run_id='run-1', round_number=0)
     assert uploads[0][0]['repo_id'] == artifacts.DATASET_REPO_ID
-    assert uploads[0][0]['parent_commit'] == 'head'
-    assert tree_calls[0]['revision'] == 'head'
     assert uploads[0][0]['path_in_repo'].endswith('/teacher-rollouts-h1-state-v1')
     assert uploads[1][0]['path_in_repo'].endswith('/dagger/starvla-qwenoft-h1/run-1/round-00')
     assert set(uploads[0][1]) == {'lerobot/data/episode.parquet'}
@@ -60,7 +51,6 @@ def test_publication_uploads_only_inference_bundle_and_incremental_data(tmp_path
     (bundle / 'wandb').mkdir()
     (bundle / 'wandb/run.json').write_text('{}')
     assert artifacts.publish_model(bundle, task='haic_pull_cart', model='qwenoft', run_id='run-1') == 'commit-3'
-    assert uploads[2][0]['parent_commit'] == 'head'
     assert set(uploads[2][1]) == set(artifacts.MODEL_FILES)
     assert json.loads(uploads[2][1]['provenance.json'])['datasets'] == ['commit-1', 'commit-2']
 
@@ -76,14 +66,25 @@ def test_upload_failure_surfaces_and_smoke_never_contacts_hub(tmp_path, monkeypa
         artifacts.publish_dataset(tmp_path, task='haic_pull_cart')
 
 
-def test_publication_rejects_existing_path(tmp_path, monkeypatch):
+def test_publication_replaces_files_when_another_publish_advances_branch(tmp_path, monkeypatch):
     dataset = tmp_path / 'dataset'
     (dataset / 'lerobot/data').mkdir(parents=True)
-    (dataset / 'lerobot/data/episode.parquet').write_bytes(b'row')
-    uploads = []
+    (dataset / 'lerobot/data/episode.parquet').write_bytes(b'new row')
+    path = artifacts.dataset_path('haic_pull_cart')
+    remote = {
+        f'{path}/lerobot/data/episode.parquet': b'old row',
+        'zero-latency/extreme-parkour-go2/other-run/data.parquet': b'parkour row',
+    }
 
     def upload_folder(**kwargs):
-        uploads.append(kwargs)
+        head = 'concurrent-publish'
+        parent = kwargs.get('parent_commit')
+        if parent is not None and parent != head:
+            raise RuntimeError('branch changed')
+        source = Path(kwargs['folder_path'])
+        files = [p.relative_to(source).as_posix() for p in source.rglob('*') if p.is_file()]
+        for name in filter_repo_objects(files, allow_patterns=kwargs['allow_patterns']):
+            remote[f'{kwargs["path_in_repo"]}/{name}'] = (source / name).read_bytes()
         return SimpleNamespace(oid='new')
 
     monkeypatch.setattr(
@@ -96,6 +97,8 @@ def test_publication_rejects_existing_path(tmp_path, monkeypatch):
         ),
     )
 
-    with pytest.raises(FileExistsError, match='refusing to replace existing artifact'):
-        artifacts.publish_dataset(dataset, task='haic_pull_cart')
-    assert uploads == []
+    assert artifacts.publish_dataset(dataset, task='haic_pull_cart') == 'new'
+    assert remote == {
+        f'{path}/lerobot/data/episode.parquet': b'new row',
+        'zero-latency/extreme-parkour-go2/other-run/data.parquet': b'parkour row',
+    }

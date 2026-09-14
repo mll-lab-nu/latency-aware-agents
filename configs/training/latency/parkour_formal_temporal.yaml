@@ -1,0 +1,5 @@
+__base__: parkour.yaml
+latency:
+  method: temporal
+  seed: 0
+  profile_path: /pfs/users/lxy/latency-sensitive-bench/results/profiling/profiles/official_gr00t/1x-rpbzzz6/extreme_parkour_go2/instance_e906b84a82f9e086/profile.json

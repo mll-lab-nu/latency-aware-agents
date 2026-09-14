@@ -17,6 +17,8 @@
 
 ## 实验、合同与活跃交接
 
+本地 Balance H8 新路线见 [BALANCE_LOCAL_H8](BALANCE_LOCAL_H8.md)；运行状态以该文档的最新目录与 PROGRESS 为准。
+
 | 文档 | 内容 / 主要用途 | 状态与重叠关系 |
 |---|---|---|
 | [CHUNK](CHUNK.md) | Balance FastTD3 H8 action chunk 的修复、zero/fixed/profile 对照 | 保留实验记录；最新生产简化及消融见 CHUNK_RL_ABLATION |

@@ -1,3 +1,6 @@
 __base__: mikasa_latency_vla_smoke_eval.yaml
+executor:
+  inference_batch_size: 8
 evaluation:
-  eval_episodes: 50
+  eval_episodes: 100
+  eval_parallel_envs: 10

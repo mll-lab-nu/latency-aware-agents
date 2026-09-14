@@ -1,7 +1,7 @@
 output_dir: outputs/latency_rl/parkour/pipeline
 profile_model: outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger/training/extreme_parkour_go2_vla_dagger_action_yaw_h40_official_flow_aux_5k/checkpoint-5000
 teacher_checkpoint: third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k/model_14999.pt
-native_checkpoint: outputs/latency_rl/parkour/pipeline/native_command/model_14999.pt
+native_checkpoint: outputs/latency_rl/parkour/pipeline/native_command/model_2999.pt
 base_model: outputs/official_gr00t/models/GR00T-N1.7-3B
 policy_config: configs/examples/extreme_parkour/official_gr00t_eval.yaml
 latency_config: configs/training/latency/parkour.yaml

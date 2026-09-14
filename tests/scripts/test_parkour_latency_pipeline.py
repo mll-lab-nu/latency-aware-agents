@@ -2,12 +2,43 @@
 
 import sys
 import os
+import json
+import subprocess
 from pathlib import Path
 
 import yaml
 
 from latency_bench.core.config import load_config
 from scripts.tasks.extreme_parkour_go2 import run_latency_pipeline
+
+
+def test_native_launcher_matches_teacher_control_step_budget(tmp_path):
+    """Long-lived launch contract: two ranks share the original sampling budget."""
+    python = tmp_path / "parkour-python"
+    python.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "print(json.dumps(sys.argv[1:]))\n"
+    )
+    python.chmod(0o755)
+    teacher = tmp_path / "teacher.pt"
+    teacher.touch()
+    config = Path("configs/training/latency/parkour_qwenoft_rtx3090_scratch.yaml").resolve()
+    env = dict(os.environ, PARKOUR_PYTHON=str(python))
+    result = subprocess.run(
+        ["bash", str(run_latency_pipeline.TRAIN_SMALL_POLICY_SCRIPT), str(teacher), str(config)],
+        env=env,
+        capture_output=True, text=True, check=True,
+    )
+    args = json.loads(result.stdout)
+    ranks = int(next(arg.split("=", 1)[1] for arg in args if arg.startswith("--nproc_per_node=")))
+    environments = int(args[args.index("--num_envs") + 1])
+    iterations = int(args[args.index("--max_iterations") + 1])
+    repeat = load_config(config)["command"]["control_repeat"]
+    assert "--distributed" in args
+    assert "--standalone" in args
+    assert (ranks, environments, iterations) == (2, 3072, 3000)
+    assert ranks * environments * iterations * 24 * repeat == 2_211_840_000
 
 
 def test_pipeline_consumes_native_command_checkpoint_and_fresh_dataset(

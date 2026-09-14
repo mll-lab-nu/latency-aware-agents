@@ -1,6 +1,6 @@
 # Benchmark 进度与评测结果
 
-最后核查：**2026-09-14 13:22 UTC**。文档入口：[program 索引](README.md)。
+最后核查：**2026-09-14 15:35 UTC**。文档入口：[program 索引](README.md)。
 本表记录已确认的产物和评测；各行证据采用固定版本，后续工作确认结果后同步更新。
 
 - 模型仓库：[e05ca26afde4f509b0f838742c522f3a068596a8](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)，最后修改 2026-09-14T01:41:19.000Z。
@@ -27,7 +27,7 @@ latency profile、latency-aware small model、latency-aware VLA training、laten
 | 任务 | 0 small | 0 VLA train | 0 VLA eval | RTX 3090 profile | Latency small | Latency VLA train | Latency VLA eval / 下一步 |
 |---|---|---|---|---|---|---|---|
 | Balance Simple | FastTD3 teacher 已发布 | 4/4；各 SFT 15k | 4/4；QwenOFT return98.4357±15.4165，n=100 | 4/4 | H1/H8 实验已完成，合同不同；H8 消融见下 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；D/E 组合与单独消融待验证 |
-| MIKASA InterceptGrabFast | PPO teacher；100% | 4/4；各 SFT 5k | 4/4 本地补评测；QwenOFT success56%，return21.7417±16.4361，n=50；两类HF标准文件缺失 | 4/4 | 4/4 已发布；end SR 96.88–98.83%（20Hz），Wan 93.75%（10Hz） | QwenOFT SFT 5k 本地完成；其他未找到正式产物 | QwenOFT temporal success 57%，return 19.4161±15.0048；补齐发布/评测元数据 |
+| MIKASA InterceptGrabFast | PPO teacher；100% | 4/4；各 SFT 5k | 4/4 本地补评测；QwenOFT success56%，return21.7417±16.4361，n=50；两类HF标准文件缺失 | 4/4 | 4/4 已发布；end SR 96.88–98.83%（20Hz），Wan 93.75%（10Hz） | QwenOFT SFT 5k 本地完成；远端QwenPI运行中，已核查182/5k，12线程、micro128＋CPU offload；线程实测7.475秒/更新 | QwenOFT temporal success 57%，return 19.4161±15.0048；QwenPI正式评测未完成 |
 | Extreme Parkour Go2 | PPO teacher；reward 23.14±6.02 | 3/4；各 SFT 5k + DAgger 5k | 3/4；QwenOFT return23.3283±7.7106，n=100 | 3/4 | 历史训练暂停/退化；本轮正式最终结果未核验 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；Wan H1 与 latency small 最终状态待核验 |
 | HAIC PullCart | PPO teacher；native success 93.8965%，未达 native 100% gate | 1/4；QwenOFT SFT 5k + DAgger 5k | 1/4；QwenOFT success56%，return13.3497±8.2155，n=100 | 1/4 | 历史训练/smoke 存在，正式最终结果未核验 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；其余三模型与 latency small 最终状态待核验 |
 
@@ -65,7 +65,7 @@ L0 主对比采用本地 **50个共同seed，4242424242–4242424291** 的补评
 |---|---|---|---|---|---|---|
 | qwenoft | 已完成SFT 5,000；[M-qwenoft-source] | 21.7417±16.4361；60.00步；task success 56%；n=50 [M-qwenoft-eval] | 已发布；均值 99.05ms [M-qwenoft-profile] | 已发布；strict评测见下方小模型表 | 本地SFT 5,000；未发布 [M-latency-run] | temporal task success 57%；19.4161±15.0048；n=100 [M-latency-eval] |
 | qwengr00t | 已完成SFT 5,000；[M-qwengr00t-source] | 21.2928±16.6083；60.00步；task success 56%；n=50 [M-qwengr00t-eval] | 已发布；均值 99.35ms [M-qwengr00t-profile] | 已发布；strict评测见下方小模型表 | 未找到正式产物 | 未找到正式评测 |
-| qwenpi_v3 | 已完成SFT 5,000；[M-qwenpi_v3-source] | 21.9671±17.2095；60.00步；task success 54%；n=50 [M-qwenpi_v3-eval] | 已发布；均值 148.69ms [M-qwenpi_v3-profile] | 已发布；strict评测见下方小模型表 | 未找到正式产物 | 未找到正式评测 |
+| qwenpi_v3 | 已完成SFT 5,000；[M-qwenpi_v3-source] | 21.9671±17.2095；60.00步；task success 54%；n=50 [M-qwenpi_v3-eval] | 已发布；均值 148.69ms [M-qwenpi_v3-profile] | 已发布；strict评测见下方小模型表 | 远端运行中，已核查182/5,000，12线程、micro128＋CPU offload；未发布 | 正式评测未完成；仅两步smoke |
 | wanoft | 已完成SFT 5,000；[M-wanoft-source] | 18.9461±16.4028；60.00步；task success 42%；n=50 [M-wanoft-eval] | 已发布；均值 300.54ms [M-wanoft-profile] | 已发布；strict评测见下方小模型表；10Hz | 未找到正式产物 | 未找到正式评测 |
 
 ## Extreme Parkour Go2：四模型明细
@@ -135,6 +135,115 @@ WanOFT最新bundle使用10Hz，其他三类使用20Hz；下表分别报告，不
 WanOFT旧20Hz run `sw3b981e`：69,120,000步，end success 122/256（47.66%），
 mean return 22.5840。该历史配置与clock10当前发布版本不同；旧记录见
 [原本地评测](../outputs/latency_rl/mikasa/wanoft_rtx3090_recipe_25m/20260910T093825Z/strict_eval_best_150m/evaluation.json)。
+
+## MIKASA QwenPI：2026-09-14 远端训练与批量测试
+
+服务器 `xinyuan@81.85.2.28`，独立目录 `/home/xinyuan/mikasa-qwenpi-latency`，
+单张 RTX PRO 6000 Blackwell Server Edition（nvidia-smi 总显存97,887MiB）。
+训练代码已包含 performance 提交 `978359fc65e34915c5971d815a700de729bf823f`；
+StarVLA revision `7a4ee2014ddd389404b5c1d7d8053144619f00ea`。
+旧实验/缓存全部保留；本地两卡训练未启动。
+
+本轮额外重训了一个 QwenPI-profile small：PPO seed123，1024env，60-step rollout，
+lr1e-4，8epochs；25M预算实际24,944,640步，选中15,360,000步的 `run/small/best_policy.pt`。
+256局独立评测（20Hz，env seed20260910，latency seed271828）end success247/256（96.484375%），
+once254/256（99.21875%），return29.688919，length60，admission/drop5099/10261，达标。
+该新增checkpoint未发布HF；上方四个已发布small的状态不变。
+证据：[独立评测](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/small_acceptance.json)、
+[small W&B](https://wandb.ai/saberrr-zju/starvla_mikasa/runs/mikasa-qwenpi-small-20260914T122034Z)。
+使用固定profile revision `66414463f2a609316da63935941a79abf0a73ce9`，
+`profiles/qwenpi_v3/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c`。
+
+采集275成功episodes，train250/val25，admitted issued-action样本3,691/385；
+H1，state/action7，两路RGB224×224输入。QwenPI从Qwen3-VL-4B-Instruct backbone开始全参数训练，
+5,072.110M trainable，bf16，ZeRO2，Qwen3 gradient checkpointing启用（non-reentrant，use_cache=false）。
+初始正式配置单GPU micro8、累积16、global128，CPU optimizer offload启用，计划5,000更新；
+base/action lr3e-5/1e-4，warmup100，cosine min1e-6，seed0。
+2026-09-14 14:12 UTC在第100更新保存 `run/vla/training/bootstrap/checkpoints/steps_100_state`
+及 `steps_100_pytorch_model.pt`；14:13 UTC进程退出，显存归零，正式训练暂停。
+正式训练/正式评测/发布均未完成；两步CPU-offload smoke训练及2局rollout已完成。
+[正式 VLA W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi_v3-mikasa_qwenpi_latency_3090_20260914T122034Z-bootstrap)。
+
+已依次测试micro16无offload、micro32有offload、micro32无offload，累积8/4/4，global128。
+用户追加后测试micro128有offload（累积1）和micro8无offload（累积16），global仍为128。
+均保留上述模型、数据、checkpointing，启用 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，
+显存caching保持启用。各组12更新，排除前2更新预热；计时包含整次梯度累积，记录Torch峰值显存及NVML采样。
+首次计时入口缺少multiprocessing main入口隔离，造成数据worker重复启动训练，已修正并通过CPU子进程导入检查；
+该无效尝试不作为OOM或速度结果。
+
+| Microbatch / optimizer offload | 完整更新数 / 结果 | 稳态秒/更新 | 稳态样本/秒 | Torch allocated/reserved峰值（GiB） | NVML used峰值（GiB） | W&B |
+|---|---|---:|---:|---:|---:|---|
+| 8 / 无 | 1；第2次优化器更新FP32梯度转换OOM，需16.88GiB，剩余9.27GiB | 未形成稳态 | 未形成稳态 | 85.29 / 87.65 | 89.24 | [8无offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb8_no_offload) |
+| 16 / 无 | 1；第2次优化器更新FP32梯度转换OOM，需16.88GiB，剩余8.95GiB | 未形成稳态 | 未形成稳态 | 85.68 / 88.39 | 89.97 | [16无offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb16_no_offload) |
+| 32 / CPU | 12；通过，排除前2更新，统计10更新 | 8.419945 | 15.202000 | 28.36 / 31.81 | 33.57 | [32有offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb32_offload) |
+| 32 / 无 | 1；第2次更新action-head前向attention key投影OOM，需38MiB，剩余27.56MiB | 未形成稳态 | 未形成稳态 | 93.10 / 93.36 | 94.94 | [32无offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb32_no_offload) |
+| 128 / CPU | 12；通过，排除前2更新，统计10更新 | 7.582636 | 16.880672 | 76.93 / 77.04 | 78.77 | [128有offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb128_offload) |
+
+128＋offload相对32＋offload吞吐提高11.04%，每更新耗时降低9.94%。
+此前正式micro8＋offload的稳态tqdm约13.7秒/完整更新，累积16、global128；
+这是历史正式训练的近似参考，非本轮12-update计时。
+128＋offload相对该参考吞吐约提高80%；micro8无offload只完成1更新，不能拿含冷启动的26.37秒当稳态速度。
+micro8参考证据：[原正式配置](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap_micro8_cpu_offload.yaml)、
+[原正式日志](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap_micro8_cpu_offload.log)。
+
+原始日志/配置/逐更新统计已回传至 [批量测试目录](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/batch_benchmark/)，
+[聚合结果](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/batch_benchmark/results.json)；
+各W&B run的summary也已记录最终结果、offload、allocator、峰值显存和完整更新吞吐。
+14:27 UTC启动正式恢复，micro32、累积4、global128，CPU optimizer offload；
+第100步完整state及LR scheduler恢复成功，实际推进到110更新。
+按用户补充，14:32 UTC在110停止更新；14:37 UTC已保存完整 `steps_110_state` 和
+`steps_110_pytorch_model.pt`，进程退出且显存归零。
+micro128＋offload与micro8无offload实测均已完成；micro64暂不运行。
+[110步暂停/恢复证据](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap_micro32_cpu_offload_until110.log)。
+14:47 UTC重新启动正式恢复，micro128、累积1、global128、CPU optimizer offload，
+保留bf16、checkpointing、expandable_segments及显存caching，恢复第110步完整state/scheduler。
+使用 [恢复脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/resume_after_benchmark_128.sh)，
+tmux session `mikasa-qwenpi-latency`。14:53 UTC已确认完整state恢复成功并实际推进至122/5,000更新，
+DeepSpeed运行配置micro128、累积1、global128；第112–118更新约7.5–7.9秒，显存80,663MiB，GPU利用率100%。
+[当前正式配置](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap.yaml)、
+[恢复后正式日志](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap.log)已回传。
+按7.58秒/更新估算完整5k纯训练约10小时32分；checkpoint保存及最终评测另计，预计总计11–12小时。
+正式训练仍在运行，下一步完成5k、L0/temporal各100局评测。
+
+按用户追加的CPUAdam线程优化测试，14:57 UTC在156/5,000更新请求安全停止，
+15:02 UTC已保存完整 `steps_156_state`、LR scheduler及模型checkpoint，worker退出、显存归零。
+服务器12个物理核心、24个逻辑线程、单NUMA节点；各组16完整更新，排除前2更新，统计14稳态更新，
+保持micro128、累积1、global128及模型/数据/checkpointing/allocator一致。
+通过CPUAdam原生扩展的 `omp_get_max_threads()` 核对实际线程数；CPUAdam计时累计全部参数组。
+
+| 实际线程数 | 完整更新秒/步 | CPUAdam秒/步 | 相对8线程吞吐 | W&B |
+|---|---:|---:|---:|---|
+| 8 | 7.579100 | 0.901108 | 基准 | [8线程](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-cputhreads-20260914-t8-v1) |
+| 12 | 7.475353 | 0.768198 | +1.38785% | [12线程](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-cputhreads-20260914-t12-v1) |
+| 16 | 7.578428 | 0.906631 | +0.00887% | [16线程](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-cputhreads-20260914-t16-v2) |
+
+12线程比8线程每步省0.103747秒，5k纯训练约省8.65分钟。各组Torch峰值allocated/reserved均76.93/77.04GiB。
+[线程测试聚合](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/thread_benchmark/results.json)、
+[日志/配置/逐步记录](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/thread_benchmark/)已回传，W&B summary已更新。
+首次16线程尝试环境变量为16、PyTorch及CPUAdam实际12，已停止并保留 `t16_invalid_default12`，不计入比较；
+重测通过 `torch.set_num_threads()` 显式设置，原生CPUAdam实际16已确认。32线程比较按用户要求取消，不参与配置选择。
+15:26 UTC按用户选择启动12线程正式恢复，micro128、累积1、global128、CPU offload、bf16、checkpointing、
+expandable_segments及显存caching保持启用。使用 [12线程恢复脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/resume_threads12.sh)，
+继续原正式W&B run `mikasa-qwenpi_v3-mikasa_qwenpi_latency_3090_20260914T122034Z-bootstrap`；已确认从156步完整state恢复并实际推进至182/5,000更新，最近7.4–7.5秒/更新；
+原W&B显示Resuming run，worker环境确认OMP_NUM_THREADS=12、WANDB_RESUME=allow及原WANDB_RUN_ID。
+
+训练完成后追加以下三项100局评测：
+
+1. 已发布no-latency QwenPI，在no latency下。
+2. 同一个no-latency QwenPI，在固定profile latency下。
+3. 本轮latency-aware QwenPI的5,000更新checkpoint，在同一profile latency下。
+
+通用训练入口内置的latency-aware L0评测保留；上方三项为本次追加对照矩阵。
+基线固定HF模型revision `e05ca26afde4f509b0f838742c522f3a068596a8`，
+`zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z`；
+config、dataset_statistics、task_contract、provenance已在远端核验，使用基线自己的归一化统计。
+三项均20/20Hz、H1、100局，环境reset seeds4242424242–4242424341、单env/单模拟worker、inference batch1；
+两个temporal项共用上述固定RTX3090 profile revision及latency seed271828。
+[评测脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/post_eval_matrix.py)已接入恢复流水线，
+结果写入远端 `run/eval_matrix` 和同一正式W&B run的 `eval_matrix/<model_latency_condition>/...` summary指标。
+本地tmux `mikasa-qwenpi-eval-progress`运行 [回传/进度更新脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/sync_eval_progress.py)，
+等待远端流水线退出后回传原始结果/配置/日志，并将已确认的结果更新至本地本文件。
+当前三项均未执行、无正式数值；正式训练/正式矩阵评测/发布未完成。
 
 ## MIKASA QwenOFT VLA：100 episode复核
 
@@ -227,7 +336,7 @@ MIKASA两类checkpoint-only来源未完整记录training seed，不从其他模�
 ## 待推进与更新约定
 
 - Balance：既有D/E-only生产组合、单独D/E及zero/fixed对照未验证；十轮DAgger终点确认和完整回传待核验。官方GR00T fresh15k与StarVLA SFT15k分别记录。
-- MIKASA：补齐qwenoft/qwengr00t远端canonical eval文件；latency-aware QwenOFT保留zero退化与temporal恢复，发布及其余模型进展待核验。Wan10Hz和旧20Hz分开维护。
+- MIKASA：远端QwenPI用12线程、micro128＋offload从156步继续至5k，完成no-latency模型zero/profile及latency-aware模型profile三项各100局评测；补齐qwenoft/qwengr00t远端canonical eval文件。latency-aware QwenOFT保留zero退化与temporal恢复，发布及其他模型进展待核验；Wan10Hz和旧20Hz分开维护。
 - Parkour：Wan H1正式产物、latency small终点状态及正式latency VLA缺口待核验。
 - HAIC：其余三类H1模型及profile、latency small终点状态及正式latency VLA缺口待核验。50Hz H1与旧20Hz latent/H40合同分别记录。
 
@@ -237,6 +346,10 @@ checkpoint/配置/版本、核查日期和下一步。保留可比较的旧结�
 | 核查日期（UTC） | 更新 | 证据范围 |
 |---|---|---|
 | 2026-09-14 | 初始化四任务总览、16模型明细、12组RTX3090 profile、4组MIKASA严格小模型eval与QwenOFT VLA复核；迁移历史实验待办 | 上方固定HF版本、本地补评测/复核JSON及注明为文档记载的历史结果 |
+| 2026-09-14 15:33 | 12线程正式恢复已核查170/5k，最近7.4–7.5秒/更新；原W&B已续上。远端后置三项100局评测与本地tmux结果回传均已接入 | 正式worker环境、当前日志、评测/回传脚本 |
+| 2026-09-14 15:30 | CPUAdam线程8/12/16实测完成，12线程7.475秒/更新、吞吐+1.39%；选择12从156完整state恢复，继续原W&B。三项100局矩阵评测及自动回传/PROGRESS更新已安排 | 线程聚合、恢复/评测/回传脚本、原正式W&B run |
+| 2026-09-14 14:53 | MIKASA QwenPI已确认从110完整state恢复，micro128＋CPU offload、累积1、global128，实际122/5k，最近7.5–7.9秒/更新；正式评测/发布未完成 | 当前正式配置、恢复后正式日志、同一正式W&B run |
+| 2026-09-14 14:48 | MIKASA额外small达标、未发布；275成功episodes；QwenPI完整state保存于110步。5组批量测试：8/16/32无offload均OOM，32/128有offload通过；选择128恢复正式训练 | 本轮任务目录、逐更新统计/峰值显存、原正式日志与各W&B summary |
 
 ## 证据链接
 

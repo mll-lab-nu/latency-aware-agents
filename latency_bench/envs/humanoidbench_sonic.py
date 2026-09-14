@@ -192,9 +192,8 @@ def g1_absolute_request_from_action(
 ) -> np.ndarray:
     """Convert one policy command into an absolute request without stateful limiting.
 
-    This is deliberately separate from :meth:`G1SonicEnv._condition_targets`:
-    collectors can label the command at issue time while the environment keeps
-    velocity and acceleration limiting stateful at consumption time.
+    Collectors and the PD controller consume the same request. Joint and torque
+    bounds are enforced by the upstream MuJoCo XML, not by a command filter.
     """
     if absolute_position:
         body_target_request = body_action
@@ -212,12 +211,9 @@ def g1_absolute_request_from_action(
         hand_target_request = hand_joint_ranges[:, 0] + (
             hand_action + 1.0
         ) * 0.5 * (hand_joint_ranges[:, 1] - hand_joint_ranges[:, 0])
-    return np.concatenate(
-        [
-            np.clip(body_target_request, body_joint_ranges[:, 0], body_joint_ranges[:, 1]),
-            np.clip(hand_target_request, hand_joint_ranges[:, 0], hand_joint_ranges[:, 1]),
-        ]
-    )
+    return np.concatenate([body_target_request, hand_target_request])
+
+
 _KP = np.asarray(
     [
         _STIFFNESS_7520_22,
@@ -334,7 +330,6 @@ class G1SonicEnv(MujocoEnv):
         raw_learn_hands: bool = True,
         sonic_learn_hands: bool = True,
         gr00t_balance_teacher_observation_state: bool = False,
-        target_velocity_ramp_time_s: float | None = 0.1,
         render_mode: str,
         width: int,
         height: int,
@@ -496,6 +491,7 @@ class G1SonicEnv(MujocoEnv):
         else:
             self.action_low = np.full(action_dim, -1.0, dtype=np.float64)
             self.action_high = np.full(action_dim, 1.0, dtype=np.float64)
+        # Observation and diagnostic scales only; these do not limit commands.
         self._target_velocity_limits = np.concatenate(
             [_BODY_TARGET_VELOCITY_LIMITS, _HAND_TARGET_VELOCITY_LIMITS]
         )
@@ -504,12 +500,6 @@ class G1SonicEnv(MujocoEnv):
         )
         self._q_cmd = np.zeros(43, dtype=np.float64)
         self._v_cmd = np.zeros(43, dtype=np.float64)
-        self._target_acceleration_limits = (
-            None
-            if control_mode == G1_CONTROL_MODE_SONIC_COMPOSED
-            or target_velocity_ramp_time_s is None
-            else self._target_velocity_limits / target_velocity_ramp_time_s
-        )
         self._command_tracking_error = 0.0
         self._target_velocity_max_ratio = 0.0
         self._target_acceleration_mean_ratio_per_s = 0.0
@@ -571,6 +561,7 @@ class G1SonicEnv(MujocoEnv):
         )
         return base_velocity[:3].copy()
 
+
     def _projected_gravity(self) -> np.ndarray:
         root_quaternion = self.data.qpos[3:7]
         return _rotate_by_quaternion(
@@ -595,30 +586,32 @@ class G1SonicEnv(MujocoEnv):
 
     def _official_gr00t_proprio(self) -> np.ndarray:
         if self._gr00t_balance_teacher_observation_state:
-            return np.concatenate(
+            state = np.concatenate(
                 [self._task.get_obs(), self._command_observation()]
-            ).astype(np.float32)
-        q = np.concatenate(
-            [
-                self.data.qpos[self._body_qpos_addresses][MUJOCO_INDEX_FOR_POLICY],
-                self.data.qpos[self._hand_qpos_addresses],
-            ]
-        )
-        dq = np.concatenate(
-            [
-                self.data.qvel[self._body_qvel_addresses][MUJOCO_INDEX_FOR_POLICY],
-                self.data.qvel[self._hand_qvel_addresses],
-            ]
-        )
-        return np.concatenate(
-            [
-                self._base_angular_velocity(),
-                q,
-                dq,
-                self._conditioned_target(),
-                self._projected_gravity(),
-            ]
-        ).astype(np.float32)
+            )
+        else:
+            q = np.concatenate(
+                [
+                    self.data.qpos[self._body_qpos_addresses][MUJOCO_INDEX_FOR_POLICY],
+                    self.data.qpos[self._hand_qpos_addresses],
+                ]
+            )
+            dq = np.concatenate(
+                [
+                    self.data.qvel[self._body_qvel_addresses][MUJOCO_INDEX_FOR_POLICY],
+                    self.data.qvel[self._hand_qvel_addresses],
+                ]
+            )
+            state = np.concatenate(
+                [
+                    self._base_angular_velocity(),
+                    q,
+                    dq,
+                    self._conditioned_target(),
+                    self._projected_gravity(),
+                ]
+            )
+        return state.astype(np.float32)
 
     def _decoder_state(self) -> np.ndarray:
         frames = list(self._history)
@@ -656,66 +649,6 @@ class G1SonicEnv(MujocoEnv):
             dtype=np.float64,
         )
 
-    @staticmethod
-    def _braking_distance(
-        velocity: np.ndarray, velocity_step: np.ndarray, dt: float
-    ) -> np.ndarray:
-        speed = np.abs(velocity)
-        steps = np.maximum(np.ceil(speed / velocity_step) - 1.0, 0.0)
-        return dt * (
-            steps * speed - 0.5 * velocity_step * steps * (steps + 1.0)
-        )
-
-    def _condition_velocity(
-        self,
-        q_request: np.ndarray,
-        q_previous: np.ndarray,
-        v_previous: np.ndarray,
-        joint_ranges: np.ndarray,
-        velocity_limits: np.ndarray,
-    ) -> tuple[np.ndarray, np.ndarray]:
-        velocity_request = (q_request - q_previous) / self.dt
-        velocity = np.clip(velocity_request, -velocity_limits, velocity_limits)
-        if self._target_acceleration_limits is not None:
-            velocity_step = self._target_acceleration_limits * self.dt
-            velocity = np.clip(
-                velocity,
-                v_previous - velocity_step,
-                v_previous + velocity_step,
-            )
-            velocity = np.clip(
-                velocity,
-                (joint_ranges[:, 0] - q_previous) / self.dt,
-                (joint_ranges[:, 1] - q_previous) / self.dt,
-            )
-            positive = velocity > 0.0
-            positive_distance = (
-                q_previous + velocity * self.dt
-                + self._braking_distance(velocity, velocity_step, self.dt)
-            )
-            positive_violation = positive & (positive_distance > joint_ranges[:, 1])
-            negative = velocity < 0.0
-            negative_distance = (
-                q_previous + velocity * self.dt
-                - self._braking_distance(velocity, velocity_step, self.dt)
-            )
-            negative_violation = negative & (negative_distance < joint_ranges[:, 0])
-            braking_velocity = np.sign(v_previous) * np.maximum(
-                np.abs(v_previous) - velocity_step, 0.0
-            )
-            velocity = np.where(
-                positive_violation | negative_violation,
-                braking_velocity,
-                velocity,
-            )
-        else:
-            velocity = np.clip(
-                velocity,
-                (joint_ranges[:, 0] - q_previous) / self.dt,
-                (joint_ranges[:, 1] - q_previous) / self.dt,
-            )
-        return q_previous + velocity * self.dt, velocity
-
     def g1_absolute_request_from_raw_action(self, action: np.ndarray) -> np.ndarray:
         """Convert normalized MuJoCo-order controls to policy-order joint requests."""
         action = np.asarray(action, dtype=np.float64).reshape(-1)
@@ -744,13 +677,8 @@ class G1SonicEnv(MujocoEnv):
             raw_body=raw_body,
             absolute_position=absolute_position,
         )
-        q_cmd, v_cmd = self._condition_velocity(
-            request,
-            self._q_cmd,
-            self._v_cmd,
-            self._joint_ranges,
-            self._target_velocity_limits,
-        )
+        q_cmd = request
+        v_cmd = (q_cmd - self._q_cmd) / self.dt
         acceleration = (v_cmd - self._v_cmd) / self.dt
         self._command_tracking_error = float(
             np.mean(
@@ -795,14 +723,12 @@ class G1SonicEnv(MujocoEnv):
         ctrl[self._hand_actuator_ids] = (
             _HAND_KP * (hand_target - hand_q) - _HAND_KD * hand_dq
         )
-        clipped_ctrl = np.clip(
-            ctrl,
-            self.model.actuator_ctrlrange[:, 0],
-            self.model.actuator_ctrlrange[:, 1],
+        self._torque_saturation_count += np.count_nonzero(
+            (ctrl < self.model.actuator_ctrlrange[:, 0])
+            | (ctrl > self.model.actuator_ctrlrange[:, 1])
         )
-        self._torque_saturation_count += np.count_nonzero(clipped_ctrl != ctrl)
         self._torque_sample_count += self.model.nu
-        return clipped_ctrl
+        return ctrl
 
     def set_decoded_action(self, action: np.ndarray) -> None:
         """Supply the body action decoded by Sample Factory's inference worker."""

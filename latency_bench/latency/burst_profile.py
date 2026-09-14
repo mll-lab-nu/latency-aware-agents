@@ -229,6 +229,16 @@ def build_worker_slot_distributions_from_sessions(
                 if regime == "calm":
                     all_samples["steady"].append(emission)
 
+    calm_pool = [
+        emission
+        for values in slot_samples.values()
+        for emission in values["steady"]
+    ]
+    if not calm_pool:
+        raise ValueError(
+            "No calm observations were recorded across any worker slot; a "
+            "hidden-regime profile needs at least one calm baseline sample."
+        )
     return {
         "schema_version": 3,
         "worker_slots": {
@@ -237,7 +247,7 @@ def build_worker_slot_distributions_from_sessions(
                 "steady": (
                     _fit_joint_emission_distribution(values["steady"])
                     if values["steady"]
-                    else None
+                    else _fit_joint_emission_distribution(calm_pool)
                 ),
             }
             for slot, values in sorted(slot_samples.items())

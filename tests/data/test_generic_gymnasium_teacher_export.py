@@ -847,7 +847,7 @@ def test_starvla_lerobot_converter_writes_handoff_contract(tmp_path):
             }
         },
         "video": {"image": {"original_key": "observation.image"}},
-        "annotation": {"human.action.task_description": {"original_key": "task_index"}},
+        "annotation": {"human.task_description": {"original_key": "task_index"}},
     }
     assert prompt_map == {
         "1": {

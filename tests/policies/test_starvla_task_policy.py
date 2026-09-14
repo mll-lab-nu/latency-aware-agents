@@ -1,4 +1,4 @@
-"""Task inference must use current state and return the full H1 command."""
+"""Task inference must use current state and return the full action chunk."""
 
 from types import SimpleNamespace
 
@@ -13,7 +13,7 @@ from latency_bench.policy.starvla_tasks import TaskStarVlaPolicyRunner
 @pytest.mark.parametrize('spec', TASK_SPECS.values(), ids=TASK_SPECS)
 def test_task_policy_normalizes_current_state_and_decodes_full_command(spec):
     def predict_action(*, examples: list):
-        result = np.stack([np.full((1, spec.action_dim), e['state'][0, 0]) for e in examples])
+        result = np.stack([np.full((spec.action_horizon, spec.action_dim), e['state'][0, 0]) for e in examples])
         return {'normalized_actions': result}
 
     policy = TaskStarVlaPolicyRunner(
@@ -32,7 +32,8 @@ def test_task_policy_normalizes_current_state_and_decodes_full_command(spec):
         assert example['state'].shape == (1, spec.state_dim)
         assert len(example['image']) == len(spec.video_keys)
         output = policy.predict(observation)
-        assert output.action_chunk.shape == (1, spec.action_dim)
+        assert output.action_chunk.shape == (spec.action_horizon, spec.action_dim)
+        np.testing.assert_array_equal(output.action_chunk, np.full((spec.action_horizon, spec.action_dim), expected))
         np.testing.assert_array_equal(output.action.value, [expected] * spec.action_dim)
     del observations[0].metadata['state']
     with pytest.raises(KeyError, match='state'):

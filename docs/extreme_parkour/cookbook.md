@@ -53,9 +53,35 @@ to the native and VLA/evaluation stages. Use `--profile-path` to replay an
 existing profile, or `--skip-native-train` when the command-policy stage has
 already been completed.
 
-Both formal and smoke command-policy training use 1,024 environments. The
-smoke config limits training to two iterations; collection and evaluation
-use one environment.
+Formal command-policy training uses two DDP ranks with 3,072 environments each,
+matching the zero-delay teacher's 6,144 total environments. It runs 3,000 PPO
+iterations with 24 decisions per environment and up to five control steps per
+decision: a nominal budget of 2,211,840,000 control steps, equal to the teacher's
+15,000 iterations at one control step per decision. Early episode terminations
+reduce the actual executed count, which is logged as `Train/control_steps`.
+The final command checkpoint is `model_2999.pt`. The smoke config explicitly
+uses 1,024 environments per rank and two iterations; collection and evaluation
+use one environment. Native command-policy training uses W&B online.
+
+The command actor, critic, estimator, and optimizers start from scratch. The
+teacher checkpoint supplies only the frozen motor decoder; the command actor's
+feature modules and residual output layer keep their random initialization.
+An explicit `--resume` restores a command-policy run instead.
+
+For the measured Qwen profiles, use
+[`parkour_qwenoft_rtx3090_scratch.yaml`](../../configs/training/latency/parkour_qwenoft_rtx3090_scratch.yaml)
+or [`parkour_qwenpi_v3_rtx3090_scratch.yaml`](../../configs/training/latency/parkour_qwenpi_v3_rtx3090_scratch.yaml)
+as the second argument to `train_small_policy_with_latency.sh`. Each iteration
+collects 24 decisions with up to five 50 Hz control steps per decision and four
+5 ms physics substeps per control step. FPS in native PPO logs counts decisions;
+the latency adapter also records executed control steps. W&B's default `Step`
+is mapped to the reference teacher's update position:
+`floor((Train/control_steps - 1) / 147456)`. This permits overlaying the existing
+teacher run, whose Step counts zero-based PPO iterations. `Train/iteration`
+retains the new run's true iteration number. Episode reward is accumulated
+without within-decision discounting, and episode length counts control steps;
+PPO continues to use its discounted decision rewards. Matching sample budgets
+does not match the number of PPO updates or guarantee the same convergence.
 
 Use the printed `model_14999.pt` teacher checkpoint for the complete VLA path:
 
@@ -121,7 +147,7 @@ Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py oracle-eval
 Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py collect
 scripts/official_gr00t/prepare_parkour_dataset.py
 scripts/official_gr00t/train_parkour_dagger.py
-Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py vla-eval
+Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py latency-eval --eval-config ...
 ```
 
 The oracle must retain the privileged latent for five 50 Hz control steps and
@@ -157,7 +183,7 @@ or publication evidence. The prior
 must not be used. The accepted checkpoint still expects the retained
 `/tmp/Qwen/Qwen3-VL-cosmos` processor/model metadata path on the evaluation
 host. Full-scale profiling, DAgger, and publication remain separate gates;
-details are recorded in `program/LATENCY_RL_HANDOFF.md` and the [artifact
+details are recorded in `program/archive/LATENCY_RL_HANDOFF.md` and the [artifact
 registry](../artifacts.md).
 
 The internal record also documents why the old latent-only 5k result is not a

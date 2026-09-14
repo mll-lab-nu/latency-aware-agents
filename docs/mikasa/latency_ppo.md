@@ -1,11 +1,11 @@
-# MIKASA PPO with the QwenOFT RTX 3090 profile
+# MIKASA PPO with StarVLA RTX 3090 profiles
 
 This recipe trains a 49D state / 7D action PPO policy from scratch for
-`InterceptGrabFast-VLA-v0`, using the measured QwenOFT RTX 3090 temporal profile.
+`InterceptGrabFast-VLA-v0`, using a measured StarVLA RTX 3090 temporal profile.
 The actor and critic each have three 256-unit tanh layers. Control runs at
 20 Hz and physics at 100 Hz, with a 60-control-step episode horizon.
 
-## Accepted experiment
+## Accepted QwenOFT experiment
 
 - W&B: [ks6d837t](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/ks6d837t).
 - Selected checkpoint: 13,824,000 environment steps, iteration 225.
@@ -22,6 +22,15 @@ The successful run had a 150M upper budget. This recipe uses a
 steps. Learning-rate annealing is disabled, so the budget does not change the
 PPO updates before the stopping point.
 
+The same recipe also produced these published variants; only the profile,
+experiment name, and artifact path differ:
+
+| Profile | W&B | Published checkpoint | Independent success at end | Publication revision |
+| --- | --- | --- | --- | --- |
+| QwenPI v3 | [u46f6pzq](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/u46f6pzq) | 15,360,000 steps, iteration 250 | 248/256 (96.88%) | [`28347920`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/28347920d378d33a3d9ab374e3fcd451c5476748/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1) |
+| QwenGR00T | [2papyzq7](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/2papyzq7) | 20,951,040 steps, iteration 341 | 251/256 (98.05%) | [`a44e0784`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/a44e078471c628650009b20a357b42a21835c427/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1) |
+| WanOFT | [sw3b981e](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/sw3b981e) | 69,120,000 steps, iteration 1125 | 122/256 (47.66%) | [`c72713d3`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/c72713d3eeba1f33d08c9c909d7caa868b62d717/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1) |
+
 ## Training
 
 After the normal benchmark setup, initialize the MIKASA submodule and install
@@ -33,6 +42,10 @@ CUDA_VISIBLE_DEVICES=0 .venv/bin/python -m \
   --config configs/training/latency/mikasa_qwenoft_rtx3090_scratch.yaml \
   --output-dir outputs/mikasa_profile_ppo/train
 ```
+
+Use the corresponding `mikasa_qwenpi_v3_rtx3090_scratch.yaml`,
+`mikasa_qwengr00t_rtx3090_scratch.yaml`, or
+`mikasa_wanoft_rtx3090_scratch.yaml` for the other registered profiles.
 
 The launcher downloads the exact profile revision, writes the resolved
 `config.yaml` into the output directory, and replaces itself with the native

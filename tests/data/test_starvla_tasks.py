@@ -28,6 +28,7 @@ def test_starvla_task_contract_writes_stats_and_inverts_min_max(tmp_path):
             {
                 "observation.state": [[0.0] * 198, [1.0] * 198],
                 "action": [[-1.0] * 43, [1.0] * 43],
+                "issued_command_chunk": [[[-1.0] * 43] * 8, [[1.0] * 43] * 8],
             }
         ),
         dataset / "data/chunk-000/episode_000000.parquet",
@@ -37,7 +38,8 @@ def test_starvla_task_contract_writes_stats_and_inverts_min_max(tmp_path):
     contract = json.loads(path.read_text())
     assert contract["state_dim"] == 198
     assert contract["action_dim"] == 43
-    assert contract["action_horizon"] == 1
+    assert contract["action_horizon"] == 8
+    assert contract["action_key"] == "issued_command_chunk"
     assert "action_target_key" not in contract
     assert "image_columns" not in contract
 
@@ -45,7 +47,7 @@ def test_starvla_task_contract_writes_stats_and_inverts_min_max(tmp_path):
     normalized = normalize(action, contract["normalization"]["action"])
     np.testing.assert_allclose(denormalize(normalized, contract["normalization"]["action"]), action)
     stats = json.loads((dataset / "meta/stats_gr00t.json").read_text())
-    assert stats["statistics"]["action"]["min"] == [-1.0] * 43
+    assert stats["statistics"]["issued_command_chunk"]["min"] == [-1.0] * 43
 
 
 def test_normalize_matches_min_max_boundaries_and_constant_dimensions(monkeypatch):

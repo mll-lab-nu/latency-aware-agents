@@ -242,6 +242,47 @@ def test_hidden_regime_uses_each_slot_steady_baseline():
         assert set(steady["worker_service_time_ms"]["latency_ms"]) == {expected}
 
 
+def test_all_burst_slot_falls_back_to_machine_wide_calm_baseline():
+    samples = []
+    for episode_id in range(4):
+        samples.extend(
+            _episode(
+                episode_id,
+                [10.0, 100.0] * 10,
+                start_index=episode_id * 20,
+                worker_ids=[0, 1] * 10,
+            )
+        )
+
+    # Worker 0 serves at its calm 10 ms baseline; worker 1 is entirely above
+    # the injected threshold and has no per-slot calm baseline. A hidden-regime
+    # replay of worker 1's calm regime must fall back to the machine-wide calm
+    # pool instead of carrying spike mass.
+    distribution = build_worker_slot_distributions_from_sessions(
+        [samples],
+        spike_threshold_ms_by_worker_slot={"0": 50.0, "1": 50.0},
+    )
+
+    assert distribution["worker_slots"]["0"]["steady"]["count"] == 40
+    steady_1 = distribution["worker_slots"]["1"]["steady"]
+    assert steady_1["count"] == 40
+    assert set(steady_1["worker_service_time_ms"]["latency_ms"]) == {10.0}
+
+
+def test_all_burst_profile_without_any_calm_baseline_rejected():
+    samples = _episode(
+        0,
+        [100.0] * 10,
+        worker_ids=[0, 1] * 5,
+    )
+
+    with pytest.raises(ValueError, match="calm"):
+        build_worker_slot_distributions_from_sessions(
+            [samples],
+            spike_threshold_ms_by_worker_slot={"0": 50.0, "1": 50.0},
+        )
+
+
 def test_slot_baseline_preserves_repeated_episode_ids_across_sessions():
     healthy = _episode(0, [10.0] * 5)
     degraded = _episode(0, [100.0] * 5)

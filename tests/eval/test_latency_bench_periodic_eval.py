@@ -236,7 +236,7 @@ def test_periodic_observer_runs_deferred_eval_fifo_after_training(monkeypatch, t
                         "mean_return": 12.0,
                         "std_return": 1.0,
                         "mean_length": 30.0,
-                        "completed_episodes": 3,
+                        "returns": [11.0, 12.0, 13.0],
                     }
                 ]
             )
@@ -379,6 +379,7 @@ def test_deferred_observer_releases_checkpoint_lease_after_eval_success(monkeypa
                                 "mean_return": 12.0,
                                 "std_return": 1.0,
                                 "mean_length": 30.0,
+                                "returns": [12.0],
                             }
                         ]
                     }
@@ -501,7 +502,7 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
                 "mean_return": 10.0,
                 "std_return": 1.0,
                 "mean_length": 30.0,
-                "completed_episodes": 3,
+                "returns": [9.0, 10.0, 11.0],
             },
             {
                 "suite_name": "fixed_0_to_4",
@@ -519,7 +520,7 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
                 "mean_return": 12.0,
                 "std_return": 1.2,
                 "mean_length": 32.0,
-                "completed_episodes": 5,
+                "returns": [10.0, 11.0, 12.0, 13.0, 14.0],
             },
         ],
         env_steps=1_000,
@@ -856,6 +857,7 @@ def test_run_final_eval_runs_deferred_periodic_fifo_before_starting_final(monkey
                                 "mean_return": 12.0,
                                 "std_return": 1.0,
                                 "mean_length": 30.0,
+                                "returns": [12.0],
                             }
                         ]
                     }

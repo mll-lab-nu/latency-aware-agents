@@ -94,7 +94,14 @@ def checkpoint_paths(root: str | os.PathLike[str], pattern: str = "checkpoint_*.
 
 
 def checkpoint_mtimes(root: str | os.PathLike[str], pattern: str = "checkpoint_*.pth") -> dict[Path, int]:
-    return {path: path.stat().st_mtime_ns for path in checkpoint_paths(root, pattern)}
+    mtimes = {}
+    for path in checkpoint_paths(root, pattern):
+        try:
+            mtimes[path] = path.stat().st_mtime_ns
+        except FileNotFoundError:
+            # The learner can prune a checkpoint after directory enumeration.
+            continue
+    return mtimes
 
 
 def read_checkpoint_backend_type(path: str | os.PathLike[str]) -> str | None:

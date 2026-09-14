@@ -302,11 +302,11 @@ class LatencyBenchPeriodicEvalObserver:
         runner.save_periodic.emit()
         deadline = time.monotonic() + self.checkpoint_timeout_sec
         while time.monotonic() <= deadline:
-            current = _checkpoint_paths(root)
+            current = _checkpoint_mtimes(root)
             updated_paths = [
                 path
                 for path in current
-                if path not in before or path.stat().st_mtime_ns != before[path]
+                if path not in before or current[path] != before[path]
             ]
             if updated_paths:
                 return updated_paths[-1]

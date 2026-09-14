@@ -89,26 +89,27 @@ def parse_eval_suites(config: dict[str, Any]) -> list[EvalSuite]:
             )
         )
 
-    for item in suites_cfg.get("iid", []) or []:
-        name = item["name"]
-        profile_path = item["profile_path"]
-        latency_seed = item["seed"]
-        suites.append(
-            EvalSuite(
-                name=name,
-                fixed_latency_values=None,
-                latency_config={
-                    "method": "iid",
-                    "profile_path": profile_path,
-                    "seed": latency_seed,
-                },
-                latency_label=name,
-                metadata={
-                    "suite_name": name,
-                    "latency_type": "profile_sample",
-                    "latency_seed": latency_seed,
-                },
+    for method in ("iid", "temporal"):
+        for item in suites_cfg.get(method, []):
+            name = item["name"]
+            profile_path = item["profile_path"]
+            latency_seed = item["seed"]
+            suites.append(
+                EvalSuite(
+                    name=name,
+                    fixed_latency_values=None,
+                    latency_config={
+                        "method": method,
+                        "profile_path": profile_path,
+                        "seed": latency_seed,
+                    },
+                    latency_label=name,
+                    metadata={
+                        "suite_name": name,
+                        "latency_type": "profile_sample",
+                        "latency_seed": latency_seed,
+                    },
+                )
             )
-        )
 
     return suites

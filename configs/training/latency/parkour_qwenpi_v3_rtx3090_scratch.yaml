@@ -1,0 +1,6 @@
+__base__: parkour.yaml
+experiment:
+  name: extreme_parkour_go2_qwenpi_v3_scratch
+  seed: 1
+latency:
+  profile_path: /pfs/users/lxy/latency-sensitive-bench/results/profiling/profiles/qwenpi_v3/1x-rtx3090/extreme_parkour_go2/instance_b19d7af6f1bdd95d/profile.json

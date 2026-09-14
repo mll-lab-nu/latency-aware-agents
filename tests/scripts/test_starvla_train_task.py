@@ -12,12 +12,15 @@ from scripts.starvla import train_task
     ('task', 'model', 'phase'),
     [('balance', 'qwenoft', 'bootstrap'), ('parkour', 'wanoft', 'dagger')],
 )
-def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, task, model, phase):
+def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, monkeypatch, task, model, phase):
+    monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
+    monkeypatch.setenv('WANDB_RUN_GROUP', 'test-group')
     bootstrap = tmp_path / 'bootstrap' / 'lerobot'
     (bootstrap / 'meta').mkdir(parents=True)
     (bootstrap / 'meta/info.json').write_text(json.dumps({'codebase_version': 'test'}))
     (bootstrap / 'task_contract.json').write_text(json.dumps({
         'state_dim': 1, 'action_dim': 1, 'robot_type': 'robot',
+        'action_horizon': 8 if task == 'balance' else 1,
         'normalization': {'action': {'min': [0], 'max': [1]}},
     }))
     args = SimpleNamespace(task=task, model=model, output_dir=tmp_path,
@@ -58,7 +61,11 @@ def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(train_task, 'run_command', lambda *call_args, **kwargs: calls.append(kwargs))
 
-    config = {'run_id': 'bootstrap', 'trainer': {'stop_after_steps': 500, 'is_resume': False}}
+    config = {
+        'run_id': 'bootstrap',
+        'datasets': {'vla_data': {'per_device_batch_size': 64}},
+        'trainer': {'stop_after_steps': 500, 'is_resume': False, 'gradient_accumulation_steps': 1},
+    }
     train_task.train(args, config)
     config['trainer']['is_resume'] = True
     train_task.train(args, config)
@@ -75,6 +82,32 @@ def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
 def test_resume_requires_explicit_run_id():
     with pytest.raises(SystemExit, match='2'):
         train_task.main(['--task', 'balance', '--model', 'qwenpi_v3', '--resume'])
+
+
+@pytest.mark.parametrize(('method', 'label'), [('zero', '0'), ('temporal', 'profile_sample')])
+def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_path, monkeypatch, method, label):
+    monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
+    args = SimpleNamespace(task='balance', task_python=tmp_path / 'python',
+                           output_dir=tmp_path, eval_episodes=1)
+    config = {'executor': {'mode': 'simulated'}, 'latency': {'method': method}, 'logging': {}}
+    monkeypatch.setattr(train_task, 'eval_config', lambda *args, **kwargs: config)
+    output = tmp_path / 'evals/checkpoint'
+    commands = []
+    summaries = []
+
+    def run(command, log):
+        commands.append(command)
+        (output / f'queue_eval_latency_{label}.json').write_text(json.dumps({'returns': [1.0]}))
+
+    monkeypatch.setattr(train_task, 'run_command', run)
+    monkeypatch.setattr(train_task, '_log_corrected_eval_summaries_to_wandb',
+                        lambda config, values: summaries.extend(values))
+    result = train_task.evaluate(args, tmp_path / 'bundle', tmp_path / 'teacher',
+                                 label='checkpoint', wandb_checkpoint=('run', 500))
+
+    assert result == output
+    assert commands == [[args.task_python, '-m', 'latency_bench.run', '--config', output / 'eval_config.yaml']]
+    assert summaries == [{'returns': [1.0], 'checkpoint_global_step': 500}]
 
 
 def test_resume_requires_complete_training_state(tmp_path):
@@ -95,6 +128,7 @@ def test_resume_requires_complete_training_state(tmp_path):
 
 
 def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path, monkeypatch):
+    monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
     dataset = tmp_path / 'dataset'
     metadata = dataset / 'lerobot/meta'
     metadata.mkdir(parents=True)
@@ -102,6 +136,7 @@ def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path
     (dataset / 'lerobot/task_contract.json').write_text(json.dumps({
         'state_dim': 1,
         'action_dim': 1,
+        'action_horizon': 1,
         'robot_type': 'robot',
         'normalization': {'action': {'min': [0], 'max': [1]}},
     }))
@@ -186,10 +221,13 @@ def test_mixture_retains_half_bootstrap_and_independent_validation(tmp_path):
 def test_publish_retry_preserves_dataset_revisions_and_rejects_smoke(tmp_path, monkeypatch):
     (tmp_path / 'inference').mkdir()
     run = {'task': 'haic', 'model': 'qwenoft', 'run_id': 'run', 'smoke': False,
+           'condition': 'zero-latency',
            'teacher': {}, 'backbone': {}, 'code_revisions': {}, 'seed': 0,
            'training': {'sft_updates': 2, 'dagger_updates': 2},
-           'datasets': [{'local_dir': str(tmp_path / 'bootstrap'), 'revision': 'shared'},
-                        {'local_dir': str(tmp_path / 'round-00'), 'revision': None}]}
+           'datasets': [{'local_dir': str(tmp_path / 'bootstrap'), 'revision': 'shared',
+                         'condition': 'zero-latency', 'action_horizon': 1},
+                        {'local_dir': str(tmp_path / 'round-00'), 'revision': None,
+                         'condition': 'zero-latency', 'action_horizon': 1}]}
     train_task.write_json(tmp_path / 'run.json', run)
     uploads = []
     monkeypatch.setattr(train_task.artifacts, 'publish_dataset',
@@ -208,7 +246,10 @@ def test_publish_retry_preserves_dataset_revisions_and_rejects_smoke(tmp_path, m
     assert len(uploads) == 1
     assert uploads[0]['round_number'] == 0
     provenance = json.loads((tmp_path / 'inference/provenance.json').read_text())
-    assert provenance['datasets'] == [{'revision': 'shared'}, {'revision': 'delta'}]
+    assert provenance['datasets'] == [
+        {'revision': 'shared', 'condition': 'zero-latency', 'action_horizon': 1},
+        {'revision': 'delta', 'condition': 'zero-latency', 'action_horizon': 1},
+    ]
     del saved['training']
     train_task.write_json(tmp_path / 'run.json', saved)
     with pytest.raises(KeyError, match='training'):

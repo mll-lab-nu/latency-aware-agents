@@ -1,0 +1,15 @@
+__base__: ../mikasa_latency_smoke.yaml
+training:
+  num_envs: 1024
+  num_eval_envs: 16
+  num_steps: 60
+  num_eval_steps: 60
+  num_minibatches: 32
+  update_epochs: 4
+  total_timesteps: 150000000
+  eval_freq: 25
+  track: true
+latency:
+  method: temporal
+  seed: 0
+  profile_path: results/profiling/downloads/profiles/qwenoft/1x-rpbzzz6/mikasa_intercept_grab_fast/instance_e906b84a82f9e086/9d8bae1c6c0a17775549205a0cf61f72cbc09fc9/profile.json

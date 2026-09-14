@@ -2578,6 +2578,7 @@ def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
         }
         for episode_idx in range(260)
     ]
+    rows[256] = dict(reversed(rows[256].items()))
 
     output_dir = tmp_path / "export"
     dataset_dict = write_parquet_splits(output_dir, rows, [], action_spec=action_spec_for_env("flappy"))

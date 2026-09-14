@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 from latency_bench.core.clock import EnvClock, ms_to_raw_frames
 from latency_bench.core.latency_distribution import LatencyDistributionSpec
-from latency_bench.latency.samplers import build_sampler
+from latency_bench.latency.samplers import HiddenRegimeSampler, build_sampler
 
 from training.common.utils import env_instance_seed
 
@@ -182,6 +183,16 @@ def build_iid_profile_sampler(
 
 
 def profile_sampler_max_latency_raw_frames(sampler: Any, *, worker_slot: int, env_fps: float) -> int:
-    distribution = sampler.distributions[str(worker_slot)]["all"]
-    latency_ms = max(distribution["observation_to_action_latency_ms"]["latency_ms"])
-    return latency_ms_to_raw_frames(latency_ms, env_fps=env_fps)
+    """Maximum ready delay over the sampler's generated support."""
+    slot = str(worker_slot)
+    distribution = sampler.distributions[slot]["steady" if isinstance(sampler, HiddenRegimeSampler) else "all"]
+    max_latency_ms = max(distribution["observation_to_action_latency_ms"]["latency_ms"])
+    if isinstance(sampler, HiddenRegimeSampler):
+        for rank in sampler.rank_processes:
+            residual = rank["level_residual_ms"]
+            spike_ms = max(
+                max(rank["level_ms"]["latency_ms"]) + (max(residual["latency_ms"]) if residual is not None else 0.0),
+                math.nextafter(sampler.model["spike_threshold_ms_by_worker_slot"][slot], math.inf),
+            )
+            max_latency_ms = max(max_latency_ms, spike_ms + max(sampler.pre_worker_time["latency_ms"]))
+    return latency_ms_to_raw_frames(max_latency_ms, env_fps=env_fps)

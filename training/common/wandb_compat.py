@@ -125,9 +125,8 @@ def patch_sample_factory_wandb() -> None:
         wandb.config.update(cfg, allow_val_change=True)
 
         wandb.define_metric("global_step")
-        wandb.define_metric("train/env_steps")
-        wandb.define_metric("train/*", step_metric="train/env_steps")
-        wandb.define_metric("perf/*", step_metric="train/env_steps")
+        wandb.define_metric("train/*", step_metric="global_step")
+        wandb.define_metric("perf/*", step_metric="global_step")
         wandb.define_metric("eval/global_steps")
         wandb.define_metric("eval/*", step_metric="global_step")
 

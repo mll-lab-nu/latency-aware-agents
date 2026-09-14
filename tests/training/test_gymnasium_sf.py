@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.types import OrderingPolicy
 from latency_bench.core.config import load_config
 from latency_bench.latency.sample import LatencySample
 from latency_bench.envs.gymnasium_task import (
@@ -27,6 +28,8 @@ from training.gymnasium_sf.integration import (
     GymnasiumStateInfoWrapper,
     SAMPLE_FACTORY_CONFIG_PARSER,
     build_cli_args_from_config,
+    build_train_cfg_from_config,
+    make_gymnasium_sf_env,
     make_reference_env,
 )
 
@@ -484,3 +487,134 @@ def test_chunk_trace_keeps_raw_transitions_and_partial_terminal_through_autorese
     assert records[-1]["replay_obs"][1, 1] == 2 * stride + 1
     assert latency.profile_sampler.draws == 3
     env.close()
+
+
+
+class _VectorActionRewardEnv(_VectorActionTraceEnv):
+    def step(self, action):
+        action = np.asarray(action)
+        self.native_actions.append(action.copy())
+        return np.zeros(1, dtype=np.float32), float(action[0]), False, False, {}
+
+
+
+class _TerminalTrajectoryEnv(_VectorActionTraceEnv):
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        self.position = 0.0
+        return np.array([self.position], dtype=np.float32), {}
+
+    def step(self, action):
+        action = np.asarray(action)
+        self.native_actions.append(action.copy())
+        self.position += float(action[0])
+        return (
+            np.array([self.position], dtype=np.float32),
+            float(action[0]),
+            len(self.native_actions) == 6,
+            False,
+            {"applied_action": action.copy()},
+        )
+
+
+
+def test_profile_streams_are_reproducible_per_environment_and_distinct_across_lanes():
+    config = load_config("configs/training/latency/balance_fasttd3_chunk_h8_qwenoft.yaml")
+    cfg = build_train_cfg_from_config(config)
+    cfg.episode_metrics_path = ""
+
+    def stream(worker_index, vector_index, env_id):
+        env = make_gymnasium_sf_env(
+            cfg.env, cfg,
+            SimpleNamespace(worker_index=worker_index, vector_index=vector_index, env_id=env_id),
+        )
+        try:
+            sampler = env.get_wrapper_attr("profile_sampler")
+            samples = [sampler.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(32)]
+            return [(sample.latency_ms, sample.worker_service_ms) for sample in samples]
+        finally:
+            env.close()
+
+    reference = stream(0, 0, 0)
+    assert reference == stream(0, 0, 0)
+    assert reference != stream(1, 0, 8)
+    assert reference != stream(0, 1, 1)
+
+
+
+def _fixed40_wrapper(obs_fps):
+    return GymnasiumActionLatencyWrapper(
+        _TerminalTrajectoryEnv(),
+        fixed_latency_raw_frames=2,
+        env_fps=50,
+        obs_fps=obs_fps,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        simulated_worker_capacity=1,
+        add_latency_info=True,
+        noop_action=np.zeros(43, dtype=np.float32),
+    )
+
+
+
+def test_25hz_zero_executes_one_command_for_two_raw_frames():
+    env = GymnasiumActionLatencyWrapper(
+        _VectorActionRewardEnv(),
+        fixed_latency_raw_frames=0,
+        env_fps=50,
+        obs_fps=25,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        simulated_worker_capacity=1,
+        add_latency_info=True,
+        noop_action=np.zeros(43, dtype=np.float32),
+    )
+    env.reset(seed=3)
+    command = np.ones(43, dtype=np.float32)
+
+    _, reward, terminated, truncated, info = env.step(command)
+
+    np.testing.assert_array_equal(env.unwrapped.native_actions, [command, command])
+    assert reward == 2
+    assert info["raw_frames_advanced"] == 2
+    assert info["command_admitted"]
+    assert not terminated and not truncated
+
+
+
+def test_25hz_fixed40_matches_50hz_fixed2_at_admission_boundaries():
+    boundary_env = _fixed40_wrapper(25)
+    attempt_env = _fixed40_wrapper(50)
+    boundary_observation, _ = boundary_env.reset(seed=3)
+    attempt_observation, _ = attempt_env.reset(seed=3)
+    commands = [np.full(43, value, dtype=np.float32) for value in (1, 2, 3)]
+
+    for command in commands:
+        boundary_observation, boundary_reward, boundary_terminated, boundary_truncated, boundary_info = (
+            boundary_env.step(command)
+        )
+        first_observation, first_reward, first_terminated, first_truncated, first_info = (
+            attempt_env.step(command)
+        )
+        attempt_observation, second_reward, attempt_terminated, attempt_truncated, second_info = (
+            attempt_env.step(np.full(43, 99, dtype=np.float32))
+        )
+
+        assert boundary_info["command_admitted"]
+        assert first_info["command_admitted"]
+        assert second_info["observation_dropped"]
+        assert boundary_info["raw_frames_advanced"] == 2
+        np.testing.assert_array_equal(boundary_observation, attempt_observation)
+        assert boundary_reward == first_reward + second_reward
+        assert boundary_terminated == (first_terminated or attempt_terminated)
+        assert boundary_truncated == (first_truncated or attempt_truncated)
+        np.testing.assert_array_equal(
+            boundary_env.current_applied_action, attempt_env.current_applied_action
+        )
+        assert boundary_env.result_timeline.pending_event_count == attempt_env.result_timeline.pending_event_count == 1
+
+    assert boundary_env.unwrapped.position == attempt_env.unwrapped.position == 6
+    assert boundary_terminated and attempt_terminated
+    np.testing.assert_array_equal(
+        boundary_env.unwrapped.native_actions, attempt_env.unwrapped.native_actions
+    )

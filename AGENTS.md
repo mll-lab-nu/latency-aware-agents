@@ -38,3 +38,15 @@ Testing guidance:
 - Do not add tests that assert implementation style, such as "the code does not call `.get()`".
 - Tests should assert semantic behavior: required fields fail when missing, wrong actions are rejected, malformed specs fail, and no hidden substitute changes meaning.
 - Prefer updating existing tests for the touched behavior instead of adding new tests.
+
+# program Progress Maintenance
+
+For training, evaluation, profiling, publication, pause, or failure work related
+to HumanoidBench Balance Simple, MIKASA InterceptGrabFast, Extreme Parkour Go2,
+or HAIC PullCart, update `program/PROGRESS.md` once the outcome is verified.
+Record the audit date, exact checkpoint/training step and configuration, evidence
+links and revisions, numeric evaluation metrics with episode counts, and the next
+step. Keep training completion, evaluation completion, acceptance, and publication
+separate. Distinguish latency/FPS/seed protocols and retain historical results;
+old running messages do not establish current process state. Use
+`program/README.md` to locate active handoffs and archived experiment records.

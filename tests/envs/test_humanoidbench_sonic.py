@@ -175,11 +175,7 @@ def test_sonic_decoder_history_and_joint_mapping(env):
     raw_control = native._controller(raw_target, raw_hand_target)
     np.testing.assert_allclose(
         raw_control[native._body_actuator_ids],
-        np.clip(
-            sonic._KP * (raw_target - native.data.qpos[native._body_qpos_addresses]),
-            native.model.actuator_ctrlrange[native._body_actuator_ids, 0],
-            native.model.actuator_ctrlrange[native._body_actuator_ids, 1],
-        ),
+        sonic._KP * (raw_target - native.data.qpos[native._body_qpos_addresses]),
     )
 
 
@@ -398,7 +394,6 @@ def test_direct_absolute_mode_exposes_policy_order_targets_and_135d_proprio(scen
         task_name="g1_sonic_balance_simple",
         scene_path=str(scene_path),
         control_mode=sonic.G1_CONTROL_MODE_DIRECT_ABSOLUTE,
-        target_velocity_ramp_time_s=None,
         camera_name="head_camera",
         render_mode=None,
         width=32,
@@ -441,7 +436,7 @@ def test_direct_absolute_mode_exposes_policy_order_targets_and_135d_proprio(scen
         proprio = info[sonic.GR00T_PROPRIO_INFO]
         body_target = info[sonic.CONDITIONED_BODY_TARGET_INFO]
         target = info[sonic.ACTION_TARGET_INFO]
-        requested_target = np.clip(action, env.action_space.low, env.action_space.high)
+        requested_target = action
         np.testing.assert_allclose(body_target, requested_target[:29], atol=1e-6)
         np.testing.assert_allclose(target, requested_target, atol=1e-6)
         np.testing.assert_allclose(
@@ -502,7 +497,7 @@ def test_balance_can_expose_the_exact_teacher_observation_as_gr00t_state(scene_p
         env.close()
 
 
-def test_raw_command_limiter_applies_velocity_acceleration_and_joint_bounds(scene_paths):
+def test_raw_and_absolute_requests_reach_pd_with_only_xml_physical_bounds(scene_paths):
     env = gym.make(
         sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_hard"]["env_id"],
         task_name="g1_sonic_balance_hard",
@@ -530,7 +525,7 @@ def test_raw_command_limiter_applies_velocity_acceleration_and_joint_bounds(scen
         np.testing.assert_array_equal(native._q_cmd, previous_q_cmd)
         np.testing.assert_array_equal(native._v_cmd, previous_v_cmd)
         _, _, _, _, info = env.step(np.ones(43, dtype=np.float32))
-        assert not np.array_equal(issued, info[sonic.ACTION_TARGET_INFO])
+        np.testing.assert_allclose(issued, info[sonic.ACTION_TARGET_INFO])
         direct = gym.make(
             env.spec.id,
             **(env.spec.kwargs | {
@@ -544,97 +539,25 @@ def test_raw_command_limiter_applies_velocity_acceleration_and_joint_bounds(scen
             np.testing.assert_allclose(
                 direct_info[sonic.ACTION_TARGET_INFO], info[sonic.ACTION_TARGET_INFO], atol=1e-6
             )
-            np.testing.assert_allclose(direct.unwrapped.data.qpos, native.data.qpos, atol=1e-6)
+            # The absolute codec rounds requests to float32; contact dynamics amplify
+            # that sub-microradian rounding to about 2e-5 in this saturated step.
+            np.testing.assert_allclose(direct.unwrapped.data.qpos, native.data.qpos, atol=1e-4)
         finally:
             direct.close()
-        assert info["command_tracking_error"] > 0.0
-        assert info["target_velocity_max_ratio"] <= 1.0 + 1e-12
-        assert info["target_acceleration_max_ratio_per_s"] <= 10.0 + 1e-9
-        target_velocity_limits = native._target_velocity_limits
-        target_acceleration_step = target_velocity_limits * native.dt / 0.1
-        np.testing.assert_array_less(
-            np.abs(native._q_cmd - previous_q_cmd) / native.dt,
-            target_velocity_limits + 1e-12,
-        )
-        np.testing.assert_array_less(
-            np.abs(native._v_cmd - previous_v_cmd),
-            target_acceleration_step + 1e-12,
-        )
-        np.testing.assert_array_less(
-            native._q_cmd,
-            native._joint_ranges[:, 1] + 1e-12,
-        )
-        np.testing.assert_array_less(
-            native._joint_ranges[:, 0] - 1e-12,
-            native._q_cmd,
-        )
-
-        for action in (np.full(43, -1.0), np.full(43, 1.0)):
-            previous_v_cmd = native._v_cmd.copy()
-            _, _, _, _, info = env.step(action.astype(np.float32))
-            np.testing.assert_array_less(
-                np.abs(native._v_cmd - previous_v_cmd),
-                target_acceleration_step + 1e-12,
-            )
-            assert info["target_velocity_max_ratio"] <= 1.0 + 1e-12
-
-        q_previous = native._joint_ranges[:, 1] - 1e-12
-        _, velocity = native._condition_velocity(
-            native._joint_ranges[:, 1],
-            q_previous,
-            np.zeros(43),
-            native._joint_ranges,
-            target_velocity_limits,
-        )
-        np.testing.assert_array_less(
-            q_previous + velocity * native.dt,
-            native._joint_ranges[:, 1] + 1e-12,
-        )
-
-        rng = np.random.default_rng(0)
-        q_cmd = native._q_cmd.copy()
-        v_cmd = native._v_cmd.copy()
-        for _ in range(1_000):
-            q_request = rng.uniform(
-                native._joint_ranges[:, 0], native._joint_ranges[:, 1]
-            )
-            next_q_cmd, next_v_cmd = native._condition_velocity(
-                q_request,
-                q_cmd,
-                v_cmd,
-                native._joint_ranges,
-                target_velocity_limits,
-            )
-            np.testing.assert_allclose(
-                next_q_cmd - q_cmd, next_v_cmd * native.dt, atol=1e-12
-            )
-            np.testing.assert_array_less(
-                np.abs(next_v_cmd - v_cmd), target_acceleration_step + 1e-12
-            )
-            np.testing.assert_array_less(
-                next_q_cmd, native._joint_ranges[:, 1] + 1e-12
-            )
-            np.testing.assert_array_less(
-                native._joint_ranges[:, 0] - 1e-12, next_q_cmd
-            )
-            q_cmd, v_cmd = next_q_cmd, next_v_cmd
-
-        native._target_acceleration_limits = None
-        q_previous = native._joint_ranges.mean(axis=1)
-        q_request = native._joint_ranges[:, 1]
-        q_cmd, v_cmd = native._condition_velocity(
-            q_request,
-            q_previous,
-            np.zeros(43),
-            native._joint_ranges,
-            target_velocity_limits,
-        )
-        expected_q_cmd = np.minimum(
-            q_previous + target_velocity_limits * native.dt,
-            native._joint_ranges[:, 1],
-        )
-        np.testing.assert_allclose(q_cmd, expected_q_cmd)
-        np.testing.assert_allclose(v_cmd, (q_cmd - q_previous) / native.dt)
+        assert info["command_tracking_error"] == 0.0
+        assert info["target_velocity_max_ratio"] > 1.0
+        np.testing.assert_allclose(native._v_cmd, (native._q_cmd - previous_q_cmd) / native.dt)
+        # Absolute requests are not clipped to joint ranges, and Python returns raw PD.
+        request = native._joint_ranges[:, 1] + 10.0
+        body, hands = native._condition_targets(request[:29], request[29:], raw_body=False, absolute_position=True)
+        np.testing.assert_array_equal(native._q_cmd, request)
+        ctrl = native._controller(body, hands)
+        assert np.any(ctrl > native.model.actuator_ctrlrange[:, 1])
+        assert native.model.actuator_ctrllimited.all()
+        native.data.ctrl[:] = ctrl
+        mujoco.mj_step(native.model, native.data)
+        np.testing.assert_array_less(native.data.actuator_force, native.model.actuator_ctrlrange[:, 1] + 1e-6)
+        np.testing.assert_array_less(native.model.actuator_ctrlrange[:, 0] - 1e-6, native.data.actuator_force)
     finally:
         env.close()
 
