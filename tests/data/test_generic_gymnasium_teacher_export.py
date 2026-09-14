@@ -355,16 +355,13 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
     ]
 
 
-@pytest.mark.parametrize(
-    "g1_task",
-    ["g1_sonic_hurdle", "g1_sonic_run", "g1_sonic_balance_simple"],
-)
-def test_g1_replay_exports_pre_action_proprio_and_task_action_contract(
+def test_g1_balance_replay_exports_pre_action_proprio_and_task_action_contract(
     monkeypatch,
     tmp_path,
-    g1_task,
 ):
     import torch
+
+    g1_task = "g1_sonic_balance_simple"
 
     from latency_bench.data import sf_teacher_rollout
     from latency_bench.data.action_layouts import G1_SONIC_GR00T_ACTION_SPEC
@@ -380,11 +377,7 @@ def test_g1_replay_exports_pre_action_proprio_and_task_action_contract(
     class Driver:
         slot_count = 1
         control_env = SimpleNamespace(unwrapped=SimpleNamespace(
-            _control_mode=(
-                "raw_body_target"
-                if g1_task == "g1_sonic_balance_simple"
-                else "sonic_token_composed"
-            ),
+            _control_mode="raw_body_target",
             g1_absolute_request_from_raw_action=lambda action: 10.0 + 2.0 * action,
         ))
 
@@ -478,7 +471,7 @@ def test_g1_replay_exports_pre_action_proprio_and_task_action_contract(
         image_writer_workers=0,
         row_buffer_size=1,
         action_spec=G1_SONIC_GR00T_ACTION_SPEC,
-        base_prompt="Clear the hurdle.",
+        base_prompt="Keep balance.",
         integration_name="gymnasium",
     )
 
@@ -487,19 +480,16 @@ def test_g1_replay_exports_pre_action_proprio_and_task_action_contract(
         [10.0] * G1_GR00T_STATE_DIM,
         [11.0] * G1_GR00T_STATE_DIM,
     ]
-    expected_actions = (
-        [9.0, 9.5] if g1_task == "g1_sonic_balance_simple" else [0.25, 1.25]
-    )
+    expected_actions = [9.0, 9.5]
     assert [row["action"] for row in rows] == [
         [value] * G1_GR00T_ACTION_DIM for value in expected_actions
     ]
-    if g1_task == "g1_sonic_balance_simple":
-        assert [row["raw_done"] for row in rows] == [False, True]
-        assert [row["applied_action"] for row in rows] == [
-            [0.25] * G1_GR00T_ACTION_DIM,
-            [1.25] * G1_GR00T_ACTION_DIM,
-        ]
-    assert [row["prompt"] for row in rows] == ["Clear the hurdle."] * 2
+    assert [row["raw_done"] for row in rows] == [False, True]
+    assert [row["applied_action"] for row in rows] == [
+        [0.25] * G1_GR00T_ACTION_DIM,
+        [1.25] * G1_GR00T_ACTION_DIM,
+    ]
+    assert [row["prompt"] for row in rows] == ["Keep balance."] * 2
 
 
 def test_g1_checkpoint_metadata_publishes_absolute_action_labels_without_residual_bounds():
@@ -513,7 +503,7 @@ def test_g1_checkpoint_metadata_publishes_absolute_action_labels_without_residua
     )
 
     flat_cfg = _generic_flat_cfg()
-    flat_cfg["gym_task_name"] = "g1_sonic_hurdle"
+    flat_cfg["gym_task_name"] = "g1_sonic_balance_simple"
     flat_cfg["gym_action_space_json"] = json.dumps(
         {
             "type": "box",

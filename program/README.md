@@ -31,7 +31,7 @@
 | 文档 | 内容 / 主要用途 | 重叠与阅读关系 |
 |---|---|---|
 | [PROPOSAL](PROPOSAL.md) | 以 MIKASA 为核心的可解性→延迟退化→恢复研究论证 | 研究方针；与 HumanoidBench proposal 关注范围不同 |
-| [HUMANOIDBENCH_PROPOSAL](HUMANOIDBENCH_PROPOSAL.md) | Balance/Run/Hurdle 的 teacher→VLA→profile→latency-aware 路线与 gates | 研究方针；不作为已完成实验清单 |
+| [HUMANOIDBENCH_PROPOSAL](HUMANOIDBENCH_PROPOSAL.md) | HumanoidBench teacher→VLA→profile→latency-aware 路线与 gates | 历史研究方针；当前任务为 Balance Simple |
 | [LATENCY_RL](LATENCY_RL.md) | causal history、推理等待及信息可见性的概念说明 | 与 related_works/note、综述相关；保留解释性资料 |
 | [initial_investigations](initial_investigations.md) | 初始 benchmark 筛选、HAIC/Parkour/飞行等候选与工程缺口 | 初始调研资料；后续选定任务的事实见任务手册 |
 | [related_works/README](related_works/README.md) | 延迟 RL、critic、teacher/student 信息差、chunk、DAgger 综述 | 主要研究综述入口；与概念文档和 proposals 有重叠，全文保留 |

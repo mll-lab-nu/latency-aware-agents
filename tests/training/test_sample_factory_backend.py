@@ -1421,62 +1421,6 @@ def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_me
     assert event["action/issued_flap_ratio"] == pytest.approx(1.0 / 3.0)
 
 
-def test_episode_metrics_wrapper_emits_hurdle_quality_and_residual_metrics(tmp_path):
-    import json
-
-    from training.common.latency_wrapper import EpisodeMetricsWrapper
-
-    metrics_path = tmp_path / "episodes.jsonl"
-    wrapped = EpisodeMetricsWrapper(
-        _ScriptedAtariInfoEnv(
-            [
-                (
-                    1.0,
-                    True,
-                    False,
-                    {
-                        "lives": 0,
-                        "first_hurdle_clean_pass": True,
-                        "hurdles_passed": 3,
-                        "hurdle_contacts": 1,
-                        "falls_or_nonfoot_ground_contact": 0,
-                        "course_complete": False,
-                        "teacher_accepted": False,
-                        "residual_abs_mean": 0.125,
-                        "residual_abs_max": 0.75,
-                        "residual_saturation_fraction": 0.5,
-                    },
-                )
-            ]
-        ),
-        metrics_path=str(metrics_path),
-    )
-
-    wrapped.reset()
-    _, _, terminated, truncated, info = wrapped.step(0)
-
-    assert terminated is True
-    assert truncated is False
-    extra = info["episode_extra_stats"]
-    assert extra["episode/first_hurdle_clean_pass"] == 1.0
-    assert extra["episode/hurdles_passed"] == 3.0
-    assert extra["episode/hurdle_contacts"] == 1.0
-    assert extra["episode/falls_or_nonfoot_ground_contact"] == 0.0
-    assert extra["episode/course_complete"] == 0.0
-    assert extra["episode/teacher_accepted"] == 0.0
-    assert extra["episode/residual_abs_mean"] == 0.125
-    assert extra["episode/residual_abs_max"] == 0.75
-    assert extra["episode/residual_saturation_fraction"] == 0.5
-    event = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert event["first_hurdle_clean_pass"] == 1.0
-    assert event["hurdles_passed"] == 3.0
-    assert event["hurdle_contacts"] == 1.0
-    assert event["falls_or_nonfoot_ground_contact"] == 0.0
-    assert event["course_complete"] == 0.0
-    assert event["teacher_accepted"] == 0.0
-    assert event["residual_abs_mean"] == 0.125
-    assert event["residual_abs_max"] == 0.75
-    assert event["residual_saturation_fraction"] == 0.5
 
 
 def test_flappy_reward_trace_records_raw_return(tmp_path):

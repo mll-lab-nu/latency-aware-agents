@@ -1,78 +1,30 @@
 from __future__ import annotations
 
-import tarfile
-from pathlib import Path
+import onnx
+from onnx import TensorProto, helper
 
 from latency_bench.envs import humanoidbench_sonic_assets as assets
 
 
-def test_prepare_g1_sonic_encoder_uses_pinned_path(tmp_path, monkeypatch):
-    calls = []
+def test_prepare_g1_sonic_assets_returns_explicit_pinned_paths(tmp_path, monkeypatch):
+    snapshot = tmp_path / "assets"
+    (snapshot / "sonic_g1").mkdir(parents=True)
+    decoder = tmp_path / "decoder" / "model_decoder.onnx"
+    decoder.parent.mkdir()
+    graph = helper.make_graph(
+        [],
+        "decoder",
+        [helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 994])],
+        [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 29])],
+    )
+    onnx.save(helper.make_model(graph), decoder)
+    monkeypatch.setattr(assets, "snapshot_download", lambda **_kwargs: snapshot)
+    monkeypatch.setattr(assets, "hf_hub_download", lambda **_kwargs: decoder)
 
-    def fake_download(**kwargs):
-        calls.append(kwargs)
-        path = tmp_path / kwargs["filename"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"onnx")
-        return path
+    asset_root, dynamic_decoder = assets.prepare_g1_sonic_assets(tmp_path / "cache")
 
-    monkeypatch.setattr(assets, "hf_hub_download", fake_download)
-
-    encoder = assets.prepare_g1_sonic_encoder(tmp_path / "cache")
-
-    assert encoder == tmp_path / "sonic_v1_1/model_encoder.onnx"
-    assert [call["filename"] for call in calls] == [assets.SONIC_ENCODER_FILENAME]
-    assert {call["revision"] for call in calls} == {assets.SONIC_REVISION}
-
-
-def test_prepare_g1_sonic_planner_uses_pinned_path(tmp_path, monkeypatch):
-    calls = []
-
-    def fake_download(**kwargs):
-        calls.append(kwargs)
-        path = tmp_path / kwargs["filename"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"onnx")
-        return path
-
-    monkeypatch.setattr(assets, "hf_hub_download", fake_download)
-
-    planner = assets.prepare_g1_sonic_planner(tmp_path / "cache")
-
-    assert planner == tmp_path / assets.SONIC_PLANNER_FILENAME
-    assert [call["filename"] for call in calls] == [assets.SONIC_PLANNER_FILENAME]
-    assert {call["revision"] for call in calls} == {assets.SONIC_REVISION}
-
-
-def test_prepare_g1_sonic_skill_references_extracts_pinned_csvs(tmp_path, monkeypatch):
-    calls = []
-    archive_root = tmp_path / "archive_root"
-    csv_paths = {
-        name: archive_root / member
-        for name, member in assets.BONES_SEED_SKILL_CSVS.items()
-    }
-    for name, csv_path in csv_paths.items():
-        csv_path.parent.mkdir(parents=True, exist_ok=True)
-        csv_path.write_text(f"Frame,skill\n0,{name}\n", encoding="utf-8")
-
-    def fake_download(**kwargs):
-        calls.append(kwargs)
-        archive = Path(kwargs["local_dir"]) / kwargs["filename"]
-        archive.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(archive, mode="w:gz") as bundle:
-            for name, csv_path in csv_paths.items():
-                bundle.add(csv_path, arcname=assets.BONES_SEED_SKILL_CSVS[name])
-        return archive
-
-    monkeypatch.setattr(assets, "hf_hub_download", fake_download)
-    extracted = assets.prepare_g1_sonic_skill_references(tmp_path / "cache")
-
-    assert set(extracted) == {"fast_run", "obstacle_jump"}
-    for name, path in extracted.items():
-        assert path == tmp_path / "cache" / "bones_seed" / assets.BONES_SEED_SKILL_CSVS[name]
-        assert path.read_text(encoding="utf-8") == f"Frame,skill\n0,{name}\n"
-    assert calls[0]["repo_id"] == assets.BONES_SEED_REPO_ID
-    assert calls[0]["repo_type"] == "dataset"
-    assert calls[0]["filename"] == assets.BONES_SEED_ARCHIVE_FILENAME
-    assert calls[0]["revision"] == assets.BONES_SEED_REVISION
-    assert "token" not in calls[0]
+    assert asset_root == snapshot / "sonic_g1"
+    assert dynamic_decoder == decoder.with_name("model_decoder_dynamic.onnx")
+    model = onnx.load(dynamic_decoder)
+    assert model.graph.input[0].type.tensor_type.shape.dim[0].dim_param == "batch"
+    assert model.graph.output[0].type.tensor_type.shape.dim[0].dim_param == "batch"

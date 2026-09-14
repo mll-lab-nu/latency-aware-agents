@@ -25,43 +25,16 @@ from latency_bench.envs.humanoidbench_sonic_contract import (
 class _DecoderSession:
     def __init__(self, *args, **kwargs):
         self.input = None
-        self.path = args[0]
 
     def get_inputs(self):
         return [SimpleNamespace(name="obs_dict")]
 
     def get_outputs(self):
-        return [
-            SimpleNamespace(
-                name="encoded_tokens" if "encoder" in self.path else "action"
-            )
-        ]
+        return [SimpleNamespace(name="action")]
 
     def run(self, output_names, inputs):
         self.input = inputs["obs_dict"]
-        width = 64 if "encoder" in self.path else 29
-        return [np.zeros((1, width), dtype=np.float32)]
-
-
-def _reference_bundle(path, run_tokens, jump_tokens):
-    run_reference_qpos = np.zeros((len(run_tokens), 36), dtype=np.float32)
-    run_reference_qpos[:, 2] = 0.75
-    run_reference_qpos[:, 3] = 1.0
-    run_reference_qpos[:, 7:] = G1_DEFAULT_ANGLES
-    run_encoder_qpos = np.repeat(
-        run_reference_qpos[-1:], len(run_tokens) + 45, axis=0
-    )
-    jump_encoder_qpos = np.repeat(
-        run_reference_qpos[-1:], len(jump_tokens) + 45, axis=0
-    )
-    np.savez(
-        path,
-        run_encoder_qpos=run_encoder_qpos,
-        jump_encoder_qpos=jump_encoder_qpos,
-        run_reference_qpos=run_reference_qpos,
-        jump_reference_qpos=jump_encoder_qpos[: len(jump_tokens)],
-        run_reference_foot_contacts=np.zeros((len(run_tokens), 2), dtype=bool),
-    )
+        return [np.zeros((1, 29), dtype=np.float32)]
 
 
 @pytest.fixture(scope="module")
@@ -75,16 +48,7 @@ def scene_root():
 
 @pytest.fixture(scope="module")
 def scene_path(scene_root):
-    path = scene_root / sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"][
-        "scene_filename"
-    ].removeprefix("sonic_g1/")
-    mujoco.MjModel.from_xml_path(str(path))
-    return path
-
-
-@pytest.fixture(scope="module")
-def hurdle_scene_path(scene_root):
-    path = scene_root / sonic.G1_SONIC_ENV_SPECS["g1_sonic_hurdle"][
+    path = scene_root / sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"][
         "scene_filename"
     ].removeprefix("sonic_g1/")
     mujoco.MjModel.from_xml_path(str(path))
@@ -104,7 +68,7 @@ def scene_paths(scene_root):
 def env(monkeypatch, scene_path):
     monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
     instance = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"],
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
         scene_path=str(scene_path),
         sonic_decoder_path="decoder.onnx",
         sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
@@ -116,7 +80,7 @@ def env(monkeypatch, scene_path):
     instance.close()
 
 
-def test_sonic_run_environment_contract(env):
+def test_sonic_balance_environment_contract(env):
     first_observation, _ = env.reset(seed=17)
     second_observation, _ = env.reset(seed=17)
     np.testing.assert_array_equal(second_observation, first_observation)
@@ -128,16 +92,16 @@ def test_sonic_run_environment_contract(env):
     native = env.unwrapped
     assert env.action_space == gym.spaces.Box(-1, 1, shape=(78,), dtype=np.float32)
     assert env.observation_space == gym.spaces.Box(
-        -np.inf, np.inf, shape=(185,), dtype=np.float64
+        -np.inf, np.inf, shape=(198,), dtype=np.float64
     )
-    assert native.model.nq == 50
-    assert native.model.nv == 49
+    assert native.model.nq == 57
+    assert native.model.nv == 55
     assert native.model.nu == 43
     assert native.model.opt.timestep == 0.002
     assert native.frame_skip == 10
     assert native.dt == 0.02
     assert (
-        gym.spec(sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"]).max_episode_steps
+        gym.spec(sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"]).max_episode_steps
         == 1000
     )
     assert native.robot.dof == 50
@@ -145,7 +109,7 @@ def test_sonic_run_environment_contract(env):
     next_observation, reward, terminated, truncated, info = env.step(
         np.zeros(78, dtype=np.float32)
     )
-    assert next_observation.shape == (185,)
+    assert next_observation.shape == (198,)
     np.testing.assert_allclose(
         next_observation[-86:], env.unwrapped._command_observation()
     )
@@ -155,13 +119,6 @@ def test_sonic_run_environment_contract(env):
     assert info["per_timestep_reward"] == reward
     assert env.render().shape == (64, 64, 3)
     assert native.camera_name == "cam_default"
-
-    qpos = native.data.qpos.copy()
-    qvel = native.data.qvel.copy()
-    qvel[0] = 5.0
-    native.set_state(qpos, qvel)
-    *_, moving_info = env.step(np.zeros(78, dtype=np.float32))
-    assert moving_info["move"] > 0.9
 
 
 def test_sonic_decoder_history_and_joint_mapping(env):
@@ -230,7 +187,7 @@ def test_inference_worker_mode_exposes_decoder_state_and_consumes_body_action(
     scene_path,
 ):
     env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"],
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
         scene_path=str(scene_path),
         sonic_decoder_path="unused.onnx",
         sonic_decoder_mode=sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
@@ -240,7 +197,7 @@ def test_inference_worker_mode_exposes_decoder_state_and_consumes_body_action(
     )
     try:
         observation, _ = env.reset(seed=0)
-        assert observation["obs"].shape == (185,)
+        assert observation["obs"].shape == (198,)
         assert observation["sonic_state"].shape == (930,)
         np.testing.assert_array_equal(
             observation["sonic_state"], env.unwrapped._decoder_state()
@@ -251,85 +208,6 @@ def test_inference_worker_mode_exposes_decoder_state_and_consumes_body_action(
         next_observation, *_ = env.step(np.zeros(78, dtype=np.float32))
         np.testing.assert_array_equal(env.unwrapped._last_action, body_action)
         assert next_observation["sonic_state"].shape == (930,)
-    finally:
-        env.close()
-
-
-def test_hurdle_composed_reference_and_sonic_reset(
-    monkeypatch, tmp_path, hurdle_scene_path
-):
-    run_tokens = np.linspace(-0.75, 0.75, 3 * 64, dtype=np.float32).reshape(3, 64)
-    jump_tokens = np.full((2, 64), 0.5, dtype=np.float32)
-    bundle_path = tmp_path / "reference.npz"
-    _reference_bundle(bundle_path, run_tokens, jump_tokens)
-    monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_hurdle"]["env_id"],
-        scene_path=str(hurdle_scene_path),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC_COMPOSED,
-        sonic_decoder_path="decoder.onnx",
-        sonic_encoder_path="encoder.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
-        sonic_reference_bundle_path=str(bundle_path),
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        observation, _ = env.reset(seed=7)
-        native = env.unwrapped
-        assert env.action_space.shape == (29,)
-        assert observation["obs"].shape == (
-            native._task.observation_space.shape[0] + 930 + 64 + 2,
-        )
-        np.testing.assert_array_equal(observation["base_token"], np.zeros(64))
-        np.testing.assert_array_equal(observation["obs"][-66:-2], np.zeros(64))
-        np.testing.assert_array_equal(observation["obs"][-2:], [0.0, 0.0])
-        np.testing.assert_allclose(
-            native.data.qpos[native._body_qpos_addresses],
-            G1_DEFAULT_ANGLES,
-            atol=native.randomness,
-        )
-        np.testing.assert_allclose(
-            native.data.qpos[native._hand_qpos_addresses],
-            np.zeros(14),
-            atol=native.randomness,
-        )
-
-        residual_action = np.linspace(-1.0, 1.0, 29, dtype=np.float32)
-        next_observation, _, _, _, info = env.step(residual_action)
-        np.testing.assert_array_equal(native._decoder.input[0, :64], np.zeros(64))
-        np.testing.assert_allclose(
-            native._last_action,
-            (
-                residual_action
-                * sonic.SONIC_COMPOSED_PHYSICAL_RESIDUAL_SCALE
-                / sonic._ACTION_SCALE
-            )[MUJOCO_INDEX_FOR_POLICY],
-        )
-        assert info["residual_abs_mean"] == pytest.approx(
-            np.abs(residual_action).mean()
-        )
-        assert info["residual_abs_max"] == 1.0
-        assert info["residual_saturation_fraction"] == 2 / 29
-        np.testing.assert_array_equal(next_observation["base_token"], np.zeros(64))
-        assert native._run_phase == 1
-        assert native._reference_mode == sonic.RUN_STATE
-
-        native.data.qpos[native._hand_qpos_addresses] = 0.1
-        native.data.qvel[native._hand_qvel_addresses] = 0.0
-        _, hand_target = native._condition_targets(
-            np.zeros(29), None, raw_body=False
-        )
-        control = native._controller(np.zeros(29), hand_target)
-        np.testing.assert_allclose(
-            control[native._hand_actuator_ids], -sonic._HAND_KP * 0.1
-        )
-
-        reset_observation, _ = env.reset(seed=11)
-        np.testing.assert_array_equal(reset_observation["base_token"], np.zeros(64))
-        assert native._run_phase == 0
-        np.testing.assert_array_equal(native._last_action, np.zeros(29))
     finally:
         env.close()
 
@@ -359,7 +237,7 @@ def test_direct_sonic_can_use_strict_64d_action_with_fixed_fingers(
 ):
     monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
     env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"],
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
         scene_path=str(scene_path),
         control_mode=sonic.G1_CONTROL_MODE_SONIC,
         sonic_decoder_path="decoder.onnx",
@@ -373,7 +251,7 @@ def test_direct_sonic_can_use_strict_64d_action_with_fixed_fingers(
         observation, _ = env.reset(seed=0)
         native = env.unwrapped
         assert env.action_space.shape == (64,)
-        assert observation.shape == (185,)
+        assert observation.shape == (198,)
         _, hand_target = native._condition_targets(
             np.zeros(29), None, raw_body=False
         )
@@ -386,7 +264,7 @@ def test_direct_sonic_can_use_strict_64d_action_with_fixed_fingers(
 
 def test_direct_sonic_worker_strict_64d_keeps_fingers_fixed(scene_path):
     env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"],
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
         scene_path=str(scene_path),
         control_mode=sonic.G1_CONTROL_MODE_SONIC,
         sonic_learn_hands=False,
@@ -406,203 +284,11 @@ def test_direct_sonic_worker_strict_64d_keeps_fingers_fixed(scene_path):
         env.close()
 
 
-def test_hurdle_composed_inference_worker_contract(
-    monkeypatch, tmp_path, hurdle_scene_path
-):
-    run_tokens = np.zeros((2, 64), dtype=np.float32)
-    jump_tokens = np.ones((2, 64), dtype=np.float32)
-    bundle_path = tmp_path / "reference.npz"
-    _reference_bundle(bundle_path, run_tokens, jump_tokens)
-    monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_hurdle"]["env_id"],
-        scene_path=str(hurdle_scene_path),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC_COMPOSED,
-        sonic_decoder_path="unused.onnx",
-        sonic_encoder_path="encoder.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
-        sonic_reference_bundle_path=str(bundle_path),
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        observation, _ = env.reset(seed=0)
-        assert observation["obs"].shape == (
-            env.unwrapped._task.observation_space.shape[0] + 930 + 64 + 2,
-        )
-        assert observation["sonic_state"].shape == (930,)
-        assert observation["base_token"].shape == (64,)
-        env.unwrapped.set_decoded_action(np.zeros(29, dtype=np.float32))
-        next_observation, *_ = env.step(np.zeros(29, dtype=np.float32))
-        np.testing.assert_array_equal(next_observation["base_token"], np.zeros(64))
-        assert env.unwrapped._run_phase == 1
-    finally:
-        env.close()
-
-
-def test_run_composed_reference_advances_without_hurdle_state(
-    monkeypatch, tmp_path, scene_path
-):
-    run_tokens = np.zeros((1_001, 64), dtype=np.float32)
-    run_reference_qpos = np.zeros((len(run_tokens), 36), dtype=np.float32)
-    run_reference_qpos[:, 2] = 0.75
-    run_reference_qpos[:, 3] = 1.0
-    run_reference_qpos[:, 7:] = G1_DEFAULT_ANGLES
-    run_encoder_qpos = np.repeat(
-        run_reference_qpos[-1:], len(run_tokens) + 45, axis=0
-    )
-    bundle_path = tmp_path / "run_reference.npz"
-    np.savez(
-        bundle_path,
-        run_encoder_qpos=run_encoder_qpos,
-        run_reference_qpos=run_reference_qpos,
-        run_reference_foot_contacts=np.zeros((len(run_tokens), 2), dtype=bool),
-    )
-    monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"],
-        scene_path=str(scene_path),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC_COMPOSED,
-        sonic_decoder_path="decoder.onnx",
-        sonic_encoder_path="encoder.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
-        sonic_reference_bundle_path=str(bundle_path),
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        observation, _ = env.reset(seed=0)
-        native = env.unwrapped
-        monkeypatch.setattr(native._task, "get_terminated", lambda: (False, {}))
-        assert not hasattr(native, "_hurdle_x_positions")
-        assert native._reference_mode == sonic.RUN_STATE
-        for phase in range(1_000):
-            observation, _, terminated, truncated, _ = env.step(
-                np.zeros(29, dtype=np.float32)
-            )
-            assert terminated is False
-            assert truncated is (phase == 999)
-            assert native._run_phase == phase + 1
-        assert observation["base_token"].shape == (64,)
-    finally:
-        env.close()
-
-
-def test_composed_control_latches_jump_and_applies_physical_residual(
-    monkeypatch, tmp_path, hurdle_scene_path
-):
-    run_tokens = np.zeros((3, 64), dtype=np.float32)
-    jump_tokens = np.full((32, 64), 0.25, dtype=np.float32)
-    bundle_path = tmp_path / "reference.npz"
-    _reference_bundle(bundle_path, run_tokens, jump_tokens)
-    monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_hurdle"]["env_id"],
-        scene_path=str(hurdle_scene_path),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC_COMPOSED,
-        sonic_decoder_path="decoder.onnx",
-        sonic_encoder_path="encoder.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
-        sonic_reference_bundle_path=str(bundle_path),
-        hurdle_count=1,
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        env.reset(seed=0)
-        native = env.unwrapped
-        assert native._hurdle_x_positions == (7.0,)
-        native.data.qpos[0] = 6.0
-        native._maybe_trigger_jump()
-        assert native._reference_mode == sonic.JUMP_STATE
-        assert native._jump_phase == 30
-        observation, _, _, _, first_info = env.step(np.ones(29, dtype=np.float32))
-        np.testing.assert_array_equal(native._decoder.input[0, :64], np.zeros(64))
-        np.testing.assert_array_equal(observation["base_token"], np.zeros(64))
-        np.testing.assert_array_equal(observation["obs"][-2:], [1.0, 31 / 32])
-        assert first_info["target_velocity_max_ratio"] <= 1.0 + 1e-12
-        assert first_info["target_acceleration_max_ratio_per_s"] > 10.0
-
-        residual_action = np.ones(29, dtype=np.float32)
-        _, _, _, _, info = env.step(residual_action)
-        np.testing.assert_array_equal(native._decoder.input[0, :64], np.zeros(64))
-        np.testing.assert_allclose(
-            native._last_action,
-            (sonic.SONIC_COMPOSED_PHYSICAL_RESIDUAL_SCALE / sonic._ACTION_SCALE)[
-                MUJOCO_INDEX_FOR_POLICY
-            ],
-        )
-        assert native._jump_phase == 0
-        assert info["residual_abs_mean"] == 1.0
-        assert info["residual_abs_max"] == 1.0
-        assert info["residual_saturation_fraction"] == 1.0
-
-        native._reference_mode = sonic.JUMP_STATE
-        native._jump_phase = 30
-        monkeypatch.setattr(
-            native._task,
-            "get_reward",
-            lambda: (
-                -200.0,
-                {
-                    "failure_penalty": 0.0,
-                    "quality_failure_penalty": -200.0,
-                    "timeout_penalty": 0.0,
-                },
-            ),
-        )
-        monkeypatch.setattr(native._task, "get_terminated", lambda: (True, {}))
-        _, reward, terminated, _, info = env.step(residual_action)
-        assert reward == -200.0
-        assert terminated is True
-        assert info["residual_smoothness_penalty"] == 0.0
-    finally:
-        env.close()
-
-
-def test_composed_hurdle_height_updates_all_collision_geoms(
-    tmp_path, hurdle_scene_path, monkeypatch
-):
-    run_tokens = np.zeros((3, 64), dtype=np.float32)
-    jump_tokens = np.zeros((32, 64), dtype=np.float32)
-    bundle_path = tmp_path / "reference.npz"
-    _reference_bundle(bundle_path, run_tokens, jump_tokens)
-    monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_hurdle"]["env_id"],
-        scene_path=str(hurdle_scene_path),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC_COMPOSED,
-        sonic_decoder_path="decoder.onnx",
-        sonic_encoder_path="encoder.onnx",
-        sonic_reference_bundle_path=str(bundle_path),
-        hurdle_height=0.2,
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        model = env.unwrapped.model
-        for geom_id in env.unwrapped._task._hurdle_geom_ids:
-            assert model.geom_size[geom_id, 2] == pytest.approx(0.1)
-            assert model.geom_pos[geom_id, 2] == pytest.approx(0.1)
-        body_id = model.body("starting_hurdle_1_0").id
-        visual_geom_ids = np.flatnonzero(model.geom_bodyid == body_id)
-        np.testing.assert_allclose(model.geom_size[visual_geom_ids[2:4], 2], 0.1)
-        np.testing.assert_allclose(model.geom_pos[visual_geom_ids[2:4], 2], 0.1)
-        assert model.geom_pos[visual_geom_ids[4], 2] == pytest.approx(0.17)
-    finally:
-        env.close()
-
-
 @pytest.mark.parametrize(
     ("task_name", "expected_obs_dim", "horizon"),
     [
         ("g1_sonic_balance_hard", 211, 1000),
-        ("g1_sonic_hurdle", 186, 1000),
-        ("g1_sonic_run", 185, 1000),
+        ("g1_sonic_balance_simple", 198, 1000),
         ("g1_sonic_basketball", 198, 500),
     ],
 )
@@ -679,8 +365,8 @@ def test_g1_task_family_raw_and_sonic_contract(
 
 def test_raw_reset_action_matches_default_pose_and_can_drop_hands(scene_path):
     raw = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"],
-        task_name="g1_sonic_run",
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
+        task_name="g1_sonic_balance_simple",
         scene_path=str(scene_path),
         control_mode=sonic.G1_CONTROL_MODE_RAW,
         raw_learn_hands=False,
@@ -708,8 +394,8 @@ def test_raw_reset_action_matches_default_pose_and_can_drop_hands(scene_path):
 
 def test_direct_absolute_mode_exposes_policy_order_targets_and_135d_proprio(scene_path):
     env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_run"]["env_id"],
-        task_name="g1_sonic_run",
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
+        task_name="g1_sonic_balance_simple",
         scene_path=str(scene_path),
         control_mode=sonic.G1_CONTROL_MODE_DIRECT_ABSOLUTE,
         target_velocity_ramp_time_s=None,
@@ -969,7 +655,7 @@ def test_g1_sonic_truck_package_density(scene_paths):
 
 
 def test_g1_sonic_registry_covers_the_supported_task_family():
-    assert len(sonic.G1_SONIC_ENV_SPECS) == len(sonic.TASKS) - 2 == 30
+    assert len(sonic.G1_SONIC_ENV_SPECS) == len(sonic.TASKS) - 4 == 28
     for unsupported in sonic.G1_SONIC_UNSUPPORTED_TASKS:
         assert f"g1_sonic_{unsupported}" not in sonic.G1_SONIC_ENV_SPECS
 
@@ -992,8 +678,7 @@ def test_g1_sonic_joint_mapping_is_bidirectional():
 
 _INITIAL_TRAINING_TASKS = {
     "g1_sonic_balance_hard",
-    "g1_sonic_hurdle",
-    "g1_sonic_run",
+    "g1_sonic_balance_simple",
     "g1_sonic_basketball",
 }
 

@@ -31,34 +31,34 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
         [
             {
                 "image": str(image_path),
-                "env_name": "g1_sonic_run",
+                "env_name": "g1_sonic_balance_simple",
                 "episode_idx": 0,
                 "decision_step": 0,
                 "split": "train",
                 "seed": 0,
-                "prompt": "run",
+                "prompt": "Keep balance.",
                 "latency_raw_frames": 0,
                 "latency_ms": 0.0,
                 "raw_reward": 1.0,
                 "action": [float(index) for index in range(G1_GR00T_ACTION_DIM)],
-                "action_text": "run",
+                "action_text": "Keep balance.",
                 "state": train_state,
             }
         ],
         [
             {
                 "image": str(image_path),
-                "env_name": "g1_sonic_run",
+                "env_name": "g1_sonic_balance_simple",
                 "episode_idx": 1,
                 "decision_step": 0,
                 "split": "val",
                 "seed": 1,
-                "prompt": "run",
+                "prompt": "Keep balance.",
                 "latency_raw_frames": 1,
                 "latency_ms": 20.0,
                 "raw_reward": 2.0,
                 "action": [float(index + 1) for index in range(G1_GR00T_ACTION_DIM)],
-                "action_text": "run",
+                "action_text": "Keep balance.",
                 "state": val_state,
             }
         ],
@@ -67,7 +67,7 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
-                "env_name": "g1_sonic_run",
+                "env_name": "g1_sonic_balance_simple",
                 "integration_name": "gymnasium",
                 "action_layout": G1_SONIC_GR00T_ACTION_SPEC.layout,
                 "action_labels": labels,
@@ -76,11 +76,11 @@ def test_official_gr00t_converter_infers_raw_state_from_canonical_rows(tmp_path)
                 "obs_fps": 50.0,
                 "obs_stride_raw_frames": 1,
                 "gymnasium_task": {
-                    "task_name": "g1_sonic_run",
+                    "task_name": "g1_sonic_balance_simple",
                     "env_id": "LatencyBench/G1SonicRun-v0",
                     "make_kwargs": {},
                     "registration_imports": [],
-                    "base_prompt": "run",
+                    "base_prompt": "Keep balance.",
                     "env_fps": 50.0,
                     "obs_fps": 50.0,
                     "frame_stack": 1,
