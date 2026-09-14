@@ -668,3 +668,33 @@ def test_extended_g1_task_family_reset_step_and_render(
         assert env.render().shape == (16, 16, 3)
     finally:
         env.close()
+
+
+def test_balance_branch_restores_physics_history_controller_and_rng(scene_paths):
+    """Long-lived DAgger contract: independent native branches reproduce the next transition."""
+    envs = [gym.make(
+        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
+        scene_path=str(scene_paths["g1_sonic_balance_simple"]),
+        control_mode=sonic.G1_CONTROL_MODE_DIRECT_ABSOLUTE,
+        gr00t_balance_teacher_observation_state=True, render_mode=None,
+    ) for _ in range(3)]
+    try:
+        envs[0].reset(seed=13)
+        source, reference, branch = [env.unwrapped for env in envs]
+        action = source.g1_absolute_request_from_raw_action(np.zeros(43, dtype=np.float32))
+        for _ in range(4):
+            source.step(action)
+        reference.copy_balance_state_from(source)
+        branch.copy_balance_state_from(source)
+        state = source._official_gr00t_proprio().copy()
+        branch.step(action + 0.1)
+        branch.np_random.standard_normal()
+        np.testing.assert_array_equal(source._official_gr00t_proprio(), state)
+        actual, expected = source.step(action), reference.step(action)
+        np.testing.assert_array_equal(source.data.qpos, reference.data.qpos)
+        np.testing.assert_array_equal(source._official_gr00t_proprio(), reference._official_gr00t_proprio())
+        assert actual[1:4] == expected[1:4]
+        assert source.np_random.standard_normal() == reference.np_random.standard_normal()
+    finally:
+        for env in envs:
+            env.close()

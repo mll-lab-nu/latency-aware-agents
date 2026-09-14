@@ -24,7 +24,6 @@ TASK_ALIASES = {
     "haic_pull_cart": "haic",
 }
 FORMAL_EPISODES = {
-    "humanoidbench_balance_simple": (90, 10),
     "extreme_parkour_go2": (250, 25),
     "mikasa_intercept_grab_fast": (250, 25),
     "haic_pull_cart": (250, 25),
@@ -116,51 +115,6 @@ def canonicalize_haic_dataset(dataset_dir: Path) -> None:
             row["teacher_action"] = row.pop("haic_teacher_action")
             row["termination"] = [row.pop("haic_termination")]
         pq.write_table(pa.Table.from_pylist(rows), path)
-
-
-def _collect_balance(
-    *,
-    teacher_checkpoint: Path,
-    output_root: Path,
-    task_python: str,
-    train_episodes: int,
-    val_episodes: int,
-    keep_failed: bool,
-    device: str,
-) -> Path:
-    del keep_failed
-    teacher_name = "g1_balance_simple_raw_ramp_fasttd3_25m_43d_teacher_obs198"
-    raw_root = output_root / "raw_balance"
-    raw_dir = raw_root / teacher_name / "raw"
-    _run(
-        [
-            task_python,
-            str(REPO_ROOT / "scripts/teachers/export_g1_sonic_gr00t.py"),
-            "--output-root",
-            str(raw_root),
-            "--teacher",
-            teacher_name,
-            "--checkpoint",
-            str(teacher_checkpoint),
-            "--max-episodes",
-            str(train_episodes + val_episodes),
-            "--val-fraction",
-            str(val_episodes / (train_episodes + val_episodes)),
-            "--split-seed",
-            "0",
-            "--num-envs",
-            "16",
-            "--replay-num-envs",
-            "16",
-            "--device",
-            "gpu" if device.startswith("cuda") else device,
-            "--deterministic",
-            "--balance-teacher-observation-state",
-            "--force",
-        ]
-    )
-    _prepare_converted("humanoidbench_balance_simple", raw_dir, output_root / "lerobot")
-    return raw_dir
 
 
 def _collect_parkour(
@@ -444,7 +398,6 @@ def collect_bootstrap(
     python = str(task_python)
     keep_failed = smoke
     collector = {
-        "humanoidbench_balance_simple": _collect_balance,
         "extreme_parkour_go2": _collect_parkour,
         "mikasa_intercept_grab_fast": _collect_mikasa,
         "haic_pull_cart": _collect_haic,
@@ -465,7 +418,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("task", choices=sorted(TASK_ALIASES))
+    parser.add_argument("task", choices=sorted(FORMAL_EPISODES))
     parser.add_argument("teacher_checkpoint", type=Path)
     parser.add_argument("output_root", type=Path)
     parser.add_argument("--task-python", required=True)

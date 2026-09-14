@@ -77,6 +77,10 @@ def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
     assert calls[0]['env']['WANDB_RESUME'] == 'never'
     assert calls[1]['env']['WANDB_RESUME'] == 'allow'
     assert calls[2]['env']['WANDB_RESUME'] == 'allow'
+    assert all(call['env']['WANDB_MODE'] == 'online' for call in calls)
+    args.smoke = True
+    train_task.train(args, config)
+    assert calls[-1]['env']['WANDB_MODE'] == 'disabled'
 
 
 def test_resume_requires_explicit_run_id():
@@ -85,10 +89,15 @@ def test_resume_requires_explicit_run_id():
 
 
 @pytest.mark.parametrize(('method', 'label'), [('zero', '0'), ('temporal', 'profile_sample')])
-def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_path, monkeypatch, method, label):
-    monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
+@pytest.mark.parametrize('smoke', [False, True])
+def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_path, monkeypatch, method, label, smoke):
+    """Long-lived eval contract: formal metrics are reported; smoke stays local."""
+    if smoke:
+        monkeypatch.delenv('WANDB_ENTITY', raising=False)
+    else:
+        monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
     args = SimpleNamespace(task='balance', task_python=tmp_path / 'python',
-                           output_dir=tmp_path, eval_episodes=1)
+                           output_dir=tmp_path, eval_episodes=1, smoke=smoke)
     config = {'executor': {'mode': 'simulated'}, 'latency': {'method': method}, 'logging': {}}
     monkeypatch.setattr(train_task, 'eval_config', lambda *args, **kwargs: config)
     output = tmp_path / 'evals/checkpoint'
@@ -107,7 +116,7 @@ def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_pat
 
     assert result == output
     assert commands == [[args.task_python, '-m', 'latency_bench.run', '--config', output / 'eval_config.yaml']]
-    assert summaries == [{'returns': [1.0], 'checkpoint_global_step': 500}]
+    assert summaries == ([] if smoke else [{'returns': [1.0], 'checkpoint_global_step': 500}])
 
 
 def test_resume_requires_complete_training_state(tmp_path):
@@ -258,3 +267,19 @@ def test_publish_retry_preserves_dataset_revisions_and_rejects_smoke(tmp_path, m
     train_task.write_json(tmp_path / 'run.json', saved)
     with pytest.raises(ValueError, match='local-only'):
         train_task.publish_run(tmp_path)
+
+
+@pytest.mark.parametrize("condition", ["zero-latency", "latency-aware"])
+def test_balance_teacher_and_bootstrap_use_their_own_condition(tmp_path, monkeypatch, condition):
+    """Long-lived Balance orchestration contract: condition owns the H8 teacher and bootstrap."""
+    captured = {}
+    def download(_repo, filename, **kwargs):
+        captured["filename"] = filename
+        return str(tmp_path / "checkpoint.pth")
+    monkeypatch.setattr(train_task, "hf_hub_download", download)
+    teacher, reference = train_task.resolve_teacher("balance", None, condition)
+    assert captured["filename"] == f"{condition}/humanoidbench-balance-simple/small-policy/fasttd3-h8-v1/checkpoint.pth"
+    assert reference["path"] == captured["filename"]
+    assert teacher == tmp_path / "checkpoint.pth"
+    dataset = train_task.dataset_reference("balance", tmp_path / condition, condition=condition)
+    assert dataset["path"] == f"{condition}/humanoidbench-balance-simple/teacher-rollouts-h8-state-v2"

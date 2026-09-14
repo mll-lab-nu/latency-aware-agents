@@ -8,6 +8,7 @@ policy interface.
 
 from __future__ import annotations
 
+import copy
 from collections import deque
 from typing import Any, ClassVar
 
@@ -530,6 +531,18 @@ class G1SonicEnv(MujocoEnv):
         self._history: deque[dict[str, np.ndarray]] = deque(maxlen=10)
         self._last_action = np.zeros(29, dtype=np.float64)
         self._pending_decoded_action = None
+
+    def copy_balance_state_from(self, source):
+        """Restore an independent Balance branch, including MuJoCo derived buffers."""
+        self.data = copy.copy(source.data)
+        axes = dmc_index.make_axis_indexers(MjModelWrapper(self.model))
+        self.named = NamedIndexStructs(
+            model=self.named.model,
+            data=dmc_index.struct_indexer(MjDataWrapper(self.data), "mjdata", axes),
+        )
+        for field in ("_q_cmd", "_v_cmd", "_last_action", "_history", "_np_random"):
+            setattr(self, field, copy.deepcopy(getattr(source, field)))
+
     def _body_state(self) -> tuple[np.ndarray, np.ndarray]:
         q_mu = self.data.qpos[self._body_qpos_addresses].copy()
         dq_mu = self.data.qvel[self._body_qvel_addresses].copy()

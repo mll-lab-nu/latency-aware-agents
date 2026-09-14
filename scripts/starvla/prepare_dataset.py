@@ -96,7 +96,7 @@ def _rewrite_dataset(dataset_dir: Path, spec: StarVLATaskSpec) -> None:
 def _write_manifest(dataset_dir: Path, spec: StarVLATaskSpec, contract: dict[str, Any]) -> None:
     manifest_path = dataset_dir / "manifest.json"
     manifest = {
-            "format": f"latency_bench_starvla_h{spec.action_horizon}_v1",
+            "format": contract["format"],
             "task": spec.name,
             "robot_type": spec.robot_type,
             "state_dim": spec.state_dim,
@@ -109,7 +109,7 @@ def _write_manifest(dataset_dir: Path, spec: StarVLATaskSpec, contract: dict[str
             "video_keys": contract["video_keys"],
             "normalization": contract["normalization"],
         }
-    for key in ("prompt", "state_labels", "action_labels", "auxiliary"):
+    for key in ("prompt", "state_labels", "action_labels", "auxiliary", "label_provenance"):
         if key in contract:
             manifest[key] = contract[key]
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -150,7 +150,7 @@ def prepare_lerobot(
         _write_manifest(output_val, spec, read_task_contract(output_val))
 
     return {
-        "format": f"latency_bench_starvla_h{spec.action_horizon}_v1",
+        "format": train_contract["format"],
         "task": spec.name,
         "train": str(output_train),
         "validation": str(output_dirs[1]) if len(output_dirs) == 2 else None,

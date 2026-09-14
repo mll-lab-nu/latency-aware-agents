@@ -33,8 +33,9 @@ def _upload_folder(*, repo_id: str, repo_type: str, source_dir: Path, path: str,
 def dataset_path(task: str, *, model: str | None = None, run_id: str | None = None,
                  round_number: int | None = None, condition: str = "zero-latency", action_horizon: int = 1) -> str:
     prefix = f"{condition}/{task.replace('_', '-')}"
+    version = "v2" if task == "humanoidbench_balance_simple" and action_horizon == 8 else "v1"
     if round_number is None:
-        return f"{prefix}/teacher-rollouts-h{action_horizon}-state-v1"
+        return f"{prefix}/teacher-rollouts-h{action_horizon}-state-{version}"
     return f"{prefix}/dagger/starvla-{model}-h{action_horizon}/{run_id}/round-{round_number:02d}"
 
 

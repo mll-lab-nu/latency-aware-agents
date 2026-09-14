@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from importlib import import_module
 import json
 from pathlib import Path
@@ -21,9 +22,10 @@ from latency_bench.data.action_layouts import (
     encode_action_for_env,
 )
 from latency_bench.data.hf_parquet import embed_image_rows
-from latency_bench.data.dagger import DaggerState, DaggerStep, collect_dagger
+from latency_bench.data.dagger import DaggerStep, collect_dagger
 from latency_bench.data.rollout_image_io import save_image_frame
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
+from latency_bench.latency.samplers import HiddenRegimeSampler
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.policy.sample_factory import build_sample_factory_policy
@@ -81,21 +83,79 @@ def _relabel_saved_dataset(
     )
 
 
+def _copy_collection_env(source, target):
+    """Copy a Balance branch without aliasing live physics or scheduler state."""
+    memo = {id(source.clock): source.clock}
+    sampler = source.profile_sampler
+    # Fitted tables are immutable; sampler RNG and regime remain branch-owned.
+    if isinstance(sampler, HiddenRegimeSampler):
+        for table in (sampler.distributions, sampler.model, sampler.rank_processes, sampler.pre_worker_time):
+            memo[id(table)] = table
+    while source is not source.unwrapped:
+        memo[id(source.env)] = target.env
+        target.__dict__.update(copy.deepcopy(source.__dict__, memo))
+        source, target = source.env, target.env
+    target.copy_balance_state_from(source)
+
+
+def _teacher_requests(policy, envs):
+    actions = _teacher_actions(policy, [env.unwrapped._official_gr00t_proprio() for env in envs])
+    return [np.stack([env.unwrapped.g1_absolute_request_from_raw_action(head) for head in action])
+            for env, action in zip(envs, actions, strict=True)]
+
+
+def _teacher_rollout(policy, envs, remaining_steps, minimum_sources):
+    """Label eight physical frames, excluding inherited student requests."""
+    chunks = np.zeros((len(envs), 8, 43), dtype=np.float32)
+    masks = np.zeros((len(envs), 8), dtype=bool)
+    active = list(range(len(envs)))
+    for index in range(8):
+        active = [slot for slot in active if index < remaining_steps[slot]]
+        if not active:
+            break
+        requests = _teacher_requests(policy, [envs[slot] for slot in active])
+        done = []
+        for slot, request in zip(active, requests, strict=True):
+            env = envs[slot]
+            _, _, terminated, truncated, info = env.step(request)
+            if info["applied_source_raw_frame"] >= minimum_sources[slot]:
+                chunks[slot, index] = env.current_applied_action
+                masks[slot, index] = True
+            if terminated or truncated:
+                done.append(slot)
+        active = [slot for slot in active if slot not in done]
+    return chunks, masks
+
+
+def _balance_row(config, output_dir, image, state, label, episode, step, seed, split):
+    image_path = output_dir / f"images/{split}" / f"episode_{episode:06d}" / f"decision_step_{step:06d}.png"
+    row = teacher_dataset_row(
+        env_name=config["task_name"], spec={"episode_idx": episode, "split": split, "seed": seed},
+        decision_step=step, image=str(image_path), raw_action=label,
+        info={"latency_raw_frames": 0, "latency_ms": 0.0}, reward=0.0,
+        env_fps=config["env_fps"], obs_fps=config["obs_fps"],
+        action_spec=G1_SONIC_GR00T_ACTION_SPEC, base_prompt=config["base_prompt"], state=state,
+    )
+    row["rgb"] = image
+    return row
+
+
 class BalanceDaggerAdapter:
-    """Keep independent Gym resets, direct request labels, and canonical PNG rows."""
+    """Keep the student trajectory live while its own teacher labels independent branches."""
 
     inference_period = record_period = 1
     budget_mode = "step"
     shard_rows = None
     seed_mode = "global"
 
-    def __init__(self, policy_config, teacher_policy, output_dir, envs):
+    def __init__(self, policy_config, teacher_policy, output_dir, envs, branches):
         self.config = policy_config
         self.env_config = policy_config["env"]
         self.teacher_policy = teacher_policy
-        self.output_dir, self.envs = output_dir, envs
+        self.output_dir, self.envs, self.branches = output_dir, envs, branches
         self.num_envs = len(envs)
         self.train_rows = []
+        self.teacher_branch_raw_frames = self.student_raw_frames = 0
 
     def reset(self, slot, state):
         self.envs[slot].reset(seed=state.seeds[slot])
@@ -115,32 +175,30 @@ class BalanceDaggerAdapter:
         ]
 
     def start_records(self, snapshot, slots, state):
-        actions = _teacher_actions(self.teacher_policy, [snapshot["states"][slot] for slot in slots])
+        for slot in slots:
+            _copy_collection_env(self.envs[slot], self.branches[slot])
+        chunks, masks = _teacher_rollout(
+            self.teacher_policy, [self.branches[slot] for slot in slots],
+            [self.config["evaluation"]["eval_max_steps"] - state.episode_steps[slot] for slot in slots],
+            [self.envs[slot].env_step_idx for slot in slots],
+        )
+        self.teacher_branch_raw_frames += sum(self.branches[slot].env_step_idx - self.envs[slot].env_step_idx for slot in slots)
         rows = []
-        for slot, action in zip(slots, actions, strict=True):
-            native = self.envs[slot].unwrapped
-            chunk = np.stack([native.g1_absolute_request_from_raw_action(head) for head in action])
-            label = chunk[0]
-            image_path = (
-                self.output_dir / "images/train" / f"episode_{state.episode_ids[slot]:06d}"
-                / f"decision_step_{state.episode_steps[slot]:06d}.png"
-            )
-            row = teacher_dataset_row(
-                env_name=self.env_config["task_name"],
-                spec={"episode_idx": state.episode_ids[slot], "split": "train", "seed": state.seeds[slot]},
-                decision_step=state.episode_steps[slot], image=str(image_path),
-                raw_action=label, info={"latency_raw_frames": 0, "latency_ms": 0.0}, reward=0.0,
-                env_fps=self.env_config["env_fps"], obs_fps=self.env_config["obs_fps"],
-                action_spec=G1_SONIC_GR00T_ACTION_SPEC, base_prompt=self.env_config["base_prompt"],
-                state=snapshot["states"][slot],
-            )
+        for slot, chunk, mask in zip(slots, chunks, masks, strict=True):
+            if not mask.any():
+                rows.append(None)
+                continue
+            row = _balance_row(self.env_config, self.output_dir, snapshot["images"][slot],
+                               snapshot["states"][slot], chunk[0], state.episode_ids[slot],
+                               state.episode_steps[slot], state.seeds[slot], "train")
             row["issued_command_chunk"] = chunk.tolist()
-            row["rgb"] = snapshot["images"][slot]
+            row["action_valid_mask"] = mask.tolist()
             rows.append(row)
         return rows
 
     def step(self, snapshot, active, state):
         done, rewards = [], {}
+        self.student_raw_frames += len(active)
         for slot in active:
             _, rewards[slot], terminated, truncated, _ = self.envs[slot].step(
                 state.outputs[slot].action_chunk,
@@ -158,12 +216,13 @@ class BalanceDaggerAdapter:
             self.train_rows.append(row)
 
 
-def make_collection_env(config: dict, *, seed: int):
+def make_collection_env(config: dict, *, seed: int, render: bool = True):
     """Use the training arm's virtual-clock scheduler with absolute H8 requests."""
     env_config, latency = config["env"], config["latency"]
     for module in env_config["registration_imports"]:
         import_module(module)
-    env = gym.make(env_config["env_id"], **env_config["make_kwargs"])
+    kwargs = env_config["make_kwargs"] if render else env_config["make_kwargs"] | {"render_mode": None}
+    env = gym.make(env_config["env_id"], **kwargs)
     profile = latency["method"] == "temporal"
     return GymnasiumActionLatencyWrapper(
         env, fixed_latency_raw_frames=0, env_fps=env_config["env_fps"],
@@ -216,18 +275,22 @@ def collect_balance_dagger(
         for slot in range(num_envs)
     ]
     output_dir.mkdir(parents=True, exist_ok=True)
-    adapter = BalanceDaggerAdapter(policy_config, teacher_policy, output_dir, envs)
+    branches = [make_collection_env(policy_config, seed=slot, render=False) for slot in range(num_envs)]
+    adapter = BalanceDaggerAdapter(policy_config, teacher_policy, output_dir, envs, branches)
     try:
         collect_dagger(
             adapter, student_pool, row_budget=row_budget, seed=10_000_000 + round_number * 1_000_000,
             is_running=lambda: True,
         )
     finally:
-        for env in envs:
+        for env in (*envs, *branches):
             env.close()
     train_rows = adapter.train_rows
 
     write_balance_dataset(output_dir, env_config, train_rows, [])
+    _record_label_provenance(output_dir, policy_config, teacher_config_path, teacher_checkpoint,
+                             student_raw_frames=adapter.student_raw_frames,
+                             teacher_branch_raw_frames=adapter.teacher_branch_raw_frames)
 
 
 def write_balance_dataset(output_dir, env_config, train_rows, val_rows):
@@ -268,37 +331,70 @@ def write_balance_dataset(output_dir, env_config, train_rows, val_rows):
     )
 
 
+def _record_label_provenance(output_dir, config, teacher_config_path, teacher_checkpoint, **counts):
+    path = output_dir / "metadata.json"
+    metadata = json.loads(path.read_text())
+    metadata["label_provenance"] = {
+        "semantics": "expert_closed_loop_selected_absolute_requests_v2",
+        "condition": "latency-aware" if config["latency"]["method"] == "temporal" else "zero-latency",
+        "teacher_checkpoint": str(teacher_checkpoint.resolve()),
+        "teacher_config": str(teacher_config_path.resolve()),
+        "latency": config["latency"], "scheduler": config["scheduler"],
+    }
+    metadata.update(counts)
+    path.write_text(json.dumps(metadata, indent=2) + "\n")
+
+
 def collect_balance_bootstrap(policy_config_path, teacher_config_path, teacher_checkpoint, output_dir, *, smoke):
-    """Collect fresh train/validation episodes under the matching teacher arm."""
+    """Slice physical-frame request windows from this arm's teacher-controlled episodes."""
     config = load_config(policy_config_path)
     teacher = load_teacher(teacher_config_path, teacher_checkpoint, config["env"]["simulator_device"])
     output_dir.mkdir(parents=True, exist_ok=True)
     train_count, val_count = (2, 1) if smoke else (90, 10)
     train, val = [], []
+    teacher_raw_frames = 0
     for episode in range(train_count + val_count):
         env = make_collection_env(config, seed=episode)
         env.reset(seed=episode)
-        adapter = BalanceDaggerAdapter(config, teacher, output_dir, [env])
-        state = DaggerState(0, [0], [0], [episode], [episode], [None])
-        rows = []
+        rows, selected, valid = [], [], []
+        split = "train" if episode < train_count else "val"
         try:
             for step in range(8 if smoke else config["evaluation"]["eval_max_steps"]):
-                state.episode_steps[0] = step
-                snapshot = adapter.snapshot([0], [0])
-                row = adapter.start_records(snapshot, [0], state)[0]
-                _, reward, terminated, truncated, info = env.step(np.asarray(row["issued_command_chunk"], dtype=np.float32))
+                image = np.asarray(env.render()).copy()
+                state = env.unwrapped._official_gr00t_proprio().copy()
+                request = _teacher_requests(teacher, [env])[0]
+                row = _balance_row(config["env"], output_dir, image, state, request[0],
+                                   episode, step, episode, split)
+                _, reward, terminated, truncated, info = env.step(request)
                 row[G1_SONIC_GR00T_ACTION_SPEC.reward_field] = reward
                 row["latency_raw_frames"] = info["latency_raw_frames"]
                 row["latency_ms"] = info["latency_ms"]
-                save_image_frame(row.pop("rgb"), Path(row["image"]), None)
+                selected.append(np.asarray(env.current_applied_action).copy())
+                valid.append(info["applied_source_raw_frame"] >= 0)
                 rows.append(row)
                 if terminated or truncated:
                     break
         finally:
             env.close()
-        (train if episode < train_count else val).extend(rows)
-        print(f"Bootstrap episode {episode + 1}/{train_count + val_count}: {len(rows)} anchors", flush=True)
+        teacher_raw_frames += len(rows)
+        labeled = []
+        for index, row in enumerate(rows):
+            length = min(8, len(rows) - index)
+            chunk = np.zeros((8, 43), dtype=np.float32)
+            mask = np.zeros(8, dtype=bool)
+            mask[:length] = valid[index:index + length]
+            chunk[:length] = selected[index:index + length]
+            chunk[~mask] = 0
+            if mask.any():
+                row["issued_command_chunk"] = chunk.tolist()
+                row["action_valid_mask"] = mask.tolist()
+                save_image_frame(row.pop("rgb"), Path(row["image"]), None)
+                labeled.append(row)
+        (train if split == "train" else val).extend(labeled)
+        print(f"Bootstrap episode {episode + 1}/{train_count + val_count}: {len(labeled)} anchors", flush=True)
     write_balance_dataset(output_dir, config["env"], train, val)
+    _record_label_provenance(output_dir, config, teacher_config_path, teacher_checkpoint,
+                             teacher_raw_frames=teacher_raw_frames)
 
 
 def main() -> None:

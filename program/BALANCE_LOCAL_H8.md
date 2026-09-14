@@ -7,17 +7,24 @@ GPU 0/1 的 zero/profile RL（PID 3097021/3097022）继续各自 nominal 10M 预
 [原运行状态](../outputs/tasks/humanoidbench_balance_simple/local_h8/balance-qwenoft-h8-20260914T143829Z/status.json)。
 旧教师单次前向 H8 标签的数据与 smoke 保留为历史；本版各分支重新采集自己的 bootstrap。
 
-当前冻结实现：`outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2/implementation`。
-[实现补丁](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2/implementation.patch)、
-[主环境与分支的真实状态/RNG检查](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2/verification/clone_contract.json)。
-根目录入口 `scripts/tasks/humanoidbench_balance_simple/run_local_h8.py` 转入本版。
+当前代码入口：[train_task](../scripts/starvla/train_task.py)、[闭环采集](../scripts/starvla/balance_dagger.py)。
+实验冻结实现与验证记录保存在 `outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2`。
 双分支完整 smoke 已通过（各 SFT 2 + DAgger 2×2；50 Hz、最多 8 帧）；[数值与 seed 协议](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2/verification/smoke_final_matrices.json)。
-当前接续调度 PID 3173489、group `balance-qwenoft-h8-closed-loop-v2-20260914T152830Z`，已在 `existing_rl_running` 等待现有两路 RL；[实时状态](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2/formal/status.json)、[启动命令](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2/formal/launch.json)。
+2026-09-14 按用户要求停止并删除新增接续调度，`formal` 目录已删除；[取消记录](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2/verification/continuation_cancelled.json)。
+两路现有 RL 继续，原父调度保持暂停；closed-loop staged diff 的 review 与 VLA 接续取消记录保留。
+
+2026-09-14 按最新要求排入第二轮 RL：当前后台 PID **3200200**，group `balance-qwenoft-h8-replay6553600-20260914T155040Z`。
+[实时状态](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/formal/status.json)、[启动记录](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/formal/launch.json)、[调度日志](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/formal/pipeline.log)。
+队列正在等待当前 replay=1,000,000 的两路 RL 完成预算与周期评测；保留第一轮最终矩阵后，GPU 0 zero / GPU 1 profile 并行重新训练，replay=**6,553,600**。
+新一轮仍是 fresh seed=1、H8、各 nominal 10M raw frames，其他完整训练配方复制当前分支，实验名与日志/产物路径独立。
+[第二轮 zero 配置](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/formal/zero_rl.yaml)、[第二轮 profile 配置](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/formal/profile_rl.yaml)、[配置对齐检查](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/verification/config_contract.json)。
+冻结实现位于 `outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/implementation`；[相对 v2 的队列补丁](../outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/replay_round.patch)。启动 cwd/PYTHONPATH 随 launch 保存，任务已启动。
+两轮模型与相同 seed 协议的 25/100-episode 矩阵分别保留；新增队列只完成 RL 与比较评测，VLA 接续保持取消。
 正式 5k SFT、10×500 DAgger、最终 25/100-episode 矩阵、acceptance 和 publication 尚未完成。
 
 | 阶段 | 配方 |
 |---|---|
-| RL | GPU 0 zero、GPU 1 profile 并行；fresh seed=1；各 nominal 10M raw frames；198→8×43；共同 FastTD3 D/E 配方 |
+| RL | 当前 replay 1M 轮继续；随后 GPU 0 zero、GPU 1 profile 并行 fresh RL，replay 6,553,600；两轮均 seed=1、各 nominal 10M raw frames、198→8×43，共同 FastTD3 D/E 配方 |
 | 数据 | 各自新教师，90 train / 10 val episodes；教师闭环运行完整 episode；每个当前 RGB/state anchor 的标签为未来 8 个 20ms 物理帧实际选中的绝对 request，控制器限幅前 |
 | SFT | 先 zero 后 profile；各双卡；Qwen3-VL-4B + seed=0 新 action head；5k optimizer updates |
 | DAgger | 各 10×500 updates；64k anchors/round、8 envs；seed=10000000+round×1000000；独立专家分支从学生当前状态推进 8 帧；optimizer/scheduler 跨轮恢复 |
@@ -31,7 +38,7 @@ DAgger 主轨迹持续由学生控制，专家分支复制 MuJoCo、controller�
 zero 只使用 zero small model/bootstrap/DAgger/stats，profile 只使用自己的；数据合同 `latency_bench_starvla_h8_v2`。
 
 Mixture 配置权重 bootstrap 0.5、累计 DAgger 0.5；沿用 sequential sampler，配置权重不等于已测实际采样比例。
-两个教师均完成预算、保存/重载及评测后启动 VLA，性能指标不作为阻断条件。
+后续 VLA 使用完成预算、保存/重载及评测的对应教师；当前 VLA 接续保持取消。
 bootstrap 使用各条件独立的 `teacher-rollouts-h8-state-v2`，DAgger/VLA 使用新 run ID；旧标签版的本地数据与路径保留。
 
 RL 每 1M 保留 checkpoint，既有 observer 在 RL 结束后处理周期评测。
@@ -46,15 +53,5 @@ RL 每 1M 保留 checkpoint，既有 observer 在 RL 结束后处理周期评测
 - RL / teacher eval：`saberrr-zju/latency-sensitive-bench`。
 - VLA / student eval：`zihanwang-ai-northwestern-university/starvla_tasks`。
 
-当前接续命令（已经运行）：
-
-```bash
-.venv/bin/python -m scripts.tasks.humanoidbench_balance_simple.run_local_h8 \
-  --group balance-qwenoft-h8-closed-loop-v2-20260914T152830Z \
-  --output-dir outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_v2/formal \
-  --continue-rl-from outputs/tasks/humanoidbench_balance_simple/local_h8/balance-qwenoft-h8-20260914T143829Z \
-  --rl-pids 3097021 3097022 --previous-runner-pid 3096908
-```
-
-运行状态在该目录 `status.json`；各阶段 log、checkpoint、seed protocol、Hub revision 随目录保存。
-验证后自动追加 [PROGRESS](PROGRESS.md)，训练完成、评测完成、acceptance、publication 分别记录。
+各阶段 log、checkpoint、seed protocol 和发布 revision 随运行目录保存。
+验证后更新 [PROGRESS](PROGRESS.md)，训练完成、评测完成、acceptance、publication 分别记录。

@@ -43,7 +43,7 @@ BACKBONES = {
 }
 TASK_SETTINGS = {
     'balance': {
-        'teacher': 'fasttd3-v1/checkpoint.pth', 'conda_env': 'latency',
+        'teacher': 'fasttd3-h8-v1/checkpoint.pth', 'conda_env': 'latency',
         'eval_config': 'configs/examples/gymnasium/g1_sonic_balance_simple/official_gr00t_eval_simulated.yaml',
         'state_info_key': 'official_gr00t_proprio', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
@@ -91,7 +91,7 @@ def conda_python(name: str) -> Path:
 
 def environment() -> dict[str, str]:
     return os.environ | {
-        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA), str(ROOT / 'third_party/Isaac-GR00T')]),
+        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA), str(ROOT / 'third_party/sample-factory'), str(ROOT / 'third_party/Isaac-GR00T')]),
         'TOKENIZERS_PARALLELISM': 'false', 'MUJOCO_GL': 'egl',
         'OMNI_KIT_ACCEPT_EULA': 'YES', 'NO_ALBUMENTATIONS_UPDATE': '1',
         'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
@@ -108,9 +108,9 @@ def run_command(command: list, log: Path, *, cwd: Path = ROOT, env: dict | None 
                        stdout=output, stderr=subprocess.STDOUT, check=True)
 
 
-def resolve_teacher(task: str, override: Path | None) -> tuple[Path, dict]:
+def resolve_teacher(task: str, override: Path | None, condition: str = "zero-latency") -> tuple[Path, dict]:
     spec = task_spec(task)
-    filename = f'zero-latency/{spec.name.replace("_", "-")}/small-policy/{TASK_SETTINGS[task]["teacher"]}'
+    filename = f'{condition}/{spec.name.replace("_", "-")}/small-policy/{TASK_SETTINGS[task]["teacher"]}'
     reference = {'repo_id': artifacts.MODEL_REPO_ID, 'path': filename}
     if override is not None:
         return override.resolve(), {'source': 'local_override', 'filename': override.name}
@@ -172,12 +172,15 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                 command.append('--smoke')
             run_command(command, args.output_dir / 'bootstrap_collect.log')
             _prepare_converted(task_spec(args.task).name, shared / 'raw', shared / 'lerobot')
+            raw_metadata = json.loads((shared / 'raw/metadata.json').read_text())
             write_json(shared / 'provenance.json', {'teacher': teacher_reference,
+                       'label_provenance': raw_metadata['label_provenance'],
+                       'teacher_raw_frames': raw_metadata['teacher_raw_frames'],
                        'teacher_config': load_config(args.teacher_config), 'code_revisions': code_revisions(),
                        'condition': args.condition, 'action_horizon': 8, 'seed': 0,
                        'train_episodes': 2 if args.smoke else 90, 'val_episodes': 1 if args.smoke else 10,
-                       'label': 'same-state teacher predicted absolute issued_command_chunk'})
-            (shared / 'README.md').write_text('Balance same-state H8 teacher data; bootstrap statistics frozen.\n')
+                       'label': 'expert closed-loop selected absolute request windows'})
+            (shared / 'README.md').write_text('Balance closed-loop H8 teacher data with valid-frame mask; per-arm bootstrap statistics frozen.\n')
         if not contract_file.exists() and args.dataset_dir is None:
             hub = HfApi(token=resolve_token(''))
             remote_exists = not args.smoke and hub.file_exists(
@@ -262,8 +265,8 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
     return {
         'run_id': run_id, 'wandb_name': f'{args.task}-{run_id}-{args.model}',
         'run_root_dir': str(args.output_dir / 'training'),
-        'seed': 0, 'wandb_project': 'starvla_tasks', 'wandb_entity': os.environ['WANDB_ENTITY'],
-        'wandb_group': os.environ['WANDB_RUN_GROUP'] if args.task == 'balance' else 'vla-train',
+        'seed': 0, 'wandb_project': 'starvla_tasks', 'wandb_entity': None if args.smoke else os.environ['WANDB_ENTITY'],
+        'wandb_group': None if args.smoke else os.environ['WANDB_RUN_GROUP'] if args.task == 'balance' else 'vla-train',
         'wandb_tags': [args.task, 'h8' if args.task == 'balance' else 'h1', 'smoke' if args.smoke else 'formal'],
         'is_debug': False, 'version_id': '0.21', 'framework': framework,
         'datasets': {'vla_data': {
@@ -312,7 +315,7 @@ def train(args, config: dict) -> tuple[Path, Path]:
     env['WANDB_RESUME'] = 'allow' if (
         args.resume or trainer['is_resume'] or (run_id == 'dagger' and args.eval_every_round)
     ) else 'never'
-    env['WANDB_MODE'] = 'online'
+    env['WANDB_MODE'] = 'disabled' if args.smoke else 'online'
     while True:
         config_path.write_text(yaml.safe_dump(config, sort_keys=False))
         print(f"Training microbatch={data['per_device_batch_size']}, "
@@ -404,7 +407,7 @@ def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
         config['evaluation']['eval_parallel_envs'] = 1
     config['logging'] = {'output_dir': str(output_dir), 'video': {'enabled': False, 'num_bins': 10},
                           'save_step_records': True, 'save_action_records': True, 'save_latency_records': True}
-    if args.task == 'balance':
+    if args.task == 'balance' and not args.smoke:
         config['logging'].update({'wandb_entity': os.environ['WANDB_ENTITY'],
                                   'wandb_project': 'starvla_tasks',
                                   'wandb_group': os.environ['WANDB_RUN_GROUP']})
@@ -430,7 +433,7 @@ def evaluate(args, bundle: Path, teacher: Path, *, label: str,
         command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py', 'latency-eval',
                    '--headless', '--eval-config', config_path]
     run_command(command, output_dir / 'stdout.log')
-    if wandb_checkpoint is not None:
+    if wandb_checkpoint is not None and not args.smoke:
         run_id, step = wandb_checkpoint
         # The task entries save summaries; this parent owns W&B reporting for all tasks.
         config['logging'].update({'wandb_name': run_id, 'wandb_project': 'starvla_tasks',
@@ -462,7 +465,8 @@ def _balance_dagger_collection(args, teacher, policy_path, directory, round_numb
                   'row_budget': 4 if args.smoke else 64000,
                   'num_envs': 2 if args.smoke else 8,
                   'inference_batch_size': 2 if args.smoke else 8,
-                  'vla_cadence': 1, 'action_horizon': 8}
+                  'vla_cadence': 1, 'action_horizon': 8,
+                  'label': 'expert closed-loop selected absolute request windows'}
     if args.dagger_relabel_from is not None:
         command.extend(['--relabel-from', args.dagger_relabel_from.resolve()])
         collection = {'collector': 'scripts.starvla.balance_dagger',
@@ -538,6 +542,10 @@ def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict
     commands, collection = collect(args, teacher, policy_path, directory, round_number)
     for command, log in commands:
         run_command(command, log)
+    if args.task == 'balance':
+        metadata = json.loads((directory / 'raw/metadata.json').read_text())
+        collection.update({key: metadata[key] for key in
+                           ('label_provenance', 'student_raw_frames', 'teacher_branch_raw_frames')})
     converted = directory / '_converted'
     convert(directory / 'raw', converted, force=True)
 
@@ -642,6 +650,8 @@ def main(argv=None) -> None:
     parser.add_argument('--resume', action='store_true', help='Resume the matching --run-id from its latest complete state')
     parser.add_argument('--publish-only', action='store_true')
     args = parser.parse_args(argv)
+    if args.smoke:
+        os.environ['WANDB_MODE'] = 'disabled'
     if args.dagger_rounds is None:
         args.dagger_rounds = 1 if args.smoke else 10
     if args.eval_seed is None:
@@ -680,7 +690,8 @@ def main(argv=None) -> None:
     args.task_python = (args.task_python.absolute() if args.task_python is not None else
                         ROOT / 'third_party/MIKASA-Robo/.venv/bin/python' if args.task == 'mikasa' else
                         conda_python(TASK_SETTINGS[args.task]['conda_env']))
-    teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint)
+    teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint,
+                                           args.condition if args.task == "balance" else "zero-latency")
     backbone_path, backbone_ref = resolve_backbone(args.model)
     if run is None:
         bootstrap, bootstrap_ref = prepare_shared(args, teacher, teacher_ref, args.task_python)

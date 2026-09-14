@@ -456,6 +456,10 @@ def _write_episode(
             [row["issued_command_chunk"] for row in rows],
             type=pa.list_(pa.list_(pa.float32(), action_dim), len(rows[0]["issued_command_chunk"])),
         )
+    if rows and "action_valid_mask" in rows[0]:
+        columns["action_valid_mask"] = pa.array(
+            [row["action_valid_mask"] for row in rows], type=pa.list_(pa.bool_(), len(rows[0]["action_valid_mask"])),
+        )
     if rows and "action_id" in rows[0]:
         columns["action_id"] = pa.array(
             [row["action_id"] for row in rows], type=pa.int64()
@@ -713,6 +717,8 @@ def _convert_split(
                 out_row["state"] = state.tolist()
             if "issued_command_chunk" in row:
                 out_row["issued_command_chunk"] = row["issued_command_chunk"]
+            if "action_valid_mask" in row:
+                out_row["action_valid_mask"] = row["action_valid_mask"]
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
             if "context_images" in row and row["context_images"] is not None:
@@ -760,6 +766,10 @@ def _convert_split(
             "dtype": "float32", "shape": [len(rows[0]["issued_command_chunk"]), len(action_labels)],
             "names": action_labels,
         }
+        if "action_valid_mask" in rows[0]:
+            info["features"]["action_valid_mask"] = {
+                "dtype": "bool", "shape": [len(rows[0]["action_valid_mask"])], "names": None,
+            }
         info_path.write_text(json.dumps(info, indent=2) + "\n")
     return {
         "dataset_name": output_dir.name,
@@ -979,6 +989,15 @@ def convert_canonical_rollout_to_lerobot(
         actor_observation_shape=actor_observation_shape,
         termination_shape=termination_shape,
     )
+    if "label_provenance" in metadata:
+        train_info = json.loads((output_dir / "meta/info.json").read_text())
+        for directory in (output_dir, val_output_dir):
+            info_path = directory / "meta/info.json"
+            info = json.loads(info_path.read_text())
+            info["label_provenance"] = metadata["label_provenance"]
+            for key in ("issued_command_chunk", "action_valid_mask"):
+                info["features"][key] = train_info["features"][key]
+            info_path.write_text(json.dumps(info, indent=2) + "\n")
     handoff_contract = {
         "format": (
             "lerobot_v2_image_parquet"
