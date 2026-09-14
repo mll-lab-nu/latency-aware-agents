@@ -12,8 +12,8 @@ executor:
   mode: simulated
 
 env:
-  env_fps: 35
-  obs_fps: 8.75
+  env_fps: 60
+  obs_fps: 15
   frame_stack: 4
   obs_resize: [224, 224]
   noop_action: [0, 0, 0, 0]
@@ -45,7 +45,7 @@ policy:
     - ATTACK
 
 latency:
-  method: zero
+  method: measured
 
 evaluation:
   eval_episodes: 10

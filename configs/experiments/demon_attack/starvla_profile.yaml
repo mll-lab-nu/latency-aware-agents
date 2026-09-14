@@ -34,7 +34,7 @@ policy:
     - LEFTFIRE
 
 latency:
-  method: zero
+  method: measured
 
 evaluation:
   eval_episodes: 10

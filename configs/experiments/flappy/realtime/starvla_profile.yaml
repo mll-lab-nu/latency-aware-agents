@@ -11,8 +11,8 @@ executor:
 env:
   name: flappy
   gym_id: FlappyBird-v0
-  env_fps: 16
-  obs_fps: 16
+  env_fps: 30
+  obs_fps: 30
   render_mode: rgb_array
   observation_mode: image
   use_lidar: false
@@ -32,7 +32,7 @@ env:
     - flap
 
 latency:
-  method: zero
+  method: measured
   device: cuda:0
   sync_cuda: true
 
