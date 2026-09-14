@@ -1,46 +1,54 @@
 """Long-lived action latency contracts shared with scalar and batched evaluation."""
 
+from types import SimpleNamespace
+
 import pytest
 import torch
 
+from latency_bench.latency.sample import LatencySample
 from training.common.action_latency import ActionLatencyBatch
 
 
+@pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable"))])
 @pytest.mark.parametrize("hold_tail", [False, True])
-def test_replica_admission_stale_prefix_and_episode_reset(hold_tail):
+def test_replica_admission_stale_prefix_and_episode_reset(hold_tail, device):
     config = {
         "env": {"env_fps": 50, "obs_fps": 50},
         "executor": {"simulated_worker_capacity": 1},
         "latency": {"method": "fixed", "fixed_latency_ms": 40, "seed": 0},
         "scheduler": {"ordering_policy": "latest_ready", "hold_policy": "hold", "hold_last_chunk_action": hold_tail},
     }
-    queue = ActionLatencyBatch(config, num_envs=2, device="cpu", noop_command=[0])
+    queue = ActionLatencyBatch(config, num_envs=2, device=device, noop_command=[0])
     queue.reset()
     assert queue.episodes == [0, 1]
-    chunks = torch.tensor([[[1.], [2.], [3.], [4.]], [[10.], [20.], [30.], [40.]]])
+    chunks = torch.tensor([[[1.], [2.], [3.], [4.]], [[10.], [20.], [30.], [40.]]], device=device)
     assert queue.submit(chunks).tolist() == [True, True]
-    torch.testing.assert_close(queue.actions(), torch.zeros(2, 1))
+    first = queue.actions()
+    torch.testing.assert_close(first.cpu(), torch.zeros(2, 1))
+    chunks.fill_(-100)
     queue.advance()
     assert queue.submit(chunks).tolist() == [False, False]
     queue.reset([0])
-    assert queue.submit(chunks, [0]).tolist() == [True, False]
+    fresh_chunks = torch.tensor([[[1.], [2.], [3.], [4.]], [[10.], [20.], [30.], [40.]]], device=device)
+    assert queue.submit(fresh_chunks, [0]).tolist() == [True, False]
     queue.advance()
-    torch.testing.assert_close(queue.actions(), torch.tensor([[0.], [30.]]))
+    torch.testing.assert_close(queue.actions().cpu(), torch.tensor([[0.], [30.]]))
     queue.advance()
-    torch.testing.assert_close(queue.actions(), torch.tensor([[3.], [40.]]))
+    torch.testing.assert_close(queue.actions().cpu(), torch.tensor([[3.], [40.]]))
     assert queue.last_application == [
         {"source_raw_frame": 0, "source_obs_id": 0, "chunk_index": 2},
         {"source_raw_frame": 0, "source_obs_id": 0, "chunk_index": 3},
     ]
     queue.advance()
-    torch.testing.assert_close(queue.actions(), torch.tensor([[4.], [40. if hold_tail else 0.]]))
+    torch.testing.assert_close(queue.actions().cpu(), torch.tensor([[4.], [40. if hold_tail else 0.]]))
     assert queue.last_application[1] == ({
         "source_raw_frame": 0, "source_obs_id": 0, "chunk_index": 3,
     } if hold_tail else {
         "source_raw_frame": -1, "source_obs_id": -1, "chunk_index": -1,
     })
     queue.reset()
-    torch.testing.assert_close(queue.actions(), torch.zeros(2, 1))
+    torch.testing.assert_close(queue.actions().cpu(), torch.zeros(2, 1))
+    torch.testing.assert_close(first.cpu(), torch.zeros(2, 1))
 
 
 @pytest.mark.parametrize(("fps", "latency_frames"), [(20, 2), (50, 5)])
@@ -61,6 +69,10 @@ def test_single_action_holds_until_replacement_and_reset_at_control_rate(fps, la
         queue.advance()
         actions = queue.actions()
     torch.testing.assert_close(actions, commands)
+    assert queue.last_application == [
+        {"source_raw_frame": 0, "source_obs_id": 0, "chunk_index": 0}
+        for _ in range(2)
+    ]
 
     queue.reset([0])
     torch.testing.assert_close(queue.actions(), torch.tensor([[0.0, 0.0], [10.0, 20.0]]))
@@ -74,6 +86,10 @@ def test_single_action_holds_until_replacement_and_reset_at_control_rate(fps, la
 
     queue.reset()
     torch.testing.assert_close(queue.actions(), torch.zeros(2, 2))
+    assert queue.last_application == [
+        {"source_raw_frame": -1, "source_obs_id": -1, "chunk_index": -1}
+        for _ in range(2)
+    ]
 
 
 def test_submission_metrics_capture_latency_and_capacity_drop():
@@ -105,6 +121,36 @@ def test_submission_metrics_capture_latency_and_capacity_drop():
         torch.testing.assert_close(queue.actions(), torch.tensor([[1.0]]))
     queue.advance()
     torch.testing.assert_close(queue.actions(), torch.tensor([[2.0]]))
+
+
+@pytest.mark.parametrize("ordering", ["latest_ready", "issue_order_fifo"])
+def test_worker_release_precedes_readiness_and_late_results_keep_issue_order(ordering):
+    """One worker can leave several pending results; newer results may arrive first."""
+    config = {
+        "env": {"env_fps": 50, "obs_fps": 50},
+        "executor": {"simulated_worker_capacity": 1},
+        "latency": {"method": "zero", "seed": 0},
+        "scheduler": {"ordering_policy": ordering, "hold_policy": "hold"},
+    }
+    queue = ActionLatencyBatch(config, num_envs=1, device="cpu", noop_command=[0])
+    queue.reset()
+    samples = iter([
+        LatencySample.from_action_ready(
+            action_ready_raw_frames=ready, worker_service_raw_frames=1,
+            worker_service_ms=20, clock=queue.clock,
+        ) for ready in (5, 1, 0)
+    ])
+    queue.samplers[0] = SimpleNamespace(sample=lambda context: next(samples))
+    trace = []
+    for frame in range(8):
+        if frame < 3:
+            assert queue.submit(torch.tensor([[10.0 * (frame + 1)]])).tolist() == [True]
+        trace.append(queue.actions().item())
+        queue.advance()
+    assert trace == (
+        [0, 0, 30, 30, 30, 30, 30, 30]
+        if ordering == "latest_ready" else [0, 0, 0, 0, 0, 10, 20, 30]
+    )
 
 
 def test_load_state_dict_preserves_sampler_continuation_and_clears_transport():
