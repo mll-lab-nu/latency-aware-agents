@@ -122,7 +122,9 @@ class LatencyBenchEvalRequest:
     metadata: dict[str, Any]
     result_path: Path
     checkpoint_path: Path
-    env_steps: int
+    step: int
+    raw_frames: int
+    uses_optimizer_steps: bool
     phase: str
 
 
@@ -131,7 +133,9 @@ class LatencyBenchEvalJob:
     process: Any
     result_path: Path
     lease: CheckpointEvalLease
-    env_steps: int
+    step: int
+    raw_frames: int
+    uses_optimizer_steps: bool
     phase: str
 
     def wait(self) -> None:
@@ -146,6 +150,7 @@ class LatencyBenchPeriodicEvalObserver:
     def __init__(self, training_config: dict[str, Any], *, checkpoint_timeout_sec: float = 60.0):
         self.training_config = deepcopy(training_config)
         self.interval_steps = int(training_config["evaluation"]["eval_interval_steps"])
+        self.uses_optimizer_steps = training_config["backend"]["algo"] == "FAST_TD3"
         self.next_eval_step = self.interval_steps
         self.checkpoint_timeout_sec = float(checkpoint_timeout_sec)
         self.last_eval_step: int | None = None
@@ -166,10 +171,10 @@ class LatencyBenchPeriodicEvalObserver:
 
     def on_training_step(self, runner, training_iteration_since_resume: int) -> None:
         del training_iteration_since_resume
-        env_steps = _runner_env_steps(runner)
-        if env_steps >= self.next_eval_step:
-            self._submit_eval_request(runner, env_steps=env_steps, phase="train_periodic")
-            while self.next_eval_step <= env_steps:
+        step = _runner_step(runner, uses_optimizer_steps=self.uses_optimizer_steps)
+        if step >= self.next_eval_step:
+            self._submit_eval_request(runner, step=step, phase="train_periodic")
+            while self.next_eval_step <= step:
                 self.next_eval_step += self.interval_steps
 
     def on_stop(self, runner) -> None:
@@ -186,11 +191,11 @@ class LatencyBenchPeriodicEvalObserver:
     def run_final_eval(self, runner) -> bool:
         if not self.run_deferred_eval(runner):
             return False
-        env_steps = _runner_env_steps(runner)
+        step = _runner_step(runner, uses_optimizer_steps=self.uses_optimizer_steps)
         checkpoint_path = self._latest_checkpoint_for_eval()
         self._submit_eval_request(
             runner,
-            env_steps=env_steps,
+            step=step,
             phase="train_final",
             checkpoint_path=checkpoint_path,
         )
@@ -200,13 +205,13 @@ class LatencyBenchPeriodicEvalObserver:
         self,
         runner,
         *,
-        env_steps: int,
+        step: int,
         phase: str,
         checkpoint_path: Path | None = None,
     ) -> LatencyBenchEvalRequest:
         if checkpoint_path is None:
             checkpoint_path = self._save_checkpoint_for_eval(runner)
-        step_dir = f"step_{int(env_steps)}"
+        step_dir = f"step_{int(step)}"
         if phase == "train_final":
             step_dir = f"{step_dir}_final"
         output_dir = (
@@ -221,9 +226,11 @@ class LatencyBenchPeriodicEvalObserver:
         )
         metadata = {
             "eval_phase": phase,
-            "train_env_steps": int(env_steps),
+            "train_env_steps": _runner_env_steps(runner),
             "checkpoint_path": str(checkpoint_path),
         }
+        if self.uses_optimizer_steps:
+            metadata["train_optimizer_steps"] = int(step)
         result_path = output_dir / "eval_result.json"
         mark_checkpoint_for_eval_retention(checkpoint_path, metadata=metadata)
         request = LatencyBenchEvalRequest(
@@ -231,7 +238,9 @@ class LatencyBenchPeriodicEvalObserver:
             metadata=metadata,
             result_path=result_path,
             checkpoint_path=checkpoint_path,
-            env_steps=int(env_steps),
+            step=int(step),
+            raw_frames=metadata["train_env_steps"],
+            uses_optimizer_steps=self.uses_optimizer_steps,
             phase=phase,
         )
         self.pending_jobs.append(request)
@@ -245,7 +254,9 @@ class LatencyBenchPeriodicEvalObserver:
             process=process,
             result_path=request.result_path,
             lease=lease,
-            env_steps=request.env_steps,
+            step=request.step,
+            raw_frames=request.raw_frames,
+            uses_optimizer_steps=request.uses_optimizer_steps,
             phase=request.phase,
         )
         self.active_job = job
@@ -263,9 +274,11 @@ class LatencyBenchPeriodicEvalObserver:
         _log_eval_summaries(
             runner,
             summaries,
-            env_steps=job.env_steps,
+            step=job.step,
+            raw_frames=job.raw_frames,
+            uses_optimizer_steps=job.uses_optimizer_steps,
         )
-        self.last_eval_step = job.env_steps
+        self.last_eval_step = job.step
         self.active_job = None
         return True
 
@@ -274,9 +287,9 @@ class LatencyBenchPeriodicEvalObserver:
         from sample_factory.utils.utils import log
 
         log.error(
-            "LatencyBench eval failed at phase=%s env_steps=%s result_path=%s: %s",
+            "LatencyBench eval failed at phase=%s step=%s result_path=%s: %s",
             job.phase,
-            job.env_steps,
+            job.step,
             job.result_path,
             reason,
         )
@@ -345,6 +358,11 @@ def _runner_env_steps(runner) -> int:
     return max(int(value) for value in runner.env_steps.values())
 
 
+def _runner_step(runner, *, uses_optimizer_steps: bool) -> int:
+    counters = runner.train_steps if uses_optimizer_steps else runner.env_steps
+    return max(int(value) for value in counters.values())
+
+
 def _checkpoint_paths(root: Path) -> list[Path]:
     return checkpoint_paths(root)
 
@@ -357,10 +375,15 @@ def _log_eval_summaries(
     runner,
     summaries: list[dict[str, Any]],
     *,
-    env_steps: int,
+    step: int,
+    raw_frames: int,
+    uses_optimizer_steps: bool,
 ) -> None:
     del runner
-    _log_wandb(eval_scalar_payload(summaries, env_steps=env_steps, prefix="eval_corrected"))
+    payload = eval_scalar_payload(summaries, env_steps=step, prefix="eval_corrected")
+    if uses_optimizer_steps:
+        payload["eval_corrected/raw_frames"] = raw_frames
+    _log_wandb(payload)
 
 
 def _log_wandb(payload: dict[str, float | int]) -> None:

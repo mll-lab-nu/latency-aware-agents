@@ -127,8 +127,11 @@ def patch_sample_factory_wandb() -> None:
         wandb.define_metric("global_step")
         wandb.define_metric("train/*", step_metric="global_step")
         wandb.define_metric("perf/*", step_metric="global_step")
+        wandb.define_metric("episode/*", step_metric="global_step")
         wandb.define_metric("eval/global_steps")
         wandb.define_metric("eval/*", step_metric="global_step")
+        wandb.define_metric("eval_corrected/global_steps")
+        wandb.define_metric("eval_corrected/*", step_metric="global_step")
 
     def finish_wandb(cfg):
         if not getattr(cfg, "with_wandb", False):

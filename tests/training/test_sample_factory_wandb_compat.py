@@ -89,11 +89,16 @@ def test_sample_factory_wandb_patch_filters_noisy_tensorboard_tags(monkeypatch, 
         "global_step",
         "train/*",
         "perf/*",
+        "episode/*",
         "eval/global_steps",
         "eval/*",
+        "eval_corrected/global_steps",
+        "eval_corrected/*",
     ]
     assert {args[0]: kwargs["step_metric"] for args, kwargs in defined_metrics if kwargs} == {
-        "train/*": "global_step", "perf/*": "global_step", "eval/*": "global_step",
+        "train/*": "global_step", "perf/*": "global_step", "episode/*": "global_step",
+        "eval/*": "global_step",
+        "eval_corrected/*": "global_step",
     }
 
     writer = runner.SummaryWriter(str(tmp_path / "tb"))

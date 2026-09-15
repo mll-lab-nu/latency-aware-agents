@@ -25,6 +25,7 @@ def _training_config(tmp_path: Path) -> dict:
         },
         "backend": {
             "type": "sample_factory",
+            "algo": "APPO",
             "device": "gpu",
             "train_dir": str(tmp_path / "checkpoints"),
             "run_mode": "train",
@@ -192,6 +193,32 @@ def test_periodic_observer_saves_checkpoint_and_defers_latency_bench_job(monkeyp
     }
     assert result_path == tmp_path / "train_outputs" / "latency_bench_train_eval" / "step_1000" / "eval_result.json"
     assert writer.scalars == []
+
+
+def test_fasttd3_periodic_eval_uses_optimizer_step_and_keeps_raw_frames(monkeypatch, tmp_path: Path):
+    import training.common.latency_bench_periodic_eval as periodic_eval
+
+    checkpoint = tmp_path / "checkpoint_000000100_500.pth"
+    checkpoint.write_text("checkpoint\n", encoding="utf-8")
+    config = _training_config(tmp_path)
+    config["backend"]["algo"] = "FAST_TD3"
+    config["evaluation"]["eval_interval_steps"] = 100
+    runner = SimpleNamespace(env_steps={0: 500}, train_steps={0: 100})
+    observer = periodic_eval.LatencyBenchPeriodicEvalObserver(config)
+    monkeypatch.setattr(observer, "_save_checkpoint_for_eval", lambda runner: checkpoint)
+
+    observer.on_training_step(runner, training_iteration_since_resume=1)
+
+    request = observer.pending_jobs[0]
+    assert request.step == 100
+    assert request.raw_frames == 500
+    assert request.metadata == {
+        "eval_phase": "train_periodic",
+        "train_env_steps": 500,
+        "checkpoint_path": str(checkpoint),
+        "train_optimizer_steps": 100,
+    }
+    assert request.result_path.parent.name == "step_100"
 
 
 def test_periodic_observer_runs_deferred_eval_fifo_after_training(monkeypatch, tmp_path: Path):
@@ -523,7 +550,9 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
                 "returns": [10.0, 11.0, 12.0, 13.0, 14.0],
             },
         ],
-        env_steps=1_000,
+        step=1_000,
+        raw_frames=5_000,
+        uses_optimizer_steps=True,
     )
 
     assert log_calls[-1][1] is None
@@ -531,6 +560,7 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
     assert payload == {
         "global_step": 1_000,
         "eval_corrected/global_steps": 1_000,
+        "eval_corrected/raw_frames": 5_000,
         "eval_corrected/fixed/latency_0/mean_return": 10.0,
         "eval_corrected/fixed/latency_0/std_return": 1.0,
         "eval_corrected/fixed/latency_0/mean_length": 30.0,

@@ -2,6 +2,11 @@
 
 第一版消融已定稿：五个配置、四个 training seeds、每 seed 10M raw frames，共 20 个 run，训练和最终评估全部完成。
 
+2026-09-15 复核发现，这 20 个 run 的 learner 以 raw frames 累积 optimizer update credit，
+但 chunk replay 实际只加入完成的 execution segment；因此 horizon/执行长度会改变每条 replay
+transition 的重复更新次数。以下结果保留为修复前历史证据，不再作为等训练预算比较。新实验以
+500,000 critic optimizer steps 为统一预算，credit 由新完成的 replay transitions 累积，并单独记录 raw frames。
+
 **生产第一版的额外模块只保留 D（critic planned counts）和 E（planned head mask）。** 本次 Balance 的 actor 使用 198D 物理输入，输出始终为 8×43=344D；critic 使用首次执行时的 198D 物理状态和 8D planned counts。探索和 target smoothing 使用独立高斯噪声，网络按实际宽度普通初始化。
 
 这是用户确定的 Occam 简化选择。**本轮没有直接训练“只保留 D/E”的组合，不能把它写成已验证的性能结论。** 后续将分别单独消融 D、E，具体实验协议另行确定。

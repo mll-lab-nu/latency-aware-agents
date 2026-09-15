@@ -201,6 +201,7 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     cfg["experiment"]["name"] = "deadly_corridor_sf_fixed_latency_4"
     cfg["latency"] = {"method": "fixed", "fixed_latency_ms": 4 * 1000.0 / 35.0}
     cfg["training"]["fasttd3_actor_action_l2"] = 1.0
+    cfg["training"]["fasttd3_train_for_optimizer_steps"] = 500_000
     args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
     assert "--latency-type" in args
     assert args[args.index("--latency-type") + 1] == "fixed"
@@ -210,6 +211,7 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     assert "--experiment" in args
     assert "deadly_corridor_sf_fixed_latency_4" in args
     assert args[args.index("--fasttd3_actor_action_l2") + 1] == "1.0"
+    assert args[args.index("--fasttd3_train_for_optimizer_steps") + 1] == "500000"
 
 
 def test_build_common_sf_args_emits_initial_model_path():
