@@ -1508,6 +1508,28 @@ def test_episode_metrics_resume_reads_only_new_events(tmp_path):
     assert list(aggregator.return_window) == [2.0]
 
 
+def test_episode_metrics_reader_waits_for_complete_locked_event(tmp_path):
+    import fcntl
+    from concurrent.futures import ThreadPoolExecutor
+
+    from training.common.episode_metrics import EpisodeMetricsAggregator
+
+    path = tmp_path / "episodes.jsonl"
+    with path.open("a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.write('{"return": 1.0,')
+        handle.flush()
+        aggregator = EpisodeMetricsAggregator(path=path)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(aggregator.poll_once)
+            assert not result.done()
+            handle.write('"length": 1, "raw_frames": 1}\n')
+            handle.flush()
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            assert result.result() == 1
+    assert list(aggregator.return_window) == [1.0]
+
+
 def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_reason(tmp_path):
     from training.common.episode_metrics import EpisodeMetricsAggregator
 

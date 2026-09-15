@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import threading
@@ -16,20 +17,10 @@ def append_episode_metrics_event(path: str | Path | None, event: dict[str, Any])
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(event, sort_keys=True)
     with target.open("a", encoding="utf-8") as handle:
-        try:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        except (ImportError, OSError):
-            pass
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         handle.write(payload + "\n")
         handle.flush()
-        try:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        except (ImportError, OSError):
-            pass
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 class EpisodeMetricsAggregator:
@@ -162,6 +153,7 @@ class EpisodeMetricsAggregator:
 
         lines_processed = 0
         with self.path.open("r", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
             handle.seek(self._offset)
             while True:
                 line = handle.readline()
@@ -174,6 +166,7 @@ class EpisodeMetricsAggregator:
                 payload = self.process_event(json.loads(stripped))
                 self._pending_payloads.append(payload)
                 lines_processed += 1
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
         self._flush_pending()
         return lines_processed
