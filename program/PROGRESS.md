@@ -587,8 +587,24 @@ environment. Isolated 2k smokes both exited 0: corrected profile at
 `checkpoint_000002000_741632.pth`; both had finite model/critic tensors and no target-actor state.
 [Diagnosis and episode metrics](../outputs/tasks/humanoidbench_balance_simple/h16_profile_fixed100_corrected_noop_50k/20260915T174801Z/diagnosis.json) and
 [paired configs, hashes, smoke records, and decision gates](../outputs/tasks/humanoidbench_balance_simple/h16_profile_fixed100_corrected_noop_50k/20260915T174801Z/launch.json).
-Training completion and evaluation completion for the formal pair remain false: deployment to the
-private benchmark host is prepared but not launched because its presented ED25519 host key differs
-from the recorded key and requires owner confirmation. Acceptance and publication remain false.
-Next: authenticate that host, run corrected-profile and fixed100/capacity1 to 50k, then apply the
-documented mean-length gates; resume both to 100k only if either result is in the 100-300 grey zone.
+Training completion and evaluation completion for the formal pair remain false. The owner-confirmed
+private host is one RTX PRO 6000 Blackwell, so the two arms use the same GPU sequentially. The
+corrected-profile arm launched at 2026-09-15 18:17:27 UTC in tmux
+`balance_noop_pair_174801`; it crossed warmup and a checkpoint snapshot was verified at optimizer
+step 389 / 165,504 raw frames with finite model/critic tensors and no target-actor state.
+Fixed100/capacity1 is queued behind its successful training and deferred 25k/50k evaluations.
+[Profile W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-profile-corrected_noop-w128e1s1-replay6553600-50kopt-20260915T174801Z-s1-rl) and
+[fixed100 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-fixed100-cap1-corrected_noop-w128e1s1-replay6553600-50kopt-20260915T174801Z-s1-rl).
+Acceptance and publication remain false. Next: verify warmup/optimizer checkpoints, let both arms
+reach 50k, then apply the documented mean-length gates; resume both to 100k only if either result is
+in the 100-300 grey zone.
+
+### 2026-09-15T18:15:27.313160+00:00 — Balance H8 DAgger failure
+
+zero pipeline exited with code 1. [Pipeline log](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/dagger10_20260915T180849Z/zero.log), [status](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/dagger10_20260915T180849Z/status.json). Completed rounds and checkpoints are retained; next: diagnose and resume this exact run.
+
+### 2026-09-15T18:18:38.519283+00:00 — Balance H8 evaluation complete
+
+Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/zero/inference/checkpoints/model.pt`, step 0; H8, 50 Hz, `zero`, formal, n=8. Return 71.686991 ± 16.825506; mean length 87.625000; fraction ≥100 0.250000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/dagger10_20260915T180849Z/zero/evals/sft_0/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-balance-qwenoft-h8-25m-sft5k-dagger10-20260915T180849Z-zero-dagger). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
+
+Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
