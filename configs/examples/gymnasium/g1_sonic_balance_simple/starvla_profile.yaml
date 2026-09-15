@@ -1,4 +1,4 @@
-# StarVLA H1 realtime evaluation for G1 SONIC Balance Simple.
+# StarVLA H8 realtime evaluation for G1 SONIC Balance Simple.
 
 experiment:
   name: g1_sonic_balance_simple_starvla_profile
@@ -20,7 +20,6 @@ env:
     height: 256
     camera_name: head_camera
     control_mode: direct_absolute_position
-    gr00t_balance_teacher_observation_state: true
   env_fps: 50
   obs_fps: 50
   frame_stack: 1
@@ -42,7 +41,7 @@ policy:
   model_config_path: unused
   task_contract_path: task_contract.json
   device: cuda:0
-  state_info_key: official_gr00t_proprio
+  state_info_key: gymnasium_state
   image_views_info_key: env_raw_rgb_frame_stack
 
 evaluation:

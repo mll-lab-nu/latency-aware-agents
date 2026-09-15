@@ -88,8 +88,6 @@ def test_demon_attack_gpu_split_layout_preserves_global_env_ids_and_seeds():
         sample_factory_latency_seed_from_flat_config(
             split1.cfg,
             fallback_seed=split1_reset_seeds[agent_idx],
-            worker_index=0,
-            vector_index=0,
             env_id=split1_env_ids[agent_idx],
         )
         for agent_idx in range(512)
@@ -98,8 +96,6 @@ def test_demon_attack_gpu_split_layout_preserves_global_env_ids_and_seeds():
         sample_factory_latency_seed_from_flat_config(
             split2_a.cfg,
             fallback_seed=split2_reset_seeds[agent_idx],
-            worker_index=0,
-            vector_index=0,
             env_id=split2_env_ids[agent_idx],
         )
         for agent_idx in range(256)
@@ -107,8 +103,6 @@ def test_demon_attack_gpu_split_layout_preserves_global_env_ids_and_seeds():
         sample_factory_latency_seed_from_flat_config(
             split2_b.cfg,
             fallback_seed=split2_reset_seeds[256 + agent_idx],
-            worker_index=0,
-            vector_index=0,
             env_id=split2_env_ids[256 + agent_idx],
         )
         for agent_idx in range(256)

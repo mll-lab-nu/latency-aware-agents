@@ -25,7 +25,6 @@ from latency_bench.cross_device.profile_resolver import (
 from latency_bench.cross_device.protocol import main
 from latency_bench.cross_device.runner import _profile_lock, _replace_current
 from latency_bench.cross_device.runtime_configs import (
-    eval_command,
     measure_config,
     simulation_config,
 )
@@ -69,19 +68,19 @@ def test_registry_uses_one_episode_count_for_profile_and_replay():
             assert "profile_episodes" not in preset
 
 
-def test_registry_has_balance_official_gr00t_preset():
+def test_registry_has_balance_qwengr00t_preset():
     spec = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+        "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
     )
 
     assert spec["session_count"] == 5
-    assert spec["eval_episodes"] == 10
+    assert spec["eval_episodes"] == 50
     assert spec["evaluation_seed"] == 0
     assert spec["simulation_parallel_envs"] == 1
     assert spec["calibrate_env_fps"] is False
     assert spec["simulation_env"] == {}
-    assert spec["model_artifact"]["checkpoint"] == "."
-    assert spec["model_artifact"]["local_root"].endswith("checkpoint-10000")
+    assert spec["model_artifact"]["checkpoint"] == "checkpoints/model.pt"
+    assert "starvla-qwengr00t" in spec["model_artifact"]["hf_path"]
     assert spec["gpu_models"]["rpbzzz6"]["aliases"] == ["NVIDIA RPBZZZ6"]
 
 
@@ -167,36 +166,6 @@ def test_gpu_simulator_requires_a_separate_inference_gpu(monkeypatch):
         runner._inference_cuda_visible_devices({"simulation_gpu": "cuda:0"})
 
 
-def test_native_measure_config_assigns_only_inference_devices(tmp_path):
-    spec = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "extreme_parkour_go2"
-    )
-    spec["checkpoint_path"] = "/models/parkour"
-    spec["runtime_checkpoint_path"] = "/models/parkour/model_14999.pt"
-    config = measure_config(
-        spec,
-        {
-            "gpu_class": "2x-rpbzzz6",
-            "instance_id": "instance_abc",
-            "gpus": [{}, {}],
-        },
-        tmp_path,
-        {"selected_env_fps": 50, "selected_obs_fps": 10},
-    )
-
-    assert config["executor"]["inference_devices"] == ["cuda:1", "cuda:2"]
-    assert config["env"]["simulator_device"] == "cuda:0"
-    assert config["latency"]["device"] == "cuda:1"
-    assert config["env"]["runtime_checkpoint_path"] == "/models/parkour/model_14999.pt"
-    assert eval_command(spec, tmp_path / "generated.yaml", tmp_path) == [
-        sys.executable,
-        spec["eval_entrypoint"],
-        "latency-eval",
-        "--eval-config",
-        str(tmp_path / "generated.yaml"),
-    ]
-
-
 @pytest.mark.parametrize(
     "model,workload,env_fps,obs_fps",
     [
@@ -268,39 +237,9 @@ def test_measure_config_resolves_task_contract_for_model_bundle(
         assert config["policy"]["state_info_key"] == "haic_state"
 
 
-def test_official_gr00t_runtime_checkpoint_override_uses_model_path():
-    spec = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
-    )
-    spec["checkpoint_path"] = "/models/balance/checkpoint-15000"
-    config = simulation_config(
-        spec,
-        output_dir=Path("results/profiling/test"),
-        profile_path=Path("profile.json"),
-        profile_ref=Path("official_gr00t/2x-rpbzzz6/g1_sonic_balance_simple/instance_abc"),
-        profile={
-            "model_id": "official_gr00t",
-            "gpu_class": "2x-rpbzzz6",
-            "workload_id": "g1_sonic_balance_simple",
-            "instance_id": "instance_abc",
-            "source_run_id": "run_1",
-            "env_fps": 50,
-            "per_slot_summary": {"0": {}, "1": {}},
-            "summary": {"mean_ms": 50.0, "std_ms": 4.0},
-        },
-        method="fixed",
-        latency_seed=7,
-    )
-
-    assert config["policy"]["model_path"] == spec["checkpoint_path"]
-    assert "checkpoint_path" not in config["policy"]
-    assert config["env"]["env_fps"] == 50
-    assert config["env"]["obs_fps"] == 50
-
-
 def test_fixed_workload_cadence_skips_policy_calibration(tmp_path, monkeypatch):
     spec = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+        "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
     )
     spec["checkpoint_path"] = "/models/balance/checkpoint-15000"
     monkeypatch.setattr(

@@ -16,7 +16,7 @@ from latency_bench.data.hf_parquet import (
 from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+    ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
     action_spec_for_env,
 )
 from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
@@ -115,7 +115,6 @@ def export_sample_factory_teacher_dataset(
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
     image_transform_config: GhostTrailConfig | None = None,
-    gym_gr00t_balance_teacher_observation_state: bool = False,
 ) -> dict[str, Any]:
     """Collect and write a canonical Sample Factory teacher dataset.
 
@@ -158,9 +157,6 @@ def export_sample_factory_teacher_dataset(
         device_override=device or None,
         gym_camera_name=gym_camera_name,
         gym_make_kwargs_override=gym_make_kwargs_override,
-        gym_gr00t_balance_teacher_observation_state=(
-            gym_gr00t_balance_teacher_observation_state
-        ),
     )
     if env_name:
         if config["integration_name"] == "gymnasium":
@@ -174,7 +170,7 @@ def export_sample_factory_teacher_dataset(
     action_spec = config["action_spec"]
     if action_spec.layout in (
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+        ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
     ):
         filter_preset = FILTER_PRESET_NONE
     rollout_metadata = collect_teacher_dataset(
@@ -246,7 +242,7 @@ def export_sample_factory_teacher_dataset(
     }
     if config["integration_name"] == "gymnasium":
         metadata["integration_name"] = "gymnasium"
-    if action_spec.layout != ACTION_LAYOUT_G1_SONIC_GR00T_V2:
+    if action_spec.layout != ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1:
         metadata["prompt_timing_suffix"] = TIMING_SUFFIX
     if episode_acceptance is not None:
         metadata["episode_acceptance"] = dict(episode_acceptance)

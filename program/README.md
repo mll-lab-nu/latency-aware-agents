@@ -8,10 +8,10 @@
 
 | 文档 | 内容 / 主要用途 | 状态与相关文档 |
 |---|---|---|
-| [BALANCE](BALANCE.md) | Balance Simple 官方 GR00T teacher→数据→VLA 流程，10k 结果与 fresh 15k 计划 | 保留；官方 GR00T 与四类 StarVLA H1 是不同路线。最新产物见 PROGRESS |
+| [BALANCE](BALANCE.md) | Balance Simple 早期 NVIDIA GR00T 实验和 10k 历史结果 | 历史记录；当前 H8 StarVLA 路线见 BALANCE_LOCAL_H8 和 PROGRESS |
 | [MIKASA](MIKASA.md) | InterceptGrabFast 环境、PPO teacher、275 条轨迹、LeRobot、QwenOFT 训练与评测 | 保留；早期 zero baseline，profile 详见 PROFILE |
-| [EXTREME_PARKOUR](EXTREME_PARKOUR.md) | Go2 teacher/student、VLA action+yaw、DAgger 和 latency pipeline | 保留；旧 latent-only 与 running 消息为历史，新 H1 产物见 PROGRESS |
-| [HAIC](HAIC.md) | PullCart 原生 PPO、GR00T H40、数据与 latency pipeline | 保留；旧作废路线与当前 H1 结果分别记录 |
+| [EXTREME_PARKOUR](EXTREME_PARKOUR.md) | Go2 teacher/student 与早期 NVIDIA GR00T action+yaw/DAgger 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
+| [HAIC](HAIC.md) | PullCart 原生 PPO 与早期 NVIDIA GR00T H40 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
 | [SCALE_MODELS](SCALE_MODELS.md) | 四任务×qwenoft/qwengr00t/qwenpi_v3/wanoft 的 H1 公共入口与 16 组 smoke | 活跃公共运行手册；正式训练不能用两步 smoke 代替 |
 | [PROFILE](PROFILE.md) | MIKASA/QwenOFT 早期实机测量、五场采样、发布与回放结果 | 保留测量事实；当前 RTX 3090 覆盖与版本见 PROGRESS |
 
@@ -25,7 +25,7 @@
 | [CHUNK_RL_ABLATION](CHUNK_RL_ABLATION.md) | H8 五配置×四 training seeds 的最终评测、D/E 简化选择 | 第一版 20 run 完成；D/E 组合及单独消融待验证 |
 | [BALANCE_DAGGER](BALANCE_DAGGER.md) | QwenOFT DAgger 标签修复短交接、十轮结果及终点验收待办 | 活跃交接；详版历史在 archive/DAGGER |
 | [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 四任务 evaluator、sampler/worker、seed/reset 合同与撤回方案 | 保留合同记录；实现验证与正式训练分别记录 |
-| [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 四任务 H1 中文交接、最新诊断结论与旧 H40 smoke | 活跃交接；不是英文 Balance-only 文档的逐字重复，历史段落保留日期 |
+| [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 四任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
 | [parkour/OPTIMIZE](parkour/OPTIMIZE.md) | CPU 调度收益、预算对齐及已回退的 PhysX/cache 实验 | 保留性能记录；训练吞吐与 VLA inference latency profile 分开解释 |
 
 ## 研究资料

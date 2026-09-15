@@ -54,9 +54,9 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
             super().reset(seed=seed)
             self.value = 0.0
             self.terminate = False
-            return self._official_gr00t_proprio(), {}
+            return self._policy_observation(), {}
 
-        def _official_gr00t_proprio(self):
+        def _policy_observation(self):
             return np.full(198, self.value, dtype=np.float32)
 
         def g1_absolute_request_from_raw_action(self, action):
@@ -67,7 +67,7 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
 
         def step(self, action):
             self.value = action[0]
-            return self._official_gr00t_proprio(), 1.0, self.terminate, False, {}
+            return self._policy_observation(), 1.0, self.terminate, False, {}
 
     class Teacher:
         def predict_batch(self, observations):
@@ -91,7 +91,7 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     adapter = balance_dagger.BalanceDaggerAdapter(config, Teacher(), tmp_path, [main], [branch])
     state = DaggerState(5, [5], [0], [0], [0], [SimpleNamespace(action_chunk=np.full((8, 43), -5))])
     snapshot = {"images": {0: np.zeros((2, 2, 3), dtype=np.uint8)},
-                "states": {0: main.unwrapped._official_gr00t_proprio().copy()}}
+                "states": {0: main.unwrapped._policy_observation().copy()}}
     row = adapter.start_records(snapshot, [0], state)[0]
     mask = np.asarray(row["action_valid_mask"])
     chunk = np.asarray(row["issued_command_chunk"])

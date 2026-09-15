@@ -78,12 +78,10 @@ feature metadata is in each split's `meta/info.json` and `meta/modality.json`.
 
 ## Provenance
 
-The data is generated from the G1 SONIC Balance Simple teacher configured in
-`configs/teachers/g1_sonic_gr00t.json`, using
-`scripts/teachers/export_g1_sonic_gr00t.py` with
-`--balance-teacher-observation-state`, deterministic rollout, 100 maximum
-episodes, validation fraction `0.1`, and split seed `0`. The converted output
-is intended for NVIDIA Isaac-GR00T `NEW_EMBODIMENT` training.
+The data is generated from the published G1 SONIC Balance Simple FastTD3
+teacher with deterministic rollout, 100 maximum episodes, validation fraction
+`0.1`, and split seed `0`. The converted output is intended for StarVLA
+training.
 
 The state is the teacher's 198D pre-decision observation. Actions are 43D
 absolute native joint targets. No normalization or action-dimension padding is
@@ -92,9 +90,8 @@ applied in this dataset.
 ## Intended use
 
 Use `balance_simple/lerobot` for training and keep `balance_simple/lerobot__val`
-for validation. The official GR00T modality maps these fields to
-`state.state`, `action.action`, and `video.ego_view`; the 40-step action horizon
-uses the current row as input and repeats its current action across all 40 labels.
+for validation. The StarVLA modality maps these fields to `state.state`,
+`action.action`, and `video.ego_view`; Balance uses the H8 action contract.
 
 This dataset is for research and benchmarking in the HumanoidBench Balance
 Simple environment. It does not include model checkpoints or W&B artifacts.

@@ -12,7 +12,7 @@ executor:
 
 latency:
   method: temporal
-  profile_path: results/profiling/profiles/official_gr00t/1x-rpbzzz6/g1_sonic_balance_simple/instance_0d0a9c4fad6eb247/profile.json
+  profile_path: results/profiling/profiles/qwengr00t/1x-rtx3090/g1_sonic_balance_simple/instance_3a0d42681a03715c/profile.json
   profile_worker_slot: 0
   seed: 0
   add_latency_info: true

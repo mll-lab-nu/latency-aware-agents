@@ -220,13 +220,12 @@ def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     assert metrics["metadata"]["frame_ms"] == pytest.approx(40.0)
 
 
-@pytest.mark.parametrize("policy_type,path_key", [("starvla", "checkpoint_path"), ("official_gr00t", "model_path")])
-def test_summary_keeps_new_model_identity_separate_from_source_profile(tmp_path, policy_type, path_key):
+def test_summary_keeps_new_model_identity_separate_from_source_profile(tmp_path):
     from latency_bench.policy.base import ConstantPolicyRunner
 
     profile = _write_profile(tmp_path)
     config = _config(tmp_path / "evaluation", latency={"method": "iid", "profile_path": str(profile)})
-    config["policy"] = {"type": policy_type, path_key: "/new-vla/checkpoint-2"}
+    config["policy"] = {"type": "starvla", "checkpoint_path": "/new-vla/checkpoint-2"}
     run_from_config(config, policy=ConstantPolicyRunner(Action("jump")))
     summary = json.loads((tmp_path / "evaluation/queue_eval_latency_profile_sample.json").read_text())
     assert summary["checkpoint_path"] == "/new-vla/checkpoint-2"

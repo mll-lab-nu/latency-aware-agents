@@ -99,7 +99,7 @@ Accepted zero-latency teacher rollouts for the supported benchmark tasks.
 - `viewer/mikasa-intercept-grab-fast`: browser-oriented Parquet with the same
   transitions and decoded top/wrist frames.
 - `zero-latency/humanoidbench-balance-simple/teacher-rollouts-v1/lerobot` and
-  `lerobot__val`: official GR00T split, videos, and metadata.
+  `lerobot__val`: published 90/10 split, videos, and metadata.
 
 Extreme Parkour and HAIC datasets are intentionally not published until their
 current VLA pipelines pass their documented gates.

@@ -31,18 +31,14 @@ def sample_factory_latency_seed_from_flat_config(
     cfg: Any,
     *,
     fallback_seed: int,
-    worker_index: int = 0,
-    vector_index: int = 0,
-    env_id: int = 0,
+    env_id: int,
 ) -> int:
     latency_seed = getattr(cfg, "latency_seed", None)
     if latency_seed is None:
         return int(fallback_seed)
     return env_instance_seed(
         base_seed=int(latency_seed),
-        worker_index=int(worker_index),
-        vector_index=int(vector_index),
-        env_id=int(env_id),
+        env_id=env_id,
     )
 
 

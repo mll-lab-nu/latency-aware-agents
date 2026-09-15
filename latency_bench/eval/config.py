@@ -35,12 +35,7 @@ def apply_runtime_overrides(
     latency_seed: int | None = None,
 ) -> dict[str, Any]:
     if checkpoint_path is not None:
-        checkpoint_key = (
-            "model_path"
-            if config["policy"]["type"] == "official_gr00t"
-            else "checkpoint_path"
-        )
-        config["policy"][checkpoint_key] = str(checkpoint_path)
+        config["policy"]["checkpoint_path"] = str(checkpoint_path)
     if model_config_path is not None:
         config["policy"]["model_config_path"] = str(model_config_path)
     if task_contract_path is not None:

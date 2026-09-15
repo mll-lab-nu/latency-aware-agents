@@ -13,7 +13,7 @@ import yaml
 
 from latency_bench.data.action_layouts import (
     ActionSpec,
-    G1_SONIC_GR00T_ACTION_SPEC,
+    G1_SONIC_ACTION_SPEC,
     action_spec_for_env,
     gymnasium_discrete_action_spec,
     gymnasium_continuous_action_spec,
@@ -84,7 +84,7 @@ def _rollout_task_contract(flat_cfg: Mapping[str, Any]) -> tuple[str, str, Actio
         action_space = json.loads(flat_cfg["gym_action_space_json"])
         action_labels = action_space["labels"]
         action_spec = (
-            G1_SONIC_GR00T_ACTION_SPEC
+            G1_SONIC_ACTION_SPEC
             if str(flat_cfg["gym_task_name"]).startswith("g1_sonic_")
             else (
                 gymnasium_continuous_action_spec(action_labels)
@@ -122,7 +122,7 @@ def _gymnasium_task_metadata(flat_cfg: Mapping[str, Any]) -> dict[str, Any]:
     if str(flat_cfg["gym_task_name"]).startswith("g1_sonic_"):
         metadata["action_space"] = {
             "type": action_space["type"],
-            "labels": list(G1_SONIC_GR00T_ACTION_SPEC.labels),
+            "labels": list(G1_SONIC_ACTION_SPEC.labels),
             "dtype": action_space["dtype"],
         }
     elif action_space["type"] == "discrete":
@@ -233,7 +233,6 @@ def load_rollout_training_config(
     device_override: str | None = None,
     gym_camera_name: str | None = None,
     gym_make_kwargs_override: Mapping[str, Any] | None = None,
-    gym_gr00t_balance_teacher_observation_state: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load the rollout descriptor and metadata used for dataset export.
 
@@ -254,8 +253,6 @@ def load_rollout_training_config(
         if gym_camera_name is not None:
             make_kwargs["camera_name"] = gym_camera_name
             make_kwargs["render_mode"] = "rgb_array"
-        if gym_gr00t_balance_teacher_observation_state:
-            make_kwargs["gr00t_balance_teacher_observation_state"] = True
         if gym_make_kwargs_override is not None:
             make_kwargs.update(gym_make_kwargs_override)
         flat_cfg["gym_make_kwargs_json"] = json.dumps(make_kwargs)

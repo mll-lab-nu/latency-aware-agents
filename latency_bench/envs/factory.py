@@ -78,7 +78,7 @@ def _find_key_path(value: Any, target_key: str, prefix: str = "") -> str | None:
 
 def _uses_raw_rgb_vla_policy(config: dict[str, Any]) -> bool:
     policy_type = str(config["policy"]["type"]).strip().lower()
-    return policy_type in {"starvla", "official_gr00t"}
+    return policy_type == "starvla"
 
 
 def _exports_raw_rgb_frames(config: dict[str, Any]) -> bool:

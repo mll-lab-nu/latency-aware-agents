@@ -182,8 +182,6 @@ class _ScalarGpuOracle:
             latency_seed = sample_factory_latency_seed_from_flat_config(
                 cfg,
                 fallback_seed=sub_seed,
-                worker_index=int(env_config.worker_index),
-                vector_index=int(env_config.vector_index),
                 env_id=agent_idx,
             )
             latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=self.clock.env_fps)

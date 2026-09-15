@@ -160,39 +160,6 @@ def test_haic_bootstrap_converter_keeps_action_distillation_targets(tmp_path):
     }
 
 
-def test_haic_dagger_prepare_copies_bootstrap_stats(tmp_path, monkeypatch):
-    from scripts.official_gr00t import prepare_haic_dataset as prepare_module
-
-    source = tmp_path / "bootstrap/meta/stats.json"
-    source.parent.mkdir(parents=True)
-    source.write_bytes(b'{"fixed": [1.0]}\n')
-    output = tmp_path / "lerobot"
-
-    def fake_convert(*args, **kwargs):
-        (output / "meta").mkdir(parents=True)
-        return {"dataset_name": output.name}
-
-    monkeypatch.setattr(
-        prepare_module, "convert_haic_dagger_shards_to_lerobot", fake_convert
-    )
-    monkeypatch.setattr(
-        prepare_module.subprocess,
-        "run",
-        lambda *args, **kwargs: pytest.fail("DAgger stats must not be recomputed"),
-    )
-
-    manifest = prepare_module.prepare_haic_dataset(
-        tmp_path / "raw",
-        output,
-        force=False,
-        dagger=True,
-        normalization_source=tmp_path / "bootstrap",
-    )
-
-    assert manifest == {"dataset_name": "lerobot"}
-    assert (output / "meta/stats.json").read_bytes() == source.read_bytes()
-
-
 def test_haic_dagger_shard_requires_all_fields(tmp_path):
     from latency_bench.data.haic_dagger import write_haic_dagger_shard
 

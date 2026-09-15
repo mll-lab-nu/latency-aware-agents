@@ -307,7 +307,7 @@ def _convert_split(
     # Isaac Lab's collector environment does not ship pyarrow; keep this
     # import at the conversion boundary so collection can run without it.
     import pyarrow.parquet as pq
-    from latency_bench.data.official_gr00t import _write_official_gr00t_modality
+    from latency_bench.data.exporters.starvla_lerobot import write_starvla_modality
 
     if output_dir.exists() and force:
         shutil.rmtree(output_dir)
@@ -354,7 +354,7 @@ def _convert_split(
         actor_observation_shape=actor_observation_shape,
         termination_shape=termination_shape,
     )
-    _write_official_gr00t_modality(
+    write_starvla_modality(
         output_dir,
         PARKOUR_VLA_STATE_DIM,
         PARKOUR_VLA_ACTION_DIM,
@@ -418,7 +418,6 @@ def convert_parkour_dagger_shards_to_lerobot(
         "action_labels": list(GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC.labels),
         "action_dim": PARKOUR_VLA_ACTION_DIM,
         "state_dim": PARKOUR_VLA_STATE_DIM,
-        "official_action_horizon": PARKOUR_ACTION_HORIZON,
         "termination_shape": train_manifest["termination_shape"],
         "actor_observation_shape": train_manifest["actor_observation_shape"],
         "action_shape": train_manifest["action_shape"],
@@ -446,11 +445,6 @@ def convert_parkour_dagger_shards_to_lerobot(
             "uses_state": True,
             "state_labels": state_labels,
             "state_normalization": None,
-            "official_embodiment_tag": "NEW_EMBODIMENT",
-            "official_action_horizon": PARKOUR_ACTION_HORIZON,
-            "official_modality_config": (
-                "latency_bench/policy/official_gr00t_parkour_modality.py"
-            ),
         }
         manifest.update(bootstrap_contract)
     if val_manifest is not None:

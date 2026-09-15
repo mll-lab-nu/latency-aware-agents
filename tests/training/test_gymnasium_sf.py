@@ -518,7 +518,7 @@ class _TerminalTrajectoryEnv(_VectorActionTraceEnv):
 
 
 
-def test_profile_streams_are_reproducible_per_environment_and_distinct_across_lanes():
+def test_profile_streams_are_reproducible_per_global_environment_across_worker_layouts():
     config = load_config("configs/training/latency/balance_fasttd3_chunk_h8_qwenoft.yaml")
     cfg = build_train_cfg_from_config(config)
     cfg.episode_metrics_path = ""
@@ -535,10 +535,8 @@ def test_profile_streams_are_reproducible_per_environment_and_distinct_across_la
         finally:
             env.close()
 
-    reference = stream(0, 0, 0)
-    assert reference == stream(0, 0, 0)
-    assert reference != stream(1, 0, 8)
-    assert reference != stream(0, 1, 1)
+    assert stream(1, 0, 1) == stream(0, 1, 1)
+    assert stream(0, 0, 0) != stream(0, 1, 1)
 
 
 

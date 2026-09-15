@@ -21,7 +21,7 @@ ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54 = "deadly_corridor_joint_54"
 ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6 = "defend_the_line_joint_6"
 ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1 = "gymnasium_discrete_v1"
 ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1 = "gymnasium_continuous_v1"
-ACTION_LAYOUT_G1_SONIC_GR00T_V2 = "g1_sonic_gr00t_v2"
+ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1 = "g1_sonic_absolute_joint_target_v1"
 ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1 = "go2_parkour_terrain_latent_yaw_v1"
 
 FLAPPY_ACTION_LABELS = ("NOOP", "FLAP")
@@ -68,7 +68,7 @@ DEFEND_THE_LINE_JOINT_6_LABELS = tuple(
     for turn in range(len(DEFEND_THE_LINE_TURN_LABELS))
     for attack in range(len(DEFEND_THE_LINE_ATTACK_LABELS))
 )
-G1_SONIC_GR00T_ACTION_LABELS = tuple(
+G1_SONIC_ACTION_LABELS = tuple(
     G1_BODY_JOINT_NAMES[index] for index in MUJOCO_INDEX_FOR_POLICY
 ) + G1_HAND_JOINT_NAMES
 
@@ -129,9 +129,9 @@ ACTION_SPECS_BY_ENV = {
 }
 
 
-G1_SONIC_GR00T_ACTION_SPEC = ActionSpec(
-    layout=ACTION_LAYOUT_G1_SONIC_GR00T_V2,
-    labels=G1_SONIC_GR00T_ACTION_LABELS,
+G1_SONIC_ACTION_SPEC = ActionSpec(
+    layout=ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
+    labels=G1_SONIC_ACTION_LABELS,
     row_fields=("action", "action_text"),
     reward_field="raw_reward",
     episode_return_field="episode_raw_return",
@@ -163,7 +163,7 @@ def action_spec_for_env(env_name: str) -> ActionSpec:
     """
     name = str(env_name)
     if name.startswith("g1_sonic_"):
-        return G1_SONIC_GR00T_ACTION_SPEC
+        return G1_SONIC_ACTION_SPEC
     if name == "extreme_parkour_go2":
         return GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC
     return ACTION_SPECS_BY_ENV[name]
@@ -354,7 +354,7 @@ def encode_action_for_env(
         return defend_the_line_joint_6_action(raw_action)
     if resolved_action_spec.layout in (
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-        ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+        ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
         ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1,
     ):
         action = [float(item) for item in _to_python_action(raw_action)]

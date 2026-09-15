@@ -10,7 +10,7 @@ env:
 
 latency:
   method: temporal
-  profile_path: /pfs/users/lxy/latency-sensitive-bench/results/profiling/profiles/official_gr00t/1x-rpbzzz6/haic_pull_cart/instance_e906b84a82f9e086/profile.json
+  profile_path: results/profiling/profiles/qwenoft/1x-rtx3090/haic_pull_cart/instance_b19d7af6f1bdd95d/profile.json
   seed: 0
 
 executor:

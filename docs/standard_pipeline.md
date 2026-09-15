@@ -22,37 +22,31 @@ them. Use the task guide for the exact environment, dimensions, and gates.
 Run commands from the repository root after installing the task's dependencies.
 Every task owns train and profile entrypoints:
 
-| Task | Train the small-policy teacher | Train and evaluate the VLA | Profile the final VLA |
+| Task | Train the small-policy teacher | Train and evaluate QwenOFT | Profile QwenOFT |
 | --- | --- | --- | --- |
-| MIKASA Intercept Grab Fast | `bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh` | `bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh /absolute/path/to/final_success_ckpt.pt` | `bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]` |
-| HumanoidBench Balance Simple | `bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh` | `bash scripts/tasks/humanoidbench_balance_simple/train_vla.sh /absolute/path/to/teacher.pt` | `bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]` |
-| Extreme Parkour Go2 | `bash scripts/tasks/extreme_parkour_go2/train_small_policy.sh` | `bash scripts/tasks/extreme_parkour_go2/train_vla.sh /absolute/path/to/model_14999.pt` | `bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]` |
-| HAIC Pull Cart G1 | `bash scripts/tasks/haic_pull_cart/train_small_policy.sh` | `bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh /absolute/path/to/checkpoint_final.pt` | `bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]` |
+| MIKASA Intercept Grab Fast | `bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh` | `bash scripts/tasks/mikasa_intercept_grab_fast/train_qwenoft.sh --run-id RUN_ID` | `bash scripts/profile.sh run --model qwenoft --workload mikasa_intercept_grab_fast --model-path MODEL_PATH` |
+| HumanoidBench Balance Simple | `bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh` | `bash scripts/tasks/humanoidbench_balance_simple/train_qwenoft.sh --run-id RUN_ID` | `bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --model-path MODEL_PATH` |
+| Extreme Parkour Go2 | `bash scripts/tasks/extreme_parkour_go2/train_small_policy.sh` | `bash scripts/tasks/extreme_parkour_go2/train_qwenoft.sh --run-id RUN_ID` | `bash scripts/profile.sh run --model qwenoft --workload extreme_parkour_go2 --model-path MODEL_PATH` |
+| HAIC Pull Cart G1 | `bash scripts/tasks/haic_pull_cart/train_small_policy.sh` | `bash scripts/tasks/haic_pull_cart/train_qwenoft.sh --run-id RUN_ID` | `bash scripts/profile.sh run --model qwenoft --workload haic_pull_cart --model-path MODEL_PATH` |
 
 `train_small_policy.sh` runs the native RL recipe and leaves the checkpoint in
-the task output directory. Inspect the reported path and use that exact file as
-the positional argument to the VLA script in the table; an unverified or implicit `latest`
-checkpoint is not accepted. These scripts own rollout collection, conversion,
-SFT, task-specific DAgger, and the final zero-latency evaluation. They do not
-upload files to Hugging Face automatically.
+the task output directory. Inspect the reported path and pass it with `--teacher-checkpoint`; an unverified or implicit `latest` checkpoint is not accepted. The StarVLA launchers own rollout collection, conversion, SFT, task-specific DAgger, evaluation, and formal publication. Pass `--no-publish` to keep a formal run local.
 
-The separate [StarVLA H1 pipelines](../program/SCALE_MODELS.md) provide
+The [StarVLA pipelines](../program/SCALE_MODELS.md) provide
 `train_qwenoft.sh`, `train_qwenpi_v3.sh`, `train_qwengr00t.sh`, and
 `train_wanoft.sh` in each task directory. They download teachers from the
 model repository's default branch and
 automatically publish formal datasets and final models; `--smoke` stays local.
 
 Each VLA trainer finishes by printing `MODEL_PATH=<final inference bundle>`.
-Pass that path to the task's `profile.sh`, or omit it to use the registered
-default. If the local model root is absent, the profiler downloads that exact
+Pass that path to `scripts/profile.sh run --model MODEL --workload TASK --model-path MODEL_PATH`. If the local model root is absent, the profiler downloads that exact
 artifact from `latency-sensitive-bench/benchmark-models`; an existing but
 incomplete root fails instead of selecting another checkpoint. Profiling stays
 local unless `--publish` is supplied.
 
-Parkour and HAIC run SFT followed by all ten DAgger rounds by default. To stop
-after SFT, pass `--end-round 0`; to resume a later round, pass `--resume` and
-the explicit bootstrap/checkpoint arguments documented in the task cookbook
-and use a zero-based round range ending at `10`.
+Balance, Parkour, and HAIC run SFT followed by ten DAgger rounds by default. To
+stop after SFT, pass `--dagger-rounds 0`. Resume the same `--run-id` with
+`--resume`.
 
 ## Stage contracts
 
@@ -79,7 +73,7 @@ The labels are not interchangeable across tasks:
 | Task | VLA label/interface |
 | --- | --- |
 | MIKASA | Direct 7D current action |
-| Balance Simple | Official GR00T 198D state to 43D action, H40 repeat-current |
+| Balance Simple | StarVLA 198D state to H8 43D absolute joint targets |
 | Extreme Parkour | 34D terrain latent plus yaw, then fixed actor to 12D motor action |
 | HAIC Pull Cart | 256D latent, then frozen `actor_adapt` with 605D state to 23D motor action |
 
@@ -92,11 +86,11 @@ the action-level objective; that actor is not part of the VLA checkpoint.
 
 ### 4. Run DAgger where the task requires it
 
-MIKASA and Balance finish at the SFT model and final evaluation. Parkour and
-HAIC collect current-VLA rollouts against the fixed privileged teacher and
-aggregate them with the bootstrap data for rounds 0 through 9. Each completed
-round keeps its converted dataset, checkpoint, manifest, and evaluation result;
-raw shards may be removed after conversion.
+MIKASA finishes at the SFT model. Balance, Parkour, and HAIC collect current-VLA
+rollouts against the fixed teacher and aggregate them with the bootstrap data
+for the configured DAgger rounds. Each completed round keeps its converted
+dataset, checkpoint, manifest, and evaluation result; raw shards may be removed
+after conversion.
 
 An interrupted collection is restarted from an empty partial round directory,
 not from a row count. An interrupted completed round resumes from its explicit

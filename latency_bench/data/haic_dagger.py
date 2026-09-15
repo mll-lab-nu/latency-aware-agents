@@ -411,9 +411,9 @@ def _convert_split(
         teacher_action_shape=teacher_action_shape,
         termination_shape=termination_shape,
     )
-    from latency_bench.data.official_gr00t import _write_official_gr00t_modality
+    from latency_bench.data.exporters.starvla_lerobot import write_starvla_modality
 
-    _write_official_gr00t_modality(
+    write_starvla_modality(
         output_dir,
         HAIC_VLA_STATE_DIM,
         HAIC_VLA_ACTION_DIM,

@@ -413,3 +413,43 @@ checkpoint/配置/版本、核查日期和下一步。保留可比较的旧结�
 [MS-wanoft-train]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/train.yaml
 [MS-wanoft-config]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/eval.yaml
 [MS-wanoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/66414463f2a609316da63935941a79abf0a73ce9/profiles/wanoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
+
+### 2026-09-15 14:27 UTC — Balance FastTD3 correctness and throughput verification
+
+The final H16 FastTD3 path was verified on the idle private NVIDIA RTX PRO 6000 host with
+seed 1, replay capacity 6,553,600, batch 32,768, 64 credited replay transitions per
+optimizer update, and 2,000 optimizer updates. The zero-latency protocol used 50 Hz env,
+10 Hz observations, 64 workers × 2 envs × 2 splits. Three final runs reached exactly step
+2,000 with median 13.662786 optimizer updates/s, 4,064.565 raw frames/s, 181.89 s wall
+time, and replay/raw 0.214302. The old environment plus unordered replay baseline was
+11.993094 updates/s and 202.19 s, so the final correct path improves optimizer throughput
+13.92%, reduces wall time 10.04%, and changes the 500k-step projection from 11.58 h to
+10.17 h. [Aggregate results and exact run links](../outputs/tasks/humanoidbench_balance_simple/final_layout_benchmark/summary.json).
+
+The replay failure was traced to startup decorrelation: with 64 × 2 × 2, the second split
+advanced each environment before its first trace, consuming frames 0–4 while ordered
+replay waited for frame 0. Disabling that FastTD3 decorrelation restored the zero run from
+1,203,707 raw frames and replay/raw 0.106338 to the final median 0.214302. Replay now
+buffers cross-batch events per environment and drains them in episode/frame order. Latency
+and reset streams are keyed by global env id; all 128 historical 128 × 1 seeds are
+preserved. Accelerator batching now counts worker splits: min request target 42 versus 21
+improved the paired three-run median from 13.222920 to 13.662786 updates/s (+3.33%).
+
+The topology check used the same target 42 and seed mapping. The 128 workers × 1 env × 1
+split zero run reached step 2,000 at 13.211374 updates/s and 202.39 s; 64 × 2 × 2 remained
+3.42% faster by stable optimizer throughput and reduced wall time 10.13%. The QwenPI v3
+RTX 3090 temporal-profile run used 50 Hz observations and 64 × 2 × 2; it reached step
+2,000 at 6.743590 updates/s, 2,468.717 raw frames/s, 748,416 raw frames, and replay/raw
+0.171028 (about 1/5.85), with no missing-frame wait or expanding backlog. Exact configs,
+logs, exit codes, source snapshots, and per-run JSON are under the linked evidence directory.
+
+The optimized G1 wrapper was also checked against the prior implementation for zero,
+fixed 40 ms, and temporal latency over 50 nonconstant H16 decisions each; state, reward,
+terminal flags, replay trace, and scheduler metadata matched exactly. This entry records
+correctness and performance only. No policy-quality evaluation, acceptance, or publication
+was performed. The local source baselines were repository revision
+`558af6c2573ecb00041a4413cb1b1065084f4570` and Sample Factory revision
+`f6050eeefa3739968c494b68060cbd50c09017f9`, both dirty. The benchmark host was a file
+sync rather than a git checkout, so its exact hot-path sources are retained in the evidence
+directory. Next: use 64 × 2 × 2 for the next long zero/profile learning run, then run the
+documented seeded evaluation protocol separately.

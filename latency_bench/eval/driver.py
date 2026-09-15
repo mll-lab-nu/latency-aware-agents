@@ -104,8 +104,6 @@ def run_from_config(
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
             if "checkpoint_path" in policy_cfg:
                 episode_metrics.metadata["checkpoint_path"] = policy_cfg["checkpoint_path"]
-            if policy_cfg["type"] == "official_gr00t":
-                episode_metrics.metadata["checkpoint_path"] = policy_cfg["model_path"]
             if "profile_path" in config["latency"]:
                 episode_metrics.metadata["source_profile_path"] = config["latency"]["profile_path"]
             if "checkpoint_kind" in policy_cfg:

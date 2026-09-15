@@ -5,9 +5,8 @@ inference, then build a latency profile that can be replayed in simulation.
 
 ## Quick start
 
-Each supported task has a user-facing launcher. Pass the final model directory,
-or omit it to use the registered local path (and the exact Hugging Face artifact
-when that local root does not exist):
+Use the shared profiler with a registered model/workload pair and the final
+model directory:
 
 Use `--hf-repo-id`, `--hf-path`, `--hf-checkpoint`, and `--hf-model-config`
 to override the preset Hugging Face artifact coordinates when you want to profile
@@ -30,10 +29,10 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh openvla [MO
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh wanoft [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh pi05 [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh gr00t [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=1 bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --model-path MODEL_PATH
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run --model qwenoft --workload extreme_parkour_go2 --model-path MODEL_PATH
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run --model qwenoft --workload haic_pull_cart --model-path MODEL_PATH
 ```
 
 The Demon Attack launchers use the model-specific StarVLA environment active in
@@ -50,10 +49,10 @@ Every task runs five sessions of 10 episodes and writes under
 starts only after the complete run and fitted profile exist:
 
 ```bash
-bash scripts/tasks/<task>/profile.sh [MODEL_PATH] --publish
+bash scripts/profile.sh run --model MODEL --workload WORKLOAD --model-path MODEL_PATH --publish
 ```
 
-To resume, rerun the same task command with `--resume "$RUN_ID"`; completed
+To resume, rerun the same command with `--resume "$RUN_ID"`; completed
 sessions are skipped and the incomplete session is rerun. The local
 `run_contract.json` must exactly match the resolved artifacts, interpreter,
 entrypoint, deployment and generated config. Legacy runs without this contract,

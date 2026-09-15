@@ -11,28 +11,10 @@ import pytest
 from latency_bench.envs import humanoidbench_sonic as sonic
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_DEFAULT_ANGLES,
-    G1_GR00T_ACTION_DIM,
-    G1_GR00T_STATE_DIM,
     G1_HAND_JOINT_NAMES,
     MUJOCO_INDEX_FOR_POLICY,
     POLICY_INDEX_FOR_MUJOCO,
 )
-
-
-def test_quaternion_rotation_matches_cross_product():
-    rng = np.random.default_rng(7)
-    for _ in range(100):
-        quat = rng.standard_normal(4)
-        quat /= np.linalg.norm(quat)
-        vector = rng.standard_normal(3)
-        qvec = quat[1:]
-        expected = vector + 2.0 * (
-            quat[0] * np.cross(qvec, vector)
-            + np.cross(qvec, np.cross(qvec, vector))
-        )
-        np.testing.assert_array_equal(
-            sonic._rotate_by_quaternion(quat, vector), expected
-        )
 
 
 @pytest.fixture(scope="module")
@@ -195,7 +177,7 @@ def test_raw_reset_action_matches_default_pose_and_can_drop_hands(scene_path):
         raw.close()
 
 
-def test_direct_absolute_mode_exposes_policy_order_targets_and_135d_proprio(scene_path):
+def test_direct_absolute_mode_exposes_policy_order_targets(scene_path):
     env = gym.make(
         sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
         task_name="g1_sonic_balance_simple",
@@ -207,7 +189,7 @@ def test_direct_absolute_mode_exposes_policy_order_targets_and_135d_proprio(scen
         height=32,
     )
     try:
-        _, reset_info = env.reset(seed=0)
+        env.reset(seed=0)
         native = env.unwrapped
         expected_low = np.concatenate(
             [
@@ -225,10 +207,6 @@ def test_direct_absolute_mode_exposes_policy_order_targets_and_135d_proprio(scen
         np.testing.assert_allclose(env.action_space.high, expected_high)
         assert env.action_space.shape == (43,)
         assert native.camera_name == "head_camera"
-        assert reset_info[sonic.GR00T_PROPRIO_INFO].shape == (135,)
-        assert reset_info[sonic.GR00T_PROPRIO_INFO].dtype == np.float32
-        assert G1_GR00T_ACTION_DIM == 43
-        assert G1_GR00T_STATE_DIM == 135
         assert len(G1_HAND_JOINT_NAMES) == 14
 
         action = np.concatenate(
@@ -239,66 +217,11 @@ def test_direct_absolute_mode_exposes_policy_order_targets_and_135d_proprio(scen
         )
         action[0] += 0.01
         action[29] += 0.05
-        _, _, _, _, info = env.step(action.astype(np.float32))
-        proprio = info[sonic.GR00T_PROPRIO_INFO]
-        body_target = info[sonic.CONDITIONED_BODY_TARGET_INFO]
-        target = info[sonic.ACTION_TARGET_INFO]
-        requested_target = action
-        np.testing.assert_allclose(body_target, requested_target[:29], atol=1e-6)
-        np.testing.assert_allclose(target, requested_target, atol=1e-6)
+        env.step(action.astype(np.float32))
         np.testing.assert_allclose(
-            proprio[:3], native._base_angular_velocity(), atol=1e-12
-        )
-        np.testing.assert_allclose(
-            proprio[3:32],
-            native.data.qpos[native._body_qpos_addresses][MUJOCO_INDEX_FOR_POLICY],
-            atol=1e-12,
-        )
-        np.testing.assert_allclose(
-            proprio[32:46],
-            native.data.qpos[native._hand_qpos_addresses],
-            atol=1e-12,
-        )
-        np.testing.assert_allclose(
-            proprio[46:75],
-            native.data.qvel[native._body_qvel_addresses][MUJOCO_INDEX_FOR_POLICY],
-            atol=1e-12,
-        )
-        np.testing.assert_allclose(
-            proprio[75:89],
-            native.data.qvel[native._hand_qvel_addresses],
-            atol=1e-12,
-        )
-        np.testing.assert_allclose(proprio[89:132], target, atol=1e-12)
-        np.testing.assert_allclose(proprio[132:], native._projected_gravity(), atol=1e-12)
-    finally:
-        env.close()
-
-
-def test_balance_can_expose_the_exact_teacher_observation_as_gr00t_state(scene_paths):
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
-        task_name="g1_sonic_balance_simple",
-        scene_path=str(scene_paths["g1_sonic_balance_simple"]),
-        control_mode=sonic.G1_CONTROL_MODE_DIRECT_ABSOLUTE,
-        gr00t_balance_teacher_observation_state=True,
-        camera_name="head_camera",
-        render_mode=None,
-        width=32,
-        height=32,
-    )
-    try:
-        observation, reset_info = env.reset(seed=0)
-        assert observation.shape == (198,)
-        np.testing.assert_allclose(
-            reset_info[sonic.GR00T_PROPRIO_INFO], observation, atol=1e-6
-        )
-
-        observation, _, _, _, info = env.step(
-            reset_info[sonic.ACTION_TARGET_INFO]
-        )
-        np.testing.assert_allclose(
-            info[sonic.GR00T_PROPRIO_INFO], observation, atol=1e-6
+            native._q_cmd,
+            np.concatenate([action[:29][POLICY_INDEX_FOR_MUJOCO], action[29:]]),
+            atol=1e-6,
         )
     finally:
         env.close()
@@ -331,8 +254,11 @@ def test_raw_and_absolute_requests_reach_pd_with_only_xml_physical_bounds(scene_
         )
         np.testing.assert_array_equal(native._q_cmd, previous_q_cmd)
         np.testing.assert_array_equal(native._v_cmd, previous_v_cmd)
-        _, _, _, _, info = env.step(np.ones(43, dtype=np.float32))
-        np.testing.assert_allclose(issued, info[sonic.ACTION_TARGET_INFO])
+        env.step(np.ones(43, dtype=np.float32))
+        np.testing.assert_allclose(
+            issued,
+            np.concatenate([native._q_cmd[:29][MUJOCO_INDEX_FOR_POLICY], native._q_cmd[29:]]),
+        )
         direct = gym.make(
             env.spec.id,
             **(env.spec.kwargs | {
@@ -342,26 +268,24 @@ def test_raw_and_absolute_requests_reach_pd_with_only_xml_physical_bounds(scene_
         )
         try:
             direct.reset(seed=0)
-            _, _, _, _, direct_info = direct.step(issued)
+            direct.step(issued)
             np.testing.assert_allclose(
-                direct_info[sonic.ACTION_TARGET_INFO], info[sonic.ACTION_TARGET_INFO], atol=1e-6
+                direct.unwrapped._q_cmd, native._q_cmd, atol=1e-6
             )
             # The absolute codec rounds requests to float32; contact dynamics amplify
             # that sub-microradian rounding to about 2e-5 in this saturated step.
             np.testing.assert_allclose(direct.unwrapped.data.qpos, native.data.qpos, atol=1e-4)
         finally:
             direct.close()
-        assert info["command_tracking_error"] == 0.0
-        assert info["target_velocity_max_ratio"] > 1.0
         np.testing.assert_allclose(native._v_cmd, (native._q_cmd - previous_q_cmd) / native.dt)
         # Absolute requests are not clipped to joint ranges, and Python returns raw PD.
         request = native._joint_ranges[:, 1] + 10.0
         body, hands = native._condition_targets(request[:29], request[29:], raw_body=False, absolute_position=True)
         np.testing.assert_array_equal(native._q_cmd, request)
-        ctrl = native._controller(body, hands)
+        native._controller(body, hands)
+        ctrl = native.data.ctrl.copy()
         assert np.any(ctrl > native.model.actuator_ctrlrange[:, 1])
         assert native.model.actuator_ctrllimited.all()
-        native.data.ctrl[:] = ctrl
         mujoco.mj_step(native.model, native.data)
         np.testing.assert_array_less(native.data.actuator_force, native.model.actuator_ctrlrange[:, 1] + 1e-6)
         np.testing.assert_array_less(native.model.actuator_ctrlrange[:, 0] - 1e-6, native.data.actuator_force)
@@ -457,7 +381,7 @@ def test_balance_branch_restores_physics_controller_and_rng(scene_paths):
         sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
         scene_path=str(scene_paths["g1_sonic_balance_simple"]),
         control_mode=sonic.G1_CONTROL_MODE_DIRECT_ABSOLUTE,
-        gr00t_balance_teacher_observation_state=True, render_mode=None,
+        render_mode=None,
     ) for _ in range(3)]
     try:
         envs[0].reset(seed=13)
@@ -467,13 +391,13 @@ def test_balance_branch_restores_physics_controller_and_rng(scene_paths):
             source.step(action)
         reference.copy_balance_state_from(source)
         branch.copy_balance_state_from(source)
-        state = source._official_gr00t_proprio().copy()
+        state = source._policy_observation().copy()
         branch.step(action + 0.1)
         branch.np_random.standard_normal()
-        np.testing.assert_array_equal(source._official_gr00t_proprio(), state)
+        np.testing.assert_array_equal(source._policy_observation(), state)
         actual, expected = source.step(action), reference.step(action)
         np.testing.assert_array_equal(source.data.qpos, reference.data.qpos)
-        np.testing.assert_array_equal(source._official_gr00t_proprio(), reference._official_gr00t_proprio())
+        np.testing.assert_array_equal(source._policy_observation(), reference._policy_observation())
         assert actual[1:4] == expected[1:4]
         assert source.np_random.standard_normal() == reference.np_random.standard_normal()
     finally:

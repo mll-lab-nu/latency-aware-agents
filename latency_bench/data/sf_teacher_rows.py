@@ -7,7 +7,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from latency_bench.data.action_layouts import (
-    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+    ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
     ActionSpec,
     action_spec_for_env,
     encode_action_for_env,
@@ -61,7 +61,7 @@ def teacher_dataset_row(
     )
     prompt = (
         base_prompt
-        if resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_GR00T_V2
+        if resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
         else render_teacher_prompt(
             env_name,
             latency_raw_frames=latency_raw_frames,
@@ -90,7 +90,7 @@ def teacher_dataset_row(
     if state is not None:
         row["state"] = state.reshape(-1).tolist()
     if (
-        resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_GR00T_V2
+        resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
         and "command_admitted" in info
     ):
         row.update(

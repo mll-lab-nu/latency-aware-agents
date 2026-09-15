@@ -44,13 +44,13 @@ BACKBONES = {
 TASK_SETTINGS = {
     'balance': {
         'teacher': 'fasttd3-h8-v1/checkpoint.pth', 'conda_env': 'latency',
-        'eval_config': 'configs/examples/gymnasium/g1_sonic_balance_simple/official_gr00t_eval_simulated.yaml',
-        'state_info_key': 'official_gr00t_proprio', 'global_batch': 128, 'sft_steps': 5000,
+        'eval_config': 'configs/examples/gymnasium/g1_sonic_balance_simple/starvla_profile.yaml',
+        'state_info_key': 'gymnasium_state', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
     },
     'parkour': {
         'teacher': 'ppo-v1/model_14999.pt', 'conda_env': 'extreme-parkour',
-        'eval_config': 'configs/examples/extreme_parkour/official_gr00t_eval.yaml',
+        'eval_config': 'configs/examples/extreme_parkour/official_starvla_profile.yaml',
         'state_info_key': 'parkour_proprio', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1500, 'seed': 2,
     },
@@ -62,7 +62,7 @@ TASK_SETTINGS = {
     },
     'haic': {
         'teacher': 'ppo-v1/checkpoint_final.pt', 'conda_env': 'haic',
-        'eval_config': 'configs/examples/haic/official_gr00t_eval.yaml',
+        'eval_config': 'configs/examples/haic/official_starvla_profile.yaml',
         'state_info_key': 'haic_state', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
     },
@@ -91,7 +91,7 @@ def conda_python(name: str) -> Path:
 
 def environment() -> dict[str, str]:
     return os.environ | {
-        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA), str(ROOT / 'third_party/sample-factory'), str(ROOT / 'third_party/Isaac-GR00T')]),
+        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA), str(ROOT / 'third_party/sample-factory')]),
         'TOKENIZERS_PARALLELISM': 'false', 'MUJOCO_GL': 'egl',
         'OMNI_KIT_ACCEPT_EULA': 'YES', 'NO_ALBUMENTATIONS_UPDATE': '1',
         'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
@@ -585,7 +585,7 @@ def code_revisions() -> dict:
                    'dirty': bool(subprocess.check_output(['git', '-C', str(path), 'status', '--porcelain'], text=True))}
             for name, path in [('benchmark', ROOT), ('starvla', STARVLA),
                                ('haic', ROOT / 'third_party/HAIC'), ('parkour', ROOT / 'third_party/Isaaclab_Parkour'),
-                               ('mikasa', ROOT / 'third_party/MIKASA-Robo'), ('gr00t', ROOT / 'third_party/Isaac-GR00T')]}
+                               ('mikasa', ROOT / 'third_party/MIKASA-Robo')]}
 
 
 def publish_run(output_dir: Path) -> str:

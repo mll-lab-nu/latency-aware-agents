@@ -1,21 +1,10 @@
-# Extreme Parkour Isaac Lab / Go2 zero-delay baseline 执行手册
+# Extreme Parkour / Go2 teacher 与早期 NVIDIA GR00T 实验记录
 
-> 2026-09-14 核查：当前产物、具体评测数值和未核验事项见 [PROGRESS](PROGRESS.md)；下文旧运行状态按原日期阅读。
+> NVIDIA GR00T 独立运行时和入口已移除。当前统一使用 StarVLA；运行入口见
+> [SCALE_MODELS](SCALE_MODELS.md)，产物和评测状态见 [PROGRESS](PROGRESS.md)。
+> 下文只保留历史实验事实，命令不再是可执行手册。
 
 新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
-
-## Latency command-RL 全链入口
-
-```bash
-.venv/bin/python -m scripts.tasks.extreme_parkour_go2.run_latency_pipeline \
-  --config configs/training/parkour_latency_pipeline.yaml
-```
-
-从仓库根目录运行；依次执行 profile、原生 PPO command teacher、issued-H40 数据、
-GR00T flow + frozen-actor auxiliary 训练及原/新 VLA zero/profile 对照。
-短训使用 `parkour_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
-这条 latency 路线保存一次决策的 `[40,34]` latent+yaw，并使用 predicted-yaw 消费语义；
-下文零延迟 DAgger/MTS 保留独立契约。证据与恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.zh-CN.md)。
 
 > 任务：`Isaac-Extreme-Parkour-{Teacher,Student}-Unitree-Go2-v0`
 >

@@ -102,9 +102,6 @@ bash scripts/tasks/haic_pull_cart/train_wanoft.sh \
   --publish-only
 ```
 
-The HAIC official GR00T entry point is now `train_official_gr00t.sh`.
-Its H40 behavior and the other existing official entry points remain available.
-
 ## Smoke acceptance — acceptance-v1
 
 All 16 combinations completed two real bootstrap optimizer updates, checkpoint

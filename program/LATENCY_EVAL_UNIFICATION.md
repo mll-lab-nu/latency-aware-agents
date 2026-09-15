@@ -101,8 +101,8 @@ IID 和参数分布按 episode 派生独立随机流；temporal burst model 表�
 
 ### 3.5 区分 simulator seed 与 action-noise seed
 
-Official GR00T 的 diffusion noise 改为每个 observation 显式传入 `action_noise_seed`，使输出不依赖
-batch 分组或 worker 完成顺序。eval 中该 seed 由真实 episode seed 派生。
+历史 NVIDIA GR00T evaluator 曾为每个 observation 显式传入 `action_noise_seed`，使输出不依赖
+batch 分组或 worker 完成顺序；该独立运行时现已移除。
 
 Parkour DAgger 的 simulator 会 auto-reset，collector 并不掌握每次 reset 的独立 simulator seed；
 因此不能把用于 diffusion 的 seed 冒充 `episode_seed`。字段已改名，剩余 `episode_seed` 只用于真实

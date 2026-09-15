@@ -18,7 +18,7 @@ from latency_bench.utils.io import write_jsonl
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
     ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
-    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+    ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
     ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1,
     action_spec_for_env,
 )
@@ -33,6 +33,49 @@ _ROBOT_TYPES_BY_ENV = {
     "demon_attack": "rl_games_demon_attack",
     "deadly_corridor": "rl_games_deadly_corridor",
 }
+
+
+def write_starvla_modality(
+    dataset_dir: Path | str,
+    state_dim: int,
+    action_dim: int,
+    *,
+    action_key: str = "action",
+) -> Path:
+    path = Path(dataset_dir) / "meta" / "modality.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "state": {
+                    "state": {
+                        "start": 0,
+                        "end": state_dim,
+                        "dtype": "float32",
+                        "absolute": True,
+                        "original_key": "observation.state",
+                    }
+                },
+                "action": {
+                    action_key: {
+                        "start": 0,
+                        "end": action_dim,
+                        "dtype": "float32",
+                        "absolute": True,
+                        "original_key": action_key,
+                    }
+                },
+                "video": {"ego_view": {"original_key": "observation.image"}},
+                "annotation": {
+                    "human.task_description": {"original_key": "task_index"}
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _action_carrier_spec(
@@ -827,7 +870,7 @@ def convert_canonical_rollout_to_lerobot(
         if action_layout not in (
             ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
             ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-            ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+            ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
         ):
             raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
         gymnasium_task = metadata["gymnasium_task"]
@@ -837,7 +880,7 @@ def convert_canonical_rollout_to_lerobot(
             )
         continuous = action_layout in (
             ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-            ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+            ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
         )
         if continuous and action_carrier == "native":
             gymnasium_task = {
@@ -873,7 +916,7 @@ def convert_canonical_rollout_to_lerobot(
     raw_val_rows = val_rows
     admission_filtered = (
         integration_name == "gymnasium"
-        and action_layout == ACTION_LAYOUT_G1_SONIC_GR00T_V2
+        and action_layout == ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
         and any("command_admitted" in row for row in [*train_rows, *val_rows])
     )
     if admission_filtered:

@@ -1,6 +1,6 @@
 # 环境配置快速指南
 
-本页面向 Linux x86_64 + NVIDIA GPU，从仓库根目录执行命令。覆盖共享 benchmark、四任务模拟器、StarVLA、官方 GR00T 和 MIKASA 数据转换环境。安装依据是当前仓库的脚本、依赖声明与已有运行环境；本次文档更新没有重新安装环境。四任务 × 四模型的实际 smoke 记录见 [SCALE_MODELS.md](../program/SCALE_MODELS.md#smoke-acceptance--acceptance-v1)。
+本页面向 Linux x86_64 + NVIDIA GPU，从仓库根目录执行命令。覆盖共享 benchmark、四任务模拟器、StarVLA 和 MIKASA 数据转换环境。四任务 × 四模型的实际 smoke 记录见 [SCALE_MODELS.md](../program/SCALE_MODELS.md#smoke-acceptance--acceptance-v1)。
 
 ## 1. 获取代码与主机准备
 
@@ -25,14 +25,13 @@ HAIC、Isaaclab_Parkour 的 submodule URL 使用 GitHub SSH，需要该仓库的
 | benchmark、Balance、常规游戏、共享数据准备 | Conda `latency`，3.10 | 根目录 `install.sh`；Balance 补充见下文 |
 | 四个 H1 模型训练与独立推理进程 | Conda `starvla_rl_games_openvla`，3.10 | `install.sh --model openvla --tier dev` |
 | 原有 RL-games 模型独立栈 | Conda `starvla_rl_games_{pi0,pi05,gr00t,wan_oft}`，3.10 | 对应 `--model`，或 `--model all` |
-| NVIDIA 官方 GR00T | `third_party/Isaac-GR00T/.venv`，3.12 | `install.sh --model official_gr00t` |
 | MIKASA / ManiSkill | `third_party/MIKASA-Robo/.venv`，3.10 | `scripts/mikasa/install.sh` |
 | MIKASA NPZ → RLDS | builder 目录内 `.venv`，3.9 | 本页第 4 节 |
 | MIKASA RLDS → LeRobot | converter 目录内 `.venv`，3.10 | 本页第 4 节 |
 | Extreme Parkour | Conda `extreme-parkour`，3.11 | Isaac Sim 5.0.0 + 仓库 IsaacLab v2.2.0 |
 | HAIC | Conda `haic`，3.11 | Isaac Sim 5.1.0 + **单独**的 IsaacLab v2.3.2 checkout |
 
-`--model all` 只表示所有模型环境加共享 `latency`，不包含后三类模拟器或 MIKASA 转换环境。`qwenoft/qwenpi_v3/qwengr00t/wanoft` 是 H1 流水线模型名，不是根目录安装脚本参数；四者默认共用 `starvla_rl_games_openvla`。`qwengr00t` 与官方 NVIDIA GR00T 是不同实现。
+`--model all` 只表示所有模型环境加共享 `latency`，不包含后三类模拟器或 MIKASA 转换环境。`qwenoft/qwenpi_v3/qwengr00t/wanoft` 是统一 StarVLA 流水线模型名，四者默认共用 `starvla_rl_games_openvla`。
 
 ## 3. 共享环境、Balance 与模型环境
 
@@ -48,7 +47,7 @@ python -c 'import torch, humanoid_bench, mujoco, onnxruntime; print(torch.__vers
 conda deactivate
 ```
 
-Balance 需要这里的 HumanoidBench/SONIC 依赖；单独执行 `--model openvla` 不会安装它们。`--model official_gr00t` 或 `--model all` 会自动补齐。训练需要 `--tier dev` 中的 DeepSpeed 和数据依赖，不能用 `--tier use` 替代。
+Balance 需要这里的 HumanoidBench/SONIC 依赖；`--model gr00t` 或 `--model all` 会自动安装它们。训练需要 `--tier dev` 中的 DeepSpeed 和数据依赖。
 
 ```bash
 conda activate starvla_rl_games_openvla
@@ -63,15 +62,6 @@ conda deactivate
 ```bash
 bash install.sh --model all --tier dev
 ```
-
-只需要官方 GR00T 时执行：
-
-```bash
-bash install.sh --model official_gr00t
-third_party/Isaac-GR00T/.venv/bin/python -c 'from gr00t.policy import Gr00tPolicy; print(Gr00tPolicy.__name__)'
-```
-
-官方环境按自己的锁文件安装 Torch 2.9 / Transformers 4.57.3，不要装进 StarVLA 或模拟器环境。其 torchcodec 需要可加载的 FFmpeg 4–7 共享库；`latency` 的安装脚本为官方目标安装 FFmpeg 7。直接启动官方 Python 时可激活 `latency` 并设置 `LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"`。加载官方模型前还需取得 `nvidia/Cosmos-Reason2-2B` 的访问权限。
 
 ## 4. MIKASA 与两个转换环境
 
@@ -175,6 +165,6 @@ CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/humanoidbench_balance_simple/train_q
 
 去掉 `--smoke` 即启动完整预算并自动发布数据和最终模型，详细命令和预算见 [SCALE_MODELS.md](../program/SCALE_MODELS.md)。
 
-原有官方 GR00T task cookbook 的解释器规则不同：Parkour `train_vla.sh` 应在 `extreme-parkour` 中运行，HAIC wrapper 可显式设置 `HAIC_PYTHON`；其转换及统计步骤还依赖 `third_party/Isaac-GR00T/.venv`。原有 MIKASA `train_vla.sh` 的 `VLA_PY` 应指向 StarVLA 环境，并需要 runbook 中的 Bridge/RT-1 初始化权重。
+四任务的 `train_{qwenoft,qwenpi_v3,qwengr00t,wanoft}.sh` 都调用 `scripts/starvla/train_task.py`；通过 `--task-python` 显式指向对应模拟器环境。
 
 可选 MyoChallenge 任务，在实际执行该任务的 benchmark 环境安装 `python -m pip install -e '.[myochallenge]'`。原有 Atari / ViZDoom / Flappy 的依赖由根安装脚本处理；无需把 Isaac 或 ManiSkill 安装进去。

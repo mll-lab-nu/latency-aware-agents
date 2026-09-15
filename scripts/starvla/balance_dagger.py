@@ -18,7 +18,7 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
 from latency_bench.data.action_layouts import (
-    G1_SONIC_GR00T_ACTION_SPEC,
+    G1_SONIC_ACTION_SPEC,
     encode_action_for_env,
 )
 from latency_bench.data.hf_parquet import embed_image_rows
@@ -42,7 +42,7 @@ def _student_observation(image: np.ndarray, state: np.ndarray, step: int, slot: 
         sim_time_ms=step * 20.0,
         metadata={
             ENV_RAW_RGB_FRAME_STACK_INFO_KEY: image[None],
-            "official_gr00t_proprio": state,
+            "gymnasium_state": state,
             "slot_id": slot,
         },
     )
@@ -68,7 +68,7 @@ def _relabel_saved_dataset(
         encoded_actions = [
             encode_action_for_env(
                 env_config["task_name"], request,
-                action_spec=G1_SONIC_GR00T_ACTION_SPEC,
+                action_spec=G1_SONIC_ACTION_SPEC,
             )
             for request in table["action"].to_pylist()
         ]
@@ -99,7 +99,7 @@ def _copy_collection_env(source, target):
 
 
 def _teacher_requests(policy, envs):
-    actions = _teacher_actions(policy, [env.unwrapped._official_gr00t_proprio() for env in envs])
+    actions = _teacher_actions(policy, [env.unwrapped._policy_observation() for env in envs])
     return [np.stack([env.unwrapped.g1_absolute_request_from_raw_action(head) for head in action])
             for env, action in zip(envs, actions, strict=True)]
 
@@ -134,7 +134,7 @@ def _balance_row(config, output_dir, image, state, label, episode, step, seed, s
         decision_step=step, image=str(image_path), raw_action=label,
         info={"latency_raw_frames": 0, "latency_ms": 0.0}, reward=0.0,
         env_fps=config["env_fps"], obs_fps=config["obs_fps"],
-        action_spec=G1_SONIC_GR00T_ACTION_SPEC, base_prompt=config["base_prompt"], state=state,
+        action_spec=G1_SONIC_ACTION_SPEC, base_prompt=config["base_prompt"], state=state,
     )
     row["rgb"] = image
     return row
@@ -163,7 +163,7 @@ class BalanceDaggerAdapter:
     def snapshot(self, due, record_slots):
         return {
             "images": {slot: np.asarray(self.envs[slot].render()).copy() for slot in record_slots},
-            "states": {slot: self.envs[slot].unwrapped._official_gr00t_proprio().copy()
+            "states": {slot: self.envs[slot].unwrapped._policy_observation().copy()
                        for slot in record_slots},
         }
 
@@ -208,7 +208,7 @@ class BalanceDaggerAdapter:
         return DaggerStep(done, rewards)
 
     def finish_record(self, row, snapshot, result, slot, finished):
-        row[G1_SONIC_GR00T_ACTION_SPEC.reward_field] = result.data[slot]
+        row[G1_SONIC_ACTION_SPEC.reward_field] = result.data[slot]
 
     def write_rows(self, shard_index, slot, rows, writer):
         for row in rows:
@@ -309,15 +309,15 @@ def write_balance_dataset(output_dir, env_config, train_rows, val_rows):
     }
     gymnasium_task["action_space"] = {
         "type": "box",
-        "labels": list(G1_SONIC_GR00T_ACTION_SPEC.labels),
+        "labels": list(G1_SONIC_ACTION_SPEC.labels),
         "dtype": "float32",
     }
     metadata = {
         "env_name": env_config["task_name"],
         "integration_name": "gymnasium",
-        "action_layout": G1_SONIC_GR00T_ACTION_SPEC.layout,
-        "action_labels": list(G1_SONIC_GR00T_ACTION_SPEC.labels),
-        "reward_field": G1_SONIC_GR00T_ACTION_SPEC.reward_field,
+        "action_layout": G1_SONIC_ACTION_SPEC.layout,
+        "action_labels": list(G1_SONIC_ACTION_SPEC.labels),
+        "reward_field": G1_SONIC_ACTION_SPEC.reward_field,
         "rows_unit": "decision_step",
         "obs_fps": env_config["obs_fps"],
         "obs_stride_raw_frames": int(env_config["env_fps"] / env_config["obs_fps"]),
@@ -361,12 +361,12 @@ def collect_balance_bootstrap(policy_config_path, teacher_config_path, teacher_c
         try:
             for step in range(8 if smoke else config["evaluation"]["eval_max_steps"]):
                 image = np.asarray(env.render()).copy()
-                state = env.unwrapped._official_gr00t_proprio().copy()
+                state = env.unwrapped._policy_observation().copy()
                 request = _teacher_requests(teacher, [env])[0]
                 row = _balance_row(config["env"], output_dir, image, state, request[0],
                                    episode, step, episode, split)
                 _, reward, terminated, truncated, info = env.step(request)
-                row[G1_SONIC_GR00T_ACTION_SPEC.reward_field] = reward
+                row[G1_SONIC_ACTION_SPEC.reward_field] = reward
                 row["latency_raw_frames"] = info["latency_raw_frames"]
                 row["latency_ms"] = info["latency_ms"]
                 selected.append(np.asarray(env.current_applied_action).copy())

@@ -186,7 +186,6 @@ def test_generic_checkpoint_applies_rollout_overrides(tmp_path):
         experiment_dir,
         gym_camera_name="head_camera",
         gym_make_kwargs_override={"noop_max": 30, "fire_reset": True},
-        gym_gr00t_balance_teacher_observation_state=True,
     )
 
     make_kwargs = json.loads(descriptor["flat_cfg"]["gym_make_kwargs_json"])
@@ -194,17 +193,10 @@ def test_generic_checkpoint_applies_rollout_overrides(tmp_path):
     assert make_kwargs["render_mode"] == "rgb_array"
     assert make_kwargs["noop_max"] == 30
     assert make_kwargs["fire_reset"] is True
-    assert make_kwargs["gr00t_balance_teacher_observation_state"] is True
     assert metadata["gymnasium_task"]["make_kwargs"]["camera_name"] == "head_camera"
     assert metadata["gymnasium_task"]["make_kwargs"]["render_mode"] == "rgb_array"
     assert metadata["gymnasium_task"]["make_kwargs"]["noop_max"] == 30
     assert metadata["gymnasium_task"]["make_kwargs"]["fire_reset"] is True
-    assert (
-        metadata["gymnasium_task"]["make_kwargs"][
-            "gr00t_balance_teacher_observation_state"
-        ]
-        is True
-    )
 
 
 def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
@@ -347,7 +339,7 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
     ]
 
 
-def test_g1_balance_replay_exports_pre_action_proprio_and_task_action_contract(
+def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
     monkeypatch,
     tmp_path,
 ):
@@ -356,13 +348,11 @@ def test_g1_balance_replay_exports_pre_action_proprio_and_task_action_contract(
     g1_task = "g1_sonic_balance_simple"
 
     from latency_bench.data import sf_teacher_rollout
-    from latency_bench.data.action_layouts import G1_SONIC_GR00T_ACTION_SPEC
+    from latency_bench.data.action_layouts import G1_SONIC_ACTION_SPEC
     from latency_bench.data.hf_parquet import iter_episode_rows
     from latency_bench.data.sf_teacher_drivers import RolloutStepResult
-    from latency_bench.envs.humanoidbench_sonic_contract import (
-        G1_GR00T_ACTION_DIM,
-        G1_GR00T_STATE_DIM,
-    )
+    action_dim = len(G1_SONIC_ACTION_SPEC.labels)
+    state_dim = 198
 
     step_index = 0
 
@@ -378,8 +368,8 @@ def test_g1_balance_replay_exports_pre_action_proprio_and_task_action_contract(
                 0: (
                     {"obs": np.zeros((1, 2), dtype=np.float32)},
                     {
-                        "official_gr00t_proprio": np.full(
-                            G1_GR00T_STATE_DIM, 10.0, dtype=np.float32
+                        "gymnasium_state": np.full(
+                            state_dim, 10.0, dtype=np.float32
                         ),
                         "env_raw_rgb_frame_stack": np.zeros(
                             (2, 2, 2, 3), dtype=np.uint8
@@ -406,7 +396,7 @@ def test_g1_balance_replay_exports_pre_action_proprio_and_task_action_contract(
         assert preserve_issued_actions
         next_state = float(step_index + 11)
         action_target = np.full(
-            G1_GR00T_ACTION_DIM, step_index + 0.25, dtype=np.float32
+            action_dim, step_index + 0.25, dtype=np.float32
         )
         result = RolloutStepResult(
             next_obs={"obs": np.zeros((1, 2), dtype=np.float32)},
@@ -414,17 +404,16 @@ def test_g1_balance_replay_exports_pre_action_proprio_and_task_action_contract(
             terminated=step_index == 1,
             truncated=False,
             info={
-                "official_gr00t_proprio": np.full(
-                    G1_GR00T_STATE_DIM, next_state, dtype=np.float32
+                "gymnasium_state": np.full(
+                    state_dim, next_state, dtype=np.float32
                 ),
-                "action_target": action_target,
                 "env_raw_rgb_frame_stack": np.zeros((2, 2, 2, 3), dtype=np.uint8),
                 "latency_raw_frames": 0,
                 "latency_ms": 0.0,
             },
         )
         teacher_action = np.full(
-            G1_GR00T_ACTION_DIM, -0.5 + 0.25 * step_index, dtype=np.float32
+            action_dim, -0.5 + 0.25 * step_index, dtype=np.float32
         )
         if g1_task == "g1_sonic_balance_simple":
             result.info.update(
@@ -451,7 +440,7 @@ def test_g1_balance_replay_exports_pre_action_proprio_and_task_action_contract(
             env_fps=50.0,
             obs_fps=50.0,
             frame_stack=1,
-            gym_state_labels_json="",
+            gym_state_labels_json=json.dumps([f"state_{index}" for index in range(state_dim)]),
         ),
         env_name=g1_task,
         output_dir=output_dir,
@@ -462,62 +451,62 @@ def test_g1_balance_replay_exports_pre_action_proprio_and_task_action_contract(
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=1,
-        action_spec=G1_SONIC_GR00T_ACTION_SPEC,
+        action_spec=G1_SONIC_ACTION_SPEC,
         base_prompt="Keep balance.",
         integration_name="gymnasium",
     )
 
     rows = list(iter_episode_rows(output_dir, "val"))
     assert [row["state"] for row in rows] == [
-        [10.0] * G1_GR00T_STATE_DIM,
-        [11.0] * G1_GR00T_STATE_DIM,
+        [10.0] * state_dim,
+        [11.0] * state_dim,
     ]
     expected_actions = [9.0, 9.5]
     assert [row["action"] for row in rows] == [
-        [value] * G1_GR00T_ACTION_DIM for value in expected_actions
+        [value] * action_dim for value in expected_actions
     ]
     assert [row["raw_done"] for row in rows] == [False, True]
     assert [row["applied_action"] for row in rows] == [
-        [0.25] * G1_GR00T_ACTION_DIM,
-        [1.25] * G1_GR00T_ACTION_DIM,
+        [0.25] * action_dim,
+        [1.25] * action_dim,
     ]
     assert [row["prompt"] for row in rows] == ["Keep balance."] * 2
 
 
 def test_g1_checkpoint_metadata_publishes_absolute_action_labels_without_residual_bounds():
-    from latency_bench.data.action_layouts import G1_SONIC_GR00T_ACTION_SPEC
+    from latency_bench.data.action_layouts import G1_SONIC_ACTION_SPEC
     from latency_bench.data.sf_teacher_config import _gymnasium_task_metadata
     from latency_bench.envs.humanoidbench_sonic_contract import (
         G1_BODY_JOINT_NAMES,
-        G1_GR00T_ACTION_DIM,
         G1_HAND_JOINT_NAMES,
         MUJOCO_INDEX_FOR_POLICY,
     )
 
     flat_cfg = _generic_flat_cfg()
     flat_cfg["gym_task_name"] = "g1_sonic_balance_simple"
+    action_dim = len(G1_SONIC_ACTION_SPEC.labels)
     flat_cfg["gym_action_space_json"] = json.dumps(
         {
             "type": "box",
             "labels": [
-                f"residual_{index}" for index in range(G1_GR00T_ACTION_DIM)
+                f"residual_{index}" for index in range(action_dim)
             ],
-            "low": [-1.0] * G1_GR00T_ACTION_DIM,
-            "high": [1.0] * G1_GR00T_ACTION_DIM,
+            "low": [-1.0] * action_dim,
+            "high": [1.0] * action_dim,
             "dtype": "float32",
         }
     )
-    flat_cfg["gym_noop_action_json"] = json.dumps([0.0] * G1_GR00T_ACTION_DIM)
+    flat_cfg["gym_noop_action_json"] = json.dumps([0.0] * action_dim)
 
     metadata = _gymnasium_task_metadata(flat_cfg)
 
     assert "noop_action" not in metadata
-    assert G1_SONIC_GR00T_ACTION_SPEC.labels == tuple(
+    assert G1_SONIC_ACTION_SPEC.labels == tuple(
         G1_BODY_JOINT_NAMES[index] for index in MUJOCO_INDEX_FOR_POLICY
     ) + G1_HAND_JOINT_NAMES
     assert metadata["action_space"] == {
         "type": "box",
-        "labels": list(G1_SONIC_GR00T_ACTION_SPEC.labels),
+        "labels": list(G1_SONIC_ACTION_SPEC.labels),
         "dtype": "float32",
     }
 

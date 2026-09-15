@@ -25,7 +25,6 @@ from humanoid_bench.robots import G1
 from latency_bench.envs.humanoidbench_sonic_contract import (
     G1_BODY_JOINT_NAMES,
     G1_DEFAULT_ANGLES,
-    G1_GR00T_STATE_DIM,
     G1_HAND_JOINT_NAMES,
     MUJOCO_INDEX_FOR_POLICY,
     POLICY_INDEX_FOR_MUJOCO,
@@ -73,10 +72,6 @@ mujoco_rendering.BaseRender._add_marker_to_scene = _add_marker_to_mujoco_33_scen
 
 G1_CONTROL_MODE_RAW = "raw_body_target"
 G1_CONTROL_MODE_DIRECT_ABSOLUTE = "direct_absolute_position"
-GR00T_PROPRIO_DIM = G1_GR00T_STATE_DIM
-GR00T_PROPRIO_INFO = "official_gr00t_proprio"
-CONDITIONED_BODY_TARGET_INFO = "conditioned_body_target"
-ACTION_TARGET_INFO = "action_target"
 
 _NO_RESET_NOISE_TASKS = {
     "bookshelf_hard",
@@ -273,21 +268,6 @@ _KD = np.asarray(
 )
 
 
-def _rotate_by_quaternion(quat: np.ndarray, vector: np.ndarray) -> np.ndarray:
-    w, x, y, z = quat
-    vx, vy, vz = vector
-    cx, cy, cz = y * vz - z * vy, z * vx - x * vz, x * vy - y * vx
-    ccx, ccy, ccz = y * cz - z * cy, z * cx - x * cz, x * cy - y * cx
-    return np.asarray(
-        (
-            vx + 2.0 * (w * cx + ccx),
-            vy + 2.0 * (w * cy + ccy),
-            vz + 2.0 * (w * cz + ccz),
-        ),
-        dtype=np.float64,
-    )
-
-
 def g1_raw_reset_action(scene_path: str, *, learn_hands: bool) -> list[float]:
     """Return normalized raw targets for the pose used by ``reset_model``."""
 
@@ -322,7 +302,6 @@ class G1SonicEnv(MujocoEnv):
         task_name: str,
         control_mode: str,
         raw_learn_hands: bool = True,
-        gr00t_balance_teacher_observation_state: bool = False,
         render_mode: str,
         width: int,
         height: int,
@@ -332,9 +311,6 @@ class G1SonicEnv(MujocoEnv):
         self._task_key = task_name.removeprefix("g1_sonic_")
         self._control_mode = control_mode
         self._raw_learn_hands = raw_learn_hands
-        self._gr00t_balance_teacher_observation_state = (
-            gr00t_balance_teacher_observation_state
-        )
         self.robot = G1(self)
         # HumanoidBench's robot.dof means qpos length, not actuator count.
         self.robot.dof = 50
@@ -455,7 +431,6 @@ class G1SonicEnv(MujocoEnv):
         else:
             self.action_low = np.full(action_dim, -1.0, dtype=np.float64)
             self.action_high = np.full(action_dim, 1.0, dtype=np.float64)
-        # Observation and diagnostic scales only; these do not limit commands.
         self._target_velocity_limits = np.concatenate(
             [_BODY_TARGET_VELOCITY_LIMITS, _HAND_TARGET_VELOCITY_LIMITS]
         )
@@ -464,18 +439,6 @@ class G1SonicEnv(MujocoEnv):
         )
         self._q_cmd = np.zeros(43, dtype=np.float64)
         self._v_cmd = np.zeros(43, dtype=np.float64)
-        self._command_tracking_error = 0.0
-        self._target_velocity_max_ratio = 0.0
-        self._target_acceleration_mean_ratio_per_s = 0.0
-        self._target_acceleration_max_ratio_per_s = 0.0
-        self._target_velocity_reversal_fraction = 0.0
-        self._actual_joint_velocity_max = 0.0
-        self._torque_saturation_fraction = 0.0
-        self._torque_saturation_count = 0
-        self._torque_sample_count = 0
-        self._pelvis_body_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis"
-        )
         named_data = MjDataWrapper(self.data)
         named_model = MjModelWrapper(self.model)
         axis_indexers = dmc_index.make_axis_indexers(named_model)
@@ -502,70 +465,6 @@ class G1SonicEnv(MujocoEnv):
         )
         for field in ("_q_cmd", "_v_cmd", "_np_random"):
             setattr(self, field, copy.deepcopy(getattr(source, field)))
-
-    def _base_angular_velocity(self) -> np.ndarray:
-        base_velocity = np.zeros(6, dtype=np.float64)
-        mujoco.mj_objectVelocity(
-            self.model,
-            self.data,
-            mujoco.mjtObj.mjOBJ_BODY,
-            self._pelvis_body_id,
-            base_velocity,
-            1,
-        )
-        return base_velocity[:3].copy()
-
-
-    def _projected_gravity(self) -> np.ndarray:
-        root_quaternion = self.data.qpos[3:7]
-        return _rotate_by_quaternion(
-            np.asarray(
-                [
-                    root_quaternion[0],
-                    -root_quaternion[1],
-                    -root_quaternion[2],
-                    -root_quaternion[3],
-                ]
-            ),
-            np.asarray([0.0, 0.0, -1.0]),
-        )
-
-    def _conditioned_body_target(self) -> np.ndarray:
-        return self._q_cmd[:29][MUJOCO_INDEX_FOR_POLICY].copy()
-
-    def _conditioned_target(self) -> np.ndarray:
-        return np.concatenate(
-            [self._conditioned_body_target(), self._q_cmd[29:]]
-        )
-
-    def _official_gr00t_proprio(self) -> np.ndarray:
-        if self._gr00t_balance_teacher_observation_state:
-            state = np.concatenate(
-                [self._task.get_obs(), self._command_observation()]
-            )
-        else:
-            q = np.concatenate(
-                [
-                    self.data.qpos[self._body_qpos_addresses][MUJOCO_INDEX_FOR_POLICY],
-                    self.data.qpos[self._hand_qpos_addresses],
-                ]
-            )
-            dq = np.concatenate(
-                [
-                    self.data.qvel[self._body_qvel_addresses][MUJOCO_INDEX_FOR_POLICY],
-                    self.data.qvel[self._hand_qvel_addresses],
-                ]
-            )
-            state = np.concatenate(
-                [
-                    self._base_angular_velocity(),
-                    q,
-                    dq,
-                    self._conditioned_target(),
-                    self._projected_gravity(),
-                ]
-            )
-        return state.astype(np.float32)
 
     def g1_absolute_request_from_raw_action(self, action: np.ndarray) -> np.ndarray:
         """Convert normalized MuJoCo-order controls to policy-order joint requests."""
@@ -597,25 +496,6 @@ class G1SonicEnv(MujocoEnv):
         )
         q_cmd = request
         v_cmd = (q_cmd - self._q_cmd) / self.dt
-        acceleration = (v_cmd - self._v_cmd) / self.dt
-        self._command_tracking_error = float(
-            np.mean(
-                np.abs(request - q_cmd)
-                / (self._joint_ranges[:, 1] - self._joint_ranges[:, 0])
-            )
-        )
-        self._target_velocity_max_ratio = float(
-            np.max(np.abs(v_cmd) / self._target_velocity_limits)
-        )
-        self._target_acceleration_mean_ratio_per_s = float(
-            np.mean(np.abs(acceleration) / self._target_velocity_limits)
-        )
-        self._target_acceleration_max_ratio_per_s = float(
-            np.max(np.abs(acceleration) / self._target_velocity_limits)
-        )
-        self._target_velocity_reversal_fraction = float(
-            np.count_nonzero(v_cmd * self._v_cmd < 0.0) / 43
-        )
         self._q_cmd = q_cmd
         self._v_cmd = v_cmd
         return q_cmd[:29], q_cmd[29:]
@@ -631,22 +511,17 @@ class G1SonicEnv(MujocoEnv):
         self,
         body_target: np.ndarray,
         hand_target: np.ndarray,
-    ) -> np.ndarray:
+    ) -> None:
         q_mu = self.data.qpos[self._body_qpos_addresses]
         dq_mu = self.data.qvel[self._body_qvel_addresses]
         hand_q = self.data.qpos[self._hand_qpos_addresses]
         hand_dq = self.data.qvel[self._hand_qvel_addresses]
-        ctrl = np.zeros(self.model.nu, dtype=np.float64)
+        ctrl = self.data.ctrl
+        ctrl.fill(0.0)
         ctrl[self._body_actuator_ids] = _KP * (body_target - q_mu) - _KD * dq_mu
         ctrl[self._hand_actuator_ids] = (
             _HAND_KP * (hand_target - hand_q) - _HAND_KD * hand_dq
         )
-        self._torque_saturation_count += np.count_nonzero(
-            (ctrl < self.model.actuator_ctrlrange[:, 0])
-            | (ctrl > self.model.actuator_ctrlrange[:, 1])
-        )
-        self._torque_sample_count += self.model.nu
-        return ctrl
 
     def reset(
         self,
@@ -656,11 +531,7 @@ class G1SonicEnv(MujocoEnv):
     ):
         if seed is not None:
             np.random.seed(seed)
-        observation, info = super().reset(seed=seed, options=options)
-        info[GR00T_PROPRIO_INFO] = self._official_gr00t_proprio()
-        info[CONDITIONED_BODY_TARGET_INFO] = self._conditioned_body_target()
-        info[ACTION_TARGET_INFO] = self._conditioned_target()
-        return observation, info
+        return super().reset(seed=seed, options=options)
 
     def reset_model(self) -> Any:
         mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
@@ -675,10 +546,6 @@ class G1SonicEnv(MujocoEnv):
             + self.np_random.uniform(-randomness, randomness, size=self.model.nq),
             init_qvel,
         )
-        self._actual_joint_velocity_max = 0.0
-        self._torque_saturation_fraction = 0.0
-        self._torque_saturation_count = 0
-        self._torque_sample_count = 0
         task_observation = self._task.reset_model()
         self._q_cmd = np.concatenate(
             [
@@ -688,6 +555,9 @@ class G1SonicEnv(MujocoEnv):
         ).copy()
         self._v_cmd.fill(0.0)
         return np.concatenate([task_observation, self._command_observation()])
+
+    def _policy_observation(self) -> np.ndarray:
+        return np.concatenate([self._task.get_obs(), self._command_observation()])
 
     def step(self, action: Any):
         action = np.asarray(action, dtype=np.float32)
@@ -715,37 +585,13 @@ class G1SonicEnv(MujocoEnv):
             raw_body=raw_body,
             absolute_position=absolute_position,
         )
-        self._torque_saturation_count = 0
-        self._torque_sample_count = 0
-        self._actual_joint_velocity_max = 0.0
         for _ in range(self.frame_skip):
-            self.data.ctrl[:] = self._controller(body_target, hand_target)
+            self._controller(body_target, hand_target)
             mujoco.mj_step(self.model, self.data)
-            self._actual_joint_velocity_max = max(
-                self._actual_joint_velocity_max,
-                float(
-                    np.max(
-                        np.abs(
-                            self.data.qvel[
-                                np.concatenate(
-                                    [
-                                        self._body_qvel_addresses,
-                                        self._hand_qvel_addresses,
-                                    ]
-                                )
-                            ]
-                        )
-                    )
-                ),
-            )
-        self._torque_saturation_fraction = float(
-            self._torque_saturation_count / self._torque_sample_count
-        )
-        task_observation = self._task.get_obs()
         reward, info = self._task.get_reward()
         terminated, termination_info = self._task.get_terminated()
         return (
-            np.concatenate([task_observation, self._command_observation()]),
+            self._policy_observation(),
             reward,
             bool(terminated),
             False,
@@ -753,16 +599,6 @@ class G1SonicEnv(MujocoEnv):
                 "per_timestep_reward": reward,
                 **info,
                 **termination_info,
-                "command_tracking_error": self._command_tracking_error,
-                "target_velocity_max_ratio": self._target_velocity_max_ratio,
-                "target_acceleration_mean_ratio_per_s": self._target_acceleration_mean_ratio_per_s,
-                "target_acceleration_max_ratio_per_s": self._target_acceleration_max_ratio_per_s,
-                "target_velocity_reversal_fraction": self._target_velocity_reversal_fraction,
-                "actual_joint_velocity_max": self._actual_joint_velocity_max,
-                "torque_saturation_fraction": self._torque_saturation_fraction,
-                GR00T_PROPRIO_INFO: self._official_gr00t_proprio(),
-                CONDITIONED_BODY_TARGET_INFO: self._conditioned_body_target(),
-                ACTION_TARGET_INFO: self._conditioned_target(),
             },
         )
 

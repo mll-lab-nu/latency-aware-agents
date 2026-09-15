@@ -20,11 +20,6 @@ from latency_bench.executors.realtime.messages import (
 )
 from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.executors.thread_env import set_thread_env_defaults
-from latency_bench.policy.official_gr00t import (
-    official_gr00t_python_executable,
-    official_gr00t_worker_sys_path,
-)
-
 REALTIME_INFERENCE_START_METHOD = "spawn"
 _PROCESS_START_LOCK = threading.Lock()
 
@@ -65,9 +60,6 @@ class ProcessInferencePool:
                     )
                 ),
             ]
-        elif "policy" in config and config["policy"]["type"] == "official_gr00t":
-            self.worker_python_executable = official_gr00t_python_executable()
-            self.worker_sys_path = official_gr00t_worker_sys_path()
         self._start_workers()
 
     @property

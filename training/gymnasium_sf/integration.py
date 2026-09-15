@@ -257,15 +257,11 @@ def make_gymnasium_sf_env(
     clock = EnvClock(env_fps=cfg.env_fps, obs_fps=cfg.obs_fps)
     wrapper_seed = env_instance_seed(
         base_seed=int(cfg.seed),
-        worker_index=int(env_config.worker_index),
-        vector_index=int(env_config.vector_index),
         env_id=int(env_config.env_id),
     )
     latency_seed = sample_factory_latency_seed_from_flat_config(
         cfg,
         fallback_seed=wrapper_seed,
-        worker_index=int(env_config.worker_index),
-        vector_index=int(env_config.vector_index),
         env_id=int(env_config.env_id),
     )
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)

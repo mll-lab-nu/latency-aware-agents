@@ -24,6 +24,7 @@ training:
   gamma: 0.99
   normalize_input: false
   normalize_returns: false
+  decorrelate_envs_on_one_worker: false
   fasttd3_action_chunk_horizon: 8
   fasttd3_replay_capacity: 1000000
   fasttd3_replay_batch_size: 32768
