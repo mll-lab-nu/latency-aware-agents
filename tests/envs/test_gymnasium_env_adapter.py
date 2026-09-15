@@ -167,7 +167,7 @@ def test_gymnasium_adapter_imports_registration_modules_before_make(monkeypatch)
 def test_gymnasium_adapter_uses_obs_from_dict_state():
     observation = {
         "obs": np.asarray([1.0, 2.0], dtype=np.float32),
-        "sonic_state": np.zeros(930, dtype=np.float32),
+        "aux_state": np.zeros(3, dtype=np.float32),
     }
 
     np.testing.assert_array_equal(

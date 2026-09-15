@@ -178,9 +178,6 @@ def test_generic_checkpoint_applies_rollout_overrides(tmp_path):
     experiment_dir = tmp_path / "mountain_car_fixed_latency"
     experiment_dir.mkdir()
     flat_cfg = _generic_flat_cfg()
-    make_kwargs = json.loads(flat_cfg["gym_make_kwargs_json"])
-    make_kwargs["sonic_decoder_mode"] = "inference_worker"
-    flat_cfg["gym_make_kwargs_json"] = json.dumps(make_kwargs)
     (experiment_dir / "config.json").write_text(
         json.dumps(flat_cfg), encoding="utf-8"
     )
@@ -197,16 +194,11 @@ def test_generic_checkpoint_applies_rollout_overrides(tmp_path):
     assert make_kwargs["render_mode"] == "rgb_array"
     assert make_kwargs["noop_max"] == 30
     assert make_kwargs["fire_reset"] is True
-    assert make_kwargs["sonic_decoder_mode"] == "environment"
     assert make_kwargs["gr00t_balance_teacher_observation_state"] is True
     assert metadata["gymnasium_task"]["make_kwargs"]["camera_name"] == "head_camera"
     assert metadata["gymnasium_task"]["make_kwargs"]["render_mode"] == "rgb_array"
     assert metadata["gymnasium_task"]["make_kwargs"]["noop_max"] == 30
     assert metadata["gymnasium_task"]["make_kwargs"]["fire_reset"] is True
-    assert (
-        metadata["gymnasium_task"]["make_kwargs"]["sonic_decoder_mode"]
-        == "environment"
-    )
     assert (
         metadata["gymnasium_task"]["make_kwargs"][
             "gr00t_balance_teacher_observation_state"
@@ -552,10 +544,7 @@ def test_generic_rollout_runtime_selects_gymnasium_integration_and_replays_check
     from latency_bench.data import sf_teacher_runtime
 
     calls: list[object] = []
-    parsed_cfg = SimpleNamespace(
-        policy_index=0,
-        fasttd3_sonic_decoder_path="decoder.onnx",
-    )
+    parsed_cfg = SimpleNamespace(policy_index=0)
     module = SimpleNamespace(
         register_gymnasium_envs=lambda: calls.append("registered"),
         SAMPLE_FACTORY_CONFIG_PARSER=SimpleNamespace(
@@ -569,9 +558,6 @@ def test_generic_rollout_runtime_selects_gymnasium_integration_and_replays_check
     )
     monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
     flat_cfg = _generic_flat_cfg()
-    make_kwargs = json.loads(flat_cfg["gym_make_kwargs_json"])
-    make_kwargs["sonic_decoder_mode"] = "environment"
-    flat_cfg["gym_make_kwargs_json"] = json.dumps(make_kwargs)
 
     result_module, result_cfg = sf_teacher_runtime.build_sample_factory_rollout_cfg(
         {
@@ -588,8 +574,6 @@ def test_generic_rollout_runtime_selects_gymnasium_integration_and_replays_check
     argv = calls[2]
     assert result_module is module
     assert result_cfg is parsed_cfg
-    assert result_cfg.fasttd3_sonic_decoder_path is None
-    assert result_cfg.cli_args["fasttd3_sonic_decoder_path"] is None
     assert calls[0] == {"env": {"name": "gymnasium"}}
     assert calls[1] == "registered"
     assert argv[argv.index("--gym-task-name") + 1] == "mountain_car"

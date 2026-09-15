@@ -1,25 +1,16 @@
-"""SONIC-aligned G1 task environments.
-
-The robot, PD controller, and 64D SONIC interface are shared by all tasks.
-The raw baseline uses the same scene and controller with a direct body
-target and optional hand controls, so the two policies differ only at the
-policy interface.
-"""
+"""HumanoidBench G1 task environments built from the SONIC scene assets."""
 
 from __future__ import annotations
 
 import copy
-from collections import deque
 from typing import Any, ClassVar
 
 import gymnasium as gym
 import mujoco
 import numpy as np
-import onnxruntime as ort
 from gymnasium.envs.mujoco import MujocoEnv
 from gymnasium.envs.mujoco import mujoco_rendering
 from gymnasium.spaces import Box
-from gymnasium.spaces import Dict as DictSpace
 from humanoid_bench.dmc_deps import dmc_index, dmc_sizes
 from humanoid_bench.dmc_deps.dmc_wrapper import MjDataWrapper, MjModelWrapper
 from humanoid_bench.env import (
@@ -82,9 +73,6 @@ mujoco_rendering.BaseRender._add_marker_to_scene = _add_marker_to_mujoco_33_scen
 
 G1_CONTROL_MODE_RAW = "raw_body_target"
 G1_CONTROL_MODE_DIRECT_ABSOLUTE = "direct_absolute_position"
-G1_CONTROL_MODE_SONIC = "sonic_token"
-SONIC_DECODER_MODE_ENVIRONMENT = "environment"
-SONIC_DECODER_MODE_INFERENCE_WORKER = "inference_worker"
 GR00T_PROPRIO_DIM = G1_GR00T_STATE_DIM
 GR00T_PROPRIO_INFO = "official_gr00t_proprio"
 CONDITIONED_BODY_TARGET_INFO = "conditioned_body_target"
@@ -287,9 +275,16 @@ _KD = np.asarray(
 
 def _rotate_by_quaternion(quat: np.ndarray, vector: np.ndarray) -> np.ndarray:
     w, x, y, z = quat
-    qvec = np.asarray([x, y, z], dtype=np.float64)
-    return vector + 2.0 * (
-        w * np.cross(qvec, vector) + np.cross(qvec, np.cross(qvec, vector))
+    vx, vy, vz = vector
+    cx, cy, cz = y * vz - z * vy, z * vx - x * vz, x * vy - y * vx
+    ccx, ccy, ccz = y * cz - z * cy, z * cx - x * cz, x * cy - y * cx
+    return np.asarray(
+        (
+            vx + 2.0 * (w * cx + ccx),
+            vy + 2.0 * (w * cy + ccy),
+            vz + 2.0 * (w * cz + ccz),
+        ),
+        dtype=np.float64,
     )
 
 
@@ -316,7 +311,7 @@ def g1_raw_reset_action(scene_path: str, *, learn_hands: bool) -> list[float]:
 
 
 class G1SonicEnv(MujocoEnv):
-    """G1 task with either direct body targets or SONIC tokens."""
+    """G1 task with normalized or absolute joint targets."""
 
     metadata: ClassVar[dict[str, Any]] = HumanoidEnv.metadata
 
@@ -325,11 +320,8 @@ class G1SonicEnv(MujocoEnv):
         *,
         scene_path: str,
         task_name: str,
-        control_mode: str = G1_CONTROL_MODE_SONIC,
-        sonic_decoder_path: str | None = None,
-        sonic_decoder_mode: str = SONIC_DECODER_MODE_ENVIRONMENT,
+        control_mode: str,
         raw_learn_hands: bool = True,
-        sonic_learn_hands: bool = True,
         gr00t_balance_teacher_observation_state: bool = False,
         render_mode: str,
         width: int,
@@ -340,7 +332,6 @@ class G1SonicEnv(MujocoEnv):
         self._task_key = task_name.removeprefix("g1_sonic_")
         self._control_mode = control_mode
         self._raw_learn_hands = raw_learn_hands
-        self._sonic_learn_hands = sonic_learn_hands
         self._gr00t_balance_teacher_observation_state = (
             gr00t_balance_teacher_observation_state
         )
@@ -355,15 +346,7 @@ class G1SonicEnv(MujocoEnv):
             shape=(task_info.observation_space.shape[0] + 86,),
             dtype=task_info.observation_space.dtype,
         )
-        if sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
-            observation_space = DictSpace(
-                {
-                    "obs": policy_observation_space,
-                    "sonic_state": Box(-np.inf, np.inf, shape=(930,), dtype=np.float32),
-                }
-            )
-        else:
-            observation_space = policy_observation_space
+        observation_space = policy_observation_space
         super().__init__(
             model_path=scene_path,
             frame_skip=task_info.frame_skip,
@@ -375,23 +358,6 @@ class G1SonicEnv(MujocoEnv):
             default_camera_config=DEFAULT_CAMERA_CONFIG,
         )
         self.observation_space = observation_space
-        self._sonic_decoder_mode = sonic_decoder_mode
-
-        if (
-            control_mode == G1_CONTROL_MODE_SONIC
-            and sonic_decoder_mode == SONIC_DECODER_MODE_ENVIRONMENT
-        ):
-            session_options = ort.SessionOptions()
-            session_options.intra_op_num_threads = 1
-            session_options.inter_op_num_threads = 1
-            session_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-            self._decoder = ort.InferenceSession(
-                sonic_decoder_path,
-                sess_options=session_options,
-                providers=["CPUExecutionProvider"],
-            )
-            self._decoder_input_name = self._decoder.get_inputs()[0].name
-            self._decoder_output_name = self._decoder.get_outputs()[0].name
 
         self._body_qpos_addresses = np.asarray(
             [
@@ -483,9 +449,6 @@ class G1SonicEnv(MujocoEnv):
                 ),
                 dtype=np.float32,
             )
-        elif control_mode == G1_CONTROL_MODE_SONIC:
-            action_dim = 64 + (14 if sonic_learn_hands else 0)
-            self.action_space = Box(-1.0, 1.0, shape=(action_dim,), dtype=np.float32)
         if control_mode == G1_CONTROL_MODE_DIRECT_ABSOLUTE:
             self.action_low = self.action_space.low.astype(np.float64)
             self.action_high = self.action_space.high.astype(np.float64)
@@ -528,9 +491,6 @@ class G1SonicEnv(MujocoEnv):
         self.randomness = (
             0 if self._task_key in _NO_RESET_NOISE_TASKS else DEFAULT_RANDOMNESS
         )
-        self._history: deque[dict[str, np.ndarray]] = deque(maxlen=10)
-        self._last_action = np.zeros(29, dtype=np.float64)
-        self._pending_decoded_action = None
 
     def copy_balance_state_from(self, source):
         """Restore an independent Balance branch, including MuJoCo derived buffers."""
@@ -540,27 +500,8 @@ class G1SonicEnv(MujocoEnv):
             model=self.named.model,
             data=dmc_index.struct_indexer(MjDataWrapper(self.data), "mjdata", axes),
         )
-        for field in ("_q_cmd", "_v_cmd", "_last_action", "_history", "_np_random"):
+        for field in ("_q_cmd", "_v_cmd", "_np_random"):
             setattr(self, field, copy.deepcopy(getattr(source, field)))
-
-    def _body_state(self) -> tuple[np.ndarray, np.ndarray]:
-        q_mu = self.data.qpos[self._body_qpos_addresses].copy()
-        dq_mu = self.data.qvel[self._body_qvel_addresses].copy()
-        return (q_mu - G1_DEFAULT_ANGLES)[MUJOCO_INDEX_FOR_POLICY], dq_mu[
-            MUJOCO_INDEX_FOR_POLICY
-        ]
-
-    def _frame(self) -> dict[str, np.ndarray]:
-        body_q, body_dq = self._body_state()
-        gravity = self._projected_gravity()
-        base_angular_velocity = self._base_angular_velocity()
-        return {
-            "angular_velocity": base_angular_velocity,
-            "body_q": body_q,
-            "body_dq": body_dq,
-            "last_action": self._last_action.copy(),
-            "gravity": gravity,
-        }
 
     def _base_angular_velocity(self) -> np.ndarray:
         base_velocity = np.zeros(6, dtype=np.float64)
@@ -625,42 +566,6 @@ class G1SonicEnv(MujocoEnv):
                 ]
             )
         return state.astype(np.float32)
-
-    def _decoder_state(self) -> np.ndarray:
-        frames = list(self._history)
-        frames = [
-            {
-                "angular_velocity": np.zeros(3, dtype=np.float64),
-                "body_q": np.zeros(29, dtype=np.float64),
-                "body_dq": np.zeros(29, dtype=np.float64),
-                "last_action": np.zeros(29, dtype=np.float64),
-                "gravity": np.zeros(3, dtype=np.float64),
-            }
-        ] * (10 - len(frames)) + frames
-        return np.concatenate(
-            [
-                np.concatenate([frame["angular_velocity"] for frame in frames]),
-                np.concatenate([frame["body_q"] for frame in frames]),
-                np.concatenate([frame["body_dq"] for frame in frames]),
-                np.concatenate([frame["last_action"] for frame in frames]),
-                np.concatenate([frame["gravity"] for frame in frames]),
-            ],
-        ).astype(np.float32)
-
-    def _decoder_input(self, token: np.ndarray) -> np.ndarray:
-        return np.concatenate(
-            [np.asarray(token, dtype=np.float32), self._decoder_state()]
-        )
-
-    def _decode(self, token: np.ndarray) -> np.ndarray:
-        decoder_input = self._decoder_input(token)
-        return np.asarray(
-            self._decoder.run(
-                [self._decoder_output_name],
-                {self._decoder_input_name: decoder_input[None, :]},
-            )[0][0],
-            dtype=np.float64,
-        )
 
     def g1_absolute_request_from_raw_action(self, action: np.ndarray) -> np.ndarray:
         """Convert normalized MuJoCo-order controls to policy-order joint requests."""
@@ -743,19 +648,6 @@ class G1SonicEnv(MujocoEnv):
         self._torque_sample_count += self.model.nu
         return ctrl
 
-    def set_decoded_action(self, action: np.ndarray) -> None:
-        """Supply the body action decoded by Sample Factory's inference worker."""
-
-        self._pending_decoded_action = np.asarray(action, dtype=np.float64)
-
-    def _observation(self, task_observation: np.ndarray):
-        policy_observation = np.concatenate(
-            [task_observation, self._command_observation()]
-        )
-        if self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
-            return {"obs": policy_observation, "sonic_state": self._decoder_state()}
-        return policy_observation
-
     def reset(
         self,
         *,
@@ -775,9 +667,8 @@ class G1SonicEnv(MujocoEnv):
         mujoco.mj_forward(self.model, self.data)
         init_qpos = self.data.qpos.copy()
         init_qvel = self.data.qvel.copy()
-        if self._control_mode != G1_CONTROL_MODE_SONIC:
-            init_qpos[self._body_qpos_addresses] = G1_DEFAULT_ANGLES
-            init_qpos[self._hand_qpos_addresses] = 0.0
+        init_qpos[self._body_qpos_addresses] = G1_DEFAULT_ANGLES
+        init_qpos[self._hand_qpos_addresses] = 0.0
         randomness = self.randomness
         self.set_state(
             init_qpos
@@ -788,9 +679,6 @@ class G1SonicEnv(MujocoEnv):
         self._torque_saturation_fraction = 0.0
         self._torque_saturation_count = 0
         self._torque_sample_count = 0
-        self._last_action.fill(0.0)
-        self._pending_decoded_action = None
-        self._history.clear()
         task_observation = self._task.reset_model()
         self._q_cmd = np.concatenate(
             [
@@ -799,8 +687,7 @@ class G1SonicEnv(MujocoEnv):
             ]
         ).copy()
         self._v_cmd.fill(0.0)
-        self._history.append(self._frame())
-        return self._observation(task_observation)
+        return np.concatenate([task_observation, self._command_observation()])
 
     def step(self, action: Any):
         action = np.asarray(action, dtype=np.float32)
@@ -810,32 +697,18 @@ class G1SonicEnv(MujocoEnv):
             G1_CONTROL_MODE_DIRECT_ABSOLUTE,
         ):
             if self._control_mode == G1_CONTROL_MODE_DIRECT_ABSOLUTE:
-                decoder_action = action[:29].astype(np.float64)
-                body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
+                body_action_mu = action[:29].astype(np.float64)[
+                    POLICY_INDEX_FOR_MUJOCO
+                ]
                 hand_action = action[29:43].astype(np.float64)
                 absolute_position = True
                 raw_body = False
             else:
                 body_action_mu = action[:29].astype(np.float64)
-                decoder_action = body_action_mu[MUJOCO_INDEX_FOR_POLICY]
                 hand_action = (
                     action[29:43].astype(np.float64) if self._raw_learn_hands else None
                 )
                 raw_body = True
-        elif self._control_mode == G1_CONTROL_MODE_SONIC:
-            if self._sonic_decoder_mode == SONIC_DECODER_MODE_INFERENCE_WORKER:
-                decoder_action = self._pending_decoded_action
-                self._pending_decoded_action = None
-                body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
-            else:
-                decoder_action = self._decode(action[:64])
-                body_action_mu = decoder_action[POLICY_INDEX_FOR_MUJOCO]
-            hand_action = (
-                action[64:78].astype(np.float64)
-                if self._sonic_learn_hands
-                else None
-            )
-            raw_body = False
         body_target, hand_target = self._condition_targets(
             body_action_mu,
             hand_action,
@@ -868,13 +741,11 @@ class G1SonicEnv(MujocoEnv):
         self._torque_saturation_fraction = float(
             self._torque_saturation_count / self._torque_sample_count
         )
-        self._last_action[:] = decoder_action
-        self._history.append(self._frame())
         task_observation = self._task.get_obs()
         reward, info = self._task.get_reward()
         terminated, termination_info = self._task.get_terminated()
         return (
-            self._observation(task_observation),
+            np.concatenate([task_observation, self._command_observation()]),
             reward,
             bool(terminated),
             False,

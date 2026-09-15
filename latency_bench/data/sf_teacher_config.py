@@ -258,11 +258,6 @@ def load_rollout_training_config(
             make_kwargs["gr00t_balance_teacher_observation_state"] = True
         if gym_make_kwargs_override is not None:
             make_kwargs.update(gym_make_kwargs_override)
-        if (
-            "sonic_decoder_mode" in make_kwargs
-            and make_kwargs["sonic_decoder_mode"] == "inference_worker"
-        ):
-            make_kwargs["sonic_decoder_mode"] = "environment"
         flat_cfg["gym_make_kwargs_json"] = json.dumps(make_kwargs)
     env_name, integration_name, action_spec, base_prompt = _rollout_task_contract(flat_cfg)
     config_source = str((checkpoint.experiment_dir / "config.json").resolve())

@@ -234,7 +234,7 @@ def test_gymnasium_state_info_wrapper_preserves_numeric_observation():
 def test_gymnasium_state_info_wrapper_uses_policy_state_from_dict_observation():
     observation = {
         "obs": np.array([1.0, 2.0]),
-        "sonic_state": np.zeros(930),
+        "aux_state": np.zeros(3),
     }
     np.testing.assert_array_equal(
         GymnasiumStateInfoWrapper._state(observation), observation["obs"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import math
 import random
 from pathlib import Path
@@ -131,6 +132,13 @@ class IidInverseCdfSampler(LatencySampler):
         self.clock = clock
         self.rng = random.Random(seed)
 
+    def __deepcopy__(self, memo):
+        clone = copy.copy(self)
+        memo[id(self)] = clone
+        clone.rng = random.Random()
+        clone.rng.setstate(self.rng.getstate())
+        return clone
+
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         worker_slot = context["worker_slot"]
         distribution = self.distributions[str(worker_slot)]["all"]
@@ -204,6 +212,18 @@ class HiddenRegimeSampler(LatencySampler):
         self._slot_to_rank: dict[int, int] = {}
         self._unassigned_ranks: list[int] = []
         self._slot_states: dict[int, dict[str, Any]] = {}
+
+    def __deepcopy__(self, memo):
+        clone = copy.copy(self)
+        memo[id(self)] = clone
+        clone.rng = random.Random()
+        clone.rng.setstate(self.rng.getstate())
+        clone._slot_to_rank = self._slot_to_rank.copy()
+        clone._unassigned_ranks = self._unassigned_ranks.copy()
+        clone._slot_states = {
+            slot: state.copy() for slot, state in self._slot_states.items()
+        }
+        return clone
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         episode_id = context["episode_id"]

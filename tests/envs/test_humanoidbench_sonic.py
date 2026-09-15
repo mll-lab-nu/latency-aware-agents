@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import gymnasium as gym
 import mujoco
 import numpy as np
 import pytest
-
-pytest.importorskip("onnxruntime")
 
 from latency_bench.envs import humanoidbench_sonic as sonic
 from latency_bench.envs.humanoidbench_sonic_contract import (
@@ -22,19 +19,20 @@ from latency_bench.envs.humanoidbench_sonic_contract import (
 )
 
 
-class _DecoderSession:
-    def __init__(self, *args, **kwargs):
-        self.input = None
-
-    def get_inputs(self):
-        return [SimpleNamespace(name="obs_dict")]
-
-    def get_outputs(self):
-        return [SimpleNamespace(name="action")]
-
-    def run(self, output_names, inputs):
-        self.input = inputs["obs_dict"]
-        return [np.zeros((1, 29), dtype=np.float32)]
+def test_quaternion_rotation_matches_cross_product():
+    rng = np.random.default_rng(7)
+    for _ in range(100):
+        quat = rng.standard_normal(4)
+        quat /= np.linalg.norm(quat)
+        vector = rng.standard_normal(3)
+        qvec = quat[1:]
+        expected = vector + 2.0 * (
+            quat[0] * np.cross(qvec, vector)
+            + np.cross(qvec, np.cross(qvec, vector))
+        )
+        np.testing.assert_array_equal(
+            sonic._rotate_by_quaternion(quat, vector), expected
+        )
 
 
 @pytest.fixture(scope="module")
@@ -65,13 +63,11 @@ def scene_paths(scene_root):
 
 
 @pytest.fixture
-def env(monkeypatch, scene_path):
-    monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
+def env(scene_path):
     instance = gym.make(
         sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
         scene_path=str(scene_path),
-        sonic_decoder_path="decoder.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
+        control_mode=sonic.G1_CONTROL_MODE_RAW,
         render_mode="rgb_array",
         width=64,
         height=64,
@@ -80,7 +76,7 @@ def env(monkeypatch, scene_path):
     instance.close()
 
 
-def test_sonic_balance_environment_contract(env):
+def test_g1_balance_environment_contract(env):
     first_observation, _ = env.reset(seed=17)
     second_observation, _ = env.reset(seed=17)
     np.testing.assert_array_equal(second_observation, first_observation)
@@ -90,7 +86,7 @@ def test_sonic_balance_environment_contract(env):
     np.testing.assert_array_equal(first_observation[-43:], np.zeros(43))
 
     native = env.unwrapped
-    assert env.action_space == gym.spaces.Box(-1, 1, shape=(78,), dtype=np.float32)
+    assert env.action_space == gym.spaces.Box(-1, 1, shape=(43,), dtype=np.float32)
     assert env.observation_space == gym.spaces.Box(
         -np.inf, np.inf, shape=(198,), dtype=np.float64
     )
@@ -107,7 +103,7 @@ def test_sonic_balance_environment_contract(env):
     assert native.robot.dof == 50
 
     next_observation, reward, terminated, truncated, info = env.step(
-        np.zeros(78, dtype=np.float32)
+        np.zeros(43, dtype=np.float32)
     )
     assert next_observation.shape == (198,)
     np.testing.assert_allclose(
@@ -121,165 +117,6 @@ def test_sonic_balance_environment_contract(env):
     assert native.camera_name == "cam_default"
 
 
-def test_sonic_decoder_history_and_joint_mapping(env):
-    env.reset(seed=0)
-    native = env.unwrapped
-    mujoco.mj_resetDataKeyframe(native.model, native.data, 0)
-    keyframe_body_q = native.data.qpos[native._body_qpos_addresses].copy()
-    np.testing.assert_array_equal(
-        native.data.qpos[native._hand_qpos_addresses], np.zeros(14)
-    )
-    native._history.clear()
-    native._history.append(native._frame())
-    native._q_cmd = np.concatenate([keyframe_body_q, np.zeros(14)])
-    native._v_cmd.fill(0.0)
-
-    body_q, body_dq = native._body_state()
-    np.testing.assert_array_equal(
-        body_q,
-        (keyframe_body_q - G1_DEFAULT_ANGLES)[MUJOCO_INDEX_FOR_POLICY],
-    )
-    np.testing.assert_array_equal(body_dq, np.zeros(29))
-
-    token = np.arange(64, dtype=np.float32)
-    decoder_input = native._decoder_input(token)
-    assert decoder_input.shape == (994,)
-    np.testing.assert_array_equal(decoder_input[:64], token)
-    np.testing.assert_array_equal(decoder_input[64 : 64 + 9 * 3], np.zeros(27))
-    np.testing.assert_array_equal(
-        decoder_input[64 + 30 : 64 + 30 + 9 * 29], np.zeros(261)
-    )
-
-    policy_action = np.arange(29, dtype=np.float64) / 100
-    hand_action = np.zeros(14, dtype=np.float64)
-    expected_target, expected_hand_target = native._condition_targets(
-        policy_action, hand_action, raw_body=False
-    )
-    control = native._controller(expected_target, expected_hand_target)
-    expected_body_control = sonic._KP * (expected_target - keyframe_body_q)
-    np.testing.assert_allclose(
-        control[native._body_actuator_ids],
-        expected_body_control,
-        rtol=1e-12,
-        atol=1e-12,
-    )
-    np.testing.assert_allclose(
-        control[native._hand_actuator_ids],
-        sonic._HAND_KP * expected_hand_target,
-    )
-
-    raw_action = np.linspace(-1.0, 1.0, 29)
-    raw_target, raw_hand_target = native._condition_targets(
-        raw_action, hand_action, raw_body=True
-    )
-    raw_control = native._controller(raw_target, raw_hand_target)
-    np.testing.assert_allclose(
-        raw_control[native._body_actuator_ids],
-        sonic._KP * (raw_target - native.data.qpos[native._body_qpos_addresses]),
-    )
-
-
-def test_inference_worker_mode_exposes_decoder_state_and_consumes_body_action(
-    scene_path,
-):
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
-        scene_path=str(scene_path),
-        sonic_decoder_path="unused.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
-        render_mode="rgb_array",
-        width=64,
-        height=64,
-    )
-    try:
-        observation, _ = env.reset(seed=0)
-        assert observation["obs"].shape == (198,)
-        assert observation["sonic_state"].shape == (930,)
-        np.testing.assert_array_equal(
-            observation["sonic_state"], env.unwrapped._decoder_state()
-        )
-
-        body_action = np.arange(29, dtype=np.float32) / 100
-        env.unwrapped.set_decoded_action(body_action)
-        next_observation, *_ = env.step(np.zeros(78, dtype=np.float32))
-        np.testing.assert_array_equal(env.unwrapped._last_action, body_action)
-        assert next_observation["sonic_state"].shape == (930,)
-    finally:
-        env.close()
-
-
-def test_sonic_reset_keeps_board_keyframe_height(scene_paths):
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_hard"]["env_id"],
-        scene_path=str(scene_paths["g1_sonic_balance_hard"]),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC,
-        sonic_decoder_path="unused.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        env.reset(seed=7)
-        native = env.unwrapped
-        assert native.data.qpos[2] > 1.0
-        assert abs(native.data.qpos[2] - native.model.key_qpos[0, 2]) <= native.randomness
-    finally:
-        env.close()
-
-
-def test_direct_sonic_can_use_strict_64d_action_with_fixed_fingers(
-    monkeypatch, scene_path
-):
-    monkeypatch.setattr(sonic.ort, "InferenceSession", _DecoderSession)
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
-        scene_path=str(scene_path),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC,
-        sonic_decoder_path="decoder.onnx",
-        sonic_learn_hands=False,
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        observation, _ = env.reset(seed=0)
-        native = env.unwrapped
-        assert env.action_space.shape == (64,)
-        assert observation.shape == (198,)
-        _, hand_target = native._condition_targets(
-            np.zeros(29), None, raw_body=False
-        )
-        np.testing.assert_allclose(hand_target, np.zeros(14), atol=1e-12)
-        env.step(np.zeros(64, dtype=np.float32))
-        np.testing.assert_allclose(native._q_cmd[29:], np.zeros(14), atol=1e-12)
-    finally:
-        env.close()
-
-
-def test_direct_sonic_worker_strict_64d_keeps_fingers_fixed(scene_path):
-    env = gym.make(
-        sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],
-        scene_path=str(scene_path),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC,
-        sonic_learn_hands=False,
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        observation, _ = env.reset(seed=0)
-        native = env.unwrapped
-        assert env.action_space.shape == (64,)
-        native.set_decoded_action(np.zeros(29, dtype=np.float32))
-        env.step(np.zeros(64, dtype=np.float32))
-        np.testing.assert_allclose(native._q_cmd[29:], np.zeros(14), atol=1e-12)
-    finally:
-        env.close()
-
-
 @pytest.mark.parametrize(
     ("task_name", "expected_obs_dim", "horizon"),
     [
@@ -288,7 +125,7 @@ def test_direct_sonic_worker_strict_64d_keeps_fingers_fixed(scene_path):
         ("g1_sonic_basketball", 198, 500),
     ],
 )
-def test_g1_task_family_raw_and_sonic_contract(
+def test_g1_task_family_raw_contract(
     scene_paths, task_name, expected_obs_dim, horizon
 ):
     spec = sonic.G1_SONIC_ENV_SPECS[task_name]
@@ -297,8 +134,6 @@ def test_g1_task_family_raw_and_sonic_contract(
         task_name=task_name,
         scene_path=str(scene_paths[task_name]),
         control_mode=sonic.G1_CONTROL_MODE_RAW,
-        sonic_decoder_path="unused.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_ENVIRONMENT,
         render_mode="rgb_array",
         width=32,
         height=32,
@@ -329,34 +164,6 @@ def test_g1_task_family_raw_and_sonic_contract(
         assert raw.render().shape == (32, 32, 3)
     finally:
         raw.close()
-
-    sonic_env = gym.make(
-        spec["env_id"],
-        task_name=task_name,
-        scene_path=str(scene_paths[task_name]),
-        control_mode=sonic.G1_CONTROL_MODE_SONIC,
-        sonic_decoder_path="unused.onnx",
-        sonic_decoder_mode=sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
-        render_mode="rgb_array",
-        width=32,
-        height=32,
-    )
-    try:
-        observation, _ = sonic_env.reset(seed=7)
-        assert observation["obs"].shape == (expected_obs_dim,)
-        assert observation["sonic_state"].shape == (930,)
-        assert sonic_env.action_space.shape == (78,)
-        sonic_env.unwrapped.set_decoded_action(np.zeros(29, dtype=np.float32))
-        next_observation, reward, _terminated, truncated, _ = sonic_env.step(
-            np.zeros(78, dtype=np.float32)
-        )
-        assert next_observation["obs"].shape == (expected_obs_dim,)
-        assert next_observation["sonic_state"].shape == (930,)
-        assert np.isfinite(reward)
-        assert truncated is False
-        assert sonic_env.render().shape == (32, 32, 3)
-    finally:
-        sonic_env.close()
 
 
 def test_raw_reset_action_matches_default_pose_and_can_drop_hands(scene_path):
@@ -610,32 +417,15 @@ _INITIAL_TRAINING_TASKS = {
     "task_name",
     sorted(set(sonic.G1_SONIC_ENV_SPECS) - _INITIAL_TRAINING_TASKS),
 )
-@pytest.mark.parametrize(
-    ("control_mode", "decoder_mode", "action_dim"),
-    [
-        (
-            sonic.G1_CONTROL_MODE_RAW,
-            sonic.SONIC_DECODER_MODE_ENVIRONMENT,
-            43,
-        ),
-        (
-            sonic.G1_CONTROL_MODE_SONIC,
-            sonic.SONIC_DECODER_MODE_INFERENCE_WORKER,
-            78,
-        ),
-    ],
-)
 def test_extended_g1_task_family_reset_step_and_render(
-    scene_paths, task_name, control_mode, decoder_mode, action_dim
+    scene_paths, task_name
 ):
     spec = sonic.G1_SONIC_ENV_SPECS[task_name]
     env = gym.make(
         spec["env_id"],
         task_name=task_name,
         scene_path=str(scene_paths[task_name]),
-        control_mode=control_mode,
-        sonic_decoder_path="unused.onnx",
-        sonic_decoder_mode=decoder_mode,
+        control_mode=sonic.G1_CONTROL_MODE_RAW,
         render_mode="rgb_array",
         width=16,
         height=16,
@@ -643,20 +433,11 @@ def test_extended_g1_task_family_reset_step_and_render(
     try:
         first, _ = env.reset(seed=7)
         second, _ = env.reset(seed=7)
-        if decoder_mode == sonic.SONIC_DECODER_MODE_INFERENCE_WORKER:
-            np.testing.assert_array_equal(first["obs"], second["obs"])
-            env.unwrapped.set_decoded_action(np.zeros(29, dtype=np.float32))
-        else:
-            np.testing.assert_array_equal(first, second)
+        np.testing.assert_array_equal(first, second)
         observation, reward, _terminated, truncated, _info = env.step(
-            np.zeros(action_dim, dtype=np.float32)
+            np.zeros(43, dtype=np.float32)
         )
-        policy_observation = (
-            observation["obs"]
-            if decoder_mode == sonic.SONIC_DECODER_MODE_INFERENCE_WORKER
-            else observation
-        )
-        assert policy_observation.shape == (
+        assert observation.shape == (
             env.unwrapped._task.observation_space.shape[0] + 86,
         )
         assert np.isfinite(reward)
@@ -670,7 +451,7 @@ def test_extended_g1_task_family_reset_step_and_render(
         env.close()
 
 
-def test_balance_branch_restores_physics_history_controller_and_rng(scene_paths):
+def test_balance_branch_restores_physics_controller_and_rng(scene_paths):
     """Long-lived DAgger contract: independent native branches reproduce the next transition."""
     envs = [gym.make(
         sonic.G1_SONIC_ENV_SPECS["g1_sonic_balance_simple"]["env_id"],

@@ -1,4 +1,4 @@
-"""Explicitly prepare the pinned SONIC G1 assets and decoder."""
+"""Explicitly prepare the pinned G1 scene assets."""
 
 from __future__ import annotations
 
@@ -7,16 +7,14 @@ import json
 import shutil
 from pathlib import Path
 
-import onnx
-from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub import snapshot_download
 
-SONIC_REPO_ID = "nvidia/GEAR-SONIC"
-SONIC_REVISION = "1157dbafbae49ba17b8b53ace04cd8191b6a6697"
-SONIC_DECODER_FILENAME = "sonic_v1_1/model_decoder.onnx"
 SONIC_ASSETS_REPO_ID = "latency-sensitive-bench/g1-sonic-assets"
 SONIC_ASSETS_REVISION = "7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d"
-def prepare_g1_sonic_assets(cache_dir: Path) -> tuple[Path, Path]:
-    """Download the pinned scene bundle and dynamic-batch SONIC decoder."""
+
+
+def prepare_g1_sonic_assets(cache_dir: Path) -> Path:
+    """Download the pinned scene bundle."""
 
     snapshot = Path(
         snapshot_download(
@@ -35,37 +33,15 @@ def prepare_g1_sonic_assets(cache_dir: Path) -> tuple[Path, Path]:
     truck_target = asset_root / "tasks/truck.xml"
     truck_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(truck_source, truck_target)
-
-    decoder = Path(
-        hf_hub_download(
-            repo_id=SONIC_REPO_ID,
-            filename=SONIC_DECODER_FILENAME,
-            revision=SONIC_REVISION,
-            local_dir=cache_dir / "decoder",
-        )
-    )
-    dynamic_decoder = decoder.with_name("model_decoder_dynamic.onnx")
-    if not dynamic_decoder.exists():
-        model = onnx.load(decoder)
-        for value_info in (*model.graph.input, *model.graph.output):
-            batch = value_info.type.tensor_type.shape.dim[0]
-            batch.ClearField("dim_value")
-            batch.dim_param = "batch"
-        onnx.save(model, dynamic_decoder)
-    return asset_root, dynamic_decoder
+    return asset_root
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache-dir", type=Path, required=True)
     args = parser.parse_args()
-    asset_root, decoder_path = prepare_g1_sonic_assets(args.cache_dir)
-    print(
-        json.dumps(
-            {"asset_root": str(asset_root), "decoder_path": str(decoder_path)},
-            indent=2,
-        )
-    )
+    asset_root = prepare_g1_sonic_assets(args.cache_dir)
+    print(json.dumps({"asset_root": str(asset_root)}, indent=2))
 
 
 if __name__ == "__main__":
