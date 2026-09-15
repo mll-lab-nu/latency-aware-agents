@@ -1,6 +1,6 @@
 # Benchmark 进度与评测结果
 
-最后核查：**2026-09-14 15:35 UTC**。文档入口：[program 索引](README.md)。
+最后核查：**2026-09-15 08:58 UTC**。文档入口：[program 索引](README.md)。
 本表记录已确认的产物和评测；各行证据采用固定版本，后续工作确认结果后同步更新。
 
 - 模型仓库：[e05ca26afde4f509b0f838742c522f3a068596a8](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)，最后修改 2026-09-14T01:41:19.000Z。
@@ -27,7 +27,7 @@ latency profile、latency-aware small model、latency-aware VLA training、laten
 | 任务 | 0 small | 0 VLA train | 0 VLA eval | RTX 3090 profile | Latency small | Latency VLA train | Latency VLA eval / 下一步 |
 |---|---|---|---|---|---|---|---|
 | Balance Simple | FastTD3 teacher 已发布 | 4/4；各 SFT 15k | 4/4；QwenOFT return98.4357±15.4165，n=100 | 4/4 | H1/H8 实验已完成，合同不同；H8 消融见下 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；D/E 组合与单独消融待验证 |
-| MIKASA InterceptGrabFast | PPO teacher；100% | 4/4；各 SFT 5k | 4/4 本地补评测；QwenOFT success56%，return21.7417±16.4361，n=50；两类HF标准文件缺失 | 4/4 | 4/4 已发布；end SR 96.88–98.83%（20Hz），Wan 93.75%（10Hz） | QwenOFT SFT 5k 本地完成；远端QwenPI运行中，已核查182/5k，12线程、micro128＋CPU offload；线程实测7.475秒/更新 | QwenOFT temporal success 57%，return 19.4161±15.0048；QwenPI正式评测未完成 |
+| MIKASA InterceptGrabFast | PPO teacher；100% | 4/4；各 SFT 5k | 4/4 本地补评测；QwenOFT success56%，return21.7417±16.4361，n=50；两类HF标准文件缺失 | 4/4 | 4/4 已发布；end SR 96.88–98.83%（20Hz），Wan 93.75%（10Hz） | QwenOFT SFT 5k 本地完成；远端QwenPI SFT 5k完成，12线程、micro128＋CPU offload；未发布 | QwenOFT temporal success 57%，return 19.4161±15.0048；QwenPI三项100局矩阵已完成：no_latency_model_no_latency return23.0983, n=100；no_latency_model_profile_latency return0.2862, n=100；latency_aware_model_profile_latency return14.9605, n=100 |
 | Extreme Parkour Go2 | PPO teacher；reward 23.14±6.02 | 3/4；各 SFT 5k + DAgger 5k | 3/4；QwenOFT return23.3283±7.7106，n=100 | 3/4 | 历史训练暂停/退化；本轮正式最终结果未核验 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；Wan H1 与 latency small 最终状态待核验 |
 | HAIC PullCart | PPO teacher；native success 93.8965%，未达 native 100% gate | 1/4；QwenOFT SFT 5k + DAgger 5k | 1/4；QwenOFT success56%，return13.3497±8.2155，n=100 | 1/4 | 历史训练/smoke 存在，正式最终结果未核验 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；其余三模型与 latency small 最终状态待核验 |
 
@@ -64,8 +64,8 @@ L0 主对比采用本地 **50个共同seed，4242424242–4242424291** 的补评
 | 模型 | 0 VLA training | 0 VLA eval：return ± SD；长度；成功率；n | Latency profile | Latency small | Latency VLA training | Latency VLA eval |
 |---|---|---|---|---|---|---|
 | qwenoft | 已完成SFT 5,000；[M-qwenoft-source] | 21.7417±16.4361；60.00步；task success 56%；n=50 [M-qwenoft-eval] | 已发布；均值 99.05ms [M-qwenoft-profile] | 已发布；strict评测见下方小模型表 | 本地SFT 5,000；未发布 [M-latency-run] | temporal task success 57%；19.4161±15.0048；n=100 [M-latency-eval] |
-| qwengr00t | 已完成SFT 5,000；[M-qwengr00t-source] | 21.2928±16.6083；60.00步；task success 56%；n=50 [M-qwengr00t-eval] | 已发布；均值 99.35ms [M-qwengr00t-profile] | 已发布；strict评测见下方小模型表 | 未找到正式产物 | 未找到正式评测 |
-| qwenpi_v3 | 已完成SFT 5,000；[M-qwenpi_v3-source] | 21.9671±17.2095；60.00步；task success 54%；n=50 [M-qwenpi_v3-eval] | 已发布；均值 148.69ms [M-qwenpi_v3-profile] | 已发布；strict评测见下方小模型表 | 远端运行中，已核查182/5,000，12线程、micro128＋CPU offload；未发布 | 正式评测未完成；仅两步smoke |
+| qwengr00t | 已完成SFT 5,000；[M-qwengr00t-source] | 21.2928±16.6083；60.00步；task success 56%；n=50 [M-qwengr00t-eval] | 已发布；均值 99.35ms [M-qwengr00t-profile] | 已发布；strict评测见下方小模型表 | 远端SFT5,000运行中；12线程、micro128＋CPU offload；未发布 | 正式评测待训练完成 |
+| qwenpi_v3 | 已完成SFT 5,000；[M-qwenpi_v3-source] | 21.9671±17.2095；60.00步；task success 54%；n=50 [M-qwenpi_v3-eval] | 已发布；均值 148.69ms [M-qwenpi_v3-profile] | 已发布；strict评测见下方小模型表 | 远端SFT5,000完成；12线程、micro128＋CPU offload；未发布 | 三项100局矩阵完成：no_latency_model_no_latency return23.0983, n=100；no_latency_model_profile_latency return0.2862, n=100；latency_aware_model_profile_latency return14.9605, n=100；详见下方证据 |
 | wanoft | 已完成SFT 5,000；[M-wanoft-source] | 18.9461±16.4028；60.00步；task success 42%；n=50 [M-wanoft-eval] | 已发布；均值 300.54ms [M-wanoft-profile] | 已发布；strict评测见下方小模型表；10Hz | 未找到正式产物 | 未找到正式评测 |
 
 ## Extreme Parkour Go2：四模型明细
@@ -243,7 +243,7 @@ config、dataset_statistics、task_contract、provenance已在远端核验，使
 结果写入远端 `run/eval_matrix` 和同一正式W&B run的 `eval_matrix/<model_latency_condition>/...` summary指标。
 本地tmux `mikasa-qwenpi-eval-progress`运行 [回传/进度更新脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/sync_eval_progress.py)，
 等待远端流水线退出后回传原始结果/配置/日志，并将已确认的结果更新至本地本文件。
-当前三项均未执行、无正式数值；正式训练/正式矩阵评测/发布未完成。
+正式5k训练及三项100局矩阵评测已完成，原始结果见下方。
 
 ## MIKASA QwenOFT VLA：100 episode复核
 
@@ -413,6 +413,78 @@ checkpoint/配置/版本、核查日期和下一步。保留可比较的旧结�
 [MS-wanoft-train]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/train.yaml
 [MS-wanoft-config]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/eval.yaml
 [MS-wanoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/66414463f2a609316da63935941a79abf0a73ce9/profiles/wanoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
+
+### 2026-09-15 07:29 UTC — Balance QwenPI H16 诊断
+
+`balance-qwenpi_v3-h16-replay6553600-25m-20260915T061441Z-profile-rl`
+在 4,976,384 raw frames 被人工中断，保留
+`checkpoint_000077618_4976384.pth`；配置为 H16、50Hz observation、QwenPI v3
+RTX 3090 temporal profile、capacity 1、replay 6,553,600、64 raw frames/update。
+固定 8 reset seeds × 4 latency seeds 的正式评测 n=32：return
+27.892326±2.722401，mean survival 35.46875 raw frames，≥100/≥500 比例均为 0。
+[训练 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-replay6553600-25m-20260915T061441Z-profile-rl)；
+[评测 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-replay6553600-25m-20260915T061441Z-profile-rl-diagnostic-eval)；
+[诊断目录](../outputs/tasks/humanoidbench_balance_simple/h16_causal_diagnostics/20260915T071310Z)。
+该 profile 训练未完成，未验收、未发布。后续两个旧语义因果 arm 已于 08:42 UTC 完成，
+均为 H16、zero latency、obs_fps=10、capacity=1、约 5M raw frames、n=8：
+`update64` checkpoint `checkpoint_000078040_5000972.pth` 的 return
+39.335382±4.280865、mean survival 55.75；`update160` checkpoint
+`checkpoint_000031217_5001189.pth` 的 return 60.552981±6.150873、mean survival 78.375；
+两者 ≥100/≥500 比例均为 0。它们按 raw frames 给 optimizer 累积 credit，而 chunk replay
+只存完成的 execution segment，因此只作为修复前历史结果保留，不能用于新的等 optimizer-step 比较。
+
+08:55 UTC 已启动修复后的 QwenPI H16 zero10 诊断：update credit 改为新完成的 replay
+transitions，raw frames 只作环境吞吐计数；训练停止、TensorBoard/W&B `global_step` 和周期评测横轴
+统一为 critic optimizer step，目标精确为 500,000，`64 transitions/update`，即 warmup 后
+32,000,000 个 credited replay transitions。run 已验证到 optimizer step 458 / raw frames 137,157，
+replay 29,981，首个 checkpoint 为 `checkpoint_000000102_35697.pth`。
+[训练 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-zero10-replay6553600-500kopt-20260915T084909Z-rl)；
+[配置与启动记录](../outputs/tasks/humanoidbench_balance_simple/h16_optimizer500k/20260915T084909Z/launch.json)。
+源码基线 revision `a81af1e4cec246d4b8401a41f19d39db18dbd0f1`、Sample Factory
+`d74dd462919c1583601079a06d0d9055eeef501e`，实际补丁哈希保存在 launch 记录中。
+当前仅确认训练正常 running；评测、验收和发布均未完成。每 25,000 optimizer steps 保留周期
+checkpoint，训练结束后串行评测；约 75k 的 checkpoint 用于和旧 77,618-update 结果比较。若恢复
+学习，再运行其余机制消融及新的 QwenOFT H8 zero/profile 500k optimizer-step baseline。
+
+W&B history 复核确认，`episode/return` 是 Sample Factory 对最近 `stats_avg=100` 个 episode
+求均值后写出的训练曲线，并与 optimizer `global_step` 同行记录；它可直接用于当前 run 的学习趋势。
+逐局原始值为 `episode_train/latest_return`，其原生横轴仍是
+`episode_train/completed_episodes`。后续 run 已显式将 `episode/*` 的 step metric 声明为
+`global_step`；当前 run 无需停止或重训。
+
+### 2026-09-15T10:00:06.202003+00:00 — Balance H8 VLA training checkpoint saved
+
+latency-aware bootstrap, optimizer step 5000, formal; H8, seed=0, microbatch=64, accumulation=1, global batch=128, GPUs=2. [Configuration](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/bootstrap.yaml), [log](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/bootstrap.log), [checkpoint](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/training/bootstrap/checkpoints/steps_5000_pytorch_model.pt), [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile-bootstrap). Training checkpoint saved; next: evaluation. Acceptance/publication remain separate.
+
+Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
+
+### 2026-09-15T10:02:20.109074+00:00 — Balance H8 evaluation complete
+
+Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/inference/checkpoints/model.pt`, step 5000; H8, 50 Hz, `temporal`, formal, n=32. Return 106.463683 ± 21.284356; mean length 121.281250; fraction ≥100 0.875000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/evals/final/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile-bootstrap-eval-5000). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
+
+Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
+
+### 2026-09-15T10:04:23.614225+00:00 — Balance H8 evaluation complete
+
+Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/inference/checkpoints/model.pt`, step 5000; H8, 50 Hz, `zero`, formal, n=25. Return 121.023290 ± 28.059735; mean length 137.760000; fraction ≥100 0.920000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/evals/final_matrix/zero/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile-final-zero). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
+
+Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
+
+### 2026-09-15T10:10:17.891953+00:00 — Balance H8 evaluation complete
+
+Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/inference/checkpoints/model.pt`, step 5000; H8, 50 Hz, `temporal`, formal, n=100. Return 102.433854 ± 15.147160; mean length 117.900000; fraction ≥100 0.880000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/evals/final_matrix/temporal/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile-final-temporal). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
+
+Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
+
+### 2026-09-15T10:11:39.415694+00:00 — Balance H8 publication complete
+
+profile QwenOFT H8 pure-SFT model, optimizer step 5000, DAgger updates 0; published to `latency-sensitive-bench/benchmark-models/latency-aware/humanoidbench-balance-simple/vla/starvla-qwenoft-h8/balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile` at revision `4ada4d52f711167a3bb40829b8617e4caafbac2f`. [Publication record](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/publication.json). Training and final matrix evaluation completed before publication; acceptance remains separate.
+
+### 2026-09-15T12:11:30+00:00 — MIKASA QwenGr00T resumed after disk-full interruption
+
+The single-GPU RTX PRO 6000 latency-aware SFT reached optimizer step 1500 before the root filesystem filled while writing the separate model file. The DeepSpeed `steps_1500_state` had already completed; superseded QwenGr00T step-500 and step-1000 state/model pairs were removed, leaving 137 GiB free. Training resumed from the complete step-1500 state at 12:08 UTC and was verified at step 1512/5000, with recent updates taking 7.40–7.49 seconds and about 90.3 GiB GPU memory in use. The original W&B run is `running`: [MIKASA QwenGr00T SFT](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwengr00t-mikasa_qwengr00t_latency_3090_20260915T035000Z-bootstrap).
+
+The resumed run keeps micro/global batch 128, accumulation 1, CPU optimizer offload, 12 CPUAdam threads, bf16, gradient checkpointing, CUDA expandable segments, and GPU caching. Intermediate checkpoint writes are disabled until step 5000 for this recovery, and the source setting is restored automatically when the process exits. At the observed rate, pure training has about 7 hours 13 minutes remaining; final checkpoint export and the queued three-condition 100-episode evaluation matrix add roughly 25–35 minutes plus save/load time. [Recovery script and task record](../outputs/tasks/mikasa_intercept_grab_fast/qwengr00t_latency_20260915T035000Z/).
 
 ### 2026-09-15 14:27 UTC — Balance FastTD3 correctness and throughput verification
 

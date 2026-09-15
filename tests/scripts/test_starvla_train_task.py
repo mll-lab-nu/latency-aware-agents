@@ -9,10 +9,12 @@ from scripts.starvla import train_task
 
 
 @pytest.mark.parametrize(
-    ('task', 'model', 'phase'),
-    [('balance', 'qwenoft', 'bootstrap'), ('parkour', 'wanoft', 'dagger')],
+    ('task', 'model', 'phase', 'condition', 'wandb_condition'),
+    [('balance', 'qwenoft', 'bootstrap', 'zero-latency', 'zero-latency'),
+     ('parkour', 'wanoft', 'dagger', 'latency-aware', 'profile-latency')],
 )
-def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, monkeypatch, task, model, phase):
+def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
+        tmp_path, monkeypatch, task, model, phase, condition, wandb_condition):
     monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
     monkeypatch.setenv('WANDB_RUN_GROUP', 'test-group')
     bootstrap = tmp_path / 'bootstrap' / 'lerobot'
@@ -25,7 +27,8 @@ def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, monke
     }))
     args = SimpleNamespace(task=task, model=model, output_dir=tmp_path,
                            smoke=True, num_gpus=1, micro_batch=1, num_workers=4,
-                           persistent_workers=True, pin_memory=True, prefetch_factor=2)
+                           persistent_workers=True, pin_memory=True, prefetch_factor=2,
+                           condition=condition)
 
     config = train_task.training_config(
         args, bootstrap=bootstrap.parent, deltas=[], backbone=tmp_path / 'backbone',
@@ -33,10 +36,13 @@ def test_training_config_names_wandb_run_by_task_model_and_phase(tmp_path, monke
         pretrained=None, resume=False,
     )
 
-    assert config['wandb_name'] == f'{task}-{phase}-{model}'
+    suffix = '' if phase == 'bootstrap' else f'-{phase}'
+    assert config['wandb_name'] == f'{task}-{wandb_condition}-{model}{suffix}'
+    assert config['training_latency_condition'] == wandb_condition
+    assert config['wandb_tags'][-1] == wandb_condition
     assert config['run_id'] == phase
     assert config['run_root_dir'] == str(tmp_path / 'training')
-    assert config['trainer']['save_interval'] == 500
+    assert config['trainer']['save_interval'] == 2500
     assert config['checkpoint']['save_training_state'] is True
     assert config['checkpoint']['local']['keep_last_n'] == 2
     data = config['datasets']['vla_data']

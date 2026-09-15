@@ -8,4 +8,5 @@ shift 2
 cd "${REPO_ROOT}"
 exec "${VLA_PY:-${REPO_ROOT}/.venv/bin/python}" -m scripts.starvla.train_task \
   --task mikasa --model qwenoft \
+  --condition latency-aware \
   --dataset-dir "${DATASET_DIR}" --teacher-checkpoint "${TEACHER_CHECKPOINT}" "$@"

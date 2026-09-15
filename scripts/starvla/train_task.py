@@ -262,12 +262,18 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
     write_mixture(mixture_path, bootstrap, deltas, contract['robot_type'])
     global_batch = args.num_gpus * args.micro_batch if args.smoke else TASK_SETTINGS[args.task]['global_batch']
     dataset_info = json.loads((bootstrap / 'lerobot/meta/info.json').read_text())
+    wandb_condition = {'zero-latency': 'zero-latency', 'latency-aware': 'profile-latency'}[args.condition]
+    wandb_name = f'{args.task}-{wandb_condition}-{args.model}'
+    if run_id != 'bootstrap':
+        wandb_name += f'-{run_id}'
     return {
-        'run_id': run_id, 'wandb_name': f'{args.task}-{run_id}-{args.model}',
+        'run_id': run_id, 'wandb_name': wandb_name,
         'run_root_dir': str(args.output_dir / 'training'),
         'seed': 0, 'wandb_project': 'starvla_tasks', 'wandb_entity': None if args.smoke else os.environ['WANDB_ENTITY'],
         'wandb_group': None if args.smoke else os.environ['WANDB_RUN_GROUP'] if args.task == 'balance' else 'vla-train',
-        'wandb_tags': [args.task, 'h8' if args.task == 'balance' else 'h1', 'smoke' if args.smoke else 'formal'],
+        'wandb_tags': [args.task, 'h8' if args.task == 'balance' else 'h1',
+                       'smoke' if args.smoke else 'formal', wandb_condition],
+        'training_latency_condition': wandb_condition,
         'is_debug': False, 'version_id': '0.21', 'framework': framework,
         'datasets': {'vla_data': {
             'dataset_py': 'latency_bench_tasks', 'lerobot_version': dataset_info['codebase_version'],
@@ -283,7 +289,7 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
         }},
         'trainer': {
             'max_train_steps': steps, 'stop_after_steps': stop_step,
-            'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 500,
+            'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 2500,
             'eval_interval': stop_step, 'eval_num_batches': 1, 'logging_frequency': 1 if args.smoke else 5,
             'learning_rate': {'base': 3e-5, 'action_model': 1e-4},
             'lr_scheduler_type': 'cosine_with_min_lr', 'scheduler_specific_kwargs': {'min_lr': 1e-6},
@@ -636,8 +642,8 @@ def main(argv=None) -> None:
     parser.add_argument('--num-gpus', type=int, default=2)
     parser.add_argument('--micro-batch', type=int, default=64,
                         help='Per-GPU starting batch; halve on CUDA OOM while preserving global batch')
-    parser.add_argument('--num-workers', type=int, default=4)
-    parser.add_argument('--prefetch-factor', type=int, default=2)
+    parser.add_argument('--num-workers', type=int, default=8)
+    parser.add_argument('--prefetch-factor', type=int, default=3)
     parser.add_argument('--persistent-workers', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--pin-memory', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--inference-device', default='cuda:1')
