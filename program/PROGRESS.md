@@ -546,3 +546,49 @@ it was verified through optimizer step 283 at 116,992 raw frames. [Chunk-context
 The isolated runtime preserves the controls' worker/vector seed mapping; evaluation, acceptance,
 and publication remain pending. Next: compare training return and periodic n=8 evaluation at equal
 25k/50k/75k/100k optimizer steps.
+
+### 2026-09-15 18:03 UTC — Balance H16 treatments rejected; G1 no-op and periodic eval corrected
+
+The target-actor treatment completed 100,000 optimizer steps / 31,302,628 raw frames at
+`checkpoint_000100000_31302628.pth`. Deterministic equal-checkpoint evaluation used 8 episodes
+per policy. At 25k/50k/75k/100k, the zero-control mean lengths were
+239.750/294.625/714.250/875.000; the treatment's deployed live actor was
+76.125/231.500/90.500/871.750, and its stored EMA actor was
+100.375/188.875/93.250/834.875. Thus the EMA bootstrap slowed learning, did not smooth deployed
+behavior, and gave no final gain. The standard evaluator/deployment loads checkpoint `model`, not
+the separate experimental `target_actor`; target/live relative parameter L2 was only about
+0.48%-0.57% with tau 0.1. This treatment is rejected, not accepted or published.
+
+The chunk-context treatment was intentionally terminated after its exact 50k checkpoint was
+loaded and verified (`checkpoint_000050000_17866880.pth`, 60,044,671 bytes, 48 model/critic
+tensors all finite). Shutdown occurred at 2026-09-15 17:36:01 UTC; the later automatic
+`checkpoint_000053067_18937600.pth` is retained, but comparisons remain anchored at 50k. At 25k
+under the corrected no-op runtime, its n=4 mean length was 35.500 versus 36.500 for the profile
+control, so the added scheduled-chunk remainder/head input did not improve the blocking behavior.
+The target-actor, chunk-context, observation-boundary release, config flags, checkpoint state, and
+their tests were deleted rather than retained as inactive compatibility surface.
+
+The deeper fault was at the G1 action boundary: the latency scheduler received the configured
+normalized no-op after the native environment had already switched to `direct_absolute_position`,
+while ordinary policy actions were converted by the outer raw-request wrapper. Wrong-versus-raw
+maximum observation errors over the first six frames were
+18.21/15.11/13.68/13.09/11.60/9.66; converting the no-op through the same G1 transform restores
+raw/direct trajectories to about 1e-6. The old profile 25k checkpoint scored mean length 50.375
+with the wrong training no-op but only 32.500 in corrected-runtime n=8 evaluation, so it cannot
+stand in for a retrained corrected-profile arm. A second bug caused no-suite periodic jobs to
+write `{"summaries": []}` without running episodes; they now evaluate the current condition and
+the terminal periodic step is not repeated as a final eval.
+
+Implementation revisions are root `3586443134acc6f68739f76f575e7b4aac0f1871` and Sample Factory
+`636e92744a2f47e0f9f2c34c795acee13022e6fc`. Targeted tests passed 75 with 6 skips; the broader
+related selection passed 175 tests, with 13 unrelated Flappy imports unavailable in this
+environment. Isolated 2k smokes both exited 0: corrected profile at
+`checkpoint_000002000_759680.pth` and fixed100/capacity1 at
+`checkpoint_000002000_741632.pth`; both had finite model/critic tensors and no target-actor state.
+[Diagnosis and episode metrics](../outputs/tasks/humanoidbench_balance_simple/h16_profile_fixed100_corrected_noop_50k/20260915T174801Z/diagnosis.json) and
+[paired configs, hashes, smoke records, and decision gates](../outputs/tasks/humanoidbench_balance_simple/h16_profile_fixed100_corrected_noop_50k/20260915T174801Z/launch.json).
+Training completion and evaluation completion for the formal pair remain false: deployment to the
+private benchmark host is prepared but not launched because its presented ED25519 host key differs
+from the recorded key and requires owner confirmation. Acceptance and publication remain false.
+Next: authenticate that host, run corrected-profile and fixed100/capacity1 to 50k, then apply the
+documented mean-length gates; resume both to 100k only if either result is in the 100-300 grey zone.
