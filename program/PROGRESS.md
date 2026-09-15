@@ -525,3 +525,24 @@ was performed. The local source baselines were repository revision
 sync rather than a git checkout, so its exact hot-path sources are retained in the evidence
 directory. Next: use 64 × 2 × 2 for the next long zero/profile learning run, then run the
 documented seeded evaluation protocol separately.
+
+### 2026-09-15 15:20 UTC — Balance QwenPI H16 target-actor / stale-state treatments running
+
+The zero10 `w128e1s1` control completed 100,000 critic optimizer steps at 31,400,509
+raw frames with final checkpoint `checkpoint_000100000_31400509.pth`; no new evaluation,
+acceptance, or publication has been performed. Its target-actor treatment is running on GPU 0
+with the same seed 1, H16, zero latency at 10 Hz observations, replay 6,553,600, batch
+32,768, 64 replay transitions/update, and 100,000-step budget. The only algorithm flag enabled
+for this arm is `fasttd3_target_actor`; it was verified running through optimizer step 2,088 at
+628,846 raw frames. [Target-actor W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-zero10-w128e1s1-target_actor-replay6553600-100kopt-20260915T151542Z-s1-rl).
+
+The slow profile control was intentionally stopped at optimizer step 48,346 / 17,344,000 raw
+frames (`checkpoint_000048346_17344000.pth`, exit 2). Its stale-state treatment is running on
+GPU 1 with the same seed 1, H16, QwenPI v3 RTX 3090 temporal profile, 50 Hz observations,
+capacity 1, replay/update settings, and 100,000-step budget. This arm leaves target actor off and
+enables observation-boundary result release plus the causal scheduled chunk remainder/head index;
+it was verified through optimizer step 283 at 116,992 raw frames. [Chunk-context W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-profile-w128e1s1-chunk_context-replay6553600-100kopt-20260915T151542Z-s1-rl).
+[Exact configs, isolated runtime hashes, scripts, and logs](../outputs/tasks/humanoidbench_balance_simple/h16_target_actor_chunk_context_100k/20260915T151542Z/launch.json).
+The isolated runtime preserves the controls' worker/vector seed mapping; evaluation, acceptance,
+and publication remain pending. Next: compare training return and periodic n=8 evaluation at equal
+25k/50k/75k/100k optimizer steps.

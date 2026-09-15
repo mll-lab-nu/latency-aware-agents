@@ -97,6 +97,34 @@ class ActionScheduler:
             return self._next_chunk_action(current_step)
         return self.persistence_policy.get_action_for_step(self._current_action, self.noop_action)
 
+    def scheduled_chunk_event(
+        self, current_step: int, current_time_ms: float
+    ) -> tuple[ActionEvent | None, int]:
+        """Peek at the returned chunk that the next scheduler update will use."""
+        selected = None
+        if self._pending_events:
+            if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO:
+                head = self._pending_events[0]
+                if self._is_ready(head, current_step, current_time_ms):
+                    selected = head
+            else:
+                ready = [
+                    event
+                    for event in self._pending_events
+                    if self._is_ready(event, current_step, current_time_ms)
+                ]
+                if ready:
+                    selected = ready[-1]
+        event = selected if selected is not None else self._active_chunk_event
+        if event is None or event.action_chunk is None:
+            return None, -1
+        index = current_step - event.obs_env_step
+        if index < len(event.action_chunk):
+            return event, index
+        if self.hold_last_chunk_action:
+            return event, len(event.action_chunk) - 1
+        return None, -1
+
     def get_pending_events(self) -> list[ActionEvent]:
         return list(self._pending_events)
 

@@ -171,14 +171,34 @@ class G1RawRequestWrapper(gym.ActionWrapper):
             return self.unwrapped.g1_absolute_request_from_raw_action(action)
         return np.stack([self.unwrapped.g1_absolute_request_from_raw_action(row) for row in action])
 
+    def reverse_action(self, action):
+        from latency_bench.envs.humanoidbench_sonic import POLICY_INDEX_FOR_MUJOCO
+
+        action = np.asarray(action)
+        ordered = np.concatenate((action[:29][POLICY_INDEX_FOR_MUJOCO], action[29:]))
+        ranges = self.unwrapped._joint_ranges
+        return (2.0 * (ordered - ranges[:, 0]) / (ranges[:, 1] - ranges[:, 0]) - 1.0).astype(np.float32)
+
 
 class ActionChunkWrapper(gym.Wrapper):
     """Expose normalized FastTD3 actions and carry raw-frame execution traces."""
 
-    def __init__(self, env, horizon, obs_stride):
+    def __init__(
+        self,
+        env,
+        horizon,
+        obs_stride,
+        *,
+        latency_env=None,
+        reverse_action=None,
+        actor_chunk_context=False,
+    ):
         super().__init__(env)
         self.horizon = horizon
         self.native_action_space = env.action_space
+        self.latency_env = latency_env
+        self.reverse_action = reverse_action
+        self.actor_chunk_context = actor_chunk_context
         self.action_space = gym.spaces.Box(
             -1.0, 1.0, (horizon * env.action_space.shape[0],), dtype=np.float32,
         )
@@ -193,6 +213,13 @@ class ActionChunkWrapper(gym.Wrapper):
                 replay_clock=gym.spaces.Box(-1, np.iinfo(np.int64).max, (obs_stride, 7), dtype=np.int64),
                 replay_length=gym.spaces.Box(0, obs_stride, (), dtype=np.int64),
             )
+            if actor_chunk_context:
+                spaces.update(
+                    scheduled_chunk=gym.spaces.Box(
+                        -1.0, 1.0, (horizon, env.action_space.shape[0]), dtype=np.float32,
+                    ),
+                    scheduled_index=gym.spaces.Box(0.0, 1.0, (horizon,), dtype=np.float32),
+                )
             self.observation_space = gym.spaces.Dict(spaces)
 
     def reset(self, **kwargs):
@@ -205,10 +232,24 @@ class ActionChunkWrapper(gym.Wrapper):
         }
         return self._observation(observation, trace), info
 
-    @staticmethod
-    def _observation(observation, trace):
+    def _observation(self, observation, trace):
         physical = observation if isinstance(observation, dict) else {"obs": observation}
-        return {**physical, **trace}
+        result = {**physical, **trace}
+        if self.actor_chunk_context:
+            scheduled_chunk = np.zeros(
+                (self.horizon, self.native_action_space.shape[0]), dtype=np.float32,
+            )
+            scheduled_index = np.zeros(self.horizon, dtype=np.float32)
+            event, index = self.latency_env.action_scheduler.scheduled_chunk_event(
+                self.latency_env.env_step_idx,
+                self.latency_env.clock.step_to_time_ms(self.latency_env.env_step_idx),
+            )
+            if event is not None:
+                for head in range(index, self.horizon):
+                    scheduled_chunk[head] = self.reverse_action(event.action_chunk[head])
+                scheduled_index[index] = 1.0
+            result.update(scheduled_chunk=scheduled_chunk, scheduled_index=scheduled_index)
+        return result
 
     def step(self, action):
         action = np.asarray(action).reshape(self.horizon, self.native_action_space.shape[0])
@@ -283,16 +324,27 @@ def make_gymnasium_sf_env(
         add_latency_info=bool(cfg.add_latency_info),
         max_pending_actions=cfg.max_pending_actions,
         hold_last_chunk_action=cfg.hold_last_chunk_action,
+        release_results_at_observation_boundary=bool(cfg.fasttd3_actor_chunk_context),
         noop_action=(
             cfg.gym_noop_action_id
             if action_space_contract["type"] == "discrete"
             else _gymnasium_noop_action(cfg)
         ),
     )
+    latency_env = env
+    reverse_action = None
     if raw_g1_requests:
         env = G1RawRequestWrapper(env)
+        reverse_action = env.reverse_action
     if cfg.algo == "FAST_TD3":
-        env = ActionChunkWrapper(env, cfg.fasttd3_action_chunk_horizon, clock.obs_stride_raw_frames)
+        env = ActionChunkWrapper(
+            env,
+            cfg.fasttd3_action_chunk_horizon,
+            clock.obs_stride_raw_frames,
+            latency_env=latency_env,
+            reverse_action=reverse_action,
+            actor_chunk_context=bool(cfg.fasttd3_actor_chunk_context),
+        )
     action_labels = (
         {
             action_id: name

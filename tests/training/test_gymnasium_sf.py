@@ -342,6 +342,40 @@ class _ChunkDelaySampler:
         )
 
 
+def test_chunk_context_receives_boundary_result_before_next_policy_observation():
+    native = _VectorActionTraceEnv()
+    latency = GymnasiumActionLatencyWrapper(
+        native,
+        fixed_latency_raw_frames=1,
+        env_fps=10,
+        obs_fps=10,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        simulated_worker_capacity=1,
+        add_latency_info=False,
+        hold_last_chunk_action=True,
+        release_results_at_observation_boundary=True,
+        noop_action=np.zeros(43, dtype=np.float32),
+    )
+    env = ActionChunkWrapper(
+        latency,
+        horizon=4,
+        obs_stride=1,
+        latency_env=latency,
+        reverse_action=lambda action: action / 10.0,
+        actor_chunk_context=True,
+    )
+    observation, _ = env.reset(seed=1)
+    np.testing.assert_array_equal(observation["scheduled_index"], np.zeros(4))
+
+    chunk = np.stack([np.full(43, head * 0.1, dtype=np.float32) for head in range(4)])
+    observation, *_ = env.step(chunk.reshape(-1))
+
+    np.testing.assert_array_equal(observation["scheduled_index"], [0.0, 1.0, 0.0, 0.0])
+    np.testing.assert_allclose(observation["scheduled_chunk"][0], 0.0)
+    np.testing.assert_allclose(observation["scheduled_chunk"][1:], chunk[1:])
+
+
 @pytest.mark.parametrize("delays,expected,windows", [([(0, 0)],
   [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0)],
   [(0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1)]),
