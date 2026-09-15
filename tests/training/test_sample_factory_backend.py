@@ -752,8 +752,7 @@ def test_action_latency_wrapper_drops_busy_requests_and_reports_issued_applied()
 def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop():
     import gymnasium as gym
     from gymnasium.spaces import Box
-    from training.common.latency_wrapper import ActionLatencyWrapper
-    from training.gymnasium_sf.integration import G1RawRequestWrapper
+    from training.gymnasium_sf.integration import G1RawRequestWrapper, GymnasiumActionLatencyWrapper
 
     class ActionTargetEnv(gym.Env):
         observation_space = Box(low=-10, high=10, shape=(1,), dtype=np.float32)
@@ -776,12 +775,13 @@ def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop
             return np.zeros(1, dtype=np.float32), 0.0, False, False, {}
 
     base_env = ActionTargetEnv()
-    wrapped = ActionLatencyWrapper(
+    wrapped = GymnasiumActionLatencyWrapper(
         base_env,
         fixed_latency_raw_frames=2,
         env_fps=30,
         obs_fps=30,
         add_latency_info=True,
+        noop_action=base_env.g1_absolute_request_from_raw_action(np.zeros(43, dtype=np.float32)),
     )
     wrapped = G1RawRequestWrapper(wrapped)
     try:
@@ -795,7 +795,7 @@ def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop
     finally:
         wrapped.close()
 
-    np.testing.assert_allclose(base_env.actions, np.repeat([[0.0], [0.0], [4.0]], 43, axis=1))
+    np.testing.assert_allclose(base_env.actions, np.repeat([[2.0], [2.0], [4.0]], 43, axis=1))
 def test_action_latency_wrapper_replays_iid_profile_by_reset_seed(tmp_path):
     import gymnasium as gym
 

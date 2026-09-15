@@ -297,8 +297,6 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "actor_critic_share_weights",
         "with_wandb",
         "fasttd3_compile",
-        "fasttd3_target_actor",
-        "fasttd3_actor_chunk_context",
     )
     list_fields = (
         "encoder_mlp_layers",

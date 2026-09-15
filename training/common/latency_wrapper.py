@@ -85,7 +85,6 @@ class ActionLatencyWrapper(gym.Wrapper):
         simulated_worker_capacity: int | None = None,
         max_pending_actions: int | None = None,
         hold_last_chunk_action: bool = False,
-        release_results_at_observation_boundary: bool = False,
     ):
         super().__init__(env)
         self.base_latency_seed = int(seed)
@@ -150,7 +149,6 @@ class ActionLatencyWrapper(gym.Wrapper):
             ordering_policy=self.ordering_policy,
             hold_last_chunk_action=hold_last_chunk_action,
         )
-        self.release_results_at_observation_boundary = release_results_at_observation_boundary
         self.result_timeline = SimulatedResultTimeline(ordering_policy=self.ordering_policy)
         self.latency_distribution_sampler = None
         self.env_reset_seed_base = None if env_reset_seed_base is None else int(env_reset_seed_base)
@@ -452,13 +450,6 @@ class ActionLatencyWrapper(gym.Wrapper):
 
         if obs is None:
             raise RuntimeError("ActionLatencyWrapper did not advance any raw frames")
-
-        if self.release_results_at_observation_boundary:
-            released_events, _ = self.result_timeline.release_arrived(self.env_step_idx)
-            for released_event in released_events:
-                self.action_scheduler.enqueue(released_event)
-            if self.worker_capacity is not None:
-                self.worker_capacity.release_ready(self.env_step_idx)
 
         info = dict(info or {})
         if chunk_request:

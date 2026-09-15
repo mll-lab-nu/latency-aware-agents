@@ -342,40 +342,6 @@ class _ChunkDelaySampler:
         )
 
 
-def test_chunk_context_receives_boundary_result_before_next_policy_observation():
-    native = _VectorActionTraceEnv()
-    latency = GymnasiumActionLatencyWrapper(
-        native,
-        fixed_latency_raw_frames=1,
-        env_fps=10,
-        obs_fps=10,
-        hold_policy="hold",
-        ordering_policy="latest_ready",
-        simulated_worker_capacity=1,
-        add_latency_info=False,
-        hold_last_chunk_action=True,
-        release_results_at_observation_boundary=True,
-        noop_action=np.zeros(43, dtype=np.float32),
-    )
-    env = ActionChunkWrapper(
-        latency,
-        horizon=4,
-        obs_stride=1,
-        latency_env=latency,
-        reverse_action=lambda action: action / 10.0,
-        actor_chunk_context=True,
-    )
-    observation, _ = env.reset(seed=1)
-    np.testing.assert_array_equal(observation["scheduled_index"], np.zeros(4))
-
-    chunk = np.stack([np.full(43, head * 0.1, dtype=np.float32) for head in range(4)])
-    observation, *_ = env.step(chunk.reshape(-1))
-
-    np.testing.assert_array_equal(observation["scheduled_index"], [0.0, 1.0, 0.0, 0.0])
-    np.testing.assert_allclose(observation["scheduled_chunk"][0], 0.0)
-    np.testing.assert_allclose(observation["scheduled_chunk"][1:], chunk[1:])
-
-
 @pytest.mark.parametrize("delays,expected,windows", [([(0, 0)],
   [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0)],
   [(0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1)]),
@@ -449,6 +415,38 @@ def test_g1_action_chunks_follow_execution_sources_and_planned_windows(delays, e
         if source >= 0:
             np.testing.assert_allclose(native.native_actions[frame], absolute_action(chunks[source][head]))
     assert traces == expected[:len(traces)]
+
+
+def test_h16_fixed5_capacity1_admits_at_five_frame_boundaries():
+    native = _VectorActionTraceEnv()
+    latency = GymnasiumActionLatencyWrapper(
+        native,
+        fixed_latency_raw_frames=5,
+        env_fps=50,
+        obs_fps=50,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        simulated_worker_capacity=1,
+        add_latency_info=True,
+        hold_last_chunk_action=True,
+        noop_action=np.zeros(43, dtype=np.float32),
+    )
+    env = ActionChunkWrapper(latency, horizon=16, obs_stride=1)
+    env.reset(seed=1)
+
+    admissions = []
+    for frame in range(11):
+        chunk = np.stack(
+            [np.full(43, frame * 0.1 + head * 0.01, dtype=np.float32) for head in range(16)]
+        )
+        _, _, _, _, info = env.step(chunk.reshape(-1))
+        admissions.append(info["command_admitted"])
+
+    assert admissions == [True, False, False, False, False, True, False, False, False, False, True]
+    np.testing.assert_allclose(
+        np.asarray(native.native_actions)[:, 0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.6, 0.7, 0.8, 0.9, 5.5],
+    )
 
 
 @pytest.mark.parametrize("stride", [2, 3, 5])
@@ -571,6 +569,39 @@ def test_profile_streams_are_reproducible_per_global_environment_across_worker_l
 
     assert stream(1, 0, 1) == stream(0, 1, 1)
     assert stream(0, 0, 0) != stream(0, 1, 1)
+
+
+def test_g1_noop_conversion_preserves_raw_control_trajectory():
+    config = load_config("configs/training/latency/balance_fasttd3_chunk_h8_zero.yaml")
+    cfg = build_train_cfg_from_config(config)
+    cfg.episode_metrics_path = ""
+    wrapped = make_gymnasium_sf_env(
+        cfg.env,
+        cfg,
+        SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+    )
+    raw_noop = np.asarray(config["env"]["noop_action"], dtype=np.float32)
+    absolute_noop = wrapped.unwrapped.g1_absolute_request_from_raw_action(raw_noop)
+    np.testing.assert_allclose(wrapped.get_wrapper_attr("noop_action"), absolute_noop)
+
+    make_kwargs = dict(config["env"]["make_kwargs"])
+    raw_env = gym.make(config["env"]["env_id"], **make_kwargs)
+    make_kwargs["control_mode"] = "direct_absolute_position"
+    absolute_env = gym.make(config["env"]["env_id"], **make_kwargs)
+    try:
+        raw_observation, _ = raw_env.reset(seed=104730)
+        absolute_observation, _ = absolute_env.reset(seed=104730)
+        np.testing.assert_allclose(raw_observation, absolute_observation)
+        for _ in range(6):
+            raw_step = raw_env.step(raw_noop)
+            absolute_step = absolute_env.step(absolute_noop)
+            np.testing.assert_allclose(raw_step[0], absolute_step[0], rtol=1e-5, atol=1e-5)
+            assert raw_step[1] == pytest.approx(absolute_step[1])
+            assert raw_step[2:4] == absolute_step[2:4]
+    finally:
+        wrapped.close()
+        raw_env.close()
+        absolute_env.close()
 
 
 

@@ -569,7 +569,7 @@ def test_latency_bench_eval_process_main_writes_result_file(monkeypatch, tmp_pat
     monkeypatch.setattr(periodic_eval, "run_eval_suites_from_config", fake_run_eval_suites)
 
     periodic_eval._latency_bench_eval_process_main(
-        {"suite_name": "fixed_0_to_1"},
+        {"suite_name": "fixed_0_to_1", "evaluation": {"eval_suites": {}}},
         {"latency_type": "fixed_sweep"},
         str(result_path),
     )
@@ -586,6 +586,32 @@ def test_latency_bench_eval_process_main_writes_result_file(monkeypatch, tmp_pat
             }
         ]
     }
+
+
+def test_latency_bench_eval_process_main_runs_current_condition_without_suites(monkeypatch, tmp_path: Path):
+    import training.common.latency_bench_periodic_eval as periodic_eval
+
+    result_path = tmp_path / "job" / "eval_result.json"
+    metrics = [object()]
+    summary = {"latency": "temporal", "mean_length": 321.0}
+    calls = []
+    monkeypatch.setattr(
+        periodic_eval,
+        "run_from_config",
+        lambda config, extra_metadata=None: calls.append((config, extra_metadata)) or metrics,
+    )
+    monkeypatch.setattr(
+        periodic_eval,
+        "_summary_payloads_for_printing",
+        lambda config, values: [summary] if values is metrics else [],
+    )
+
+    config = {"evaluation": {"eval_episodes": 8}}
+    metadata = {"eval_phase": "train_periodic"}
+    periodic_eval._latency_bench_eval_process_main(config, metadata, str(result_path))
+
+    assert calls == [(config, metadata)]
+    assert json.loads(result_path.read_text(encoding="utf-8")) == {"summaries": [summary]}
 
 
 def test_periodic_observer_uses_updated_checkpoint_when_sample_factory_overwrites_same_name(tmp_path: Path):
@@ -897,6 +923,17 @@ def test_run_final_eval_runs_deferred_periodic_fifo_before_starting_final(monkey
     assert [launch[0] for launch in launches] == ["train_periodic", "train_periodic", "train_final"]
     assert observer.active_job is None
     assert observer.last_eval_step == 1_234
+
+
+def test_run_final_eval_does_not_repeat_terminal_periodic_step(tmp_path: Path):
+    import training.common.latency_bench_periodic_eval as periodic_eval
+
+    observer = periodic_eval.LatencyBenchPeriodicEvalObserver(_training_config(tmp_path))
+    observer.last_eval_step = 1_000
+    runner = SimpleNamespace(env_steps={0: 1_000})
+
+    assert observer.run_final_eval(runner) is True
+    assert len(observer.pending_jobs) == 0
 
 
 def test_run_sample_factory_training_uses_native_run_rl_without_interval(monkeypatch, tmp_path: Path):

@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.core.config import load_config, merge_dicts
+from latency_bench.eval.driver import run_from_config
+from latency_bench.eval.reporting import _summary_payloads_for_printing
+from latency_bench.eval.suites import has_eval_suites
 from latency_bench.logging.wandb_eval import eval_scalar_payload
 from latency_bench.eval.sweeps import run_eval_suites_from_config
 from training.common.checkpoints import (
@@ -185,6 +188,8 @@ class LatencyBenchPeriodicEvalObserver:
         if not self.run_deferred_eval(runner):
             return False
         step = _runner_step(runner, uses_optimizer_steps=self.uses_optimizer_steps)
+        if self.last_eval_step == step:
+            return True
         checkpoint_path = self._latest_checkpoint_for_eval()
         self._submit_eval_request(
             runner,
@@ -327,7 +332,13 @@ def _latency_bench_eval_process_main(
 ) -> None:
     path = Path(result_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    summaries = run_eval_suites_from_config(config, progress=False, extra_metadata=metadata)
+    if has_eval_suites(config):
+        summaries = run_eval_suites_from_config(config, progress=False, extra_metadata=metadata)
+    else:
+        summaries = _summary_payloads_for_printing(
+            config,
+            run_from_config(config, extra_metadata=metadata),
+        )
     path.write_text(json.dumps({"summaries": summaries}, indent=2), encoding="utf-8")
 
 
