@@ -608,3 +608,91 @@ zero pipeline exited with code 1. [Pipeline log](/pfs/users/lxy/latency-sensitiv
 Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/zero/inference/checkpoints/model.pt`, step 0; H8, 50 Hz, `zero`, formal, n=8. Return 71.686991 ± 16.825506; mean length 87.625000; fraction ≥100 0.250000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/dagger10_20260915T180849Z/zero/evals/sft_0/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-balance-qwenoft-h8-25m-sft5k-dagger10-20260915T180849Z-zero-dagger). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
 
 Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
+
+### 2026-09-16 11:10 UTC — Native MC PPO implemented; smoke and resume verified, formal budget not yet started
+
+Public `training.train` now dispatches `backend.algo: PPO` to complete-episode,
+synchronous Monte Carlo PPO; existing FAST_TD3/APPO paths remain. Root revision
+`f0929454423a5f170eb3c226aec42103ea351248` plus the uncommitted PPO implementation;
+SF revision `636e92744a2f47e0f9f2c34c795acee13022e6fc` unchanged. Initial weights are
+`h16_fixed100_delayed_imitation/20260916T061955Z/followup_20260916T070429Z/student_correction_2000.pth`.
+Native H16/fixed100/capacity1/50-50Hz/heads5:10, normalized reset-pose noop,
+frozen BC normalization, gamma1, survival-frame MC targets /1000, independent
+128/128 V with remaining time; no Q gradient or BC-relative coordinate tether.
+Gymnasium CPU vector workers feed centralized GPU inference at fixed batch shape.
+
+The proposed actor LR1e-5 overshot the joint Gaussian KL target0.02 in one step:
+11.39 in smoke,15.15 on a new128-episode calibration batch. LR1e-6 gave0.151;
+LR3e-7 gave0.024 after3 actor steps, so the formal recipe uses3e-7. Other planned
+budgets are unchanged:128 complete episodes/round, minibatch1024,2 epochs,
+200 rounds; V LR3e-4 and128-episode/10-epoch warmup, fixed pre-tanh std0.02,
+PPO clip0.2, joint KL early-stop for actor only. Calibration is not policy
+acceptance. [Calibration](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/lr_calibration.json).
+
+Serial BC audit exactly reproduced464.1875 length /421.429847 return /30 of32
+>=100 /13 of32 >=500 on seeds104730–104761, cap1000. Batched FP32 inference
+changes closed-loop trajectories, so each run re-evaluates its own BC baseline;
+the old scalar baseline is not substituted into batched comparisons.
+[Serial audit](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/bc_serial_audit.json).
+
+Final implementation smoke used4 workers,8 episodes/round,2 rounds, then resumed
+to round3 on the same online W&B run. Latest checkpoint is
+`balance_h16_fixed100_mcppo_smoke_final_20260916T1107Z/checkpoint_p0/checkpoint_latest.pth`:
+6 actor /16 V optimizer calls,14,370 training+warmup raw frames,32 episodes.
+Round3 development32:487.34375 length /442.997474 return /32 of32 >=100;
+its matched BC was491.0 /445.265735 /30 of32. Selected best remains round0 BC;
+the8 smoke test seeds650001–650008 give paired gain0, interval[0,0], not accepted.
+First/final smoke KL0.018626/0.009496. Training and evaluation completion here
+refer only to smoke, not the formal200-round budget. No publication.
+[Smoke result](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_smoke_final_20260916T1107Z/result.json),
+[online W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/lvsuko7t).
+
+Verification:128 native wrapper/scheduler/executor/PPO/checkpoint/W&B tests and
+58 FAST_TD3 tests pass. GPU tests require explicit `CUDA_VISIBLE_DEVICES`;
+the first invocation omitted it, then all58 passed with it set. Broader Flappy
+tests are unavailable because `flappy_bird_gymnasium` is not installed.
+[128-test log](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/tests_final.log),
+[58-test log](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/fasttd3_tests_final.log).
+Occam review retained one dedicated episode trainer and existing installed
+vector-env/actor implementations; no new dependency or parallel framework.
+Next: finish the public eval smoke, benchmark16/32/64 workers on128 BC episodes
+three times, then complete seed1's200 rounds and64 heldout episodes per policy.
+Development seeds104730–104761 select best every10 rounds; heldout seeds640001–640064
+are not used for selection. [Recipe](../configs/examples/gymnasium/g1_sonic_balance_simple/ppo_train.yaml).
+
+### 2026-09-16 11:15 UTC — Formal Balance MC PPO seed1 running, round11/200 verified
+
+Online run `balance_h16_fixed100_mcppo_s1_20260916T1110Z`, PID1334277, GPU0,
+uses the recipe and revisions above. No performance-based stop was added.
+Three128-episode BC timing repeats per setting gave median raw frames/s:
+16 workers3316.75,32 workers5998.17,64 workers9315.48. The smallest setting
+within95% of peak is64 workers (2.81x the16-worker median); GPU inference batch
+is fixed64, CPU simulation remains the dominant collection cost. The cgroup
+CPU quota is43 cores. The profiling episodes are separate from the training
+budget. [Timing evidence](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_s1_20260916T1110Z/throughput.json).
+
+Verified immutable `checkpoint_p0/checkpoint_0011.pth`: round11,131 actor updates,
+402 V updates including130 warmup updates,727,092 raw training+warmup frames,
+1,536 complete episodes including128 warmup episodes. Round11 collection128
+episodes/63,943 frames took7.139s; learner0.048s, KL0.02309,
+value explained variance0.63191. Round10 development32 seeds104730–104761:
+469.875 mean length /427.424475 mean return /30 of32 >=100 /15 of32 >=500.
+Matched fixed-batch64 frozen BC is525.1875 /477.932544 /30 of32 /19 of32.
+This interim policy is not an improvement; selected best remains BC at round0.
+The200-round run continues, and no heldout640001–640064 evaluations have run yet.
+Formal training completion, final evaluation completion, acceptance and
+publication are all false at this audit.
+[Round11](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_s1_20260916T1110Z/round_0011.json),
+[round10 evaluation](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_s1_20260916T1110Z/round_0010.json),
+[online W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/z3y85xez),
+[launch log](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/formal_s1_20260916T1110Z.log).
+
+Public `--mode eval --checkpoint-kind best` also completed on the smoke run,
+loading round0 and reproducing paired gain0 on its8 test seeds without changing
+the training run's files or W&B history. [Eval result](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_smoke_final_20260916T1107Z/eval_best_1789556969818619221/result.json).
+Resume this formal run, only if its process has stopped, with:
+`CUDA_VISIBLE_DEVICES=0 .venv/bin/python -m training.train --config configs/examples/gymnasium/g1_sonic_balance_simple/ppo_train.yaml --run-name balance_h16_fixed100_mcppo_s1_20260916T1110Z --restart-behavior resume`.
+Next: complete200 rounds; automatic best-checkpoint/BC evaluation uses64 heldout
+seeds each and paired95% intervals. Only a verified gain with no >=100-count
+regression warrants the planned seed2/3 repetitions. No success claim from smoke
+or development-set checkpoint selection.

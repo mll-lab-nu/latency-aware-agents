@@ -19,7 +19,8 @@ from latency_bench.envs.gymnasium_task import (
     gymnasium_noop_action_id,
 )
 from latency_bench.integrations.sample_factory.actions import scale_box_action
-from latency_bench.scheduler.action_queue import ActionScheduler
+from latency_bench.scheduler.action_queue import ActionScheduler, chunk_context_window
+from latency_bench.envs.humanoidbench_sonic_contract import POLICY_INDEX_FOR_MUJOCO
 from latency_bench.scheduler.factory import build_persistence_policy
 from training.common.config_adapter import (
     append_cli_arg,
@@ -171,14 +172,22 @@ class G1RawRequestWrapper(gym.ActionWrapper):
             return self.unwrapped.g1_absolute_request_from_raw_action(action)
         return np.stack([self.unwrapped.g1_absolute_request_from_raw_action(row) for row in action])
 
+    def reverse_action(self, action):
+        action = np.asarray(action)
+        ordered = np.concatenate((action[:29][POLICY_INDEX_FOR_MUJOCO], action[29:]))
+        ranges = self.unwrapped._joint_ranges
+        return (2 * (ordered - ranges[:, 0]) / (ranges[:, 1] - ranges[:, 0]) - 1).astype(np.float32)
+
 
 class ActionChunkWrapper(gym.Wrapper):
-    """Expose normalized FastTD3 actions and carry raw-frame execution traces."""
+    """Expose normalized chunks, raw-frame traces, and optional committed context."""
 
-    def __init__(self, env, horizon, obs_stride):
+    def __init__(self, env, horizon, obs_stride, *, latency_env=None, context_delay=None):
         super().__init__(env)
         self.horizon = horizon
         self.native_action_space = env.action_space
+        self.latency_env = latency_env
+        self.context_delay = context_delay
         self.action_space = gym.spaces.Box(
             -1.0, 1.0, (horizon * env.action_space.shape[0],), dtype=np.float32,
         )
@@ -193,6 +202,11 @@ class ActionChunkWrapper(gym.Wrapper):
                 replay_clock=gym.spaces.Box(-1, np.iinfo(np.int64).max, (obs_stride, 7), dtype=np.int64),
                 replay_length=gym.spaces.Box(0, obs_stride, (), dtype=np.int64),
             )
+            if context_delay is not None:
+                spaces.update(
+                    scheduled_chunk=gym.spaces.Box(-1.0, 1.0, (horizon, env.action_space.shape[0]), dtype=np.float32),
+                    scheduled_index=gym.spaces.Box(0.0, 1.0, (horizon,), dtype=np.float32),
+                )
             self.observation_space = gym.spaces.Dict(spaces)
 
     def reset(self, **kwargs):
@@ -205,10 +219,26 @@ class ActionChunkWrapper(gym.Wrapper):
         }
         return self._observation(observation, trace), info
 
-    @staticmethod
-    def _observation(observation, trace):
+    def _observation(self, observation, trace):
         physical = observation if isinstance(observation, dict) else {"obs": observation}
-        return {**physical, **trace}
+        result = {**physical, **trace}
+        if self.context_delay is not None:
+            chunk = np.zeros((self.horizon, self.native_action_space.shape[0]), dtype=np.float32)
+            indices = np.zeros(self.horizon, dtype=np.float32)
+            latency = self.latency_env
+            event, index = latency.action_scheduler.scheduled_chunk_event(
+                latency.env_step_idx, latency.clock.step_to_time_ms(latency.env_step_idx),
+            )
+            if event is not None:
+                start, end = chunk_context_window(
+                    latency.env_step_idx, event.obs_env_step, self.context_delay,
+                    [pending.obs_env_step for pending in latency.result_timeline.get_pending_events()],
+                )
+                for head in np.unique(np.minimum(np.arange(start, end), self.horizon - 1)):
+                    chunk[head] = self.env.reverse_action(event.action_chunk[head])
+                indices[index] = 1.0
+            result.update(scheduled_chunk=chunk, scheduled_index=indices)
+        return result
 
     def step(self, action):
         action = np.asarray(action).reshape(self.horizon, self.native_action_space.shape[0])
@@ -292,12 +322,17 @@ def make_gymnasium_sf_env(
         add_latency_info=bool(cfg.add_latency_info),
         max_pending_actions=cfg.max_pending_actions,
         hold_last_chunk_action=cfg.hold_last_chunk_action,
+        release_results_at_observation_boundary=cfg.algo == "PPO",
         noop_action=noop_action,
     )
+    latency_env = env
     if raw_g1_requests:
         env = G1RawRequestWrapper(env)
     if cfg.algo == "FAST_TD3":
         env = ActionChunkWrapper(env, cfg.fasttd3_action_chunk_horizon, clock.obs_stride_raw_frames)
+    elif cfg.algo == "PPO":
+        env = ActionChunkWrapper(env, cfg.ppo_chunk_horizon, clock.obs_stride_raw_frames,
+                                 latency_env=latency_env, context_delay=latency_params.fixed_latency_raw_frames)
     action_labels = (
         {
             action_id: name
@@ -400,6 +435,7 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
 
 def configure_sample_factory_parser(parser: argparse.ArgumentParser) -> None:
     add_gymnasium_env_args(parser)
+    parser.add_argument("--ppo_chunk_horizon", type=int)
 
 
 SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
@@ -412,6 +448,8 @@ def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
     env_cfg = config["env"]
     scheduler_cfg = config["scheduler"]
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
+    if "algo" in config["backend"] and config["backend"]["algo"] == "PPO":
+        append_cli_arg(args, "--ppo_chunk_horizon", config["training"]["ppo"]["chunk_horizon"])
     append_cli_arg(args, "--gym-task-name", env_cfg["task_name"])
     append_cli_arg(args, "--gym-env-id", env_cfg["env_id"])
     append_cli_arg(args, "--gym-make-kwargs-json", json.dumps(env_cfg["make_kwargs"]))
@@ -462,6 +500,11 @@ def build_train_cfg_from_config(config: dict[str, Any]) -> Any:
 
 def run_from_config(config: dict[str, Any]) -> int:
     from sample_factory.algo.utils.misc import ExperimentStatus
+
+    if "algo" in config["backend"] and config["backend"]["algo"] == "PPO":
+        # The episode trainer imports the environment factory from this module.
+        from training.gymnasium_sf.ppo import run_from_config as run_ppo
+        return run_ppo(config)
 
     register_gymnasium_envs()
     cfg = build_train_cfg_from_config(config)
