@@ -1,6 +1,6 @@
 # Benchmark 进度与评测结果
 
-最后核查：**2026-09-15 08:58 UTC**。文档入口：[program 索引](README.md)。
+最后核查：**2026-09-16 13:24 UTC（本轮更新 Balance MC PPO）**。文档入口：[program 索引](README.md)。
 本表记录已确认的产物和评测；各行证据采用固定版本，后续工作确认结果后同步更新。
 
 - 模型仓库：[e05ca26afde4f509b0f838742c522f3a068596a8](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)，最后修改 2026-09-14T01:41:19.000Z。
@@ -696,3 +696,164 @@ Next: complete200 rounds; automatic best-checkpoint/BC evaluation uses64 heldout
 seeds each and paired95% intervals. Only a verified gain with no >=100-count
 regression warrants the planned seed2/3 repetitions. No success claim from smoke
 or development-set checkpoint selection.
+
+
+### 2026-09-16 12:55 UTC — Balance MC PPO moved into Sample Factory; throughput and resume verified
+
+This supersedes the old standalone-trainer status above, without accepting a new
+policy yet. Root base revision `d5158888066c41b3c79a0f1a5e22344c379a15be`; Sample
+Factory base `636e92744a2f47e0f9f2c34c795acee13022e6fc`; implementation is an
+uncommitted working-tree change. The old `training/gymnasium_sf/ppo.py` is removed;
+MC PPO now uses SF runner, inference worker, shared trajectory buffers, batcher,
+learner, parameter server, and checkpoints. Root integration supplies the task
+and latency adapter. Complete-episode gamma=1 returns, frozen BC normalization,
+independent value network, H16 active heads5:10, fixed100ms/capacity1/50Hz remain.
+
+The archived200-round run actually completed: best round190 development return
+506.554 and latest round200 return396.479 on the same32 seeds, a110.075 drop.
+Its old64-seed heldout gain in survival was30.4375 frames, paired95% interval
+[-24.5973,85.0156]; acceptance was false. The previous running entry did not
+establish its current process state. The new control and candidate each retain
+200 rounds,128 complete episodes/round, plus128 warmup episodes; final heldout
+seeds670001–670064 are separate from the prior640001–640064 evaluation.
+
+Fixed BC benchmark:128 episodes on seeds600001–600128, three timed repeats after
+warmup, fixed GPU inference GEMM64,63060 raw frames/repeat. Legacy collector median
+9011.26 FPS; SF before vectorized conversion12282.55 (+36.30%). Optimized SF with
+32/43/64 workers gives9601.42/11875.71/13089.60 FPS.64 workers is the only setting
+within95% of peak, so the recipe selects64: **+45.26% raw-frame throughput** versus
+legacy. All repeats have identical per-seed survival lengths (mean492.65625;
+mean raw return447.327677). CPU cgroup quota43 cores. These isolated timings
+exclude startup, evaluation and learning; simultaneous formal runs are not used
+as throughput measurements. This is simulator collection FPS, not model latency.
+[Timing evidence](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/throughput_comparison.json).
+
+Stability implementation normalizes advantages across the complete round and
+checks full-batch joint pre-tanh Gaussian KL after every actor step. A step over
+0.01 restores both actor parameters and Adam state, stops actor updates for that
+round, and continues all value updates. The20-round KL-only ablation at the old
+actor LR3e-7 had6 initial rounds without an accepted actor update, then33 accepted
+updates total. Candidate LR is therefore1e-7; its first10 rounds verified continued
+learning and KL below0.01. Normalization-only and KL-only use the old LR for causal
+short comparisons; the complete candidate also changes LR. Performance/stability
+acceptance awaits the full budgets, and is not implied by the KL bound.
+[KL-only evidence](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_kl_only_s1_20260916/round_0020.json).
+
+Verified public train→resume smoke: round3,3 actor/4 value updates,8946 raw frames,
+16 complete episodes including4 warmup episodes. Model, both Adam states and
+Torch/CUDA RNG are bitwise identical to uninterrupted round3. Public best/latest
+evaluation each completed4 heldout smoke seeds680001–680004, mean survival578.25,
+return524.600761; these are smoke outcomes only. A spawned-worker regression test
+also verifies unequal episode lengths, resume, and no resampling after budget
+completion. It exposed and fixed numeric checkpoint ordering when actor updates
+stay constant and the raw-frame counter crosses a decimal boundary.
+[Resume evidence](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/resume_comparison.json),
+[lifecycle test](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_sf_lifecycle_final.log).
+
+Validation so far:99 training/FastTD3 tests,36 real SONIC scene tests, and1 SF
+process-lifecycle test pass. Initial broad runs used a wrong scene-root path or
+omitted required CUDA_VISIBLE_DEVICES; corrected runs passed. The older broad
+Flappy suite remains unavailable because flappy_bird_gymnasium is absent.
+[Training tests](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_training_verified.log),
+[scene tests](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_env_verified.log).
+Next: complete both200-round SF runs, compare fixed32-seed development oscillation
+and final five evaluations, then evaluate BC/best/latest on64 fresh heldout seeds.
+Training completion, evaluation completion, acceptance, and publication of the
+formal candidate are still false. From-scratch and other-task generalization
+remain deferred as requested.
+
+
+### 2026-09-16 13:24 UTC — Balance SF MC PPO: full comparison completed; stability gate and policy acceptance fail
+
+Both one-seed runs completed200 PPO rounds plus value warmup, each25728 complete
+episodes (25600 train +128 warmup). Frozen BC initialization is
+`h16_fixed100_delayed_imitation/20260916T061955Z/followup_20260916T070429Z/student_correction_2000.pth`.
+Training seeds1000001–1025600; warmup999873–1000000. Development is the same32 seeds
+104730–104761 every10 rounds; heldout is64 fresh seeds670001–670064 for BC, best and
+latest separately. All use H16, active heads5:10, fixed100ms/capacity1/50Hz, fixed
+inference GEMM64,128 episodes/round,2 epochs, minibatch1024, std0.02 and V LR3e-4.
+Control uses raw advantages, actor LR3e-7, pre-step minibatch KL early-stop0.02;
+candidate uses whole-round advantage normalization, actor LR1e-7, post-step
+full-batch KL rollback0.01. These are joint treatment changes, not an isolated
+claim for normalization. Round0 model and V weights are bitwise equal across the
+two runs. Per-episode NumPy exploration streams differ from the historical
+standalone trainer's shared Torch stream; the new SF control is the matched
+algorithm comparison. [Warmup equality](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/warmup_comparison.json).
+
+| Fixed development metric, including initial BC | SF control | SF candidate | Outcome |
+|---|---:|---:|---|
+| Maximum adjacent return drop |44.808245|42.604804|4.92% smaller; fails30% target|
+| Mean absolute adjacent return change |24.764921|20.358284|17.79% smaller; fails25% target|
+| Last five evaluation mean return |442.518154|452.754211|+10.236057; passes non-regression target|
+| Maximum full-batch joint KL |0.05938414|0.00999902|candidate stays below0.01|
+| Actor updates / zero-update training rounds |2854 /0|4357 /0|candidate continues learning|
+| V updates including warmup |5180|5210|V continues after rejected actor steps|
+| Training + warmup raw frames |12397181|12532145|same episode budget, different lengths|
+
+The historical standalone run had maximum drop110.075425, mean change32.326937,
+last-five mean451.545304; it is a historical reference, not a matched RNG control.
+The candidate improves some stability metrics but **does not pass the predeclared
+stability gate**. A bounded KL is not a monotonic-return guarantee.
+[Full comparison](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/training_comparison.json),
+[curves and throughput](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/comparison.png),
+[PDF](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/comparison.pdf).
+
+Heldout results below each contain64 complete episodes, cap1000, deterministic
+mean actions. Paired95% intervals bootstrap10000 resamples of the same episode
+seeds; they do not quantify variation across training seeds.
+
+| Policy / exact round | Mean length | Mean raw return | >=100 / >=500 | Paired length gain vs BC [95% interval] |
+|---|---:|---:|---:|---|
+| Frozen BC |527.406250|479.162699|63 /36|reference|
+| SF control best50 |492.937500|447.461250|62 /30|-34.468750 [-88.453516,20.500391]|
+| SF control latest200 |532.843750|484.122036|63 /37|+5.437500 [-52.266016,65.985937]|
+| SF candidate best140 |505.796875|459.397210|64 /30|-21.609375 [-75.031250,28.875000]|
+| SF candidate latest200 |514.562500|466.794658|64 /34|-12.843750 [-60.375000,34.442187]|
+| Archived standalone best190, re-evaluated |521.187500|473.937553|63 /32|-6.218750 [-62.267188,51.109766]|
+| Archived standalone latest200, re-evaluated |525.109375|476.583885|63 /35|-2.296875 [-48.268750,44.251172]|
+
+No learned policy passes the heldout acceptance criterion. Training completion
+and evaluation completion are true for both SF runs; acceptance and model
+publication are false. Candidate best is round140/actor step3082/raw frame8735704;
+latest is round200/actor step4357/raw frame12532145. Immutable checkpoints:
+[best140](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_stable_s1_20260916/checkpoint_p0/best_000003082_8735704_development_540.406.pth),
+[latest200](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_stable_s1_20260916/checkpoint_p0/checkpoint_000004357_12532145.pth).
+[Candidate result](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_stable_s1_20260916/result.json),
+[control result](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_control_s1_20260916/result.json),
+[archived policy fresh evaluation](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/archived_legacy_fresh_heldout.json),
+[candidate W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/sf_stable_s1_20260916),
+[control W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/sf_control_s1_20260916).
+
+Final-source isolated64-worker benchmark repeated the same128 BC episodes three
+times: median13252.85 raw frames/s versus legacy9011.26, **+47.07%**; all per-seed
+survival lengths still match. The prior45.26% measurement is retained above.
+The end-of-task isolated cProfile covers4 identical BC episodes/2308 raw frames
+per implementation: total environment time6.3938→5.7448s; action conversion
+0.65985→0.10649s, with converter calls36928→2308. MuJoCo mj_step consumes
+4.2714s (66.8%) before and4.2155s (73.4%) after. The remaining dominant cost is
+physics; the measured acceleration combines dynamic episode assignment, SF
+inference scheduling and vectorized conversion. Concurrent training wall times
+are not used for speedup claims. [Timing](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/throughput_comparison.json),
+[profile summary](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/profile_summary.json),
+[reproducible profiler](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/profile_environment.py).
+
+Final validation:169 relevant tests pass (100 training/FastTD3 including the new
+SF lifecycle case,36 real scene tests,33 checkpoint/latency/SF learner contracts).
+The final five MC tests pass after the implementation cleanup. Public train,
+resume, best/latest evaluation, KL rejection with exact Adam restoration,
+complete-episode masking and numeric checkpoint ordering were exercised.
+[Final MC tests](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_mc_final.log),
+[contract tests](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_contracts.log).
+Root/SF base revisions remain those in the preceding entry; no commit was made.
+[Source manifest](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/source_manifest.json),
+[complete source snapshot including new SF modules](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/implementation_sources.tar.gz).
+
+The engineering migration and speedup are verified; return stability is only
+partially improved, and a PPO gain beyond BC is unconfirmed. All jobs launched
+for this MC PPO audit have finished. Next: a separately budgeted development-only comparison of larger
+policy-gradient batches before another policy selection, followed by fresh
+heldout seeds if a new candidate is chosen. Seed2/3 confirmation and publication
+are not justified by this gate result. From-scratch and other-task work stays
+deferred. Current entry points and SF ownership are in
+[BALANCE_MC_PPO](BALANCE_MC_PPO.md); native resume applies to the new SF experiment
+directories, while historical standalone checkpoints remain archived.

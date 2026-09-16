@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from importlib import import_module
 from types import SimpleNamespace
 from typing import Any, Optional
 
 import gymnasium as gym
 import numpy as np
+import torch
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
@@ -49,6 +51,7 @@ from training.common.sample_factory_config import (
 )
 from training.common.utils import env_instance_seed, seed_everything, str2bool
 from training.common.wandb_compat import patch_sample_factory_wandb
+from sample_factory.algo.mc_ppo.env import EpisodeEnv
 
 
 SF_ENV_NAME = "latency_gymnasium"
@@ -168,9 +171,7 @@ class G1RawRequestWrapper(gym.ActionWrapper):
         self.action_space = gym.spaces.Box(-1.0, 1.0, (action_dim,), dtype=np.float32)
 
     def action(self, action):
-        if action.ndim == 1:
-            return self.unwrapped.g1_absolute_request_from_raw_action(action)
-        return np.stack([self.unwrapped.g1_absolute_request_from_raw_action(row) for row in action])
+        return self.unwrapped.g1_absolute_request_from_raw_action(action)
 
     def reverse_action(self, action):
         action = np.asarray(action)
@@ -331,7 +332,7 @@ def make_gymnasium_sf_env(
     if cfg.algo == "FAST_TD3":
         env = ActionChunkWrapper(env, cfg.fasttd3_action_chunk_horizon, clock.obs_stride_raw_frames)
     elif cfg.algo == "PPO":
-        env = ActionChunkWrapper(env, cfg.ppo_chunk_horizon, clock.obs_stride_raw_frames,
+        env = ActionChunkWrapper(env, cfg.ppo["chunk_horizon"], clock.obs_stride_raw_frames,
                                  latency_env=latency_env, context_delay=latency_params.fixed_latency_raw_frames)
     action_labels = (
         {
@@ -341,7 +342,7 @@ def make_gymnasium_sf_env(
         if action_space_contract["type"] == "discrete"
         else {}
     )
-    return EpisodeMetricsWrapper(
+    env = EpisodeMetricsWrapper(
         env,
         frames_per_decision=clock.obs_stride_raw_frames,
         metrics_path=str(cfg.episode_metrics_path),
@@ -350,6 +351,7 @@ def make_gymnasium_sf_env(
         env_id=int(env_config.env_id),
         issued_action_labels=action_labels,
     )
+    return EpisodeEnv(env, cfg.ppo) if cfg.algo == "PPO" else env
 
 
 def register_gymnasium_envs() -> None:
@@ -435,7 +437,7 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
 
 def configure_sample_factory_parser(parser: argparse.ArgumentParser) -> None:
     add_gymnasium_env_args(parser)
-    parser.add_argument("--ppo_chunk_horizon", type=int)
+    parser.add_argument("--mcppo", dest="ppo", type=json.loads)
 
 
 SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
@@ -449,7 +451,7 @@ def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
     scheduler_cfg = config["scheduler"]
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
     if "algo" in config["backend"] and config["backend"]["algo"] == "PPO":
-        append_cli_arg(args, "--ppo_chunk_horizon", config["training"]["ppo"]["chunk_horizon"])
+        append_cli_arg(args, "--mcppo", json.dumps(config["training"]["ppo"]))
     append_cli_arg(args, "--gym-task-name", env_cfg["task_name"])
     append_cli_arg(args, "--gym-env-id", env_cfg["env_id"])
     append_cli_arg(args, "--gym-make-kwargs-json", json.dumps(env_cfg["make_kwargs"]))
@@ -495,22 +497,56 @@ def build_train_cfg_from_config(config: dict[str, Any]) -> Any:
     cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
     if "lr_schedule" in config["training"]:
         cfg.lr_schedule = config["training"]["lr_schedule"]
+    if cfg.algo == "PPO":
+        settings = cfg.ppo
+        cfg.num_workers = settings["workers"]
+        cfg.num_envs_per_worker = cfg.worker_num_splits = cfg.policy_workers_per_policy = 1
+        cfg.batched_sampling = cfg.async_rl = cfg.use_rnn = False
+        cfg.normalize_input = cfg.normalize_returns = False
+        cfg.rollout = (settings["episode_frames"] + settings["decision_frames"] - 1) // settings["decision_frames"]
+        cfg.batch_size = settings["episodes_per_round"] * cfg.rollout
+        cfg.num_batches_per_epoch = cfg.recurrence = 1
+        cfg.save_every_sec = cfg.train_for_env_steps = 10**12
+        cfg.keep_checkpoints = settings["rounds"] + 2
+        cfg.decorrelate_envs_on_one_worker = False
+        cfg.decorrelate_experience_max_seconds = 0
+        cfg.set_workers_cpu_affinity = False
+        cfg.episode_metrics_path = ""
+        cfg.wandb_user = config["logging"]["wandb_entity"]
     return cfg
 
 
 def run_from_config(config: dict[str, Any]) -> int:
     from sample_factory.algo.utils.misc import ExperimentStatus
 
-    if "algo" in config["backend"] and config["backend"]["algo"] == "PPO":
-        # The episode trainer imports the environment factory from this module.
-        from training.gymnasium_sf.ppo import run_from_config as run_ppo
-        return run_ppo(config)
-
     register_gymnasium_envs()
     cfg = build_train_cfg_from_config(config)
     apply_runtime_logging_config(cfg, config["logging"])
     seed_everything(int(cfg.seed))
     patch_sample_factory_wandb()
+
+    if cfg.algo == "PPO":
+        # Evaluation imports the learner only when this optional SF backend runs.
+        from sample_factory.algo.mc_ppo.learner import evaluate_checkpoint
+
+        for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+            os.environ[name] = "1"
+        torch.set_num_threads(1)
+        if cfg.mode == "eval":
+            evaluate_checkpoint(cfg)
+            return 0
+        status = run_sample_factory_training(cfg, config)
+        if status == ExperimentStatus.SUCCESS and not cfg.benchmark:
+            result = evaluate_checkpoint(cfg, final=True)
+            if cfg.with_wandb:
+                # W&B is optional; the training runner owns this run.
+                import wandb
+
+                wandb.run.summary["heldout"] = {
+                    kind: {key: value for key, value in result[kind].items() if key != "episodes"}
+                    for kind in ("baseline", "best", "latest")
+                }
+        return status
 
     metrics_stop_event = None
     metrics_thread = None

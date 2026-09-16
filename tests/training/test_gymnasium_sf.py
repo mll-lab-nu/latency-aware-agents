@@ -371,7 +371,7 @@ def test_g1_action_chunks_follow_execution_sources_and_planned_windows(delays, e
 
     def absolute_action(action):
         joint = 1.0 + 3.0 * action
-        return np.concatenate((joint[:29][MUJOCO_INDEX_FOR_POLICY], joint[29:]))
+        return np.concatenate((joint[..., :29][..., MUJOCO_INDEX_FOR_POLICY], joint[..., 29:]), axis=-1)
 
     native.g1_absolute_request_from_raw_action = absolute_action
     latency = GymnasiumActionLatencyWrapper(

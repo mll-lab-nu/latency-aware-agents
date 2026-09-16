@@ -245,6 +245,11 @@ def test_raw_and_absolute_requests_reach_pd_with_only_xml_physical_bounds(scene_
         previous_q_cmd = native._q_cmd.copy()
         previous_v_cmd = native._v_cmd.copy()
         issued = native.g1_absolute_request_from_raw_action(np.ones(43, dtype=np.float32))
+        chunk = np.random.default_rng(42).uniform(-1, 1, (16, 43)).astype(np.float32)
+        np.testing.assert_array_equal(
+            native.g1_absolute_request_from_raw_action(chunk),
+            np.stack([native.g1_absolute_request_from_raw_action(head) for head in chunk]),
+        )
         np.testing.assert_allclose(
             issued,
             np.concatenate([

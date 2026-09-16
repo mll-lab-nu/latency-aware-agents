@@ -22,6 +22,7 @@
 | 文档 | 内容 / 主要用途 | 状态与重叠关系 |
 |---|---|---|
 | [CHUNK](CHUNK.md) | Balance FastTD3 H8 action chunk 的修复、zero/fixed/profile 对照 | 保留实验记录；最新生产简化及消融见 CHUNK_RL_ABLATION |
+| [BALANCE_MC_PPO](BALANCE_MC_PPO.md) | BC 初始化的 Balance H16 MC PPO、Sample Factory 所有权、train/resume/eval 入口 | 当前算法与运行手册；实验验收见 PROGRESS |
 | [CHUNK_RL_ABLATION](CHUNK_RL_ABLATION.md) | H8 五配置×四 training seeds 的最终评测、D/E 简化选择 | 第一版 20 run 完成；D/E 组合及单独消融待验证 |
 | [BALANCE_DAGGER](BALANCE_DAGGER.md) | QwenOFT DAgger 标签修复短交接、十轮结果及终点验收待办 | 活跃交接；详版历史在 archive/DAGGER |
 | [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 四任务 evaluator、sampler/worker、seed/reset 合同与撤回方案 | 保留合同记录；实现验证与正式训练分别记录 |

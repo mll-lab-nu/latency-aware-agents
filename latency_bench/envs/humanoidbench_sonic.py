@@ -174,7 +174,7 @@ def g1_absolute_request_from_action(
     raw_body: bool,
     absolute_position: bool = False,
 ) -> np.ndarray:
-    """Convert one policy command into an absolute request without stateful limiting.
+    """Convert policy commands into absolute requests without stateful limiting.
 
     Collectors and the PD controller consume the same request. Joint and torque
     bounds are enforced by the upstream MuJoCo XML, not by a command filter.
@@ -188,14 +188,14 @@ def g1_absolute_request_from_action(
     else:
         body_target_request = G1_DEFAULT_ANGLES + body_action * _ACTION_SCALE
     if hand_action is None:
-        hand_target_request = np.zeros(14, dtype=np.float64)
+        hand_target_request = np.zeros((*body_action.shape[:-1], 14), dtype=np.float64)
     elif absolute_position:
         hand_target_request = hand_action
     else:
         hand_target_request = hand_joint_ranges[:, 0] + (
             hand_action + 1.0
         ) * 0.5 * (hand_joint_ranges[:, 1] - hand_joint_ranges[:, 0])
-    return np.concatenate([body_target_request, hand_target_request])
+    return np.concatenate([body_target_request, hand_target_request], axis=-1)
 
 
 _KP = np.asarray(
@@ -468,15 +468,15 @@ class G1SonicEnv(MujocoEnv):
 
     def g1_absolute_request_from_raw_action(self, action: np.ndarray) -> np.ndarray:
         """Convert normalized MuJoCo-order controls to policy-order joint requests."""
-        action = np.asarray(action, dtype=np.float64).reshape(-1)
+        action = np.asarray(action, dtype=np.float64)
         request = g1_absolute_request_from_action(
-            action[:29],
-            action[29:43] if self._raw_learn_hands else None,
+            action[..., :29],
+            action[..., 29:43] if self._raw_learn_hands else None,
             body_joint_ranges=self._body_joint_ranges,
             hand_joint_ranges=self._hand_joint_ranges,
             raw_body=True,
         )
-        return np.concatenate([request[:29][MUJOCO_INDEX_FOR_POLICY], request[29:]])
+        return np.concatenate([request[..., :29][..., MUJOCO_INDEX_FOR_POLICY], request[..., 29:]], axis=-1)
 
     def _condition_targets(
         self,
