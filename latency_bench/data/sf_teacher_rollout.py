@@ -53,27 +53,15 @@ def _g1_issued_absolute_request(
     driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
     slot: int,
     action: Any,
-    info: Mapping[str, Any],
 ) -> np.ndarray:
-    """Return the absolute request issued for the current policy decision.
-
-    Balance uses raw normalized body targets.  Its post-step ``action_target``
-    is the consumed, statefully limited command, so it is not a valid label
-    when the latency queue is non-empty.  Other historical G1 contracts keep
-    their existing absolute-target metadata until they gain an equivalent
-    issue-time decoder.
-    """
+    """Return the absolute request issued for the current policy decision."""
     env = driver.envs[slot] if isinstance(driver, SerialTeacherRolloutDriver) else driver.control_env
     native = env.unwrapped
     control_mode = native._control_mode
     action = np.asarray(action, dtype=np.float64).reshape(-1)
     if control_mode == "raw_body_target":
         return native.g1_absolute_request_from_raw_action(action)
-    if control_mode == "direct_absolute_position":
-        if "command_admitted" in info:
-            return np.asarray(info["issued_action"], dtype=np.float64).copy()
-        return action.copy()
-    return np.asarray(info["action_target"], dtype=np.float64).copy()
+    return action.copy()
 
 
 def _build_episode_plan(
@@ -885,12 +873,8 @@ def _replay_accepted_specs(
     obs_fps = float(cfg.obs_fps)
     obs_stride_raw_frames = int(env_fps / obs_fps)
     include_state = integration_name == "gymnasium" and bool(cfg.gym_state_labels_json)
-    uses_g1_gr00t_contract = env_name.startswith("g1_sonic_")
-    state_info_key = None
-    if uses_g1_gr00t_contract:
-        state_info_key = "official_gr00t_proprio"
-    elif include_state:
-        state_info_key = "gymnasium_state"
+    uses_g1_sonic_contract = env_name.startswith("g1_sonic_")
+    state_info_key = "gymnasium_state" if include_state else None
     spec_cursor = 0
     replayed = 0
 
@@ -974,7 +958,7 @@ def _replay_accepted_specs(
                     rnn_states=rnn_states,
                     deterministic=deterministic,
                     preserve_leading_batch=behavior_env_name == "gymnasium",
-                    preserve_issued_actions=uses_g1_gr00t_contract,
+                    preserve_issued_actions=uses_g1_sonic_contract,
                 )
                 reset_plan: dict[int, int] = {}
 
@@ -1010,9 +994,8 @@ def _replay_accepted_specs(
                                     driver,
                                     slot,
                                     raw_actions[batch_idx],
-                                    step_result.info,
                                 )
-                                if uses_g1_gr00t_contract
+                                if uses_g1_sonic_contract
                                 else raw_actions[batch_idx]
                             ),
                             info=step_result.info | {
@@ -1036,7 +1019,7 @@ def _replay_accepted_specs(
                             split=str(spec["split"]),
                         )
                         if (
-                            uses_g1_gr00t_contract
+                            uses_g1_sonic_contract
                             and final_rows
                             and "command_admitted" in final_rows[0]
                         ):

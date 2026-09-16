@@ -1,4 +1,4 @@
-"""Build the shared H1 StarVLA framework configuration."""
+"""Build the shared StarVLA framework configuration."""
 
 from __future__ import annotations
 
@@ -19,17 +19,18 @@ def make_model_config(
     state_dim: int,
     action_dim: int,
     backbone_path: str,
+    action_horizon: int = 1,
     task_objective: Any = None,
 ) -> dict[str, Any]:
-    """Return the framework section for one continuous H1 StarVLA model."""
+    """Return the framework section for one continuous StarVLA model."""
 
     framework_name = _FRAMEWORK_NAMES[model]
     action_model: dict[str, Any] = {
         "action_dim": action_dim,
         "action_env_dim": action_dim,
         "state_dim": state_dim,
-        "action_horizon": 1,
-        "future_action_window_size": 0,
+        "action_horizon": action_horizon,
+        "future_action_window_size": action_horizon - 1,
         "past_action_window_size": 0,
         "task_objective": task_objective,
     }
@@ -40,7 +41,7 @@ def make_model_config(
 
     config: dict[str, Any] = {
         "name": framework_name,
-        "qwenvl": {"base_vlm": backbone_path},
+        "qwenvl": {"base_vlm": backbone_path, "enable_gradient_checkpointing": True},
         "action_model": action_model,
     }
     if model == "wanoft":

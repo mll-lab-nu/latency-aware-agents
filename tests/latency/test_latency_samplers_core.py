@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 
 from latency_bench.core.clock import EnvClock
@@ -178,6 +180,22 @@ def test_hidden_regime_clean_model_stays_calm_and_constant():
     drawn = [sampler.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(50)]
     assert {s.latency_ms for s in drawn} == {40.0}
     assert {s.worker_service_raw_frames for s in drawn} == {1}
+
+
+def test_hidden_regime_deepcopy_shares_tables_and_clones_state():
+    sampler = _sampler([40.0] * 8, seed=7)
+    sampler.sample({"episode_id": 0, "worker_slot": 0})
+
+    clone = deepcopy(sampler)
+
+    assert clone.model is sampler.model
+    assert clone.distributions is sampler.distributions
+    contexts = [{"episode_id": 0, "worker_slot": 0}] * 5
+    assert [sampler.sample(context) for context in contexts] == [
+        clone.sample(context) for context in contexts
+    ]
+    clone._slot_to_rank[1] = 0
+    assert 1 not in sampler._slot_to_rank
 
 
 def test_hidden_regime_emits_burst_values_at_fitted_rate():

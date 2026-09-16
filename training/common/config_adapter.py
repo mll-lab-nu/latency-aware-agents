@@ -273,11 +273,12 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "experiment_summaries_interval",
         "fasttd3_replay_capacity",
         "fasttd3_replay_batch_size",
+        "fasttd3_action_chunk_horizon",
         "fasttd3_transitions_per_update",
+        "fasttd3_train_for_optimizer_steps",
         "fasttd3_v_min",
         "fasttd3_v_max",
         "fasttd3_actor_action_l2",
-        "fasttd3_sonic_decoder_path",
     )
     bool_fields = (
         "async_rl",

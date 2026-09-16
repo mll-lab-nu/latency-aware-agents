@@ -36,8 +36,6 @@ myochallenge = [
 ]
 sonic = [
     "dm-control==1.0.28",
-    "onnx==1.19.1",
-    "onnxruntime-gpu[cuda,cudnn]==1.23.2",
 ]
 
 [tool.setuptools.packages.find]

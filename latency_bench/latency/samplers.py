@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import math
 import random
 from pathlib import Path
@@ -131,6 +132,13 @@ class IidInverseCdfSampler(LatencySampler):
         self.clock = clock
         self.rng = random.Random(seed)
 
+    def __deepcopy__(self, memo):
+        clone = copy.copy(self)
+        memo[id(self)] = clone
+        clone.rng = random.Random()
+        clone.rng.setstate(self.rng.getstate())
+        return clone
+
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         worker_slot = context["worker_slot"]
         distribution = self.distributions[str(worker_slot)]["all"]
@@ -205,6 +213,18 @@ class HiddenRegimeSampler(LatencySampler):
         self._unassigned_ranks: list[int] = []
         self._slot_states: dict[int, dict[str, Any]] = {}
 
+    def __deepcopy__(self, memo):
+        clone = copy.copy(self)
+        memo[id(self)] = clone
+        clone.rng = random.Random()
+        clone.rng.setstate(self.rng.getstate())
+        clone._slot_to_rank = self._slot_to_rank.copy()
+        clone._unassigned_ranks = self._unassigned_ranks.copy()
+        clone._slot_states = {
+            slot: state.copy() for slot, state in self._slot_states.items()
+        }
+        return clone
+
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
         episode_id = context["episode_id"]
         worker_slot = context["worker_slot"]
@@ -228,16 +248,7 @@ class HiddenRegimeSampler(LatencySampler):
             self._slot_to_rank = {}
             self._unassigned_ranks = []
 
-        record = self._next_emission(worker_slot)
-        observation_to_action_latency_ms = record["observation_to_action_latency_ms"]
-        worker_service_time_ms = record["worker_service_time_ms"]
-        return LatencySample.from_action_ready(
-            action_ready_raw_frames=self.clock.latency_ms_to_raw_frames(observation_to_action_latency_ms),
-            worker_service_raw_frames=self.clock.latency_ms_to_raw_frames(worker_service_time_ms),
-            worker_service_ms=worker_service_time_ms,
-            latency_ms=observation_to_action_latency_ms,
-            clock=self.clock,
-        )
+        return self._next_emission(worker_slot)
 
     def _episode_transition_prob(self, source: str, target: str) -> float:
         if not self.rank_processes:
@@ -317,16 +328,16 @@ class HiddenRegimeSampler(LatencySampler):
             self._slot_states[worker_slot] = state
         return state
 
-    def _next_emission(self, worker_slot: int) -> dict[str, Any]:
+    def _next_emission(self, worker_slot: int) -> LatencySample:
         steady = self.distributions[str(worker_slot)]["steady"]
         if self.regime != "burst" or not self.rank_processes:
-            return self._sample_emission(steady)
+            return _sample_joint_emission(steady, rng=self.rng, clock=self.clock)
         state = self._slot_state(worker_slot)
         if state["rank"] is not None and self.rng.random() < state["severity"]:
             return self._emit_spike(state, worker_slot)
-        return self._sample_emission(steady)
+        return _sample_joint_emission(steady, rng=self.rng, clock=self.clock)
 
-    def _emit_spike(self, state: dict[str, Any], worker_slot: int) -> dict[str, Any]:
+    def _emit_spike(self, state: dict[str, Any], worker_slot: int) -> LatencySample:
         residual = self.rank_processes[state["rank"]]["level_residual_ms"]
         worker_service_ms = state["level"] + (
             sample_inverse_cdf(
@@ -349,21 +360,14 @@ class HiddenRegimeSampler(LatencySampler):
             self.pre_worker_time["quantile_levels"],
             self.pre_worker_time["latency_ms"],
         )
-        return {
-            "observation_to_action_latency_ms": worker_service_ms + pre_worker_time_ms,
-            "worker_service_time_ms": worker_service_ms,
-        }
-
-    def _sample_emission(self, distribution: dict[str, Any]) -> dict[str, Any]:
-        sample = _sample_joint_emission(
-            distribution,
-            rng=self.rng,
+        latency_ms = worker_service_ms + pre_worker_time_ms
+        return LatencySample.from_action_ready(
+            action_ready_raw_frames=self.clock.latency_ms_to_raw_frames(latency_ms),
+            worker_service_raw_frames=self.clock.latency_ms_to_raw_frames(worker_service_ms),
+            worker_service_ms=worker_service_ms,
+            latency_ms=latency_ms,
             clock=self.clock,
         )
-        return {
-            "observation_to_action_latency_ms": sample.latency_ms,
-            "worker_service_time_ms": sample.worker_service_ms,
-        }
 
 
 def _sample_joint_emission(

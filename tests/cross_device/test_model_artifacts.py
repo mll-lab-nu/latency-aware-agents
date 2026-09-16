@@ -33,22 +33,46 @@ def test_task_presets_define_model_and_runtime_artifact_coordinates():
         "configs/profiles.yaml", "qwenoft", "mikasa_intercept_grab_fast"
     )
     balance = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+        "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
     )
     parkour = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "extreme_parkour_go2"
+        "configs/profiles.yaml", "qwengr00t", "extreme_parkour_go2"
     )
-    haic = load_profile_spec("configs/profiles.yaml", "official_gr00t", "haic_pull_cart")
+    haic = load_profile_spec("configs/profiles.yaml", "qwenoft", "haic_pull_cart")
 
     assert inverted_pendulum["model_artifact"]["checkpoint"] == (
         "checkpoints/steps_2000_pytorch_model.pt"
     )
-    assert mikasa["model_artifact"]["checkpoint"] == (
-        "checkpoints/steps_5000_pytorch_model.pt"
-    )
-    assert balance["model_artifact"]["hf_path"].endswith("gr00t-n1.7-10k-v1")
+    assert mikasa["model_artifact"]["checkpoint"] == "checkpoints/model.pt"
+    assert "starvla-qwengr00t" in balance["model_artifact"]["hf_path"]
     assert parkour["runtime_artifact"]["checkpoint"] == "model_14999.pt"
     assert haic["runtime_artifact"]["checkpoint"] == "checkpoint_final.pt"
+
+
+@pytest.mark.parametrize(
+    ("model_id", "workload_id", "hf_path"),
+    [
+        ("qwenoft", "mikasa_intercept_grab_fast", "zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h1/mikasa_intercept_grab_fast_qwenoft_formal_latest_r8gpu8_20260907T082154Z"),
+        ("qwenpi_v3", "mikasa_intercept_grab_fast", "zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z"),
+        ("qwengr00t", "mikasa_intercept_grab_fast", "zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h1/mikasa_intercept_grab_fast_qwengr00t_formal_latest_r8gpu7_20260907T075003Z"),
+        ("wanoft", "mikasa_intercept_grab_fast", "zero-latency/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z"),
+        ("qwenoft", "g1_sonic_balance_simple", "zero-latency/humanoidbench-balance-simple/vla/starvla-qwenoft-h1/humanoidbench_balance_simple_qwenoft_formal_latest"),
+        ("qwenpi_v3", "g1_sonic_balance_simple", "zero-latency/humanoidbench-balance-simple/vla/starvla-qwenpi_v3-h1/humanoidbench_balance_simple_qwenpi_v3_formal_latest"),
+        ("qwengr00t", "g1_sonic_balance_simple", "zero-latency/humanoidbench-balance-simple/vla/starvla-qwengr00t-h1/humanoidbench_balance_simple_qwengr00t_formal_latest"),
+        ("wanoft", "g1_sonic_balance_simple", "zero-latency/humanoidbench-balance-simple/vla/starvla-wanoft-h1/humanoidbench_balance_simple_wanoft_formal_latest"),
+    ],
+)
+def test_starvla_h1_profile_artifacts(model_id, workload_id, hf_path):
+    spec = load_profile_spec("configs/profiles.yaml", model_id, workload_id)
+
+    assert spec["model_artifact"]["hf_path"] == hf_path
+    assert spec["model_artifact"]["checkpoint"] == "checkpoints/model.pt"
+    assert spec["model_artifact"]["model_config"] == "config.yaml"
+    assert spec["session_count"] == 5
+    assert spec["eval_episodes"] == 50
+    assert spec["simulation_gpu"] == (
+        "cuda:0" if workload_id == "mikasa_intercept_grab_fast" else None
+    )
 
 
 def test_local_model_root_resolves_exact_checkpoint_and_provenance(tmp_path):
@@ -154,7 +178,7 @@ def test_root_hf_artifact_downloads_from_snapshot_root(tmp_path, monkeypatch):
 def test_profile_run_rejects_conflicting_artifact_sources():
     with pytest.raises(SystemExit):
         protocol.main([
-            "run", "--model", "official_gr00t", "--workload", "extreme_parkour_go2",
+            "run", "--model", "qwengr00t", "--workload", "extreme_parkour_go2",
             "--model-path", "/models/local", "--hf-artifacts",
         ])
 

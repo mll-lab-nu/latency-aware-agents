@@ -124,7 +124,6 @@ def _log_corrected_eval_summaries_to_wandb(config: dict[str, Any], summaries: li
         "project": project,
         "entity": logging_cfg.get("wandb_user", logging_cfg.get("wandb_entity")),
         "id": str(run_id),
-        "name": str(run_id),
         "resume": "allow",
         "group": logging_cfg.get("wandb_group"),
         "job_type": logging_cfg.get("wandb_job_type"),

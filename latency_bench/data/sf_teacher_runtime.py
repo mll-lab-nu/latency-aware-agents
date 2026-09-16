@@ -141,13 +141,6 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
         argv.extend(["--load_checkpoint_kind", str(flat_cfg["load_checkpoint_kind"])])
     cfg = module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(argv)
     cfg = load_from_checkpoint(cfg)
-    if integration_name == "gymnasium":
-        make_kwargs = json.loads(flat_cfg["gym_make_kwargs_json"])
-        if (
-            "sonic_decoder_mode" in make_kwargs
-            and make_kwargs["sonic_decoder_mode"] == "environment"
-        ):
-            maybe_set_cli_override(cfg, "fasttd3_sonic_decoder_path", None)
     if config["latency_override"] is not None:
         _apply_latency_to_flat_cfg(cfg, config["latency_override"])
     maybe_set_cli_override(cfg, "add_latency_info", True)

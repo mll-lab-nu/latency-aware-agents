@@ -1,18 +1,8 @@
-# Balance Simple / GR00T 工程状态
+# Balance Simple 早期 NVIDIA GR00T 实验记录
 
-## Latency command-RL 全链入口
-
-从仓库根目录运行：
-
-```bash
-.venv/bin/python -m scripts.tasks.humanoidbench_balance_simple.run_latency_pipeline \
-  --config configs/training/humanoidbench_balance_latency_pipeline.yaml
-```
-
-入口依次执行 profile、FastTD3 初始化/训练、issued absolute-request 数据导出、VLA 训练及原/新 VLA 的 zero/profile 对照。
-本轮明确使用已存在的 10k baseline；不是尚未产出的 15k 模型。短训改用同目录的
-`humanoidbench_balance_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
-smoke 不缩短正式 profile 协议。运行证据、恢复方法与正式实验门槛见 [latency handoff](LATENCY_RL_HANDOFF.md)。
+> NVIDIA GR00T 独立运行时和入口已移除。当前统一使用 StarVLA；运行入口见
+> [BALANCE_LOCAL_H8](BALANCE_LOCAL_H8.md)，产物和评测状态见 [PROGRESS](PROGRESS.md)。
+> 下文只保留历史实验事实，命令不再是可执行手册。
 
 ## Goal and scope
 

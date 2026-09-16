@@ -10,6 +10,7 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 import torch
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -254,12 +255,37 @@ def _evaluate(args: argparse.Namespace) -> dict[str, Any]:
 
 def _latency_eval(argv: list[str]) -> None:
     from latency_bench.core.config import load_config
+    from latency_bench.eval.config import apply_runtime_overrides
     from latency_bench.eval.driver import run_from_config
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--eval-config", type=Path, required=True)
+    parser.add_argument("--checkpoint-path", type=Path)
+    parser.add_argument("--model-config-path", type=Path)
+    parser.add_argument("--task-contract-path", type=Path)
+    parser.add_argument("--run-name")
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--latency-method", choices=("zero", "temporal"))
+    parser.add_argument("--profile-path", type=Path)
+    parser.add_argument("--latency-seed", type=int)
     args = parser.parse_args(argv)
     config = load_config(args.eval_config)
+    apply_runtime_overrides(
+        config,
+        checkpoint_path=args.checkpoint_path,
+        model_config_path=args.model_config_path,
+        task_contract_path=args.task_contract_path,
+        run_name=args.run_name,
+        output_dir=args.output_dir,
+        latency_method=args.latency_method,
+        latency_profile_path=args.profile_path,
+        latency_seed=args.latency_seed,
+    )
+    output_dir = Path(config["logging"]["output_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "eval_config.yaml").write_text(
+        yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
+    )
     backend = MikasaEnvStepBackend(
         config=config,
         num_slots=int(config["evaluation"]["eval_parallel_envs"]),

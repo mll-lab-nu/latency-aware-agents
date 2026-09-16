@@ -25,6 +25,7 @@ def _training_config(tmp_path: Path) -> dict:
         },
         "backend": {
             "type": "sample_factory",
+            "algo": "APPO",
             "device": "gpu",
             "train_dir": str(tmp_path / "checkpoints"),
             "run_mode": "train",
@@ -99,33 +100,6 @@ def test_build_latency_bench_config_from_training_config_uses_base_env_config(tm
     assert config["logging"]["output_dir"] == str(tmp_path / "eval_outputs")
 
 
-def test_build_latency_bench_config_switches_sonic_decoder_to_environment(
-    tmp_path: Path,
-):
-    from training.common.latency_bench_periodic_eval import (
-        build_latency_bench_config_from_training_config,
-    )
-
-    training_config = _training_config(tmp_path)
-    training_config["env"] = {
-        "name": "gymnasium",
-        "make_kwargs": {"sonic_decoder_mode": "inference_worker"},
-    }
-    training_config["logging"]["video"] = {"enabled": False}
-    training_config["training"]["fasttd3_sonic_decoder_path"] = str(
-        tmp_path / "decoder.onnx"
-    )
-
-    config = build_latency_bench_config_from_training_config(
-        training_config,
-        checkpoint_path=tmp_path / "checkpoint.pth",
-        output_dir=tmp_path / "eval_outputs",
-    )
-
-    assert config["env"]["make_kwargs"]["sonic_decoder_mode"] == "environment"
-    assert "fasttd3_sonic_decoder_path" not in config["training"]
-
-
 def test_periodic_observer_saves_checkpoint_and_defers_latency_bench_job(monkeypatch, tmp_path: Path):
     import training.common.latency_bench_periodic_eval as periodic_eval
 
@@ -194,6 +168,32 @@ def test_periodic_observer_saves_checkpoint_and_defers_latency_bench_job(monkeyp
     assert writer.scalars == []
 
 
+def test_fasttd3_periodic_eval_uses_optimizer_step_and_keeps_raw_frames(monkeypatch, tmp_path: Path):
+    import training.common.latency_bench_periodic_eval as periodic_eval
+
+    checkpoint = tmp_path / "checkpoint_000000100_500.pth"
+    checkpoint.write_text("checkpoint\n", encoding="utf-8")
+    config = _training_config(tmp_path)
+    config["backend"]["algo"] = "FAST_TD3"
+    config["evaluation"]["eval_interval_steps"] = 100
+    runner = SimpleNamespace(env_steps={0: 500}, train_steps={0: 100})
+    observer = periodic_eval.LatencyBenchPeriodicEvalObserver(config)
+    monkeypatch.setattr(observer, "_save_checkpoint_for_eval", lambda runner: checkpoint)
+
+    observer.on_training_step(runner, training_iteration_since_resume=1)
+
+    request = observer.pending_jobs[0]
+    assert request.step == 100
+    assert request.raw_frames == 500
+    assert request.metadata == {
+        "eval_phase": "train_periodic",
+        "train_env_steps": 500,
+        "checkpoint_path": str(checkpoint),
+        "train_optimizer_steps": 100,
+    }
+    assert request.result_path.parent.name == "step_100"
+
+
 def test_periodic_observer_runs_deferred_eval_fifo_after_training(monkeypatch, tmp_path: Path):
     import training.common.latency_bench_periodic_eval as periodic_eval
 
@@ -236,7 +236,7 @@ def test_periodic_observer_runs_deferred_eval_fifo_after_training(monkeypatch, t
                         "mean_return": 12.0,
                         "std_return": 1.0,
                         "mean_length": 30.0,
-                        "completed_episodes": 3,
+                        "returns": [11.0, 12.0, 13.0],
                     }
                 ]
             )
@@ -379,6 +379,7 @@ def test_deferred_observer_releases_checkpoint_lease_after_eval_success(monkeypa
                                 "mean_return": 12.0,
                                 "std_return": 1.0,
                                 "mean_length": 30.0,
+                                "returns": [12.0],
                             }
                         ]
                     }
@@ -501,7 +502,7 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
                 "mean_return": 10.0,
                 "std_return": 1.0,
                 "mean_length": 30.0,
-                "completed_episodes": 3,
+                "returns": [9.0, 10.0, 11.0],
             },
             {
                 "suite_name": "fixed_0_to_4",
@@ -519,10 +520,12 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
                 "mean_return": 12.0,
                 "std_return": 1.2,
                 "mean_length": 32.0,
-                "completed_episodes": 5,
+                "returns": [10.0, 11.0, 12.0, 13.0, 14.0],
             },
         ],
-        env_steps=1_000,
+        step=1_000,
+        raw_frames=5_000,
+        uses_optimizer_steps=True,
     )
 
     assert log_calls[-1][1] is None
@@ -530,6 +533,7 @@ def test_log_eval_summaries_writes_plain_wandb_scalars(monkeypatch):
     assert payload == {
         "global_step": 1_000,
         "eval_corrected/global_steps": 1_000,
+        "eval_corrected/raw_frames": 5_000,
         "eval_corrected/fixed/latency_0/mean_return": 10.0,
         "eval_corrected/fixed/latency_0/std_return": 1.0,
         "eval_corrected/fixed/latency_0/mean_length": 30.0,
@@ -565,7 +569,7 @@ def test_latency_bench_eval_process_main_writes_result_file(monkeypatch, tmp_pat
     monkeypatch.setattr(periodic_eval, "run_eval_suites_from_config", fake_run_eval_suites)
 
     periodic_eval._latency_bench_eval_process_main(
-        {"suite_name": "fixed_0_to_1"},
+        {"suite_name": "fixed_0_to_1", "evaluation": {"eval_suites": {}}},
         {"latency_type": "fixed_sweep"},
         str(result_path),
     )
@@ -582,6 +586,32 @@ def test_latency_bench_eval_process_main_writes_result_file(monkeypatch, tmp_pat
             }
         ]
     }
+
+
+def test_latency_bench_eval_process_main_runs_current_condition_without_suites(monkeypatch, tmp_path: Path):
+    import training.common.latency_bench_periodic_eval as periodic_eval
+
+    result_path = tmp_path / "job" / "eval_result.json"
+    metrics = [object()]
+    summary = {"latency": "temporal", "mean_length": 321.0}
+    calls = []
+    monkeypatch.setattr(
+        periodic_eval,
+        "run_from_config",
+        lambda config, extra_metadata=None: calls.append((config, extra_metadata)) or metrics,
+    )
+    monkeypatch.setattr(
+        periodic_eval,
+        "_summary_payloads_for_printing",
+        lambda config, values: [summary] if values is metrics else [],
+    )
+
+    config = {"evaluation": {"eval_episodes": 8}}
+    metadata = {"eval_phase": "train_periodic"}
+    periodic_eval._latency_bench_eval_process_main(config, metadata, str(result_path))
+
+    assert calls == [(config, metadata)]
+    assert json.loads(result_path.read_text(encoding="utf-8")) == {"summaries": [summary]}
 
 
 def test_periodic_observer_uses_updated_checkpoint_when_sample_factory_overwrites_same_name(tmp_path: Path):
@@ -856,6 +886,7 @@ def test_run_final_eval_runs_deferred_periodic_fifo_before_starting_final(monkey
                                 "mean_return": 12.0,
                                 "std_return": 1.0,
                                 "mean_length": 30.0,
+                                "returns": [12.0],
                             }
                         ]
                     }
@@ -892,6 +923,17 @@ def test_run_final_eval_runs_deferred_periodic_fifo_before_starting_final(monkey
     assert [launch[0] for launch in launches] == ["train_periodic", "train_periodic", "train_final"]
     assert observer.active_job is None
     assert observer.last_eval_step == 1_234
+
+
+def test_run_final_eval_does_not_repeat_terminal_periodic_step(tmp_path: Path):
+    import training.common.latency_bench_periodic_eval as periodic_eval
+
+    observer = periodic_eval.LatencyBenchPeriodicEvalObserver(_training_config(tmp_path))
+    observer.last_eval_step = 1_000
+    runner = SimpleNamespace(env_steps={0: 1_000})
+
+    assert observer.run_final_eval(runner) is True
+    assert len(observer.pending_jobs) == 0
 
 
 def test_run_sample_factory_training_uses_native_run_rl_without_interval(monkeypatch, tmp_path: Path):

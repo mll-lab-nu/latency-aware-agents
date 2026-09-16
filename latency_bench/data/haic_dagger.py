@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from latency_bench.data.episode_io import commit_episode
+
 
 HAIC_VLA_STATE_DIM = 605
 HAIC_TEACHER_LATENT_DIM = 256
@@ -76,15 +78,7 @@ def _write_shard(
         payload.update({name: arrays[name] for name in _CONTROL_FIELDS})
     payload["image_shape"] = arrays["image_shape"]
     target = _haic_shard_dir(output_dir, split, episode_idx)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.tmp")
-    if temporary.exists():
-        shutil.rmtree(temporary)
-    temporary.mkdir()
-    np.savez_compressed(temporary / "episode.npz", **payload)
-    shutil.copyfile(video_path, temporary / "episode.mp4")
-    temporary.replace(target)
-    return target
+    return commit_episode(target, payload, video_path)
 
 
 def write_haic_bootstrap_shard(
@@ -417,9 +411,9 @@ def _convert_split(
         teacher_action_shape=teacher_action_shape,
         termination_shape=termination_shape,
     )
-    from latency_bench.data.official_gr00t import _write_official_gr00t_modality
+    from latency_bench.data.exporters.starvla_lerobot import write_starvla_modality
 
-    _write_official_gr00t_modality(
+    write_starvla_modality(
         output_dir,
         HAIC_VLA_STATE_DIM,
         HAIC_VLA_ACTION_DIM,

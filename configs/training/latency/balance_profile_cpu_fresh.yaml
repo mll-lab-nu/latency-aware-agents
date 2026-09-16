@@ -1,0 +1,36 @@
+__base__: ../../examples/gymnasium/g1_sonic_balance_simple/fasttd3_train.yaml
+
+experiment:
+  name: g1_sonic_balance_simple_raw_ramp_fasttd3_profile_cpu_fresh_s1
+  seed: 1
+
+backend:
+  device: cpu
+  train_dir: outputs/tasks/humanoidbench_balance_simple/profile_cpu_fresh/checkpoints
+  restart_behavior: overwrite
+  actor_worker_gpus: []
+
+latency:
+  method: temporal
+  profile_path: results/profiling/profiles/qwenoft/1x-rpbzzz6/mikasa_intercept_grab_fast/instance_e906b84a82f9e086/profile.json
+  profile_worker_slot: 0
+  seed: 123
+  add_latency_info: true
+
+training:
+  train_for_env_steps: 1600
+  num_workers: 1
+  num_envs_per_worker: 1
+  rollout: 16
+  batch_size: 128
+  fasttd3_replay_capacity: 4096
+  fasttd3_replay_batch_size: 64
+  fasttd3_transitions_per_update: 64
+  fasttd3_compile: false
+  save_every_sec: 1
+  keep_checkpoints: 2
+
+logging:
+  output_dir: outputs/tasks/humanoidbench_balance_simple/profile_cpu_fresh/train
+  wandb_project: ""
+  wandb_name: g1_sonic_balance_simple_raw_ramp_fasttd3_profile_cpu_fresh_s1

@@ -1,0 +1,46 @@
+env:
+  env_fps: 20
+  obs_fps: 20
+  noop_action: [0, 0, 0, 0, 0, 0, 0]
+
+executor:
+  simulated_worker_capacity: 1
+
+scheduler:
+  ordering_policy: latest_ready
+  hold_policy: hold
+
+profile_source:
+  repo_id: latency-sensitive-bench/profiles
+  revision: 66414463f2a609316da63935941a79abf0a73ce9
+  path: profiles/qwenoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c
+
+latency:
+  method: temporal
+  seed: 0
+  profile_path: results/profiling/downloads/profiles/qwenoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/66414463f2a609316da63935941a79abf0a73ce9/profile.json
+
+training:
+  exp_name: small-ppo-mikasa-intercept-grab-fast-qwenoft-rtx3090-temporal-scratch
+  checkpoint: null
+  resume: null
+  seed: 123
+  num_envs: 1024
+  num_eval_envs: 16
+  num_steps: 60
+  num_eval_steps: 60
+  num_minibatches: 32
+  update_epochs: 8
+  learning_rate: 0.0001
+  target_kl: 0.2
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_coef: 0.2
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  anneal_lr: false
+  finite_horizon_gae: true
+  total_timesteps: 25000000
+  eval_freq: 25
+  track: true

@@ -163,15 +163,11 @@ def make_latency_doom_env_from_spec(
 
     wrapper_seed = env_instance_seed(
         base_seed=int(getattr(cfg, "seed", 0) or 0),
-        worker_index=int(getattr(env_config, "worker_index", 0) or 0),
-        vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
     latency_seed = sample_factory_latency_seed_from_flat_config(
         cfg,
         fallback_seed=wrapper_seed,
-        worker_index=int(getattr(env_config, "worker_index", 0) or 0),
-        vector_index=int(getattr(env_config, "vector_index", 0) or 0),
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)

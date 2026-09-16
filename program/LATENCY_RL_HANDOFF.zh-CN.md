@@ -1,8 +1,34 @@
-# 当前计划：H1 原生 profile-RL（2026-09-07）
+# H1 原生 profile-RL 交接
+
+## 核查更新（2026-09-14）
+
+当前四任务、四模型的进度和数值统一见 [PROGRESS](PROGRESS.md)，文档分类见
+[索引](README.md)。下方 2026-09-07 的预算、初始化方式和运行消息保留为当时记录；
+不代表现在仍有任务运行。英文 [Balance 交接](archive/LATENCY_RL_HANDOFF.md)
+已归档，它与本文件的四任务范围不同。
+
+| 已确认的 Balance 实验 | 评测口径 | 结果 | 后续状态 |
+|---|---|---|---|
+| fixed1 execution-boundary F2 | 6M；环境帧 | 平均存活 525.44 帧 | fixed1 已恢复；不能外推到 fixed2/profile |
+| H8 temporal profile 修复 | 5,000,064 raw steps；25 env seeds × 4 latency seeds | 存活 72.88→172.14；return 59.45→150.37；≥100 帧 3%→93% | 历史修复对照已完成 |
+| H8 第一版消融 | 4 training seeds；20 个 10M run；每模型 100 场景 | full 存活 304.73±232.32；删除 ABCHJ 为 417.24±88.05 | 只保留 D/E 的生产组合尚未直接验证；后续单独消融 D/E |
+
+fixed1 诊断全文见 [历史诊断](archive/LATENCY_DEBUG_PLAN.md)，H8 修复见
+[CHUNK](CHUNK.md)，最新消融和待验证范围见 [CHUNK_RL_ABLATION](CHUNK_RL_ABLATION.md)。
+旧 [LATENCY_PLAN](archive/LATENCY_PLAN.md) 的实验 3–5 未执行且本轮产物已删除，
+保持历史未执行状态；不从旧计划推断当前待运行任务。
+
+MIKASA 已发布四类 RTX 3090 profile 对应的小模型。WanOFT 当前发布的是
+10 Hz clock10、success-at-end 93.75% 的版本；此前 20 Hz 的 47.66% 记录保留为
+另一条实验。QwenOFT latency-aware VLA 的本地 100-episode temporal 复核为
+success 57%、return 19.4161±15.0048，baseline 同口径为 0%、0.4274±0.1224；
+具体 checkpoint、配置与版本见 PROGRESS。这些新证据补充下方旧 smoke 和暂停记录。
+
+## 2026-09-07 H1 计划与运行记录
 
 本节替代下方旧 H40／全链路计划。四环境均只预测当前 action，用已有无延迟
 teacher 初始化并重新建立优化器和训练进度；本轮止于 small RL 训练和评估。
-Official GR00T 保留作 debug／历史路径，暂缓 profile 正确性审查及 VLA 数据收集、重训。
+NVIDIA GR00T 独立运行时后来已移除；该路线只保留为历史记录，当前 VLA 统一使用 StarVLA。
 
 | 环境 | 当前动作 | 控制／观测 Hz | 正式预算 |
 |---|---|---|---|
@@ -23,7 +49,8 @@ HAIC 的真实控制步长改为 `0.05 s`，repeat=1，超时设为400步以保�
 延迟毫秒值不缩放：100 ms在20 Hz为2个控制步，在50 Hz为5步。不得让旧profile
 生成器将HAIC频率覆盖回50 Hz。Temporal驻留次数沿用现有按采样次数计数的语义。
 
-四环境完整原生训练／评估命令见同目录英文文档顶部。MIKASA使用
+四环境原生训练／评估入口见 [SCALE_MODELS](SCALE_MODELS.md) 及各任务 runbook；
+英文 Balance-only 交接已归档。以下配置名为当时记录。MIKASA使用
 `configs/training/latency/mikasa_h1.yaml`，Balance使用`balance_h1.yaml`；
 两者均有`*_h1_eval.yaml`和`*_h1_eval_zero.yaml`，评估原teacher时显式替换checkpoint
 并使用独立输出目录。先完成短训练、保存、重载及zero/profile评估，再执行正式预算。
@@ -86,7 +113,7 @@ MIKASA第31次更新／1,904,640步及Balance的1,365,632帧checkpoint均为有�
 
 # Latency command-RL——启动与 smoke 交接（中文译本）
 
-原文：[program/LATENCY_RL_HANDOFF.md](LATENCY_RL_HANDOFF.md)。本文件只翻译说明文字；命令、路径、配置键和指标名称保持原样，便于复制执行。原文中的远程登录地址已用占位符替代。
+原文：[program/archive/LATENCY_RL_HANDOFF.md](archive/LATENCY_RL_HANDOFF.md)。本文件只翻译说明文字；命令、路径、配置键和指标名称保持原样，便于复制执行。原文中的远程登录地址已用占位符替代。
 
 四个任务入口都已实现。实际的分阶段 smoke 已验证：原生训练/重新加载、issued-label 数据转换、两次更新的 VLA 保存/重新加载，以及 baseline/new 的 zero/profile 闭环评估。这些运行复用了已有的显式 profile；“全新完整 profile-to-training”启动和正式长时间训练尚未执行。尚未建立任何 robustness（鲁棒性）提升结论。
 
@@ -352,9 +379,15 @@ Profile 行复用 `$B/profile/profile.json`，不代表新的 latency 测量，�
   --config configs/training/mikasa_latency_pipeline_smoke.yaml
 ```
 
-这会调用 registry 的完整 profile 协议，然后依次执行短 PPO、完整 episode collection、RLDS/LeRobot 转换、VLA training，以及新 checkpoint 的 zero/profile evaluation。`profile_arguments: [--hf-artifacts]` 会显式选择 pinned canonical profile model。Profiling 不会因 training smoke config 而缩短。要显式复用已有测量，追加 `--profile-path <profile.json>`。生成的 training/evaluation config 和每个阶段的日志保存在 `output_dir`。评估从 starVLA 的 native working directory 运行，以便相对的 pretrained-model 路径能正确解析。Orchestration wiring 测试已通过，但组合后的 launcher 仍等待干净的 GPU 时段才能完整运行。
+当前入口下载固定版本的已发布 QwenOFT RTX 3090 teacher 和 temporal profile，
+然后执行采集、H1 数据转换、共享训练入口及 zero/temporal 对照评测。
+正式配置为 `configs/training/mikasa_latency_pipeline.yaml`，开启 W&B online；
+每卡 microbatch 从 64 开始，只有实际 CUDA OOM 才减半，保持 global batch 128。
+具体设置见 [MIKASA 执行手册](MIKASA.md#9-latency-aware-teacher-蒸馏入口)。
 
-## MIKASA 复现
+## MIKASA 原生 PPO 与旧版 VLA 复现记录
+
+以下命令保留历史运行证据；当前 H1 VLA 训练使用上面的单命令入口。
 
 从仓库根目录运行。签入的 smoke config 显式引用已有 profile，不会重新测量：
 `results/profiling/profiles/qwenoft/1x-rpbzzz6/mikasa_intercept_grab_fast/instance_e906b84a82f9e086/profile.json`。

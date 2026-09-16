@@ -220,13 +220,12 @@ def test_episode_metrics_log_evaluation_raw_fact_metadata(tmp_path: Path):
     assert metrics["metadata"]["frame_ms"] == pytest.approx(40.0)
 
 
-@pytest.mark.parametrize("policy_type,path_key", [("starvla", "checkpoint_path"), ("official_gr00t", "model_path")])
-def test_summary_keeps_new_model_identity_separate_from_source_profile(tmp_path, policy_type, path_key):
+def test_summary_keeps_new_model_identity_separate_from_source_profile(tmp_path):
     from latency_bench.policy.base import ConstantPolicyRunner
 
     profile = _write_profile(tmp_path)
     config = _config(tmp_path / "evaluation", latency={"method": "iid", "profile_path": str(profile)})
-    config["policy"] = {"type": policy_type, path_key: "/new-vla/checkpoint-2"}
+    config["policy"] = {"type": "starvla", "checkpoint_path": "/new-vla/checkpoint-2"}
     run_from_config(config, policy=ConstantPolicyRunner(Action("jump")))
     summary = json.loads((tmp_path / "evaluation/queue_eval_latency_profile_sample.json").read_text())
     assert summary["checkpoint_path"] == "/new-vla/checkpoint-2"
@@ -322,7 +321,31 @@ def test_task_metrics_flow_from_final_step_into_summary(latency):
         "success": {"mean": 0.5, "std": 0.5, "values": [1.0, 0.0]}
     }
     scalars = eval_scalar_payload([summary], env_steps=0, prefix="eval")
-    assert sum(value for key, value in scalars.items() if key.endswith("completed_episodes")) == 2
+    metric_prefix = (
+        "eval/fixed/latency_0"
+        if latency == 0
+        else "eval/profile_sample/profile_sample"
+    )
+    assert scalars[f"{metric_prefix}/completed_episodes"] == 2.0
+    assert scalars[f"{metric_prefix}/task_metrics/success/mean"] == 0.5
+    assert scalars[f"{metric_prefix}/task_metrics/success/std"] == 0.5
+
+
+def test_eval_scalar_payload_requires_returns_for_completed_episode_count():
+    with pytest.raises(KeyError, match="returns"):
+        eval_scalar_payload(
+            [
+                {
+                    "suite_name": "fixed_0",
+                    "latency": 0,
+                    "mean_return": 0.0,
+                    "std_return": 0.0,
+                    "mean_length": 0.0,
+                }
+            ],
+            env_steps=0,
+            prefix="eval",
+        )
 
 
 def test_task_metrics_are_required_for_every_episode():

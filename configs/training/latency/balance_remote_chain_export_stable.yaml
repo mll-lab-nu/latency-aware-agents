@@ -1,0 +1,15 @@
+__base__: balance_remote_chain_export.yaml
+
+experiment:
+  name: g1_sonic_balance_simple_raw_ramp_fasttd3_real_profile_chain_export_stable_s1
+
+backend:
+  train_dir: outputs/tasks/humanoidbench_balance_simple/real_profile_chain_export_stable/native/checkpoints
+  restart_behavior: overwrite
+
+training:
+  learning_rate: 0.0
+
+logging:
+  output_dir: outputs/tasks/humanoidbench_balance_simple/real_profile_chain_export_stable/native/train
+  wandb_name: g1_sonic_balance_simple_raw_ramp_fasttd3_real_profile_chain_export_stable_s1

@@ -18,7 +18,7 @@ from latency_bench.utils.io import write_jsonl
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
     ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
-    ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+    ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
     ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1,
     action_spec_for_env,
 )
@@ -33,6 +33,49 @@ _ROBOT_TYPES_BY_ENV = {
     "demon_attack": "rl_games_demon_attack",
     "deadly_corridor": "rl_games_deadly_corridor",
 }
+
+
+def write_starvla_modality(
+    dataset_dir: Path | str,
+    state_dim: int,
+    action_dim: int,
+    *,
+    action_key: str = "action",
+) -> Path:
+    path = Path(dataset_dir) / "meta" / "modality.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "state": {
+                    "state": {
+                        "start": 0,
+                        "end": state_dim,
+                        "dtype": "float32",
+                        "absolute": True,
+                        "original_key": "observation.state",
+                    }
+                },
+                "action": {
+                    action_key: {
+                        "start": 0,
+                        "end": action_dim,
+                        "dtype": "float32",
+                        "absolute": True,
+                        "original_key": action_key,
+                    }
+                },
+                "video": {"ego_view": {"original_key": "observation.image"}},
+                "annotation": {
+                    "human.task_description": {"original_key": "task_index"}
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _action_carrier_spec(
@@ -451,6 +494,15 @@ def _write_episode(
             [row["density_weight"] for row in rows], type=pa.float32()
         ),
     }
+    if rows and "issued_command_chunk" in rows[0]:
+        columns["issued_command_chunk"] = pa.array(
+            [row["issued_command_chunk"] for row in rows],
+            type=pa.list_(pa.list_(pa.float32(), action_dim), len(rows[0]["issued_command_chunk"])),
+        )
+    if rows and "action_valid_mask" in rows[0]:
+        columns["action_valid_mask"] = pa.array(
+            [row["action_valid_mask"] for row in rows], type=pa.list_(pa.bool_(), len(rows[0]["action_valid_mask"])),
+        )
     if rows and "action_id" in rows[0]:
         columns["action_id"] = pa.array(
             [row["action_id"] for row in rows], type=pa.int64()
@@ -604,7 +656,7 @@ def _write_metadata(
                 },
                 "video": {"image": {"original_key": "observation.image"}},
                 "annotation": {
-                    "human.action.task_description": {"original_key": "task_index"}
+                    "human.task_description": {"original_key": "task_index"}
                 },
             },
             indent=2,
@@ -706,6 +758,10 @@ def _convert_split(
                     state_max = np.asarray(state_normalization["max"], dtype=np.float32)
                     state = min_max_normalize_state(state, state_min, state_max)
                 out_row["state"] = state.tolist()
+            if "issued_command_chunk" in row:
+                out_row["issued_command_chunk"] = row["issued_command_chunk"]
+            if "action_valid_mask" in row:
+                out_row["action_valid_mask"] = row["action_valid_mask"]
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
             if "context_images" in row and row["context_images"] is not None:
@@ -746,6 +802,18 @@ def _convert_split(
         actor_observation_shape=actor_observation_shape,
         termination_shape=termination_shape,
     )
+    if rows and "issued_command_chunk" in rows[0]:
+        info_path = output_dir / "meta/info.json"
+        info = json.loads(info_path.read_text())
+        info["features"]["issued_command_chunk"] = {
+            "dtype": "float32", "shape": [len(rows[0]["issued_command_chunk"]), len(action_labels)],
+            "names": action_labels,
+        }
+        if "action_valid_mask" in rows[0]:
+            info["features"]["action_valid_mask"] = {
+                "dtype": "bool", "shape": [len(rows[0]["action_valid_mask"])], "names": None,
+            }
+        info_path.write_text(json.dumps(info, indent=2) + "\n")
     return {
         "dataset_name": output_dir.name,
         "env_name": env_name,
@@ -802,7 +870,7 @@ def convert_canonical_rollout_to_lerobot(
         if action_layout not in (
             ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
             ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-            ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+            ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
         ):
             raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
         gymnasium_task = metadata["gymnasium_task"]
@@ -812,7 +880,7 @@ def convert_canonical_rollout_to_lerobot(
             )
         continuous = action_layout in (
             ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-            ACTION_LAYOUT_G1_SONIC_GR00T_V2,
+            ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
         )
         if continuous and action_carrier == "native":
             gymnasium_task = {
@@ -848,7 +916,7 @@ def convert_canonical_rollout_to_lerobot(
     raw_val_rows = val_rows
     admission_filtered = (
         integration_name == "gymnasium"
-        and action_layout == ACTION_LAYOUT_G1_SONIC_GR00T_V2
+        and action_layout == ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
         and any("command_admitted" in row for row in [*train_rows, *val_rows])
     )
     if admission_filtered:
@@ -964,6 +1032,15 @@ def convert_canonical_rollout_to_lerobot(
         actor_observation_shape=actor_observation_shape,
         termination_shape=termination_shape,
     )
+    if "label_provenance" in metadata:
+        train_info = json.loads((output_dir / "meta/info.json").read_text())
+        for directory in (output_dir, val_output_dir):
+            info_path = directory / "meta/info.json"
+            info = json.loads(info_path.read_text())
+            info["label_provenance"] = metadata["label_provenance"]
+            for key in ("issued_command_chunk", "action_valid_mask"):
+                info["features"][key] = train_info["features"][key]
+            info_path.write_text(json.dumps(info, indent=2) + "\n")
     handoff_contract = {
         "format": (
             "lerobot_v2_image_parquet"

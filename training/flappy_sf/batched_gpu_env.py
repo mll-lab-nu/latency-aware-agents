@@ -122,8 +122,6 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             sample_factory_latency_seed_from_flat_config(
                 self.cfg,
                 fallback_seed=sub_seeds[agent_idx],
-                worker_index=self._worker_index,
-                vector_index=self._vector_index,
                 env_id=self._sub_env_id(agent_idx),
             )
             for agent_idx in range(self.num_agents)

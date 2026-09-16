@@ -1,0 +1,12 @@
+__base__: haic_zero.yaml
+
+experiment:
+  name: haic_clock_zero_50
+  seed: 1
+
+env:
+  env_fps: 50
+  obs_fps: 50
+
+latency:
+  seed: 1

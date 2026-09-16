@@ -2,11 +2,33 @@ from __future__ import annotations
 
 import sys
 import types
+from pathlib import Path
 
 import pytest
 import torch
 
 from latency_bench.integrations.sample_factory import runtime as sf_runtime
+
+
+def test_checkpoint_snapshot_survives_concurrent_pruning(monkeypatch, tmp_path):
+    # Long-lived regression: checkpoint IO owns learner/evaluator pruning races.
+    from training.common import checkpoints as checkpoint_io
+
+    removed = tmp_path / "checkpoint_1.pth"
+    retained = tmp_path / "checkpoint_2.pth"
+    removed.touch()
+    retained.touch()
+    original_stat = Path.stat
+
+    def stat_during_prune(path, *args, **kwargs):
+        if path == removed:
+            removed.unlink()
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat_during_prune)
+    assert checkpoint_io.checkpoint_mtimes(tmp_path) == {
+        retained: original_stat(retained).st_mtime_ns,
+    }
 
 
 def _install_fake_sample_factory_learner(monkeypatch):

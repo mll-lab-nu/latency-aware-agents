@@ -27,7 +27,6 @@ env:
     height: 256
     scene_path: ./results/humanoidbench_g1_sonic_assets/assets/sonic_g1/envs/scene_balance_simple.xml
     control_mode: raw_body_target
-    target_velocity_ramp_time_s: 0.1
     raw_learn_hands: true
   env_fps: 50
   obs_fps: 50
@@ -81,7 +80,7 @@ env:
     low: [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]
     high: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     dtype: float32
-  # Queue consumes an absolute noop; learner actions remain normalized [-1, 1].
+  # Config and policy actions share normalized [-1, 1] coordinates; the G1 integration converts both.
   noop_action: [-0.312, -0.312, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.669, 0.669, 0.2, 0.0, -0.363, -0.363, 0.2, 0.2, 0.0, 0.0, 0.0, -0.2, 0.6, 0.0, 0.0, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   base_prompt: Keep the G1 humanoid balanced on the support board.
 

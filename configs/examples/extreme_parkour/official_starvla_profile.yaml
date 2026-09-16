@@ -1,0 +1,48 @@
+experiment:
+  name: extreme_parkour_go2_starvla_profile
+  seed: 2
+
+executor:
+  mode: realtime
+
+env:
+  name: extreme_parkour_go2
+  env_fps: 50
+  obs_fps: 10
+  simulator_device: cuda:0
+  noop_action: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  base_prompt: Traverse the parkour course and follow each waypoint.
+
+latency:
+  method: measured
+  sync_cuda: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+  hold_last_chunk_action: true
+
+policy:
+  type: starvla
+  checkpoint_path: unused
+  model_config_path: unused
+  task_contract_path: task_contract.json
+  worker_python_executable: /venv/starvla_rl_games_openvla/bin/python
+  device: cuda:0
+  state_info_key: parkour_proprio
+  image_views_info_key: env_raw_rgb_frame_stack
+
+evaluation:
+  eval_episodes: 50
+  eval_parallel_envs: 1
+  eval_max_steps: 1500
+  eval_deterministic: true
+
+logging:
+  output_dir: outputs/tasks/extreme_parkour_go2/profile
+  video:
+    enabled: false
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

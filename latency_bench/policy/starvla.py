@@ -769,6 +769,11 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
 
     policy_cfg = config["policy"]
     if "task_contract_path" in policy_cfg:
+        if config["env"]["name"] == "gymnasium":
+            contract = json.loads(
+                Path(policy_cfg["task_contract_path"]).read_text(encoding="utf-8")
+            )
+            config["env"]["state_space"] = {"labels": contract["state_labels"]}
         config["env"]["frame_stack"] = 1
         return
     if "model_config_path" in policy_cfg:

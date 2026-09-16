@@ -1,0 +1,8 @@
+__base__: haic_clock_zero_50.yaml
+
+experiment:
+  name: haic_clock_zero_20
+
+env:
+  env_fps: 20
+  obs_fps: 20

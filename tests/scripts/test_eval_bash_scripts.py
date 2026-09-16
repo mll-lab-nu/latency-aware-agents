@@ -506,7 +506,6 @@ def test_install_script_forwards_all_model_selection(tmp_path):
         "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "
         "--tier dev --model all"
     ) in calls
-    assert "uv sync --project third_party/Isaac-GR00T --python 3.12" in calls
 
 
 def test_install_script_accepts_each_supported_model(tmp_path):
@@ -525,30 +524,6 @@ def test_install_script_accepts_each_supported_model(tmp_path):
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "bootstrap.sh --tier dev --model gr00t" in calls
-
-
-def test_install_script_sets_up_official_gr00t_without_starvla_bootstrap(tmp_path):
-    script_path = REPO_ROOT / "install.sh"
-    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
-
-    result = subprocess.run(
-        ["bash", str(script_path), "--model", "official_gr00t"],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    calls = calls_path.read_text(encoding="utf-8")
-    assert "git submodule update --init --recursive" in calls
-    assert "uv sync --project third_party/Isaac-GR00T --python 3.12" in calls
-    assert (
-        "uv run --project third_party/Isaac-GR00T python -c "
-        in calls
-    )
-    assert "bootstrap.sh" not in calls
 
 
 def test_install_script_requires_model(tmp_path):
@@ -1042,7 +1017,7 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
     assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
-@pytest.mark.parametrize("model", ["pi05", "qwenoft", "official_gr00t"])
+@pytest.mark.parametrize("model", ["pi05", "qwenoft"])
 def test_profile_launcher_uses_current_python_environment(tmp_path, model):
     fake_bin = tmp_path / "bin"
     calls_path = tmp_path / "calls.log"
@@ -1085,26 +1060,6 @@ printf 'start_method=%s\\n' "${LATENCY_BENCH_ENV_BACKEND_START_METHOD:-}" >> "$L
         f"list --model {model} --workload flappy"
     ) in calls
     assert "start_method=spawn" in calls
-
-
-@pytest.mark.parametrize("task", [
-    "haic_pull_cart", "extreme_parkour_go2", "humanoidbench_balance_simple",
-])
-def test_task_profile_launcher_preserves_explicit_artifact_source(tmp_path, task):
-    _write_executable(tmp_path / "bash", "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
-    _write_executable(tmp_path / "uv", "#!/bin/sh\nexit 0\n")
-    for source_args in (["--hf-artifacts"], ["--model-path", "/models/exact"]):
-        result = subprocess.run(
-            ["/bin/bash", str(REPO_ROOT / "scripts/tasks" / task / "profile.sh"),
-             *source_args],
-            env=os.environ | {"PATH": f"{tmp_path}:{os.environ['PATH']}"},
-            capture_output=True, text=True, check=True,
-        )
-        forwarded = result.stdout.splitlines()
-        assert forwarded[-len(source_args):] == source_args
-        assert forwarded.count("--model-path") == source_args.count("--model-path")
-
-
 
 
 def test_sim2real_build_figures_builds_data_before_plotting(tmp_path):

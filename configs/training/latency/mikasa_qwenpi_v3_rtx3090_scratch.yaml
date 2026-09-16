@@ -1,0 +1,10 @@
+__base__: mikasa_qwenoft_rtx3090_scratch.yaml
+
+profile_source:
+  path: profiles/qwenpi_v3/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c
+
+latency:
+  profile_path: results/profiling/downloads/profiles/qwenpi_v3/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/66414463f2a609316da63935941a79abf0a73ce9/profile.json
+
+training:
+  exp_name: small-ppo-mikasa-intercept-grab-fast-qwenpi-v3-rtx3090-temporal-scratch

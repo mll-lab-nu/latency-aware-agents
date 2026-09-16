@@ -1,0 +1,9 @@
+__base__: mikasa_wanoft_rtx3090_eval.yaml
+
+env:
+  env_fps: 10
+  obs_fps: 10
+
+training:
+  exp_name: small-ppo-mikasa-intercept-grab-fast-wanoft-rtx3090-temporal-clock10-scratch
+  checkpoint: null

@@ -5,9 +5,8 @@ inference, then build a latency profile that can be replayed in simulation.
 
 ## Quick start
 
-Each supported task has a user-facing launcher. Pass the final model directory,
-or omit it to use the registered local path (and the exact Hugging Face artifact
-when that local root does not exist):
+Use the shared profiler with a registered model/workload pair and the final
+model directory:
 
 Use `--hf-repo-id`, `--hf-path`, `--hf-checkpoint`, and `--hf-model-config`
 to override the preset Hugging Face artifact coordinates when you want to profile
@@ -30,10 +29,10 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh openvla [MO
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh wanoft [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh pi05 [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh gr00t [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/humanoidbench_balance_simple/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/extreme_parkour_go2/profile.sh [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/haic_pull_cart/profile.sh [MODEL_PATH]
+CUDA_VISIBLE_DEVICES=1 bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --model-path MODEL_PATH
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run --model qwenoft --workload extreme_parkour_go2 --model-path MODEL_PATH
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run --model qwenoft --workload haic_pull_cart --model-path MODEL_PATH
 ```
 
 The Demon Attack launchers use the model-specific StarVLA environment active in
@@ -42,19 +41,18 @@ pass `--hf-artifacts` to download the registered model artifact.
 
 Balance uses all visible GPUs for inference. The other three tasks use logical
 `cuda:0` for the native simulator and `cuda:1..` for inference, so expose at
-least two GPUs. Parkour and HAIC launchers must be invoked from their installed
-native Python environments; the launcher captures that interpreter before the
-common profiling command activates the benchmark environment.
+least two GPUs. The launcher and its inference workers use the currently active
+Python environment.
 
 Every task runs five sessions of 10 episodes and writes under
 `results/profiling/`. Results stay local unless `--publish` is added. Publishing
 starts only after the complete run and fitted profile exist:
 
 ```bash
-bash scripts/tasks/<task>/profile.sh [MODEL_PATH] --publish
+bash scripts/profile.sh run --model MODEL --workload WORKLOAD --model-path MODEL_PATH --publish
 ```
 
-To resume, rerun the same task command with `--resume "$RUN_ID"`; completed
+To resume, rerun the same command with `--resume "$RUN_ID"`; completed
 sessions are skipped and the incomplete session is rerun. The local
 `run_contract.json` must exactly match the resolved artifacts, interpreter,
 entrypoint, deployment and generated config. Legacy runs without this contract,
@@ -83,7 +81,7 @@ models:
           hf_path: zero-latency/my-task/vla/my-model-v1
         checkpoint_kind: latest
         session_count: 5
-        eval_episodes: 100
+        eval_episodes: 10
         evaluation_seed: 0
         calibrate_env_fps: false
         simulation_parallel_envs: 1
@@ -103,6 +101,17 @@ the current Hugging Face repository, while an existing root must contain
 Python interpreter active when the command is invoked. A second
 `runtime_artifact` may provide a frozen teacher/actor checkpoint. There is no
 alternate checkpoint fallback.
+
+The four StarVLA H1 model IDs `qwenoft`, `qwenpi_v3`, `qwengr00t`, and `wanoft`
+are registered for both `mikasa_intercept_grab_fast` and
+`g1_sonic_balance_simple`. Fetch the latest registered bundle with
+`--hf-artifacts`. For Mikasa expose simulator GPU 0 and inference GPU 1; for
+Humanoid expose only physical GPU 1, which becomes logical `cuda:0`:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run --model qwenoft --workload mikasa_intercept_grab_fast --hf-artifacts
+CUDA_VISIBLE_DEVICES=1 bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --hf-artifacts
+```
 
 Each profile has four coordinates:
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -10,6 +9,7 @@ import numpy as np
 from PIL import Image
 
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.data.background_writer import BackgroundWriter
 
 from latency_bench.utils.array import to_numpy
 
@@ -39,7 +39,7 @@ def frame_from_env_raw_rgb_info(info: Mapping[str, Any]) -> np.ndarray:
     return frames_from_env_raw_rgb_info(info)[-1]
 
 
-def _save_image_frame(frame: np.ndarray, image_path: Path, export_image_size: tuple[int, int] | None) -> None:
+def save_image_frame(frame: np.ndarray, image_path: Path, export_image_size: tuple[int, int] | None) -> None:
     """Save one raw RGB frame to disk.
 
     Args:
@@ -70,9 +70,7 @@ class RolloutImageWriter:
             row_buffer_size: Maximum pending writes before waiting.
             export_image_size: Optional ``(width, height)`` resize target.
         """
-        self.executor = ThreadPoolExecutor(max_workers=int(max_workers)) if int(max_workers) > 0 else None
-        self.pending_futures: set[Future[None]] = set()
-        self.row_buffer_size = int(row_buffer_size)
+        self.writer = BackgroundWriter(max_workers=max_workers, max_pending=row_buffer_size) if max_workers > 0 else None
         self.export_image_size = export_image_size
 
     def write(self, frame: np.ndarray, image_path: Path) -> str:
@@ -85,33 +83,23 @@ class RolloutImageWriter:
         Returns:
             Image path string stored in the rollout row.
         """
-        if self.executor is None:
-            _save_image_frame(frame, image_path, self.export_image_size)
+        if self.writer is None:
+            save_image_frame(frame, image_path, self.export_image_size)
             return str(image_path)
-        future = self.executor.submit(
-            _save_image_frame,
+        self.writer.submit(
+            save_image_frame,
             np.array(frame, copy=True),
             image_path,
             self.export_image_size,
         )
-        self.pending_futures.add(future)
-        if len(self.pending_futures) >= self.row_buffer_size:
-            done, pending = wait(self.pending_futures, return_when=FIRST_COMPLETED)
-            for item in done:
-                item.result()
-            self.pending_futures = set(pending)
         return str(image_path)
 
     def flush(self) -> None:
         """Wait for all pending image writes to finish."""
-        for future in self.pending_futures:
-            future.result()
-        self.pending_futures = set()
+        if self.writer is not None:
+            self.writer.flush()
 
     def close(self) -> None:
         """Flush pending writes and close the thread pool."""
-        try:
-            self.flush()
-        finally:
-            if self.executor is not None:
-                self.executor.shutdown(wait=True)
+        if self.writer is not None:
+            self.writer.close()

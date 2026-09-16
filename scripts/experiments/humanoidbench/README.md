@@ -1,36 +1,16 @@
 # HumanoidBench experiments
 
-Current G1 SONIC entry points:
+Generate and compare the G1 scene bundle:
 
 ```bash
 python -m scripts.experiments.humanoidbench.alignment build-and-compare \
   --candidate-root results/humanoidbench_g1_official_asset_candidate
-
-python -m scripts.experiments.humanoidbench.hurdle_teacher \
-  --cache-dir results/humanoidbench_g1_sonic_assets \
-  --jump-start-phase 30
 ```
 
-`alignment` writes the generated G1 scene bundle and comparison artifacts.
-`hurdle_teacher` downloads the pinned SONIC/BONES-SEED inputs, evaluates the
-trigger sweep, and writes its summary JSON to stdout. `fasttd3` only reproduces
-the retained gamma099 1M residual config/checkpoint; it is not the current
-Gate 1 training path:
+Balance Simple uses the unified StarVLA task pipeline in
+`scripts/starvla/train_task.py`. Its H8 DAgger collector is
+`scripts/starvla/balance_dagger.py`; rows contain one 256x256 `ego_view`, the
+teacher's 198D pre-decision observation, and 43D absolute joint targets.
 
-```bash
-python -m scripts.experiments.humanoidbench.fasttd3 \
-  --output-root results/humanoidbench_g1_sonic29d_fullres_anchor_h025_gamma099_1m \
-  --gamma 0.99
-```
-
-The fixed Gate 1 teacher index is `configs/teachers/g1_sonic_gr00t.json` and is
-the only teacher-job registry read by `scripts/teachers/export_g1_sonic_gr00t.py`.
-Hurdle episodes require `teacher_accepted=true`; balance and run episodes must
-last at least 18 seconds (900 raw frames at 50 Hz). The run entry is reference
-playback from the generated `eval.yaml`, not a neural-network checkpoint. All
-three exports use a latency-neutral base prompt, `head_camera`, one `ego_view`
-RGB stream at 256x256 and 50 Hz, 135D `official_gr00t_proprio`, and 43D absolute
-`action_target`. Balance exports the teacher's learned hand targets; the current
-hurdle/run teachers keep the exported hand targets neutral. Do not add
-wrist, gripper, stereo, or external third-person cameras to these datasets;
-deployment camera semantics must match `head_camera`.
+See [the Balance cookbook](../../../docs/humanoidbench/cookbook.md) for the
+training and evaluation commands.

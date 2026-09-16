@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare an existing canonical LeRobot export for StarVLA H1."""
+"""Prepare an existing canonical LeRobot export for StarVLA."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def _canonical_modality(dataset_dir: Path, spec: StarVLATaskSpec) -> None:
             )
         },
         "action": {
-            "target": canonical_entry(action_meta, end=spec.action_dim, original_key="action")
+            "target": canonical_entry(action_meta, end=spec.action_dim, original_key=spec.action_key)
         },
         "video": {
             key.removeprefix("video."): entry
@@ -67,15 +67,11 @@ def _canonical_modality(dataset_dir: Path, spec: StarVLATaskSpec) -> None:
 def _validate_rows(dataset_dir: Path, spec: StarVLATaskSpec) -> None:
     expected = {
         "observation.state": (spec.state_dim,),
-        "action": (spec.action_dim,),
+        spec.action_key: ((spec.action_horizon, spec.action_dim) if spec.action_horizon > 1 else (spec.action_dim,)),
         **spec.auxiliary_shape_map(),
     }
     for path in _parquet_files(dataset_dir):
         for row in pq.read_table(path).to_pylist():
-            if "issued_command_chunk" in row:
-                raise ValueError(
-                    f"{spec.name} requires scalar control-step actions; found issued_command_chunk in {path}"
-                )
             for key, shape in expected.items():
                 if key not in row:
                     raise KeyError(f"{key!r} is missing from {path}")
@@ -91,7 +87,7 @@ def _rewrite_dataset(dataset_dir: Path, spec: StarVLATaskSpec) -> None:
     features = info["features"]
     if tuple(features["observation.state"]["shape"]) != (spec.state_dim,):
         raise ValueError(f"{spec.name} info metadata has the wrong state shape")
-    if tuple(features["action"]["shape"]) != (spec.action_dim,):
+    if tuple(features[spec.action_key]["shape"]) != ((spec.action_horizon, spec.action_dim) if spec.action_horizon > 1 else (spec.action_dim,)):
         raise ValueError(f"{spec.name} info metadata has the wrong action shape")
     _validate_rows(dataset_dir, spec)
     _canonical_modality(dataset_dir, spec)
@@ -100,7 +96,7 @@ def _rewrite_dataset(dataset_dir: Path, spec: StarVLATaskSpec) -> None:
 def _write_manifest(dataset_dir: Path, spec: StarVLATaskSpec, contract: dict[str, Any]) -> None:
     manifest_path = dataset_dir / "manifest.json"
     manifest = {
-            "format": "latency_bench_starvla_h1_v1",
+            "format": contract["format"],
             "task": spec.name,
             "robot_type": spec.robot_type,
             "state_dim": spec.state_dim,
@@ -113,7 +109,7 @@ def _write_manifest(dataset_dir: Path, spec: StarVLATaskSpec, contract: dict[str
             "video_keys": contract["video_keys"],
             "normalization": contract["normalization"],
         }
-    for key in ("prompt", "state_labels", "action_labels", "auxiliary"):
+    for key in ("prompt", "state_labels", "action_labels", "auxiliary", "label_provenance"):
         if key in contract:
             manifest[key] = contract[key]
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -154,7 +150,7 @@ def prepare_lerobot(
         _write_manifest(output_val, spec, read_task_contract(output_val))
 
     return {
-        "format": "latency_bench_starvla_h1_v1",
+        "format": train_contract["format"],
         "task": spec.name,
         "train": str(output_train),
         "validation": str(output_dirs[1]) if len(output_dirs) == 2 else None,

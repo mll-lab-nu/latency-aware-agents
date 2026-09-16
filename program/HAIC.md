@@ -1,19 +1,10 @@
-# HAIC / PullCart 原生 teacher 与 VLA student 手册
+# HAIC / PullCart 原生 teacher 与早期 NVIDIA GR00T 实验记录
+
+> NVIDIA GR00T 独立运行时和入口已移除。当前统一使用 StarVLA；运行入口见
+> [SCALE_MODELS](SCALE_MODELS.md)，产物和评测状态见 [PROGRESS](PROGRESS.md)。
+> 下文只保留历史实验事实，命令不再是可执行手册。
 
 新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
-
-## Latency command-RL 全链入口
-
-```bash
-.venv/bin/python -m scripts.tasks.haic_pull_cart.run_latency_pipeline \
-  --config configs/training/haic_latency_pipeline.yaml
-```
-
-从仓库根目录运行；依次执行 profile、原生 PPO command teacher、完整 episode issued-H40 采集、
-GR00T flow + frozen-actor auxiliary 训练及原/新 VLA zero/profile 对照。
-短训使用 `haic_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
-这条 latency 路线直接保存一次决策的 `[40,256]`，不使用下文历史零延迟数据的 future-row 拼接方式。
-配置、证据和恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.md)。
 
 状态：HAIC 已作为 fork submodule 接入；正式 500M teacher 长训已完成。旧 256D latent-only
 bootstrap/DAgger 已停止。2026-09-04 已删除远端旧 run 的 checkpoint 和 DAgger 数据，仅迁移
@@ -29,7 +20,7 @@ bootstrap/DAgger 已停止。2026-09-04 已删除远端旧 run 的 checkpoint �
 - 原生时间：physics 200 Hz / 5 ms，policy 50 Hz / 20 ms，decimation 4；motion 561 帧 / 11.22 s；动作是 23 个非 wrist 关节。
 - 训练路线：`ppo_haic_train` 同一在线 rollout 同时训练 privileged teacher、privileged target world model/adapter，并将 teacher 均值蒸馏到 student；不是离线 BC。原生 `ppo_haic_finetune` 是可选的后续 student on-policy PPO + online adaptation 路径，本轮不执行。
 - 延迟语义：上游 `JointPosition` 在 reset 为每个环境采样一次并在整个 episode 固定 FIFO delay，不是每个 action 重采样；默认代码 `[2,6]` physics ticks，即 10–30 ms。论文附录写 `U[40,120] ms`，与当前代码不一致。
-- latency bench 已通过 task-owned profile entrypoint 接入。拟合样本从 `env.observe()` 开始，到 inference parent 收到 GR00T 输出的 256D latent action chunk 为止；605D state + latent 经冻结 actor 生成 23D motor action、scheduler 后的施加和 physics `env.step()` 均不进入 profile。内部仍固定 `task.action.min_delay=0`、`task.action.max_delay=0` 和 `task.action.alpha=1.0`，避免与 benchmark scheduler 重复注入。
+- latency bench 通过 `latency-eval --eval-config` 接入公共评测 driver。HAIC task-owned vector backend 只负责 TorchRL/Isaac reset、step、RGB/state observation 和冻结 `actor_adapt` 的 256D latent -> 23D motor action 转换；episode 生命周期、scheduler、zero/temporal latency 和报告由公共 driver 负责，backend 不做 auto-reset。拟合样本从 `env.observe()` 开始，到 inference parent 收到 GR00T 输出的 256D latent action chunk 为止；605D state + latent 经冻结 actor 生成 23D motor action、scheduler 后的施加和 physics `env.step()` 均不进入 profile。内部仍固定 `task.action.min_delay=0`、`task.action.max_delay=0` 和 `task.action.alpha=1.0`，避免与 benchmark scheduler 重复注入。
 - 固定 seed：`0`。原生 teacher 复现阶段不做延迟扫描或其他任务；后续 VLA student 仍保持任务内部 zero-delay，视觉和状态契约见 Phase 2。
 
 ## 2. 官方 baseline、预算与性能结论
@@ -364,3 +355,5 @@ round-complete marker；用同一 `--start-round N` 重试未完成轮次时，�
 | Phase 2 action-only DAgger round 1--9 resume | 已在 round 3 期间停止；全部产物已删除 | tmux `haic_vla_action_round1_9` 与 driver PID `646045` 已停止 | 2026-09-03 15:10:37 UTC 从 checkpoint-500 启动；round 1、2 曾分别完成 checkpoint-1000/1500 与 100-episode eval，随后因发现 bug 按用户要求停止；2026-09-03 16:46 UTC 已删除整个 92G 输出根目录 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_dagger_round0` 及 stdout/exit 文件，相关进程和 GPU 任务均为空；修复后必须 fresh 重跑 |
 | Phase 2 h40 + official sampler 本地验证 | 历史 4-step 训练 smoke 已完成但训练目标作废 | 无运行中进程 | 2026-09-04：`[40,256]` chunk、每 5 个 control steps 重规划并消费 `0..4` 的运行时语义和尾部 padding 验证仍有效；训练期对 4-step Euler 全链反传已确认不是 official flow-matching training，改为 random-t 单次 denoiser加 frozen-actor auxiliary 后必须重新 smoke。per-control-step GT-latent oracle 为 `94/100`，与 50 Hz privileged teacher 的成功率一致。 |
 | Phase 2 h40 flow + actor auxiliary fresh run | 远端训练中 | detached driver PID `1999830` | 2026-09-04 启动；输出 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_h40_flow_aux_20260904`，日志 `stdout.log`；复用 250/25 bootstrap dataset 与固定 `actor_adapt.pt`，所有 checkpoint 从 GR00T base fresh 训练。旧 `haic_pull_cart_vla_latent_anchor_20260904` 的 checkpoint/round 数据已删除，磁盘从 63% 降到 45%。W&B SFT run `haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k_sft`。 |
+| latency-bench 公共链路远端同步 | **已同步（2026-09-05）** | — | `204.12.163.107:/home/xinyuan/latency-sensitive-bench-mikasa-h1/third_party/HAIC` 的 12 个变更文件（`envs/base.py`、`envs/mdp/*`、`vla/backend.py`、`vla/runtime.py`、`scripts/haic_vla.py`、`tests/test_haic_vla.py`）已从本地 worktree 覆盖。此前远端仅同步了 09-04 14:40 的旧 `backend.py`，`base.py` 仍是 HEAD 版本——即 `AttributeError: SimpleEnv has no attribute set_episode_seed` 的根因；现远端 `set_episode_seed` / `set_active_env_ids` 与 backend 调用俱全。 |
+| latency-bench HAIC native smoke | **待执行**（按 gate：代码经用户 review/commit 后跑正式命令） | — | 本地 HAIC contract tests 15/15 通过；远端 native smoke（100 slots，公共 executor + 冻结 actor backend）尚未跑，`queue_eval_latency_0.json` 未生成，故不声称验证完成。 |

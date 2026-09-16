@@ -201,6 +201,7 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     cfg["experiment"]["name"] = "deadly_corridor_sf_fixed_latency_4"
     cfg["latency"] = {"method": "fixed", "fixed_latency_ms": 4 * 1000.0 / 35.0}
     cfg["training"]["fasttd3_actor_action_l2"] = 1.0
+    cfg["training"]["fasttd3_train_for_optimizer_steps"] = 500_000
     args = build_common_sf_args(cfg, sf_env_name="doom_deadly_corridor")
     assert "--latency-type" in args
     assert args[args.index("--latency-type") + 1] == "fixed"
@@ -210,6 +211,7 @@ def test_build_common_sf_args_emits_non_zero_latency_and_eval_settings():
     assert "--experiment" in args
     assert "deadly_corridor_sf_fixed_latency_4" in args
     assert args[args.index("--fasttd3_actor_action_l2") + 1] == "1.0"
+    assert args[args.index("--fasttd3_train_for_optimizer_steps") + 1] == "500000"
 
 
 def test_build_common_sf_args_emits_initial_model_path():
@@ -483,12 +485,6 @@ def test_flappy_sf_resize_does_not_change_env_screen_size():
     assert base_env.screen_size == (288, 512)
 
 
-
-
-
-
-
-
 def test_flappy_sf_shape_mismatch_fails_fast():
     from latency_bench.policy.sample_factory_common import validate_sample_factory_obs_shape
 
@@ -650,6 +646,22 @@ def test_action_latency_wrapper_uses_iid_profile_action_latency(tmp_path):
     assert values == [1, 1, 1, 1]
 
 
+def test_profile_max_latency_includes_generated_burst_residual_and_pre_worker_time():
+    from latency_bench.latency.samplers import HiddenRegimeSampler
+    from training.common.latency_config import profile_sampler_max_latency_raw_frames
+
+    sampler = HiddenRegimeSampler.__new__(HiddenRegimeSampler)
+    sampler.distributions = {"0": {"steady": {
+        "observation_to_action_latency_ms": {"latency_ms": [20., 40.]},
+        "worker_service_time_ms": {"latency_ms": [20., 35.]},
+    }}}
+    sampler.rank_processes = [{"level_ms": {"latency_ms": [50.]}, "level_residual_ms": {"latency_ms": [5.]}}]
+    sampler.pre_worker_time = {"latency_ms": [8.]}
+    sampler.model = {"spike_threshold_ms_by_worker_slot": {"0": 45.}}
+    # A generated action-ready delay can exceed the measured burst level maximum.
+    assert profile_sampler_max_latency_raw_frames(sampler, worker_slot=0, env_fps=50) == 4
+
+
 def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp_path):
     from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
@@ -676,7 +688,7 @@ def test_temporal_action_latency_stream_continues_across_resets(monkeypatch):
 
     delays = iter([20.0, 40.0])
     sampler = SimpleNamespace(
-        distributions={"0": {"all": {"observation_to_action_latency_ms": {"latency_ms": [20.0, 40.0]}}}},
+        distributions={"0": {"all": {"observation_to_action_latency_ms": {"latency_ms": [20.0, 40.0]}, "worker_service_time_ms": {"latency_ms": [20.0, 40.0]}}}},
         sample=lambda context: LatencySample.from_latency_ms(
             next(delays), clock=EnvClock(env_fps=50, obs_fps=50)
         ),
@@ -740,8 +752,7 @@ def test_action_latency_wrapper_drops_busy_requests_and_reports_issued_applied()
 def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop():
     import gymnasium as gym
     from gymnasium.spaces import Box
-    from training.common.latency_wrapper import ActionLatencyWrapper
-    from training.gymnasium_sf.integration import G1RawRequestWrapper
+    from training.gymnasium_sf.integration import G1RawRequestWrapper, GymnasiumActionLatencyWrapper
 
     class ActionTargetEnv(gym.Env):
         observation_space = Box(low=-10, high=10, shape=(1,), dtype=np.float32)
@@ -764,12 +775,13 @@ def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop
             return np.zeros(1, dtype=np.float32), 0.0, False, False, {}
 
     base_env = ActionTargetEnv()
-    wrapped = ActionLatencyWrapper(
+    wrapped = GymnasiumActionLatencyWrapper(
         base_env,
         fixed_latency_raw_frames=2,
         env_fps=30,
         obs_fps=30,
         add_latency_info=True,
+        noop_action=base_env.g1_absolute_request_from_raw_action(np.zeros(43, dtype=np.float32)),
     )
     wrapped = G1RawRequestWrapper(wrapped)
     try:
@@ -783,7 +795,7 @@ def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop
     finally:
         wrapped.close()
 
-    np.testing.assert_allclose(base_env.actions, np.repeat([[0.0], [0.0], [4.0]], 43, axis=1))
+    np.testing.assert_allclose(base_env.actions, np.repeat([[2.0], [2.0], [4.0]], 43, axis=1))
 def test_action_latency_wrapper_replays_iid_profile_by_reset_seed(tmp_path):
     import gymnasium as gym
 
@@ -1421,64 +1433,6 @@ def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_me
     assert event["action/issued_flap_ratio"] == pytest.approx(1.0 / 3.0)
 
 
-def test_episode_metrics_wrapper_emits_hurdle_quality_and_residual_metrics(tmp_path):
-    import json
-
-    from training.common.latency_wrapper import EpisodeMetricsWrapper
-
-    metrics_path = tmp_path / "episodes.jsonl"
-    wrapped = EpisodeMetricsWrapper(
-        _ScriptedAtariInfoEnv(
-            [
-                (
-                    1.0,
-                    True,
-                    False,
-                    {
-                        "lives": 0,
-                        "first_hurdle_clean_pass": True,
-                        "hurdles_passed": 3,
-                        "hurdle_contacts": 1,
-                        "falls_or_nonfoot_ground_contact": 0,
-                        "course_complete": False,
-                        "teacher_accepted": False,
-                        "residual_abs_mean": 0.125,
-                        "residual_abs_max": 0.75,
-                        "residual_saturation_fraction": 0.5,
-                    },
-                )
-            ]
-        ),
-        metrics_path=str(metrics_path),
-    )
-
-    wrapped.reset()
-    _, _, terminated, truncated, info = wrapped.step(0)
-
-    assert terminated is True
-    assert truncated is False
-    extra = info["episode_extra_stats"]
-    assert extra["episode/first_hurdle_clean_pass"] == 1.0
-    assert extra["episode/hurdles_passed"] == 3.0
-    assert extra["episode/hurdle_contacts"] == 1.0
-    assert extra["episode/falls_or_nonfoot_ground_contact"] == 0.0
-    assert extra["episode/course_complete"] == 0.0
-    assert extra["episode/teacher_accepted"] == 0.0
-    assert extra["episode/residual_abs_mean"] == 0.125
-    assert extra["episode/residual_abs_max"] == 0.75
-    assert extra["episode/residual_saturation_fraction"] == 0.5
-    event = json.loads(metrics_path.read_text(encoding="utf-8"))
-    assert event["first_hurdle_clean_pass"] == 1.0
-    assert event["hurdles_passed"] == 3.0
-    assert event["hurdle_contacts"] == 1.0
-    assert event["falls_or_nonfoot_ground_contact"] == 0.0
-    assert event["course_complete"] == 0.0
-    assert event["teacher_accepted"] == 0.0
-    assert event["residual_abs_mean"] == 0.125
-    assert event["residual_abs_max"] == 0.75
-    assert event["residual_saturation_fraction"] == 0.5
-
-
 def test_flappy_reward_trace_records_raw_return(tmp_path):
     import json
 
@@ -1552,6 +1506,28 @@ def test_episode_metrics_resume_reads_only_new_events(tmp_path):
     assert aggregator.poll_once() == 1
     assert aggregator.completed_episodes == 1
     assert list(aggregator.return_window) == [2.0]
+
+
+def test_episode_metrics_reader_waits_for_complete_locked_event(tmp_path):
+    import fcntl
+    from concurrent.futures import ThreadPoolExecutor
+
+    from training.common.episode_metrics import EpisodeMetricsAggregator
+
+    path = tmp_path / "episodes.jsonl"
+    with path.open("a", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        handle.write('{"return": 1.0,')
+        handle.flush()
+        aggregator = EpisodeMetricsAggregator(path=path)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(aggregator.poll_once)
+            assert not result.done()
+            handle.write('"length": 1, "raw_frames": 1}\n')
+            handle.flush()
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            assert result.result() == 1
+    assert list(aggregator.return_window) == [1.0]
 
 
 def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_reason(tmp_path):

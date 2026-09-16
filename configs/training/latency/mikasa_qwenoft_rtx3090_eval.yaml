@@ -1,0 +1,15 @@
+__base__: mikasa_qwenoft_rtx3090_scratch.yaml
+
+latency:
+  seed: 271828
+
+training:
+  evaluate: true
+  track: false
+  save_model: false
+  checkpoint: outputs/published-models/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/checkpoint.pt
+  seed: 20260910
+  num_envs: 1
+  num_eval_envs: 64
+  num_eval_steps: 240
+  total_timesteps: 60

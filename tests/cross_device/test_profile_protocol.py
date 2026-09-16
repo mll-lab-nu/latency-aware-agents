@@ -25,7 +25,6 @@ from latency_bench.cross_device.profile_resolver import (
 from latency_bench.cross_device.protocol import main
 from latency_bench.cross_device.runner import _profile_lock, _replace_current
 from latency_bench.cross_device.runtime_configs import (
-    eval_command,
     measure_config,
     simulation_config,
 )
@@ -55,8 +54,8 @@ def test_registry_has_one_openvla_flappy_preset():
     spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
 
     assert spec["session_count"] == 5
-    assert spec["eval_episodes"] == 100
-    assert spec["calibrate_env_fps"] is True
+    assert spec["eval_episodes"] == 10
+    assert spec["calibrate_env_fps"] is False
     assert spec["artifact_root"] == "results/profiling"
 
 
@@ -69,19 +68,19 @@ def test_registry_uses_one_episode_count_for_profile_and_replay():
             assert "profile_episodes" not in preset
 
 
-def test_registry_has_balance_official_gr00t_preset():
+def test_registry_has_balance_qwengr00t_preset():
     spec = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+        "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
     )
 
     assert spec["session_count"] == 5
-    assert spec["eval_episodes"] == 100
+    assert spec["eval_episodes"] == 50
     assert spec["evaluation_seed"] == 0
     assert spec["simulation_parallel_envs"] == 1
     assert spec["calibrate_env_fps"] is False
     assert spec["simulation_env"] == {}
-    assert spec["model_artifact"]["checkpoint"] == "."
-    assert spec["model_artifact"]["local_root"].endswith("checkpoint-10000")
+    assert spec["model_artifact"]["checkpoint"] == "checkpoints/model.pt"
+    assert "starvla-qwengr00t" in spec["model_artifact"]["hf_path"]
     assert spec["gpu_models"]["rpbzzz6"]["aliases"] == ["NVIDIA RPBZZZ6"]
 
 
@@ -100,7 +99,7 @@ def test_registry_has_openvla_defend_the_line_profile_preset():
     assert spec["session_count"] == 5
     assert spec["eval_episodes"] == 10
     assert spec["calibrate_env_fps"] is False
-    assert spec["model_artifact"]["checkpoint"] == "checkpoints/steps_7000_state/model.safetensors"
+    assert spec["model_artifact"]["checkpoint"] == "checkpoints/steps_7000_model.safetensors"
     assert spec["model_artifact"]["local_root"].endswith(
         "openvla_bridge_defend_the_line_single_latency_clean_data_exp1"
     )
@@ -167,69 +166,80 @@ def test_gpu_simulator_requires_a_separate_inference_gpu(monkeypatch):
         runner._inference_cuda_visible_devices({"simulation_gpu": "cuda:0"})
 
 
-def test_native_measure_config_assigns_only_inference_devices(tmp_path):
+@pytest.mark.parametrize(
+    "model,workload,env_fps,obs_fps",
+    [
+        ("qwenoft", "mikasa_intercept_grab_fast", 20, 20),
+        ("qwenoft", "extreme_parkour_go2", 50, 10),
+        ("qwenpi_v3", "extreme_parkour_go2", 50, 10),
+        ("qwengr00t", "extreme_parkour_go2", 50, 10),
+        ("qwenoft", "haic_pull_cart", 50, 50),
+    ],
+)
+def test_measure_config_resolves_task_contract_for_model_bundle(
+    tmp_path, model, workload, env_fps, obs_fps
+):
     spec = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "extreme_parkour_go2"
+        "configs/profiles.yaml", model, workload
     )
-    spec["checkpoint_path"] = "/models/parkour"
-    spec["runtime_checkpoint_path"] = "/models/parkour/model_14999.pt"
+    model_config_path = tmp_path / "bundle" / "config.yaml"
+    spec["checkpoint_path"] = str(tmp_path / "bundle/checkpoints/model.pt")
+    spec["model_config_path"] = str(model_config_path)
+    if workload == "extreme_parkour_go2":
+        spec["runtime_checkpoint_path"] = "/models/parkour/model_14999.pt"
+    elif workload == "haic_pull_cart":
+        spec["runtime_checkpoint_path"] = "/models/haic/checkpoint_final.pt"
+
     config = measure_config(
         spec,
         {
-            "gpu_class": "2x-rpbzzz6",
+            "gpu_class": "1x-rtx3090",
             "instance_id": "instance_abc",
-            "gpus": [{}, {}],
+            "gpus": [{}],
         },
         tmp_path,
-        {"selected_env_fps": 50, "selected_obs_fps": 10},
+        {"selected_env_fps": env_fps, "selected_obs_fps": obs_fps},
     )
 
-    assert config["executor"]["inference_devices"] == ["cuda:1", "cuda:2"]
-    assert config["env"]["simulator_device"] == "cuda:0"
-    assert config["latency"]["device"] == "cuda:1"
-    assert config["env"]["runtime_checkpoint_path"] == "/models/parkour/model_14999.pt"
-    assert eval_command(spec, tmp_path / "generated.yaml", tmp_path) == [
-        sys.executable,
-        spec["eval_entrypoint"],
-        "latency-eval",
-        "--eval-config",
-        str(tmp_path / "generated.yaml"),
-    ]
-
-
-def test_official_gr00t_runtime_checkpoint_override_uses_model_path():
-    spec = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+    assert config["policy"]["model_config_path"] == str(model_config_path)
+    assert config["policy"]["task_contract_path"] == str(
+        model_config_path.parent / "task_contract.json"
     )
-    spec["checkpoint_path"] = "/models/balance/checkpoint-15000"
-    config = simulation_config(
-        spec,
-        output_dir=Path("results/profiling/test"),
-        profile_path=Path("profile.json"),
-        profile_ref=Path("official_gr00t/2x-rpbzzz6/g1_sonic_balance_simple/instance_abc"),
-        profile={
-            "model_id": "official_gr00t",
-            "gpu_class": "2x-rpbzzz6",
-            "workload_id": "g1_sonic_balance_simple",
-            "instance_id": "instance_abc",
-            "source_run_id": "run_1",
-            "env_fps": 50,
-            "per_slot_summary": {"0": {}, "1": {}},
-            "summary": {"mean_ms": 50.0, "std_ms": 4.0},
-        },
-        method="fixed",
-        latency_seed=7,
-    )
-
-    assert config["policy"]["model_path"] == spec["checkpoint_path"]
-    assert "checkpoint_path" not in config["policy"]
-    assert config["env"]["env_fps"] == 50
-    assert config["env"]["obs_fps"] == 50
+    if workload in ("extreme_parkour_go2", "haic_pull_cart"):
+        assert config["policy"]["worker_python_executable"] == (
+            "/venv/starvla_rl_games_openvla/bin/python"
+        )
+        assert spec["session_count"] == 5
+        assert config["evaluation"]["eval_episodes"] == 50
+        assert config["evaluation"]["eval_parallel_envs"] == 1
+        assert config["executor"]["inference_devices"] == ["cuda:0"]
+        assert config["env"]["simulator_device"] == "cuda:0"
+        assert config["env"]["runtime_checkpoint_path"] == spec["runtime_checkpoint_path"]
+        assert config["env"]["env_fps"] == env_fps
+        assert config["env"]["obs_fps"] == obs_fps
+    if workload == "extreme_parkour_go2":
+        run_id = {
+            "qwenoft": "20260912T072315-nocache32v2",
+            "qwenpi_v3": "20260912T175510",
+            "qwengr00t": "20260912T180303",
+        }[model]
+        assert spec["model_artifact"]["hf_path"] == (
+            f"zero-latency/extreme-parkour-go2/vla/starvla-{model}-h1/{run_id}"
+        )
+        assert config["evaluation"]["eval_max_steps"] == 1500
+        assert len(config["env"]["noop_action"]) == 34
+    elif workload == "haic_pull_cart":
+        assert spec["model_artifact"]["hf_path"] == (
+            "zero-latency/haic-pull-cart/vla/starvla-qwenoft-h1/"
+            "haic-qwenoft-50hz-fresh-20260913T035850Z"
+        )
+        assert config["evaluation"]["eval_max_steps"] == 1000
+        assert config["policy"]["state_info_key"] == "haic_state"
 
 
 def test_fixed_workload_cadence_skips_policy_calibration(tmp_path, monkeypatch):
     spec = load_profile_spec(
-        "configs/profiles.yaml", "official_gr00t", "g1_sonic_balance_simple"
+        "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
     )
     spec["checkpoint_path"] = "/models/balance/checkpoint-15000"
     monkeypatch.setattr(

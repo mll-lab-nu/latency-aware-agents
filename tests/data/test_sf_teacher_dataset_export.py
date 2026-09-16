@@ -427,7 +427,9 @@ def test_dataset_image_uses_latest_env_raw_rgb_frame():
 def test_teacher_prompts_cover_rollout_envs():
     from latency_bench.data.prompts import BASE_PROMPTS
 
-    assert set(BASE_PROMPTS) == {"flappy", "demon_attack", "deadly_corridor", "defend_the_line"}
+    assert set(BASE_PROMPTS) == {
+        "flappy", "demon_attack", "deadly_corridor", "defend_the_line", "asterix", "atlantis"
+    }
 
 
 def test_batch_observations_keeps_already_batched_mapping_observation():
@@ -2576,6 +2578,7 @@ def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
         }
         for episode_idx in range(260)
     ]
+    rows[256] = dict(reversed(rows[256].items()))
 
     output_dir = tmp_path / "export"
     dataset_dict = write_parquet_splits(output_dir, rows, [], action_spec=action_spec_for_env("flappy"))
@@ -2819,7 +2822,7 @@ def test_prepare_starvla_lerobot_dataset_uploads_converted_root(monkeypatch, tmp
                 "repo_id": "user/demon_attack_train_lerobot",
                 "repo_type": "dataset",
                 "allow_patterns": ["demon_attack_train/**", "demon_attack_train__val/**"],
-                "commit_message": "Upload StarVLA LeRobot dataset",
+                "commit_message": "Upload LeRobot dataset",
                 "token": "env-token",
             },
         ),

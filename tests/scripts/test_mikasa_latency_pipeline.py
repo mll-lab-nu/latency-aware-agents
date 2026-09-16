@@ -1,4 +1,4 @@
-"""Long-lived MIKASA orchestration contract: profile → teacher → issued data → VLA → eval."""
+"""Long-lived MIKASA orchestration contract: pinned teacher → issued data → shared H1 training."""
 
 import sys
 from pathlib import Path
@@ -7,56 +7,93 @@ import yaml
 
 from latency_bench.core.config import load_config
 from scripts.tasks.mikasa_intercept_grab_fast import run_latency_pipeline
+from scripts.tasks.mikasa_intercept_grab_fast import run_profile_policy
 
 
-def test_pipeline_passes_measured_profile_and_new_checkpoints_to_consumers(tmp_path, monkeypatch):
-    config = load_config("configs/training/mikasa_latency_pipeline_smoke.yaml")
+def test_profile_policy_launcher_materializes_pinned_profile_and_checkpoint(tmp_path, monkeypatch):
+    """Long-lived native launch contract: pinned data and the chosen checkpoint."""
+    config = load_config("configs/training/latency/mikasa_qwenoft_rtx3090_eval.yaml")
+    config["latency"]["profile_path"] = str(tmp_path / "profile/profile.json")
+    path = tmp_path / "evaluation.yaml"
+    path.write_text(yaml.safe_dump(config))
+    snapshot = tmp_path / "snapshot"
+    source = snapshot / config["profile_source"]["path"]
+    source.mkdir(parents=True)
+    (source / "profile.json").write_text('{"source_run_id":"pinned-source"}')
+    checkpoint = tmp_path / "selected.pt"
+    checkpoint.write_bytes(b"chosen checkpoint")
+    output = tmp_path / "evaluation"
+
+    def download(*, repo_id, repo_type, revision, allow_patterns):
+        assert repo_id == config["profile_source"]["repo_id"]
+        assert repo_type == "dataset"
+        assert revision == config["profile_source"]["revision"]
+        return str(snapshot)
+
+    commands = []
+    monkeypatch.setattr(run_profile_policy, "snapshot_download", download)
+    monkeypatch.setattr(run_profile_policy.os, "execvpe", lambda executable, command, environment: commands.append(command))
+    monkeypatch.setattr(sys, "argv", [
+        "run_profile_policy", "--config", str(path), "--output-dir", str(output),
+        "--checkpoint", str(checkpoint),
+    ])
+    monkeypatch.chdir(tmp_path)
+    run_profile_policy.main()
+    resolved = load_config(output / "config.yaml")
+    assert Path(resolved["latency"]["profile_path"]).read_text() == (source / "profile.json").read_text()
+    assert resolved["training"]["checkpoint"] == str(checkpoint)
+    assert resolved["training"]["evaluate"] is True
+    assert resolved["training"]["resume"] is None
+    assert str(output / "config.yaml") in commands[0]
+
+
+def test_pipeline_distills_pinned_teacher_with_shared_h1_training(tmp_path, monkeypatch):
+    config = load_config("configs/training/mikasa_latency_pipeline.yaml")
     config["output_dir"] = str(tmp_path / "run")
-    native = load_config(config["latency_config"])
-    native["latency"]["seed"] = 17
-    native["executor"]["simulated_worker_capacity"] = 3
-    native["scheduler"]["hold_policy"] = "noop"
-    native_path = tmp_path / "native.yaml"
-    native_path.write_text(yaml.safe_dump(native))
-    config["latency_config"] = str(native_path)
     config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(yaml.safe_dump(config))
-    profile = tmp_path / "measured-profile.json"
+    native = load_config(config["latency_config"])
+    snapshot = tmp_path / "snapshot"
+    profile = snapshot / native["profile_source"]["path"]
+    profile.mkdir(parents=True)
+    (profile / "profile.json").write_text('{"source_run_id":"pinned-profile"}')
+    teacher = tmp_path / "accepted.pt"
     commands = []
+
+    def download_teacher(repo_id, filename, *, revision, local_dir):
+        assert repo_id == config["teacher_source"]["repo_id"]
+        assert filename == config["teacher_source"]["path"]
+        assert revision == config["teacher_source"]["revision"]
+        return str(teacher)
+
+    def download_profile(repo_id, *, repo_type, revision, allow_patterns):
+        assert repo_id == native["profile_source"]["repo_id"]
+        assert revision == native["profile_source"]["revision"]
+        assert repo_type == "dataset"
+        return str(snapshot)
 
     def run(command, *, cwd, env, stdout, stderr, check):
         commands.append(command)
-        if command[1] == "scripts/profile.sh":
-            stdout.write(f"PROFILE_PATH={profile}\n")
-        if "latency-eval" in command:
-            assert cwd == Path(__file__).resolve().parents[2] / "third_party/starVLA"
+        assert env["WANDB_MODE"] == "online"
+        if "--path-to-save-data" in command:
+            Path(command[command.index("--path-to-save-data") + 1]).mkdir()
 
+    monkeypatch.setattr(run_latency_pipeline, "hf_hub_download", download_teacher)
+    monkeypatch.setattr(run_latency_pipeline, "snapshot_download", download_profile)
     monkeypatch.setattr(run_latency_pipeline.subprocess, "run", run)
-    monkeypatch.setattr(run_latency_pipeline, "resolve_model_artifacts", lambda spec, *, hf_artifacts: {
-        "checkpoint_path": "/baseline/checkpoints/steps_5000_pytorch_model.pt",
-        "model_config_path": "/baseline/config.full.yaml",
-    })
+    monkeypatch.setattr(run_latency_pipeline.shutil, "move", lambda *args: None)
+    monkeypatch.setattr(run_latency_pipeline, "_write_mikasa_contract", lambda *args: None)
     monkeypatch.setattr(sys, "argv", ["pipeline", "--config", str(config_path)])
     run_latency_pipeline.main()
     output = tmp_path / "run"
     latency = yaml.safe_load((output / "latency.yaml").read_text())
-    assert latency["latency"]["profile_path"] == str(profile)
-    assert str(output / "teacher/teacher.pt") in commands[2]
-    assert [command[-1] for command in commands[4:6]] == ["train[:1]", "train[1:2]"]
-    for method in ("zero", "iid"):
-        baseline = yaml.safe_load((output / f"eval_baseline_{method}.yaml").read_text())
-        assert baseline["policy"]["checkpoint_path"] == "/baseline/checkpoints/steps_5000_pytorch_model.pt"
-        assert baseline["latency"]["method"] == method
-        assert baseline["latency"]["profile_path"] == str(profile)
-        assert baseline["latency"]["seed"] == 17
-        assert baseline["executor"]["simulated_worker_capacity"] == 3
-        assert baseline["scheduler"] == native["scheduler"]
-        evaluation = yaml.safe_load((output / f"eval_latency_{method}.yaml").read_text())
-        assert evaluation["latency"]["method"] == method
-        assert evaluation["latency"]["profile_path"] == str(profile)
-        assert evaluation["latency"]["seed"] == 17
-        assert evaluation["executor"]["simulated_worker_capacity"] == 3
-        assert evaluation["scheduler"] == native["scheduler"]
-        assert evaluation["policy"]["checkpoint_path"].endswith(
-            f"{config['vla']['run_id']}/checkpoints/steps_2_pytorch_model.pt"
-        )
+    assert latency["latency"]["profile_path"] == str(output / "profile/profile.json")
+    assert latency["latency"]["seed"] == 0
+    assert commands[0][commands[0].index("--checkpoint") + 1] == str(teacher)
+    assert [command[-1] for command in commands[2:4]] == ["train[:250]", "train[250:275]"]
+    training = commands[4]
+    assert training[2:4] == [str(output / "dataset"), str(teacher)]
+    assert training[training.index("--micro-batch") + 1] == "64"
+    assert training[training.index("--num-gpus") + 1] == "2"
+    assert "--no-publish" in training
+    assert len(commands) == 5

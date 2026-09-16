@@ -23,11 +23,16 @@ def test_starvla_task_contract_writes_stats_and_inverts_min_max(tmp_path):
     dataset = tmp_path / "dataset"
     (dataset / "data/chunk-000").mkdir(parents=True)
     (dataset / "meta").mkdir()
+    (dataset / "meta/info.json").write_text(json.dumps({"features": {
+        "observation.state": {"names": None}, "issued_command_chunk": {"names": None}},
+        "label_provenance": {"semantics": "expert_closed_loop_selected_absolute_requests_v2"}}))
     pq.write_table(
         pa.table(
             {
                 "observation.state": [[0.0] * 198, [1.0] * 198],
                 "action": [[-1.0] * 43, [1.0] * 43],
+                "issued_command_chunk": [[[-1.0] * 43] + [[-100.0] * 43 for _ in range(7)], [[1.0] * 43 for _ in range(8)]],
+                "action_valid_mask": [[True] + [False] * 7, [True] * 8],
             }
         ),
         dataset / "data/chunk-000/episode_000000.parquet",
@@ -35,9 +40,12 @@ def test_starvla_task_contract_writes_stats_and_inverts_min_max(tmp_path):
 
     path = write_task_contract(dataset, spec=task_spec("balance"))
     contract = json.loads(path.read_text())
+    assert contract["format"] == "latency_bench_starvla_h8_v2"
+    assert contract["auxiliary"]["action_valid_mask"]["shape"] == [8]
     assert contract["state_dim"] == 198
     assert contract["action_dim"] == 43
-    assert contract["action_horizon"] == 1
+    assert contract["action_horizon"] == 8
+    assert contract["action_key"] == "issued_command_chunk"
     assert "action_target_key" not in contract
     assert "image_columns" not in contract
 
@@ -45,15 +53,79 @@ def test_starvla_task_contract_writes_stats_and_inverts_min_max(tmp_path):
     normalized = normalize(action, contract["normalization"]["action"])
     np.testing.assert_allclose(denormalize(normalized, contract["normalization"]["action"]), action)
     stats = json.loads((dataset / "meta/stats_gr00t.json").read_text())
-    assert stats["statistics"]["action"]["min"] == [-1.0] * 43
+    assert stats["statistics"]["issued_command_chunk"]["min"] == [-1.0] * 43
+    table = pq.read_table(dataset / "data/chunk-000/episode_000000.parquet").drop(["action_valid_mask"])
+    pq.write_table(table, dataset / "data/chunk-000/episode_000000.parquet")
+    with pytest.raises(KeyError, match="action_valid_mask"):
+        write_task_contract(dataset, spec=task_spec("balance"))
 
 
-def test_normalize_matches_min_max_boundaries_and_constant_dimensions():
+def test_normalize_matches_min_max_boundaries_and_constant_dimensions(monkeypatch):
     from latency_bench.data.starvla_tasks import normalize
 
-    values = np.asarray([[-4.0, 2.0, 10.0]], dtype=np.float32)
-    stats = {"min": [-1.0, 2.0, 0.0], "max": [1.0, 2.0, 1.0]}
-    np.testing.assert_allclose(normalize(values, stats), [[-1.0, 0.0, 1.0]])
+    values = np.asarray([
+        [-1.0, 2.0, 0.17784182727336884],
+        [0.0, 2.0, 0.17787],
+        [1.0, 2.0, 0.17788860201835632],
+        [-4.0, 2.0, -1.4565205574035645],
+        [4.0, 2.0, 10.0],
+    ], dtype=np.float32)
+    stats = {"min": [-1.0, 2.0, 0.17784182727336884],
+             "max": [1.0, 2.0, 0.17788860201835632]}
+    expected = normalize(values, stats)
+    np.testing.assert_allclose(expected[[0, 2, 3, 4]], [
+        [-1.0, 0.0, -1.0], [1.0, 0.0, 1.0],
+        [-1.0, 0.0, -1.0], [1.0, 0.0, 1.0],
+    ])
+
+    pytest.importorskip("accelerate")
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
+    from starVLA.dataloader.latency_bench_tasks import LatencyBenchH1DataConfig
+    from starVLA.dataloader.gr00t_lerobot.schema import DatasetMetadata
+    from starVLA.dataloader.gr00t_lerobot.embodiment_tags import EmbodimentTag
+
+    def metadata_stats(bounds):
+        return {**bounds, "mean": np.zeros(len(bounds["min"])),
+                "std": np.ones(len(bounds["min"])),
+                "q01": bounds["min"], "q99": bounds["max"]}
+
+    metadata = DatasetMetadata(
+        statistics={"state": {"proprio": metadata_stats(stats)},
+                    "action": {"target": metadata_stats({"min": [-1.0], "max": [1.0]})}},
+        modalities={"video": {},
+                    "state": {"proprio": {"absolute": True, "shape": (3,), "continuous": True}},
+                    "action": {"target": {"absolute": True, "shape": (1,), "continuous": True}}},
+        embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+    )
+    transform = LatencyBenchH1DataConfig({"robot_type": "latency_haic_h1", "video_keys": []}).transform()
+    transform.set_metadata(metadata)
+    for training in (True, False):
+        transform.train() if training else transform.eval()
+        output = transform({"state.proprio": values.copy(),
+                            "action.target": np.full((len(values), 1), 3.0, dtype=np.float32)})
+        np.testing.assert_allclose(output["state.proprio"].numpy(), expected)
+        np.testing.assert_allclose(output["action.target"].numpy(), 3.0)
+
+
+def test_lerobot_sample_preserves_finite_state_outside_float16_range(monkeypatch):
+    pytest.importorskip("accelerate")
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
+    from starVLA.dataloader.gr00t_lerobot.datasets import LeRobotSingleDataset
+
+    dataset = object.__new__(LeRobotSingleDataset)
+    dataset.data_cfg = {"include_state": True}
+    dataset._modality_keys = {"video": [], "state": ["state.proprio"],
+                              "action": ["action.target"], "language": ["annotation.task"]}
+    dataset.tag = "test"
+    state = np.asarray([[-69883.2578125]], dtype=np.float32)
+    sample = dataset._pack_sample({"state.proprio": state,
+                                  "action.target": np.asarray([[0.25]], dtype=np.float32),
+                                  "annotation.task": ["test"]})
+    np.testing.assert_array_equal(sample["state"], state)
+    assert sample["state"].dtype == np.float32
+    np.testing.assert_array_equal(sample["action"], [[0.25]])
+    assert sample["image"] == []
+    assert sample["lang"] == "test"
 
 
 def test_lerobot_video_reference_uses_video_decoder(tmp_path, monkeypatch):
@@ -92,3 +164,28 @@ def test_lerobot_video_reference_uses_video_decoder(tmp_path, monkeypatch):
     frames = dataset.get_video(0, "video.camera", 0)
 
     np.testing.assert_array_equal(frames, expected)
+
+
+def test_balance_masked_l1_uses_equal_sample_weights_and_no_padding_gradient(monkeypatch):
+    """Long-lived Balance training contract: masks govern loss and gradient."""
+    pytest.importorskip("accelerate")
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
+    import torch
+    from starVLA.model.framework.VLM4A.QwenOFT import Qwenvl_OFT
+
+    model = object.__new__(Qwenvl_OFT)
+    model.action_env_dim = 43
+    pred = torch.zeros((2, 8, 43), requires_grad=True)
+    target = torch.ones_like(pred)
+    target[0, 1:] = 100
+    target[1] = 3
+    mask = torch.tensor([[True] + [False] * 7, [True] * 8])
+    loss = model._compute_action_loss(pred, target, action_valid_mask=mask)
+    assert loss.item() == 2
+    loss.backward()
+    assert torch.count_nonzero(pred.grad[0, 1:]).item() == 0
+    assert pred.grad[0, 0].abs().sum().item() == pytest.approx(0.5)
+    assert pred.grad[1].abs().sum().item() == pytest.approx(0.5)
+    all_valid = torch.ones((2, 8), dtype=torch.bool)
+    torch.testing.assert_close(model._compute_action_loss(pred, target, action_valid_mask=all_valid),
+                               (pred - target).abs().mean())

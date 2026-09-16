@@ -1,19 +1,10 @@
-# Extreme Parkour Isaac Lab / Go2 zero-delay baseline 执行手册
+# Extreme Parkour / Go2 teacher 与早期 NVIDIA GR00T 实验记录
+
+> NVIDIA GR00T 独立运行时和入口已移除。当前统一使用 StarVLA；运行入口见
+> [SCALE_MODELS](SCALE_MODELS.md)，产物和评测状态见 [PROGRESS](PROGRESS.md)。
+> 下文只保留历史实验事实，命令不再是可执行手册。
 
 新机器的完整环境安装以 [QUICK_START.md](../docs/QUICK_START.md) 为准。本文的服务器路径与驱动修复保留为运行记录；四模型连续 state H1 流水线见 [SCALE_MODELS.md](SCALE_MODELS.md)。
-
-## Latency command-RL 全链入口
-
-```bash
-.venv/bin/python -m scripts.tasks.extreme_parkour_go2.run_latency_pipeline \
-  --config configs/training/parkour_latency_pipeline.yaml
-```
-
-从仓库根目录运行；依次执行 profile、原生 PPO command teacher、issued-H40 数据、
-GR00T flow + frozen-actor auxiliary 训练及原/新 VLA zero/profile 对照。
-短训使用 `parkour_latency_pipeline_smoke.yaml`；复用测量时显式传 `--profile-path /absolute/path/profile.json`。
-这条 latency 路线保存一次决策的 `[40,34]` latent+yaw，并使用 predicted-yaw 消费语义；
-下文零延迟 DAgger/MTS 保留独立契约。证据与恢复方法见 [latency handoff](LATENCY_RL_HANDOFF.md)。
 
 > 任务：`Isaac-Extreme-Parkour-{Teacher,Student}-Unitree-Go2-v0`
 >
@@ -58,7 +49,7 @@ privileged teacher、depth student 和 `parkour` / `hurdle` / `step` / `gap` 等
 - training seed：base seed 1；DDP rank 0/1 的 environment seed 分别是 1/2。
 - teacher PPO：fixed learning rate `2e-4`；不启用 KL-adaptive learning-rate schedule。
 - evaluation：沿用社区 `evaluation.py`，不另造 evaluator 或 A1 成功率口径。
-- latency integration：task-owned profile entrypoint 已注入本仓库 scheduler/executor。拟合样本从
+- latency integration：task-owned eval entrypoint 已注入本仓库 scheduler/executor。拟合样本从
   `env.observe()` 到 inference parent 收到 34D（32D terrain latent + 2D yaw）action chunk；冻结
   actor 生成 12D motor action及后续 simulator step 不进入 profile。
 
@@ -304,6 +295,7 @@ student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加
 | student 5k | **running；resumed from model 2200**；original run `2026-09-02_10-10-50_student_zero_delay_ddp_seed1_5k` / [W&B `bhzgjid1`](https://wandb.ai/saberrr-zju/isaaclab-parkour/runs/bhzgjid1) / console `logs/student_zero_delay_ddp_seed1_5k.console.log`；iteration 2286 后被外部硬终止，loss 正常、无程序错误；resume run `2026-09-02_13-02-16_student_zero_delay_ddp_seed1_5k_resume2200` / [W&B `g3i1d4dh`](https://wandb.ai/saberrr-zju/isaaclab-parkour/runs/g3i1d4dh) / console `logs/student_zero_delay_ddp_seed1_5k_resume2200.console.log`；精确恢复 `model_2200.pt` 的网络和 optimizer，iteration 2220 total loss `1.1273`；最近 20 iterations 中位 `4.045s`，预计 `2026-09-02 08:11 UTC` 完成 |
 | teacher fixed evaluation | **passed**；checkpoint `model_14999.pt`；console `logs/eval_teacher_fixed_lr_seed1_model_14999.console.log`；reward `23.14±6.02`、episode length `907.95±296.15`、normalized waypoint progress `1.00±0.01`、edge violation `0.19±0.42` |
 | student fixed evaluation | pending |
+| VLA zero-delay common-executor smoke（bootstrap flow-aux SFT checkpoint-5000） | **completed；公共 summary 已生成（2026-09-05 01:11 UTC）**；`latency-eval --eval-config outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger/bootstrap/vla_eval/eval_config.yaml`（100 episodes / 50 slots / seed 2 / `--inference_batch_size 32` / runtime `model_14999.pt`）；输出 `bootstrap/vla_eval/queue_eval_latency_0.json` 与 `queue_eval_results.jsonl`：逐步 100 episodes、mean_length `848.43`、mean_return `10.57±5.63`、`normalized_waypoint_progress` `0.385±0.248`、`edge_violation` count `84,843`。该 run 是统一链路 smoke，不作为策略质量结论 |
 
 
 ## 11. 34D perception VLA zero-delay bootstrap
@@ -314,8 +306,8 @@ student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加
 ```text
 robot RGB 256x150 @ 10 Hz + current proprio 53D + fixed prompt
   -> swappable PolicyRunner
-  -> terrain latent 32D + normalized current/next yaw 2D, H1
-  -> fixed teacher actor @ 50 Hz
+  -> [40,34] terrain-latent+yaw chunk at 50 Hz resolution
+  -> consume chunk[0..4], fixed teacher actor @ 50 Hz, then replan
   -> raw Go2 joint action 12D
 ```
 
@@ -403,23 +395,27 @@ H1、5k steps、one-step regression、vision tuning、BF16、action/state dropou
 ```bash
 cd "${REPO_ROOT}"
 bash scripts/tasks/extreme_parkour_go2/train_vla.sh \
-  /absolute/path/to/model_14999.pt --end-round 0
+  /absolute/path/to/model_14999.pt --end-round 0 \
+  --bootstrap-raw outputs/official_gr00t/extreme_parkour_go2_action_data/raw
 ```
 
-最终 evaluator 在 Isaac GPU 与独立 GR00T Python worker 之间复用现有 inference pool；50 个
-环境按 batch 8 同步预测，全部 34D perception 输出返回前仿真不前进，因此该阶段定义为
-zero-delay。actor 连续 5 个 control steps 使用同一 latent/yaw，并将预测 yaw 乘回 `1.5`。
-环境自动 reset 后继续参与评测，直到累计恰好 100 个 episode；每个 episode 独立最多 1,500
+最终 latency evaluator 在 Isaac GPU 与独立 GR00T Python worker 之间复用公共 inference pool；
+同一个 task-owned vector backend 同时服务 measured、zero 和 profile-replay。50 个
+环境按 batch 8 同步预测，全部 34D perception 输出返回前仿真不前进，因此 zero 模式定义为
+zero-delay。VLA 每次返回 H40 chunk，actor 依次使用 `chunk[0]` 到 `chunk[4]`，然后用最新
+observation 重新规划；五个位置的训练 label 相同，但 runtime 不强制复制 `chunk[0]`。
+预测 yaw 在进入 actor 前乘回 `1.5`。
+公共 executor 在记录 terminal step 后按 slot reset，直到累计恰好 100 个 episode；每个 episode 独立最多 1,500
 个 50 Hz control steps（30 秒）。初始 terrain assignment 固定后，eval reset 不再按被测 policy
 表现升降 terrain level，因此各 checkpoint 使用同一评测分布：
 
 ```bash
 cd "${PARKOUR_ROOT}"
 PYTHONPATH="${REPO_ROOT}" OMNI_KIT_ACCEPT_EULA=YES \
-  "${PARKOUR_PY}" scripts/rsl_rl/parkour_vla.py vla-eval \
+  "${PARKOUR_PY}" scripts/rsl_rl/parkour_vla.py latency-eval \
   --headless --seed 2 --num_envs 50 --checkpoint "${TEACHER_CKPT}" \
   --eval_episodes 100 --max_episode_steps 1500 \
-  --policy_config "${REPO_ROOT}/configs/examples/extreme_parkour/official_gr00t_eval.yaml" \
+  --eval-config "${REPO_ROOT}/configs/examples/extreme_parkour/official_gr00t_eval.yaml" \
   --inference_device cuda:1 --inference_batch_size 8 \
   --output_dir "${REPO_ROOT}/outputs/official_gr00t/extreme_parkour_go2/eval"
 ```
@@ -450,10 +446,11 @@ VLA 控制机器人，并把并行环境数从 50 覆盖为 192；不切换到�
 bootstrap 与 DAgger 使用完全相同的训练目标：不再监督 32D latent 本身，只保留两个与闭环直接
 一致的 loss：
 
-- `action_loss`：把 VLA 预测的 32D latent 和 MTS yaw 送入冻结 actor，在每个 10 Hz 样本对应的
-  5 个 50 Hz 状态上计算 student/teacher 12D motor action 的向量 L2；第一个 terminal action
-  有效，terminal 后的子步由累计 mask 排除；
-- `yaw_loss`：预测 current/next yaw 与 oracle yaw 在同一 radian 单位上的向量 L2。
+- `action_loss`：VLA 的 40 个位置分别对应 40 个 50 Hz actor observation；每 5 个位置共享
+  同一个 10 Hz oracle latent/yaw label。在冻结 actor 输出上计算 student/teacher 12D motor
+  action 的向量 L2；第一个 terminal action 有效，terminal 后位置由累计 mask 排除；
+- `yaw_loss`：40 个位置的 predicted current/next yaw 与对应 oracle yaw 在同一 radian 单位上
+  计算向量 L2，并使用相同 terminal mask。
 
 teacher motor action 由同一个冻结 actor、原始 actor observation 和 oracle terrain latent 在线
 算出，不在数据里重复保存。actor 只作为训练期 loss 函数加载，不进入 optimizer、GR00T model
@@ -495,11 +492,14 @@ optimizer 和 scheduler 从上轮 checkpoint 继续，teacher actor 始终从固
 
 DAgger collector 使用一个 canonical env 1 进程、192 camera envs 和 seed 1；与 SFT/eval
 相比只改变 rollout policy 和并行环境数。每个原子
-shard 是 `episode.npz + episode.mp4`，不落逐帧 PNG；numeric payload 保存
+shard 是 `episode.npz + episode.mp4`，不落逐帧 PNG；每个 shard 只包含单一 env、单一
+episode 的连续 segment，reset 或 1,000-row 上限处切分；segment 尾部最后一个 control
+位置标为 sequence boundary，使 padding 不会产生伪 future supervision。numeric payload 保存
 `state[53]`、`action[34]`、`actor_observation[5,753]` 和 `termination[5]`。每行保存一个 oracle 34D latent/yaw target，
 包括 failure/timeout 标记处；
-`termination` 同时控制 action loss mask。每个全局 10 Hz
-block 为全部环境刷新 VLA；block 中 reset 的环境立即刷新，避免 per-env phase 锁相后退出采样池。
+loader 使用 `delta_indices[j] = j // 5` 将连续 8 行组装成 40 个 50 Hz target，并用
+`row[i+j//5].actor_observation[j%5]` 取得对应 actor state。`termination` 同时控制 action/yaw
+loss mask。每个环境执行 5 个 chunk 位置后刷新 VLA；reset 立即丢弃旧 chunk 并从 `k=0` 重启。
 reset observation 同时从新 root pose 和新 goals 立即重算 wrapped GT yaw，不复用上一 episode 缓存。
 LeRobot parquet 直接保留这些诊断列，
 并逐字节复制 bootstrap 的固定 normalization stats，DAgger round 不重新计算 stats。Parkour
@@ -520,10 +520,11 @@ control steps：
 ```bash
 cd /pfs/users/lxy/latency-sensitive-bench
 bash scripts/tasks/extreme_parkour_go2/train_vla.sh \
-  /absolute/path/to/model_14999.pt
+  /absolute/path/to/model_14999.pt \
+  --bootstrap-raw outputs/official_gr00t/extreme_parkour_go2_action_data/raw
 ```
 
-step-0 结果保存为 `bootstrap/vla_eval/vla-eval.json`。每次 round eval 都把 `reward`、`episode_length`、`normalized_waypoint_progress` 和
+step-0 结果保存为 `bootstrap/vla_eval/queue_eval_latency_0.json`。每次 round eval 都把 `reward`、`episode_length`、`normalized_waypoint_progress` 和
 `edge_violation` 的 mean/std 写入同一个 W&B run 的 `dagger_eval/*` namespace，并以
 `train/global_step=0, 500, ..., 5000` 对齐。默认执行 `--end-round 10`；仅做 SFT 时使用
 `--end-round 0`，续跑时用
@@ -539,7 +540,8 @@ round。round 内采集中断不能只按 row count
 resume 根目录；重新跑时使用新的 output root 或先清掉旧 round/checkpoint。
 默认输出根目录是 `outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger`；fresh bootstrap
 checkpoint 是 `bootstrap/training/<wandb-run-id>_sft/checkpoint-5000`，round-0 checkpoint 是
-`training/<wandb-run-id>/checkpoint-500`。已有 fresh bootstrap 时可省略 `--run-bootstrap`，或用
+`training/<wandb-run-id>/checkpoint-500`。`--bootstrap-raw` 会跳过 bootstrap gate/重采，直接从已有 raw
+重建 H40 dataset 后训练；已有 fresh bootstrap 时可省略 `--run-bootstrap`，或用
 `--bootstrap-checkpoint` 显式指定；旧 latent-only checkpoint 不得传入。
 
 2026-09-03 的旧 DAgger 与 statsfix run 均未使用论文 MTS，且 collector 存在 reset phase

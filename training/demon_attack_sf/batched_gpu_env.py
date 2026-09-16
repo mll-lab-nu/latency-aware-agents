@@ -67,8 +67,6 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             sample_factory_latency_seed_from_flat_config(
                 self.cfg,
                 fallback_seed=sub_seeds[agent_idx],
-                worker_index=0,
-                vector_index=0,
                 env_id=self._sub_env_id(agent_idx),
             )
             for agent_idx in range(self.num_agents)

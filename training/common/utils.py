@@ -44,11 +44,10 @@ def maybe_set_cli_override(cfg: Any, key: str, value: Any) -> None:
 def env_instance_seed(
     *,
     base_seed: int,
-    worker_index: int = 0,
-    vector_index: int = 0,
-    env_id: int = 0,
+    env_id: int,
 ) -> int:
-    return int(base_seed) + 1009 * int(worker_index) + 9173 * int(vector_index) + 37 * int(env_id)
+    # Preserve the historical one-env-per-worker stream while making it independent of worker layout.
+    return base_seed + 1046 * env_id
 
 
 def seed_everything(seed: int) -> int:

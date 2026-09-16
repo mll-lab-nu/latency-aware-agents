@@ -1,0 +1,146 @@
+experiment:
+  name: balance_h16_fixed100_mcppo_s1
+  seed: 1
+
+backend:
+  type: sample_factory
+  algo: PPO
+  device: cuda
+  train_dir: outputs/tasks/humanoidbench_balance_simple/ppo_fixed100
+  restart_behavior: overwrite
+  run_mode: train
+  actor_worker_gpus: []
+  initial_model_path: outputs/tasks/humanoidbench_balance_simple/h16_fixed100_delayed_imitation/20260916T061955Z/followup_20260916T070429Z/student_correction_2000.pth
+
+executor:
+  mode: simulated
+  simulated_worker_capacity: 1
+
+env:
+  name: gymnasium
+  task_name: g1_sonic_balance_simple
+  env_id: LatencyBench/G1SonicBalanceSimple-v0
+  registration_imports:
+    - latency_bench.envs.humanoidbench_sonic
+  make_kwargs:
+    max_episode_steps: 1000
+    render_mode: null
+    width: 256
+    height: 256
+    scene_path: ./results/humanoidbench_g1_sonic_assets/assets/sonic_g1/envs/scene_balance_simple.xml
+    control_mode: raw_body_target
+    raw_learn_hands: true
+  env_fps: 50
+  obs_fps: 50
+  frame_stack: 1
+  action_space:
+    type: box
+    labels:
+      - body_0
+      - body_1
+      - body_2
+      - body_3
+      - body_4
+      - body_5
+      - body_6
+      - body_7
+      - body_8
+      - body_9
+      - body_10
+      - body_11
+      - body_12
+      - body_13
+      - body_14
+      - body_15
+      - body_16
+      - body_17
+      - body_18
+      - body_19
+      - body_20
+      - body_21
+      - body_22
+      - body_23
+      - body_24
+      - body_25
+      - body_26
+      - body_27
+      - body_28
+      - hand_0
+      - hand_1
+      - hand_2
+      - hand_3
+      - hand_4
+      - hand_5
+      - hand_6
+      - hand_7
+      - hand_8
+      - hand_9
+      - hand_10
+      - hand_11
+      - hand_12
+      - hand_13
+    low: [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0]
+    high: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    dtype: float32
+  # g1_raw_reset_action(scene_path, learn_hands=True): normalized targets in MuJoCo joint order.
+  noop_action: [-0.17985398761667126, -0.7000028647549202, 0.0, -0.4902258695203041, -0.2699549514062467, 0.0, -0.17985398761667126, 0.7000028647549201, 0.0, -0.4902258695203041, -0.2699549514062467, 0.0, 0.0, 0.0, 0.0, 0.14216265018404073, -0.06857306560408372, 0.0, 0.0486376368729311, 0.0, 0.0, 0.0, 0.07271338287381068, 0.27692267625074884, -0.07639419404125292, -0.33333333333333326, 0.30422569490219153, 0.0, 0.0, 0.0, -0.18226689968795018, -1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.18226689968795018, 1.0, -1.0, -1.0, -1.0, -1.0]
+  base_prompt: Keep the G1 humanoid balanced on the support board.
+
+
+latency:
+  method: fixed
+  fixed_latency_ms: 100
+  add_latency_info: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+  hold_last_chunk_action: true
+
+policy:
+  type: random
+
+training:
+  gamma: 1.0
+  async_rl: false
+  use_rnn: false
+  ppo:
+    chunk_horizon: 16
+    active_heads: [5, 10]
+    decision_frames: 5
+    episode_frames: 1000
+    episodes_per_round: 128
+    minibatch_size: 1024
+    epochs: 2
+    rounds: 200
+    actor_lr: 0.0000003
+    value_lr: 0.0003
+    action_std: 0.02
+    clip_ratio: 0.2
+    target_kl: 0.02
+    value_warmup_epochs: 10
+    workers: 32
+    benchmark_workers: [16, 32, 64]
+    benchmark_repeats: 3
+    eval_every: 10
+    development_seeds: [104730, 104762]
+    test_seeds: [640001, 640065]
+    train_seed_base: 1000001
+
+evaluation:
+  eval_episodes: 64
+  eval_parallel_envs: 32
+  eval_max_steps: 1000
+  eval_deterministic: true
+
+logging:
+  output_dir: outputs/tasks/humanoidbench_balance_simple/ppo_fixed100
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
+  wandb_project: latency-sensitive-bench
+  wandb_entity: saberrr-zju
+  wandb_group: balance-h16-fixed100-mcppo

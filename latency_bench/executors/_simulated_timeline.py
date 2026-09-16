@@ -96,6 +96,10 @@ class SimulatedResultTimeline:
     def pending_event_count(self) -> int:
         return len(self._pending) + len(self.coordinator.result_buffer)
 
+    def get_pending_events(self) -> list[ActionEvent]:
+        """Read in-flight issue times for the committed action context window."""
+        return [event for _, _, event in self._pending] + list(self.coordinator.result_buffer.values())
+
     def submit(self, *, obs_id: int, ready_raw_frame: int, event: ActionEvent) -> None:
         self.mark_submitted(obs_id=obs_id)
         self.attach_event(obs_id=obs_id, ready_raw_frame=ready_raw_frame, event=event)

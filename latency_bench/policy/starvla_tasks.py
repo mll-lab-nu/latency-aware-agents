@@ -1,4 +1,4 @@
-"""StarVLA H1 inference using the task's training observation/action contract."""
+"""StarVLA inference using the task's training observation/action contract."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from latency_bench.policy.starvla import STARVLA_ROOT
 
 
 class TaskStarVlaPolicyRunner(PolicyRunner):
-    """Map task RGB/state into a StarVLA model and decode its one-step command."""
+    """Map task RGB/state into a StarVLA model and decode its action chunk."""
 
     def __init__(self, framework, *, policy_config: dict, model_config: dict, contract: dict):
         self.framework = framework

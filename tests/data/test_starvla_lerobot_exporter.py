@@ -530,6 +530,7 @@ def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_pa
                 "env_name": "unknown_task",
                 "integration_name": "gymnasium",
                 "action_layout": "gymnasium_unknown_v1",
+                "action_labels": ["action"],
             }
         ),
         encoding="utf-8",

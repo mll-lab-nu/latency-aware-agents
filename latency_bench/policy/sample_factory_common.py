@@ -259,6 +259,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             cfg = load_from_checkpoint(cfg)
             self.cfg = cfg
             self.use_rnn = bool(getattr(cfg, "use_rnn", False))
+        self.action_chunk_horizon = cfg.fasttd3_action_chunk_horizon
         reference_env = integration_module.make_reference_env(cfg)
         self.env_info = extract_env_info(reference_env, cfg)
         self.action_space = reference_env.action_space
@@ -321,19 +322,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
 
         processed_actions = self._preprocess_actions_for_space(actions)
         raw_value = sf_actions.to_python_action(processed_actions)
-        action = sf_actions.resolve_action(
-            raw_value,
-            self.action_resolver,
-            action_space=self.action_space,
-        )
-        return PolicyOutput(
-            action=action,
-            raw_output=raw_value,
-            metadata={
-                "policy_type": self.policy_type,
-                "checkpoint_global_step": self.checkpoint_global_step,
-            },
-        )
+        return self._policy_output(raw_value)
 
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
         observations = list(observations)
@@ -379,21 +368,34 @@ class SampleFactoryPolicyRunner(PolicyRunner):
             batch_size,
             action_space=self.action_space,
         )
-        return [
-            PolicyOutput(
-                action=sf_actions.resolve_action(
-                    raw_value,
-                    self.action_resolver,
-                    action_space=self.action_space,
-                ),
-                raw_output=raw_value,
-                metadata={
-                    "policy_type": self.policy_type,
-                    "checkpoint_global_step": self.checkpoint_global_step,
-                },
+        return [self._policy_output(raw_value) for raw_value in raw_values]
+
+    def _policy_output(self, raw_value: Any) -> PolicyOutput:
+        metadata = {
+            "policy_type": self.policy_type,
+            "checkpoint_global_step": self.checkpoint_global_step,
+        }
+        if self.cfg.algo == "FAST_TD3" and self.policy_type == "gymnasium_sf":
+            raw_chunk = np.asarray(raw_value, dtype=np.float32).reshape(self.action_chunk_horizon, -1)
+            native_space = self.config["env"]["action_space"]
+            native_chunk = sf_actions.scale_box_action(
+                raw_chunk, np.asarray(native_space["low"], dtype=np.float32),
+                np.asarray(native_space["high"], dtype=np.float32),
             )
-            for raw_value in raw_values
-        ]
+            actions = [
+                sf_actions.resolve_action(row.tolist(), self.action_resolver, action_space=self.action_space)
+                for row in native_chunk
+            ]
+            return PolicyOutput(
+                action=actions[0], action_chunk=actions if self.action_chunk_horizon > 1 else None,
+                raw_output=raw_chunk.tolist() if self.action_chunk_horizon > 1 else raw_chunk[0].tolist(),
+                metadata=metadata,
+            )
+        return PolicyOutput(
+            action=sf_actions.resolve_action(raw_value, self.action_resolver, action_space=self.action_space),
+            raw_output=raw_value,
+            metadata=metadata,
+        )
 
     def _raise_if_batch_unsupported(self) -> None:
         if sf_actions.is_supported_batched_policy_action_space(self.action_space):

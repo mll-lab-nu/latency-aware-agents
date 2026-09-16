@@ -1,10 +1,11 @@
-"""Train an H1 StarVLA task, evaluate at zero latency, and publish formal artifacts."""
+"""Train a StarVLA task, evaluate, and publish formal artifacts."""
 
 from __future__ import annotations
 
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
+from functools import partial
 import fcntl
 import json
 import os
@@ -21,6 +22,7 @@ from latency_bench.core.config import load_config
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.data.starvla_tasks import TASK_SPECS, read_task_contract, task_spec
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.eval.reporting import _log_corrected_eval_summaries_to_wandb, _summary_latency_label
 from latency_bench.utils.hf import resolve_token
 from scripts.starvla import artifacts
 from scripts.starvla.model_config import make_model_config
@@ -41,14 +43,14 @@ BACKBONES = {
 }
 TASK_SETTINGS = {
     'balance': {
-        'teacher': 'fasttd3-v1/checkpoint.pth', 'conda_env': 'latency',
-        'eval_config': 'configs/examples/gymnasium/g1_sonic_balance_simple/official_gr00t_eval_simulated.yaml',
-        'state_info_key': 'official_gr00t_proprio', 'global_batch': 128, 'sft_steps': 15000,
+        'teacher': 'fasttd3-h8-v1/checkpoint.pth', 'conda_env': 'latency',
+        'eval_config': 'configs/examples/gymnasium/g1_sonic_balance_simple/starvla_profile.yaml',
+        'state_info_key': 'gymnasium_state', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
     },
     'parkour': {
         'teacher': 'ppo-v1/model_14999.pt', 'conda_env': 'extreme-parkour',
-        'eval_config': 'configs/examples/extreme_parkour/official_gr00t_eval.yaml',
+        'eval_config': 'configs/examples/extreme_parkour/official_starvla_profile.yaml',
         'state_info_key': 'parkour_proprio', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1500, 'seed': 2,
     },
@@ -60,7 +62,7 @@ TASK_SETTINGS = {
     },
     'haic': {
         'teacher': 'ppo-v1/checkpoint_final.pt', 'conda_env': 'haic',
-        'eval_config': 'configs/examples/haic/official_gr00t_eval.yaml',
+        'eval_config': 'configs/examples/haic/official_starvla_profile.yaml',
         'state_info_key': 'haic_state', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
     },
@@ -89,7 +91,7 @@ def conda_python(name: str) -> Path:
 
 def environment() -> dict[str, str]:
     return os.environ | {
-        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA), str(ROOT / 'third_party/Isaac-GR00T')]),
+        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA), str(ROOT / 'third_party/sample-factory')]),
         'TOKENIZERS_PARALLELISM': 'false', 'MUJOCO_GL': 'egl',
         'OMNI_KIT_ACCEPT_EULA': 'YES', 'NO_ALBUMENTATIONS_UPDATE': '1',
         'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
@@ -106,9 +108,9 @@ def run_command(command: list, log: Path, *, cwd: Path = ROOT, env: dict | None 
                        stdout=output, stderr=subprocess.STDOUT, check=True)
 
 
-def resolve_teacher(task: str, override: Path | None) -> tuple[Path, dict]:
+def resolve_teacher(task: str, override: Path | None, condition: str = "zero-latency") -> tuple[Path, dict]:
     spec = task_spec(task)
-    filename = f'zero-latency/{spec.name.replace("_", "-")}/small-policy/{TASK_SETTINGS[task]["teacher"]}'
+    filename = f'{condition}/{spec.name.replace("_", "-")}/small-policy/{TASK_SETTINGS[task]["teacher"]}'
     reference = {'repo_id': artifacts.MODEL_REPO_ID, 'path': filename}
     if override is not None:
         return override.resolve(), {'source': 'local_override', 'filename': override.name}
@@ -126,18 +128,20 @@ def resolve_backbone(model: str) -> tuple[Path, dict]:
     return Path(path).resolve(), reference
 
 
-def dataset_reference(task: str, directory: Path, *, model=None, run_id=None, round_number=None) -> dict:
+def dataset_reference(task: str, directory: Path, *, model=None, run_id=None, round_number=None, condition="zero-latency") -> dict:
     return {
         'repo_id': artifacts.DATASET_REPO_ID,
-        'path': artifacts.dataset_path(task_spec(task).name, model=model, run_id=run_id, round_number=round_number),
-        'local_dir': str(directory), 'revision': None,
+        'path': artifacts.dataset_path(task_spec(task).name, model=model, run_id=run_id, round_number=round_number, condition=condition, action_horizon=task_spec(task).action_horizon),
+        'local_dir': str(directory), 'revision': None, 'condition': condition,
+        'action_horizon': task_spec(task).action_horizon,
     }
 
 
 def publish_data(reference: dict, *, task: str, model=None, run_id=None, round_number=None) -> None:
     reference['revision'] = artifacts.publish_dataset(
         Path(reference['local_dir']), task=task_spec(task).name, model=model,
-        run_id=run_id, round_number=round_number,
+        run_id=run_id, round_number=round_number, condition=reference["condition"],
+        action_horizon=reference["action_horizon"],
     )
 
 
@@ -148,11 +152,35 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
               ROOT / 'outputs/starvla/datasets' / task_spec(args.task).name / 'teacher-rollouts-h1-state-v1')
     if args.dataset_dir is not None:
         shared = args.dataset_dir.resolve()
+    if args.task == 'balance' and args.dataset_dir is None:
+        shared = args.output_dir / 'bootstrap'
+    if args.force and shared.exists():
+        shutil.rmtree(shared)
     shared.parent.mkdir(parents=True, exist_ok=True)
     with (shared.parent / f'.{shared.name}.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        ref = dataset_reference(args.task, shared)
+        ref = dataset_reference(args.task, shared, condition=args.condition)
         contract_file = shared / 'lerobot/task_contract.json'
+        if args.task == 'balance' and not contract_file.exists():
+            from scripts.starvla.collect import _prepare_converted
+            policy_path = args.output_dir / 'bootstrap_policy.yaml'
+            policy_path.write_text(yaml.safe_dump(eval_config(args, args.output_dir / 'inference', teacher, shared), sort_keys=False))
+            command = [task_python, '-m', 'scripts.starvla.balance_dagger', '--bootstrap',
+                       '--policy-config', policy_path, '--teacher-config', args.teacher_config,
+                       '--teacher-checkpoint', teacher, '--output-dir', shared / 'raw']
+            if args.smoke:
+                command.append('--smoke')
+            run_command(command, args.output_dir / 'bootstrap_collect.log')
+            _prepare_converted(task_spec(args.task).name, shared / 'raw', shared / 'lerobot')
+            raw_metadata = json.loads((shared / 'raw/metadata.json').read_text())
+            write_json(shared / 'provenance.json', {'teacher': teacher_reference,
+                       'label_provenance': raw_metadata['label_provenance'],
+                       'teacher_raw_frames': raw_metadata['teacher_raw_frames'],
+                       'teacher_config': load_config(args.teacher_config), 'code_revisions': code_revisions(),
+                       'condition': args.condition, 'action_horizon': 8, 'seed': 0,
+                       'train_episodes': 2 if args.smoke else 90, 'val_episodes': 1 if args.smoke else 10,
+                       'label': 'expert closed-loop selected absolute request windows'})
+            (shared / 'README.md').write_text('Balance closed-loop H8 teacher data with valid-frame mask; per-arm bootstrap statistics frozen.\n')
         if not contract_file.exists() and args.dataset_dir is None:
             hub = HfApi(token=resolve_token(''))
             remote_exists = not args.smoke and hub.file_exists(
@@ -203,7 +231,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
         publication = shared / 'publication.json'
         if publication.exists():
             ref['revision'] = json.loads(publication.read_text())['revision']
-        if not args.smoke and ref['revision'] is None:
+        if not args.smoke and not args.no_publish and ref['revision'] is None:
             publish_data(ref, task=args.task)
         if ref['revision'] is not None:
             write_json(publication, {'revision': ref['revision']})
@@ -229,30 +257,39 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
                      'output_min': contract['normalization']['action']['min'],
                      'output_max': contract['normalization']['action']['max']}
     framework = make_model_config(args.model, state_dim=contract['state_dim'], action_dim=contract['action_dim'],
-                                  backbone_path=str(backbone), task_objective=objective)
+                                  backbone_path=str(backbone), action_horizon=contract["action_horizon"], task_objective=objective)
     mixture_path = args.output_dir / f'{run_id}_mixture.json'
     write_mixture(mixture_path, bootstrap, deltas, contract['robot_type'])
     global_batch = args.num_gpus * args.micro_batch if args.smoke else TASK_SETTINGS[args.task]['global_batch']
     dataset_info = json.loads((bootstrap / 'lerobot/meta/info.json').read_text())
+    wandb_condition = {'zero-latency': 'zero-latency', 'latency-aware': 'profile-latency'}[args.condition]
+    wandb_name = f'{args.task}-{wandb_condition}-{args.model}'
+    if run_id != 'bootstrap':
+        wandb_name += f'-{run_id}'
     return {
-        'run_id': run_id, 'wandb_name': f'{args.task}-{run_id}-{args.model}',
+        'run_id': run_id, 'wandb_name': wandb_name,
         'run_root_dir': str(args.output_dir / 'training'),
-        'seed': 0, 'wandb_project': 'starvla_tasks', 'wandb_entity': os.environ.get('WANDB_ENTITY'),
+        'seed': 0, 'wandb_project': 'starvla_tasks', 'wandb_entity': None if args.smoke else os.environ['WANDB_ENTITY'],
+        'wandb_group': None if args.smoke else os.environ['WANDB_RUN_GROUP'] if args.task == 'balance' else 'vla-train',
+        'wandb_tags': [args.task, 'h8' if args.task == 'balance' else 'h1',
+                       'smoke' if args.smoke else 'formal', wandb_condition],
+        'training_latency_condition': wandb_condition,
         'is_debug': False, 'version_id': '0.21', 'framework': framework,
         'datasets': {'vla_data': {
             'dataset_py': 'latency_bench_tasks', 'lerobot_version': dataset_info['codebase_version'],
             'include_state': True, 'task_contract_path': str(bootstrap / 'lerobot/task_contract.json'),
             'data_root_dir': '/', 'data_mix': 'train', 'eval_data_mix': 'validation',
             'custom_mixtures_path': str(mixture_path), 'sequential_step_sampling': True,
-            'per_device_batch_size': args.micro_batch, 'load_all_data_for_training': True,
-            'pin_memory': True, 'persistent_workers': False, 'num_workers': 0, 'prefetch_factor': None,
+            'per_device_batch_size': args.micro_batch,
+            'pin_memory': args.pin_memory, 'persistent_workers': args.persistent_workers,
+            'num_workers': args.num_workers, 'prefetch_factor': args.prefetch_factor,
             'obs_image_size': [224, 224], 'video_backend': 'pyav',
             'image_mode': 'stitch_views' if args.task == 'mikasa' and args.model == 'wanoft' else 'single',
             'stitch_grid': [1, 2], 'num_obs_frames': 1,
         }},
         'trainer': {
             'max_train_steps': steps, 'stop_after_steps': stop_step,
-            'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 500,
+            'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 2500,
             'eval_interval': stop_step, 'eval_num_batches': 1, 'logging_frequency': 1 if args.smoke else 5,
             'learning_rate': {'base': 3e-5, 'action_model': 1e-4},
             'lr_scheduler_type': 'cosine_with_min_lr', 'scheduler_specific_kwargs': {'min_lr': 1e-6},
@@ -274,19 +311,47 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
 def train(args, config: dict) -> tuple[Path, Path]:
     run_id = config['run_id']
     config_path = args.output_dir / f'{run_id}.yaml'
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    log = args.output_dir / f'{run_id}.log'
+    trained = args.output_dir / 'training' / run_id
+    data = config['datasets']['vla_data']
+    trainer = config['trainer']
+    global_batch = args.num_gpus * data['per_device_batch_size'] * trainer['gradient_accumulation_steps']
     env = environment()
     env['WANDB_RUN_ID'] = f'{args.task}-{args.model}-{args.run_id}-{run_id}'
-    env['WANDB_RESUME'] = 'allow' if args.resume or config['trainer']['is_resume'] else 'never'
-    if args.smoke:
-        env['WANDB_MODE'] = 'disabled'
-    run_command([
-        args.vla_python, '-m', 'accelerate.commands.launch',
-        '--config_file', STARVLA / 'starVLA/config/deepseeds/deepspeed_zero2.yaml',
-        '--num_processes', args.num_gpus, '--main_process_port', args.port,
-        STARVLA / 'starVLA/training/train_starvla.py', '--config_yaml', config_path,
-    ], args.output_dir / f'{run_id}.log', cwd=STARVLA, env=env)
-    trained = args.output_dir / 'training' / run_id
+    env['WANDB_RESUME'] = 'allow' if (
+        args.resume or trainer['is_resume'] or (run_id == 'dagger' and args.eval_every_round)
+    ) else 'never'
+    env['WANDB_MODE'] = 'disabled' if args.smoke else 'online'
+    while True:
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+        print(f"Training microbatch={data['per_device_batch_size']}, "
+              f"accumulation={trainer['gradient_accumulation_steps']}, global_batch={global_batch}", flush=True)
+        try:
+            run_command([
+                args.vla_python, '-m', 'accelerate.commands.launch',
+                '--config_file', STARVLA / 'starVLA/config/deepseeds/deepspeed_zero2.yaml',
+                '--num_processes', args.num_gpus, '--main_process_port', args.port,
+                STARVLA / 'starVLA/training/train_starvla.py', '--config_yaml', config_path,
+            ], log, cwd=STARVLA, env=env)
+            break
+        except subprocess.CalledProcessError:
+            if not re.search(r'CUDA (?:out of memory|error: out of memory)', log.read_text()):
+                raise
+            micro_batch = data['per_device_batch_size']
+            if micro_batch == 1:
+                raise
+            attempt = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+            log.rename(args.output_dir / f'{run_id}_oom_mb{micro_batch}_{attempt}.log')
+            args.micro_batch = micro_batch // 2
+            data['per_device_batch_size'] = args.micro_batch
+            trainer['gradient_accumulation_steps'] = global_batch // (args.num_gpus * args.micro_batch)
+            states = _training_states(trained / 'checkpoints')
+            if states:
+                _, state = states[-1]
+                trainer['pretrained_checkpoint'] = str(state)
+                trainer['is_resume'] = True
+            env['WANDB_RESUME'] = 'allow'
+            print(f'CUDA OOM: retrying with microbatch={args.micro_batch}', flush=True)
     step = config['trainer']['stop_after_steps']
     return trained, trained / 'checkpoints' / f'steps_{step}_pytorch_model.pt'
 
@@ -316,11 +381,12 @@ def inference_bundle(trained: Path, checkpoint: Path, destination: Path, *,
     return destination
 
 
-def eval_config(args, bundle: Path, teacher: Path, output_dir: Path) -> dict:
+def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
+                eval_episodes: int | None = None) -> dict:
     settings = TASK_SETTINGS[args.task]
     spec = task_spec(args.task)
     config = load_config(ROOT / settings['eval_config'])
-    config['experiment'] = {'name': f'{spec.name}_{args.model}_h1_l0', 'seed': settings['seed']}
+    config['experiment'] = {'name': f'{spec.name}_{args.model}_{args.condition}', 'seed': args.eval_seed}
     config['executor'] = {'mode': 'simulated', 'simulated_inference_pool': True,
                           'inference_devices': [args.inference_device], 'inference_batch_size': 2 if args.smoke else 8}
     config['latency'] = {'method': 'zero', 'sync_cuda': False}
@@ -335,21 +401,33 @@ def eval_config(args, bundle: Path, teacher: Path, output_dir: Path) -> dict:
         'image_views_info_key': 'mikasa_image_views' if args.task == 'mikasa' else ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
     }
     config['scheduler'] = {'hold_policy': 'hold', 'ordering_policy': 'latest_ready', 'hold_last_chunk_action': True}
-    config['evaluation'] = {'eval_episodes': 2 if args.smoke else 100,
+    config['evaluation'] = {'eval_episodes': (2 if args.smoke else 100)
+                            if eval_episodes is None else eval_episodes,
                             'eval_parallel_envs': 2 if args.smoke else (50 if args.task == 'parkour' else 10),
                             'eval_max_steps': settings['max_episode_steps'], 'eval_deterministic': True}
     if args.task == 'balance':
+        teacher_config = load_config(args.teacher_config)
+        config['latency'] = deepcopy(teacher_config['latency'])
+        config['scheduler'] = deepcopy(teacher_config['scheduler'])
+        config['executor']['simulated_worker_capacity'] = 1
         config['evaluation']['eval_parallel_envs'] = 1
     config['logging'] = {'output_dir': str(output_dir), 'video': {'enabled': False, 'num_bins': 10},
                           'save_step_records': True, 'save_action_records': True, 'save_latency_records': True}
+    if args.task == 'balance' and not args.smoke:
+        config['logging'].update({'wandb_entity': os.environ['WANDB_ENTITY'],
+                                  'wandb_project': 'starvla_tasks',
+                                  'wandb_group': os.environ['WANDB_RUN_GROUP']})
     return config
 
 
-def evaluate(args, bundle: Path, teacher: Path, *, label: str) -> Path:
+def evaluate(args, bundle: Path, teacher: Path, *, label: str,
+             wandb_checkpoint: tuple[str, int] | None = None) -> Path:
+    """Run native eval and optionally log its checkpoint metrics to the training run."""
     output_dir = args.output_dir / 'evals' / label
     output_dir.mkdir(parents=True, exist_ok=True)
     config_path = output_dir / 'eval_config.yaml'
-    config_path.write_text(yaml.safe_dump(eval_config(args, bundle, teacher, output_dir), sort_keys=False))
+    config = eval_config(args, bundle, teacher, output_dir, eval_episodes=args.eval_episodes)
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     if args.task == 'balance':
         command = [args.task_python, '-m', 'latency_bench.run', '--config', config_path]
     elif args.task == 'mikasa':
@@ -361,51 +439,122 @@ def evaluate(args, bundle: Path, teacher: Path, *, label: str) -> Path:
         command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py', 'latency-eval',
                    '--headless', '--eval-config', config_path]
     run_command(command, output_dir / 'stdout.log')
+    if wandb_checkpoint is not None and not args.smoke:
+        run_id, step = wandb_checkpoint
+        # The task entries save summaries; this parent owns W&B reporting for all tasks.
+        config['logging'].update({'wandb_name': run_id, 'wandb_project': 'starvla_tasks',
+                                  'wandb_entity': os.environ['WANDB_ENTITY']})
+        summary = json.loads((output_dir / f'queue_eval_latency_{_summary_latency_label(config)}.json').read_text())
+        summary['checkpoint_global_step'] = step
+        _log_corrected_eval_summaries_to_wandb(config, [summary])
     return output_dir
+
+
+def _evaluate_dagger_checkpoint(args, bundle: Path, teacher: Path, step: int) -> Path:
+    output = args.output_dir / 'evals' / f'steps_{step}'
+    completion = output / 'complete.json'
+    if not completion.exists():
+        evaluate(args, bundle, teacher, label=f'steps_{step}',
+                 wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-dagger', step))
+        write_json(completion, {'checkpoint': str(bundle / 'checkpoints/model.pt'),
+                                'seed': args.eval_seed, 'episodes': args.eval_episodes})
+    return output
+
+
+def _balance_dagger_collection(args, teacher, policy_path, directory, round_number):
+    command = [args.task_python, '-m', 'scripts.starvla.balance_dagger',
+        '--policy-config', policy_path, '--teacher-checkpoint', teacher, '--teacher-config', args.teacher_config,
+        '--output-dir', directory / 'raw', '--row-budget', 4 if args.smoke else 64000,
+        '--num-envs', 2 if args.smoke else 8, '--round', round_number]
+    collection = {'collector': 'scripts.starvla.balance_dagger',
+                  'seeds': [10_000_000 + round_number * 1_000_000],
+                  'row_budget': 4 if args.smoke else 64000,
+                  'num_envs': 2 if args.smoke else 8,
+                  'inference_batch_size': 2 if args.smoke else 8,
+                  'vla_cadence': 1, 'action_horizon': 8,
+                  'label': 'expert closed-loop selected absolute request windows'}
+    if args.dagger_relabel_from is not None:
+        command.extend(['--relabel-from', args.dagger_relabel_from.resolve()])
+        collection = {'collector': 'scripts.starvla.balance_dagger',
+                      'relabel_from': str(args.dagger_relabel_from.resolve())}
+    return [(command, directory / 'collect.log')], collection
+
+
+def _parkour_dagger_collection(args, teacher, policy_path, directory, round_number):
+    command = [args.task_python, ROOT / 'third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py',
+        'dagger-collect', '--headless', '--device', args.simulator_device, '--checkpoint', teacher,
+        '--policy_config', policy_path, '--output_dir', directory / 'raw', '--num_envs', 2 if args.smoke else 192,
+        '--inference_device', args.inference_device, '--inference_batch_size', 2 if args.smoke else 32,
+        '--dagger_round', round_number, '--dagger_row_budget', 4 if args.smoke else 64000,
+        '--seed', round_number + 1, '--action_horizon', 1]
+    collection = {'collector': 'parkour_vla.py', 'seeds': [round_number + 1],
+                  'row_budget': 4 if args.smoke else 64000,
+                  'num_envs': 2 if args.smoke else 192,
+                  'inference_batch_size': 2 if args.smoke else 32,
+                  'vla_cadence': 5, 'action_horizon': 1}
+    return [(command, directory / 'collect.log')], collection
+
+
+def _haic_dagger_collection(args, teacher, policy_path, directory, round_number):
+    commands = []
+    for rank in range(1 if args.smoke else 2):
+        command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py',
+            'dagger-collect', '--headless', '--device', args.simulator_device, '--teacher-checkpoint', teacher,
+            '--policy-config', policy_path, '--output-dir', directory / 'raw' / f'rank-{rank}',
+            '--num-envs', 2 if args.smoke else 96, '--inference-device', args.inference_device,
+            '--inference-batch-size', 2 if args.smoke else 32, '--dagger-round', round_number,
+            '--row-budget', 4 if args.smoke else 32000, '--seed', rank + 1,
+            '--vla-cadence', 1, '--action-horizon', 1]
+        commands.append((command, directory / f'collect-{rank}.log'))
+    collection = {'collector': 'haic_vla.py', 'seeds': [1] if args.smoke else [1, 2],
+                  'row_budget': 4 if args.smoke else 32000,
+                  'num_envs': 2 if args.smoke else 96,
+                  'inference_batch_size': 2 if args.smoke else 32,
+                  'vla_cadence': 1, 'action_horizon': 8}
+    return commands, collection
+
+
+def _convert_haic_dagger(raw, converted, *, round_index, force):
+    from latency_bench.data.haic_dagger import convert_haic_dagger_shards_to_lerobot
+    from scripts.starvla.collect import canonicalize_haic_dataset
+
+    convert_haic_dagger_shards_to_lerobot(raw, converted, force=force, round_index=round_index)
+    canonicalize_haic_dataset(converted)
+    converted_val = converted.with_name(f'{converted.name}__val')
+    if converted_val.exists():
+        canonicalize_haic_dataset(converted_val)
 
 
 def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict,
                    round_number: int, bootstrap: Path, bootstrap_reference: dict) -> Path:
-    from latency_bench.data.haic_dagger import convert_haic_dagger_shards_to_lerobot
+    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
     from latency_bench.data.parkour_dagger import convert_parkour_dagger_shards_to_lerobot
-    from scripts.starvla.collect import canonicalize_haic_dataset
     from scripts.starvla.prepare_dataset import prepare_lerobot
+
+    # Task-native entrypoints register here; the collection core never imports task/model scripts.
+    collect, convert = {
+        'balance': (_balance_dagger_collection, partial(
+            convert_canonical_rollout_to_lerobot, action_carrier='native',
+            normalize_state=False, write_starvla_handoff=False)),
+        'parkour': (_parkour_dagger_collection, partial(
+            convert_parkour_dagger_shards_to_lerobot, round_index=round_number)),
+        'haic': (_haic_dagger_collection, partial(_convert_haic_dagger, round_index=round_number)),
+    }[args.task]
 
     directory = args.output_dir / 'dagger' / f'round-{round_number:02d}'
     directory.mkdir(parents=True, exist_ok=True)
     policy_path = directory / 'policy.yaml'
     policy_path.write_text(yaml.safe_dump(policy, sort_keys=False))
-    if args.task == 'parkour':
-        command = [args.task_python, ROOT / 'third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py',
-            'dagger-collect', '--headless', '--device', args.simulator_device, '--checkpoint', teacher,
-            '--policy_config', policy_path, '--output_dir', directory / 'raw', '--num_envs', 2 if args.smoke else 192,
-            '--inference_device', args.inference_device, '--inference_batch_size', 2 if args.smoke else 32,
-            '--dagger_round', round_number, '--dagger_row_budget', 4 if args.smoke else 64000,
-            '--seed', round_number + 1, '--action_horizon', 1]
-        run_command(command, directory / 'collect.log')
-    else:
-        for rank in range(1 if args.smoke else 2):
-            command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py',
-                'dagger-collect', '--headless', '--device', args.simulator_device, '--teacher-checkpoint', teacher,
-                '--policy-config', policy_path, '--output-dir', directory / 'raw' / f'rank-{rank}',
-                '--num-envs', 2 if args.smoke else 96, '--inference-device', args.inference_device,
-                '--inference-batch-size', 2 if args.smoke else 32, '--dagger-round', round_number,
-                '--row-budget', 4 if args.smoke else 32000, '--seed', rank + 1,
-                '--vla-cadence', 1, '--action-horizon', 1]
-            run_command(command, directory / f'collect-{rank}.log')
+    commands, collection = collect(args, teacher, policy_path, directory, round_number)
+    for command, log in commands:
+        run_command(command, log)
+    if args.task == 'balance':
+        metadata = json.loads((directory / 'raw/metadata.json').read_text())
+        collection.update({key: metadata[key] for key in
+                           ('label_provenance', 'student_raw_frames', 'teacher_branch_raw_frames')})
     converted = directory / '_converted'
-    if args.task == 'parkour':
-        convert_parkour_dagger_shards_to_lerobot(
-            directory / 'raw', converted, force=True, round_index=round_number
-        )
-    else:
-        convert_haic_dagger_shards_to_lerobot(
-            directory / 'raw', converted, force=True, round_index=round_number
-        )
-        canonicalize_haic_dataset(converted)
-        converted_val = converted.with_name(f'{converted.name}__val')
-        if converted_val.exists():
-            canonicalize_haic_dataset(converted_val)
+    convert(directory / 'raw', converted, force=True)
+
     converted_val = converted.with_name(f'{converted.name}__val')
     prepare_lerobot(
         args.task,
@@ -417,25 +566,17 @@ def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict
     shutil.rmtree(converted)
     if converted_val.exists():
         shutil.rmtree(converted_val)
-    if args.task == 'parkour':
-        collection = {'collector': 'parkour_vla.py', 'seeds': [round_number + 1],
-                      'row_budget': 4 if args.smoke else 64000,
-                      'num_envs': 2 if args.smoke else 192,
-                      'inference_batch_size': 2 if args.smoke else 32,
-                      'vla_cadence': 5, 'action_horizon': 1}
-    else:
-        collection = {'collector': 'haic_vla.py', 'seeds': [1] if args.smoke else [1, 2],
-                      'row_budget': 4 if args.smoke else 32000,
-                      'num_envs': 2 if args.smoke else 96,
-                      'inference_batch_size': 2 if args.smoke else 32,
-                      'vla_cadence': 1, 'action_horizon': 1}
+
     write_json(directory / 'provenance.json', {
         'task': task_spec(args.task).name, 'model': args.model, 'run_id': args.run_id,
         'round': round_number, 'kind': 'dagger', 'teacher': teacher_reference,
         'bootstrap': {key: value for key, value in bootstrap_reference.items() if key != 'local_dir'},
         'policy_source': {
-            'phase': 'bootstrap' if round_number == 0 else 'dagger',
-            'optimizer_step': ((2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps'])
+            'checkpoint_path': policy['policy']['checkpoint_path'],
+            'phase': ('initial' if args.dagger_from is not None else 'bootstrap')
+                     if round_number == 0 else 'dagger',
+            'optimizer_step': ((0 if args.dagger_from is not None else
+                                2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps'])
                                if round_number == 0 else
                                round_number * (2 if args.smoke else 500)),
         },
@@ -450,7 +591,7 @@ def code_revisions() -> dict:
                    'dirty': bool(subprocess.check_output(['git', '-C', str(path), 'status', '--porcelain'], text=True))}
             for name, path in [('benchmark', ROOT), ('starvla', STARVLA),
                                ('haic', ROOT / 'third_party/HAIC'), ('parkour', ROOT / 'third_party/Isaaclab_Parkour'),
-                               ('mikasa', ROOT / 'third_party/MIKASA-Robo'), ('gr00t', ROOT / 'third_party/Isaac-GR00T')]}
+                               ('mikasa', ROOT / 'third_party/MIKASA-Robo')]}
 
 
 def publish_run(output_dir: Path) -> str:
@@ -471,9 +612,9 @@ def publish_run(output_dir: Path) -> str:
                               for ref in run['datasets']]
     write_json(output_dir / 'inference/provenance.json', provenance)
     revision = artifacts.publish_model(output_dir / 'inference', task=task_spec(run['task']).name,
-                                       model=run['model'], run_id=run['run_id'])
+                                       model=run['model'], run_id=run['run_id'], condition=run['condition'], action_horizon=task_spec(run['task']).action_horizon)
     write_json(output_dir / 'publication.json', {'repo_id': artifacts.MODEL_REPO_ID,
-        'path': artifacts.model_path(task_spec(run['task']).name, run['model'], run['run_id']), 'revision': revision})
+        'path': artifacts.model_path(task_spec(run['task']).name, run['model'], run['run_id'], condition=run['condition'], action_horizon=task_spec(run['task']).action_horizon), 'revision': revision})
     return revision
 
 
@@ -485,27 +626,58 @@ def main(argv=None) -> None:
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--dataset-dir', type=Path)
     parser.add_argument('--teacher-checkpoint', type=Path)
+    parser.add_argument('--teacher-config', type=Path)
+    parser.add_argument('--condition', choices=['zero-latency', 'latency-aware'], default='zero-latency')
+    parser.add_argument('--force', action='store_true', help='Replace corresponding local artifacts')
+    parser.add_argument('--dagger-from', type=Path,
+                        help='Start DAgger from an existing inference bundle instead of training bootstrap')
+    parser.add_argument('--dagger-relabel-from', type=Path,
+                        help='Relabel saved Balance raw DAgger data using the pre-action command state')
+    parser.add_argument('--dagger-rounds', type=int,
+                        help='DAgger rounds; defaults to 1 for smoke and 10 for formal training')
+    parser.add_argument('--eval-every-round', action='store_true',
+                        help='Preserve and evaluate the initial policy and every DAgger round checkpoint')
     parser.add_argument('--vla-python', type=Path)
     parser.add_argument('--task-python', type=Path)
     parser.add_argument('--num-gpus', type=int, default=2)
-    parser.add_argument('--micro-batch', type=int, default=1)
+    parser.add_argument('--micro-batch', type=int, default=64,
+                        help='Per-GPU starting batch; halve on CUDA OOM while preserving global batch')
+    parser.add_argument('--num-workers', type=int, default=8)
+    parser.add_argument('--prefetch-factor', type=int, default=3)
+    parser.add_argument('--persistent-workers', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--pin-memory', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--inference-device', default='cuda:1')
     parser.add_argument('--simulator-device', default='cuda:0')
+    parser.add_argument('--eval-episodes', type=int)
+    parser.add_argument('--eval-seed', type=int, help='First evaluation episode seed; defaults to the task seed')
     parser.add_argument('--port', type=int, default=29521)
     parser.add_argument('--smoke', action='store_true')
+    parser.add_argument('--no-publish', action='store_true', help='Keep Hugging Face datasets and models local')
     parser.add_argument('--resume', action='store_true', help='Resume the matching --run-id from its latest complete state')
     parser.add_argument('--publish-only', action='store_true')
     args = parser.parse_args(argv)
+    if args.smoke:
+        os.environ['WANDB_MODE'] = 'disabled'
+    if args.dagger_rounds is None:
+        args.dagger_rounds = 1 if args.smoke else 10
+    if args.eval_seed is None:
+        args.eval_seed = TASK_SETTINGS[args.task]['seed']
+    if args.eval_episodes is None:
+        args.eval_episodes = 2 if args.smoke else 100
     if args.resume and args.run_id is None:
         parser.error('--resume requires --run-id')
+    if args.dagger_from is not None and args.task == 'mikasa':
+        parser.error('--dagger-from requires a DAgger task')
     if args.run_id is None:
         args.run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
     args.output_dir = (args.output_dir.resolve() if args.output_dir is not None else
                        ROOT / 'outputs/starvla' / ('smoke' if args.smoke else 'runs') /
                        task_spec(args.task).name / args.model / args.run_id)
+    if args.force and not args.resume and args.output_dir.exists():
+        shutil.rmtree(args.output_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     if args.publish_only:
-        if not args.smoke:
+        if not args.smoke and not args.no_publish:
             print('MODEL_REVISION=' + publish_run(args.output_dir))
         return
     run = None
@@ -514,16 +686,18 @@ def main(argv=None) -> None:
         run = json.loads((args.output_dir / 'run.json').read_text())
         if (run['task'], run['model'], run['run_id']) != (args.task, args.model, args.run_id):
             raise ValueError('--resume task, model, and run-id must match run.json')
-        states = _training_states(args.output_dir / 'training/bootstrap/checkpoints')
-        if not states:
-            raise FileNotFoundError('No complete bootstrap training state found for --resume')
-        _, bootstrap_state = states[-1]
-    args.vla_python = (args.vla_python.resolve() if args.vla_python is not None else
+        if args.dagger_from is None:
+            states = _training_states(args.output_dir / 'training/bootstrap/checkpoints')
+            if not states:
+                raise FileNotFoundError('No complete bootstrap training state found for --resume')
+            _, bootstrap_state = states[-1]
+    args.vla_python = (args.vla_python.absolute() if args.vla_python is not None else
                        conda_python('starvla_rl_games_openvla'))
-    args.task_python = (args.task_python.resolve() if args.task_python is not None else
+    args.task_python = (args.task_python.absolute() if args.task_python is not None else
                         ROOT / 'third_party/MIKASA-Robo/.venv/bin/python' if args.task == 'mikasa' else
                         conda_python(TASK_SETTINGS[args.task]['conda_env']))
-    teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint)
+    teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint,
+                                           args.condition if args.task == "balance" else "zero-latency")
     backbone_path, backbone_ref = resolve_backbone(args.model)
     if run is None:
         bootstrap, bootstrap_ref = prepare_shared(args, teacher, teacher_ref, args.task_python)
@@ -543,25 +717,44 @@ def main(argv=None) -> None:
     if run is None:
         run = {'task': args.task, 'model': args.model, 'run_id': args.run_id, 'smoke': args.smoke,
                'teacher': teacher_ref, 'backbone': backbone_ref, 'code_revisions': code_revisions(),
-               'datasets': [bootstrap_ref], 'seed': 0}
-        write_json(args.output_dir / 'run.json', run)
-    steps = 2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps']
-    config = training_config(args, bootstrap=bootstrap, deltas=[], backbone=backbone_path,
-                actor_checkpoint=actor_checkpoint, run_id='bootstrap', steps=steps, stop_step=steps,
-                pretrained=bootstrap_state, resume=args.resume)
-    trained, checkpoint = train(args, config)
-    bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
-                               bootstrap=bootstrap, backbone=backbone_ref)
+               'datasets': [bootstrap_ref], 'seed': 0, 'condition': args.condition}
+        if args.dagger_from is not None:
+            run['initial_model'] = json.loads((args.dagger_from / 'provenance.json').read_text())
+    run['no_publish'] = args.no_publish
+    run['dagger_rounds'] = args.dagger_rounds
+    run['evaluation'] = {'seed': args.eval_seed, 'episodes': args.eval_episodes,
+                         'every_round': args.eval_every_round}
+    write_json(args.output_dir / 'run.json', run)
+    if args.dagger_from is None:
+        steps = 2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps']
+        config = training_config(args, bootstrap=bootstrap, deltas=[], backbone=backbone_path,
+                    actor_checkpoint=actor_checkpoint, run_id='bootstrap', steps=steps, stop_step=steps,
+                    pretrained=bootstrap_state, resume=args.resume)
+        trained, checkpoint = train(args, config)
+        bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
+                                   bootstrap=bootstrap, backbone=backbone_ref)
+    else:
+        steps = 0
+        bundle = args.dagger_from.resolve()
+        checkpoint = bundle / 'checkpoints/model.pt'
     deltas = [Path(ref['local_dir']) for ref in run['datasets'][1:]]
-    if args.task in ('parkour', 'haic'):
-        rounds = 1 if args.smoke else 10
+    evaluation = None
+    if args.task in ('balance', 'parkour', 'haic'):
+        rounds = args.dagger_rounds
         updates = 2 if args.smoke else 500
+        if args.eval_every_round:
+            if args.task == 'balance':
+                evaluate(args, bundle, teacher, label=f'sft_{steps}',
+                         wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-bootstrap', steps))
+            else:
+                _evaluate_dagger_checkpoint(args, bundle, teacher, 0)
         dagger_states = _training_states(args.output_dir / 'training/dagger/checkpoints') if args.resume else []
         dagger_step, dagger_state = dagger_states[-1] if dagger_states else (0, None)
         if dagger_state is not None:
             trained = args.output_dir / 'training/dagger'
             checkpoint = trained / 'checkpoints' / f'steps_{dagger_step}_pytorch_model.pt'
-            bundle = inference_bundle(trained, checkpoint, bundle, bootstrap=bootstrap, backbone=backbone_ref)
+            bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
+                                       bootstrap=bootstrap, backbone=backbone_ref)
         for round_number in range(rounds):
             if round_number < len(deltas):
                 delta = deltas[round_number]
@@ -571,28 +764,51 @@ def main(argv=None) -> None:
                 if args.resume and partial.exists():
                     shutil.rmtree(partial)
                 delta = collect_dagger(args, teacher=teacher, teacher_reference=teacher_ref,
-                                        policy=eval_config(args, bundle, teacher, args.output_dir / 'evals'),
+                                        policy=eval_config(args,
+                                            args.output_dir / 'rounds' / f'steps_{round_number * updates}'
+                                            if args.eval_every_round and round_number else bundle,
+                                            teacher, args.output_dir / 'evals'),
                                         round_number=round_number, bootstrap=bootstrap,
                                         bootstrap_reference=bootstrap_ref)
                 deltas.append(delta)
                 ref = dataset_reference(args.task, delta, model=args.model, run_id=args.run_id,
-                                        round_number=round_number)
+                                        round_number=round_number, condition=args.condition)
                 run['datasets'].append(ref)
                 write_json(args.output_dir / 'run.json', run)
-            if not args.smoke and ref['revision'] is None:
+            if not args.smoke and not args.no_publish and ref['revision'] is None:
                 publish_data(ref, task=args.task, model=args.model, run_id=args.run_id, round_number=round_number)
                 write_json(args.output_dir / 'run.json', run)
             stop_step = (round_number + 1) * updates
+            config = training_config(args, bootstrap=bootstrap, deltas=deltas, backbone=backbone_path,
+                        actor_checkpoint=actor_checkpoint, run_id='dagger', steps=rounds * updates,
+                        stop_step=stop_step, pretrained=dagger_state or checkpoint,
+                        resume=dagger_state is not None)
             if dagger_step < stop_step:
-                config = training_config(args, bootstrap=bootstrap, deltas=deltas, backbone=backbone_path,
-                            actor_checkpoint=actor_checkpoint, run_id='dagger', steps=rounds * updates,
-                            stop_step=stop_step, pretrained=dagger_state or checkpoint,
-                            resume=dagger_state is not None)
                 trained, checkpoint = train(args, config)
                 dagger_step = stop_step
                 dagger_state = trained / 'checkpoints' / f'steps_{stop_step}_state'
-                bundle = inference_bundle(trained, checkpoint, bundle, bootstrap=bootstrap, backbone=backbone_ref)
-    evaluation = evaluate(args, bundle, teacher, label='final')
+                bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
+                                           bootstrap=bootstrap, backbone=backbone_ref)
+                if args.eval_every_round:
+                    shutil.copyfile(args.output_dir / 'dagger.log',
+                                    args.output_dir / f'dagger-steps-{stop_step}.log')
+                    shutil.copyfile(args.output_dir / 'dagger.yaml', delta / 'training.yaml')
+                    shutil.copyfile(args.output_dir / 'dagger_mixture.json', delta / 'mixture.json')
+            if args.eval_every_round:
+                round_bundle = args.output_dir / 'rounds' / f'steps_{stop_step}'
+                # The contract is the last bundle file written. Completed round
+                # bundles retain their weight hardlink after old states are pruned.
+                if not (round_bundle / 'task_contract.json').exists():
+                    inference_bundle(
+                        trained, trained / 'checkpoints' / f'steps_{stop_step}_pytorch_model.pt',
+                        round_bundle, bootstrap=bootstrap, backbone=backbone_ref,
+                    )
+                evaluation = _evaluate_dagger_checkpoint(args, round_bundle, teacher, stop_step)
+    if evaluation is None:
+        phase = 'dagger' if deltas else 'bootstrap'
+        eval_step = len(deltas) * (2 if args.smoke else 500) if deltas else steps
+        evaluation = evaluate(args, bundle, teacher, label='final',
+                              wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-{phase}', eval_step))
     # The common evaluator's summary contains per-task metrics and episode counts.
     summary = summarize_eval_run(evaluation)
     summary['episodes'] = [json.loads(line) for line in
@@ -600,11 +816,12 @@ def main(argv=None) -> None:
     for episode in summary['episodes']:
         episode['metadata'] = {key: value for key, value in episode['metadata'].items()
                                if key not in ('checkpoint_path', 'output_dir')}
-    write_json(bundle / 'eval_l0.json', summary)
+    write_json(bundle / ('eval_profile.json' if args.condition == 'latency-aware' else 'eval_l0.json'), summary)
     run['training'] = {'sft_updates': steps, 'dagger_updates': len(deltas) * (2 if args.smoke else 500),
-                       'global_batch': args.num_gpus * args.micro_batch if args.smoke else TASK_SETTINGS[args.task]['global_batch'],
+                       'global_batch': args.num_gpus * args.micro_batch * config['trainer']['gradient_accumulation_steps'],
                        'bootstrap_weight': 0.5 if deltas else 1.0, 'dagger_weight': 0.5 if deltas else 0.0,
                        'micro_batch': args.micro_batch, 'num_gpus': args.num_gpus,
+                       'gradient_accumulation_steps': config['trainer']['gradient_accumulation_steps'],
                        'optimizer': config['trainer']['optimizer'],
                        'learning_rate': config['trainer']['learning_rate'],
                        'scheduler': config['trainer']['lr_scheduler_type'],
@@ -613,10 +830,10 @@ def main(argv=None) -> None:
     write_json(args.output_dir / 'run.json', run)
     (bundle / 'README.md').write_text(
         f'# {args.model} — {task_spec(args.task).name}\n\n'
-        f'RGB + continuous state, action horizon 1, VLA {task_spec(args.task).fps:g} Hz.\n'
+        f'RGB + continuous state, action horizon {task_spec(args.task).action_horizon}, VLA {task_spec(args.task).fps:g} Hz.\n'
         'See task_contract.json for normalization, eval_l0.json for zero-latency results, '
         'and provenance.json for source references and dataset publication revisions.\n')
-    if args.smoke:
+    if args.smoke or args.no_publish:
         write_json(bundle / 'provenance.json', run)
     else:
         print('MODEL_REVISION=' + publish_run(args.output_dir))

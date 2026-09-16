@@ -1,0 +1,8 @@
+__base__: balance_remote_chain2.yaml
+
+backend:
+  restart_behavior: resume
+  initial_model_path: null
+
+training:
+  train_for_env_steps: 8192

@@ -1,0 +1,7 @@
+__base__: balance_profile_cpu_fresh.yaml
+
+backend:
+  restart_behavior: resume
+
+training:
+  train_for_env_steps: 3200

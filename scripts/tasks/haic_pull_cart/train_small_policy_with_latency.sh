@@ -22,7 +22,7 @@ exec "${SESSION_PYTHON}" scripts/train.py \
   task.latency_command=true \
   task.latency_config_path="${LATENCY_CONFIG}" \
   task.latency_command_horizon=1 task.latency_control_repeat=1 \
-  task.sim.step_dt=0.05 task.sim.isaac_physics_dt=0.005 task.max_episode_length=400 \
+  task.sim.isaac_physics_dt=0.005 task.max_episode_length=400 \
   algo.command_horizon=1 \
   task.action.min_delay=0 task.action.max_delay=0 task.action.alpha=1.0 \
   task.num_envs=1024 total_frames=500000000 \

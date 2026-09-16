@@ -26,7 +26,7 @@ Python 3.10, CUDA Toolkit 12.8.1, and PyTorch 2.11.0+cu128.
 
 Options:
   --tier <use|dev>         Install runtime or development dependencies (default: dev)
-  --model <name|all>       Required: openvla|pi0|pi05|gr00t|official_gr00t|wan_oft|all
+  --model <name|all>       Required: openvla|pi0|pi05|gr00t|wan_oft|all
   --skip-validate          Skip final validation in selected model envs
   --skip-flash-attn        Skip FlashAttention install/check in selected model envs
   --init-private-submodules Initialize private model submodules too
@@ -77,14 +77,14 @@ case "${INSTALL_TIER}" in
 esac
 
 case "${MODEL_TARGET}" in
-    openvla|pi0|pi05|gr00t|official_gr00t|wan_oft|all) ;;
+    openvla|pi0|pi05|gr00t|wan_oft|all) ;;
     "")
         echo "[install] --model is required" >&2
         usage >&2
         exit 1
         ;;
     *)
-        echo "[install] invalid model '${MODEL_TARGET}'; expected openvla|pi0|pi05|gr00t|official_gr00t|wan_oft|all" >&2
+        echo "[install] invalid model '${MODEL_TARGET}'; expected openvla|pi0|pi05|gr00t|wan_oft|all" >&2
         exit 1
         ;;
 esac
@@ -166,10 +166,6 @@ ensure_latency_env() {
         echo "[install] creating Conda environment: ${LATENCY_ENV_NAME}"
     fi
 
-    if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
-        conda_packages+=("ffmpeg=7")
-    fi
-
     conda "${conda_action}" \
         -n "${LATENCY_ENV_NAME}" \
         --override-channels \
@@ -200,11 +196,11 @@ install_latency_env() {
     ensure_uv
     PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
     local root_package=".[dev]"
-    if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
+    if [[ "${MODEL_TARGET}" == "gr00t" || "${MODEL_TARGET}" == "all" ]]; then
         root_package=".[dev,sonic]"
     fi
     pip_install -e "${root_package}"
-    if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
+    if [[ "${MODEL_TARGET}" == "gr00t" || "${MODEL_TARGET}" == "all" ]]; then
         pip_install --no-deps -e third_party/humanoid-bench
         python -c 'import humanoid_bench, mujoco, onnxruntime; print("latency Sonic imports complete")'
     fi
@@ -223,35 +219,6 @@ install_latency_env() {
     echo "[install] latency environment complete"
 }
 
-ensure_official_gr00t_uv() {
-    if command -v uv >/dev/null 2>&1; then
-        return
-    fi
-    if command -v curl >/dev/null 2>&1; then
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-    else
-        wget -qO- https://astral.sh/uv/install.sh | sh
-    fi
-    export PATH="${HOME}/.local/bin:${PATH}"
-}
-
-install_official_gr00t() {
-    local original_ld_library_path="${LD_LIBRARY_PATH:-}"
-    set +u
-    conda activate "${LATENCY_ENV_NAME}"
-    set -u
-    export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${CONDA_PREFIX}/lib64${original_ld_library_path:+:${original_ld_library_path}}"
-    ensure_official_gr00t_uv
-    echo "[install] syncing Isaac-GR00T Python 3.12 environment"
-    uv sync --project third_party/Isaac-GR00T --python 3.12
-    if [[ "${RUN_VALIDATE}" == "true" ]]; then
-        uv run --project third_party/Isaac-GR00T python -c \
-            'from gr00t.policy import Gr00tPolicy; print(Gr00tPolicy.__name__)'
-    else
-        echo "[install] skipping official_gr00t validation"
-    fi
-}
-
 init_model_submodules() {
     local -a submodules=(
         third_party/starVLA
@@ -260,9 +227,8 @@ init_model_submodules() {
     )
 
     case "${MODEL_TARGET}" in
-        gr00t|official_gr00t|all)
+        gr00t|all)
             submodules+=(
-                third_party/Isaac-GR00T
                 third_party/humanoid-bench
             )
             if [[ "${INIT_PRIVATE_SUBMODULES}" == "true" ]]; then
@@ -294,14 +260,6 @@ unset UV_NO_CACHE UV_LINK_MODE
 
 echo "[install] fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=${MODEL_TARGET}"
 install_latency_env
-
-if [[ "${MODEL_TARGET}" == "official_gr00t" || "${MODEL_TARGET}" == "all" ]]; then
-    install_official_gr00t
-fi
-
-if [[ "${MODEL_TARGET}" == "official_gr00t" ]]; then
-    exit 0
-fi
 
 BOOTSTRAP_ARGS=(
     --tier "${INSTALL_TIER}"

@@ -1,5 +1,7 @@
 # StarVLA H1 task models
 
+> 2026-09-14 核查：当前产物、具体评测数值和未核验事项见 [PROGRESS](PROGRESS.md)；下文旧运行状态按原日期阅读。
+
 Four models share each task's teacher bootstrap: `qwenoft`, `qwenpi_v3`,
 `qwengr00t`, and `wanoft`. All receive RGB plus continuous state and train
 one current-step action. Qwen models start from Qwen3-VL-4B-Instruct; WanOFT
@@ -40,9 +42,16 @@ Useful overrides: `--teacher-checkpoint`, `--dataset-dir` (containing
 `lerobot/` and `lerobot__val/`), `--output-dir`, `--vla-python`, `--task-python`,
 `--num-gpus`, `--micro-batch`, `--simulator-device`, and `--inference-device`.
 Defaults use GPU 0 for simulation and GPU 1 for inference; training uses
-Accelerate on two visible GPUs. Formal global batch sizes are 128 for Balance
-and Parkour, 64 for MIKASA and HAIC. Choose GPU count and microbatch whose
+Accelerate on two visible GPUs. Formal global batch sizes are 128 for all four
+tasks. Choose GPU count and microbatch whose
 product divides the global batch size.
+
+Training starts at microbatch 64 per GPU. On an explicit CUDA OOM the launcher
+restarts at 32, 16, 8, 4, 2, then 1, increasing gradient accumulation to preserve
+the global batch. Other errors propagate unchanged. Retries retain their OOM
+logs and restore the latest complete training state when available. The resolved
+microbatch and accumulation are recorded in the training YAML, W&B, and run metadata.
+For online tracking, launch with `WANDB_MODE=online`.
 
 The pipeline downloads teachers and backbones from their repositories' default
 branches, reuses published bootstrap data or collects it once, trains, saves a reloadable inference
@@ -92,9 +101,6 @@ bash scripts/tasks/haic_pull_cart/train_wanoft.sh \
   --output-dir outputs/starvla/runs/haic_pull_cart/wanoft/experiment-01 \
   --publish-only
 ```
-
-The HAIC official GR00T entry point is now `train_official_gr00t.sh`.
-Its H40 behavior and the other existing official entry points remain available.
 
 ## Smoke acceptance — acceptance-v1
 

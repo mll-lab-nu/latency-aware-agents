@@ -1,4 +1,4 @@
-"""Contracts shared by the StarVLA H1 dataset and task policy paths."""
+"""Contracts shared by the StarVLA dataset and task policy paths."""
 
 from __future__ import annotations
 
@@ -22,9 +22,11 @@ class StarVLATaskSpec:
     video_keys: tuple[str, ...]
     auxiliary_shapes: tuple[tuple[str, tuple[int, ...]], ...] = ()
 
+    action_horizon: int = 1
+
     @property
-    def action_horizon(self) -> int:
-        return 1
+    def action_key(self) -> str:
+        return "issued_command_chunk" if self.action_horizon > 1 else "action"
 
     def auxiliary_shape_map(self) -> dict[str, tuple[int, ...]]:
         return dict(self.auxiliary_shapes)
@@ -33,7 +35,9 @@ class StarVLATaskSpec:
 TASK_SPECS: dict[str, StarVLATaskSpec] = {
     "balance": StarVLATaskSpec(
         name="humanoidbench_balance_simple",
-        robot_type="latency_balance_h1",
+        robot_type="latency_balance_h8",
+        auxiliary_shapes=(("action_valid_mask", (8,)),),
+        action_horizon=8,
         state_dim=198,
         action_dim=43,
         fps=50.0,
@@ -100,10 +104,13 @@ def _train_rows(dataset_dir: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _normalization_from_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, list[float]]]:
+def _normalization_from_rows(rows: list[dict[str, Any]], spec: StarVLATaskSpec) -> dict[str, dict[str, list[float]]]:
     states = np.asarray([row["observation.state"] for row in rows], dtype=np.float32)
-    actions = np.asarray([row["action"] for row in rows], dtype=np.float32)
-    return {"state": _numeric_stats(states), "action": _numeric_stats(actions)}
+    actions = np.asarray([row[spec.action_key] for row in rows], dtype=np.float32)
+    if "action_valid_mask" in spec.auxiliary_shape_map():
+        valid = np.asarray([row["action_valid_mask"] for row in rows], dtype=bool)
+        actions = actions[valid]
+    return {"state": _numeric_stats(states), "action": _numeric_stats(actions.reshape(-1, spec.action_dim))}
 
 
 def _read_prompt(dataset_dir: Path) -> str | None:
@@ -147,16 +154,16 @@ def write_task_contract(
     spec: StarVLATaskSpec,
     normalization_source: Path | str | None = None,
 ) -> Path:
-    """Write the H1 contract and StarVLA statistics for a prepared dataset."""
+    """Write the task contract and StarVLA statistics for a prepared dataset."""
     dataset_dir = Path(dataset_dir)
     rows = _train_rows(dataset_dir)
     normalization = (
-        _normalization_from_rows(rows)
+        _normalization_from_rows(rows, spec)
         if normalization_source is None
         else _normalization_source_contract(normalization_source)["normalization"]
     )
     contract: dict[str, Any] = {
-        "format": "latency_bench_starvla_h1_v1",
+        "format": f"latency_bench_starvla_h{spec.action_horizon}_v{2 if spec.name == TASK_SPECS['balance'].name else 1}",
         "task": spec.name,
         "robot_type": spec.robot_type,
         "state_dim": spec.state_dim,
@@ -164,7 +171,7 @@ def write_task_contract(
         "action_horizon": spec.action_horizon,
         "fps": spec.fps,
         "state_key": "observation.state",
-        "action_key": "action",
+        "action_key": spec.action_key,
         "video_keys": list(spec.video_keys),
         "auxiliary": {
             key: {"shape": list(shape), "column": key}
@@ -172,11 +179,14 @@ def write_task_contract(
         },
         "normalization": normalization,
     }
+    if spec.name == TASK_SPECS["balance"].name:
+        info = json.loads((dataset_dir / "meta/info.json").read_text())
+        contract["label_provenance"] = info["label_provenance"]
     prompt = _read_prompt(dataset_dir)
     if prompt is not None:
         contract["prompt"] = prompt
     state_labels = _feature_names(dataset_dir, "observation.state")
-    action_labels = _feature_names(dataset_dir, "action")
+    action_labels = _feature_names(dataset_dir, spec.action_key)
     if state_labels is not None:
         contract["state_labels"] = state_labels
     if action_labels is not None:
@@ -184,14 +194,14 @@ def write_task_contract(
 
     path = dataset_dir / "task_contract.json"
     path.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
-    _write_stats(dataset_dir, normalization)
+    _write_stats(dataset_dir, normalization, spec.action_key)
     return path
 
 
-def _write_stats(dataset_dir: Path, normalization: Mapping[str, Mapping[str, list[float]]]) -> None:
+def _write_stats(dataset_dir: Path, normalization: Mapping[str, Mapping[str, list[float]]], action_key: str) -> None:
     stats = {
         "observation.state": dict(normalization["state"]),
-        "action": dict(normalization["action"]),
+        action_key: dict(normalization["action"]),
     }
     payload = {
         "__format_version": 2,

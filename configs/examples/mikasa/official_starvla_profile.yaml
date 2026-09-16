@@ -20,18 +20,19 @@ latency:
 scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
+  hold_last_chunk_action: true
 
 policy:
   type: starvla
   checkpoint_path: unused
   model_config_path: unused
+  task_contract_path: task_contract.json
   device: cuda:1
-  action_output_mode: deployment
-  action_output_type: rl_games_continuous
+  state_info_key: mikasa_proprio
   image_views_info_key: mikasa_image_views
 
 evaluation:
-  eval_episodes: 100
+  eval_episodes: 10
   eval_parallel_envs: 1
   eval_max_steps: 60
   eval_deterministic: true

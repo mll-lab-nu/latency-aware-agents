@@ -98,7 +98,6 @@ def test_parkour_dagger_converter_writes_video_and_numeric_parquet(tmp_path):
     )
     assert manifest["action_dim"] == 34
     assert manifest["state_dim"] == 53
-    assert manifest["official_action_horizon"] == 40
     assert manifest["frames"] == 2
     assert not list(output.rglob("*.png"))
     assert (
@@ -247,14 +246,12 @@ def test_parkour_video_bootstrap_preserves_rollout_schema(tmp_path):
     assert manifest["state_labels"] == [
         f"parkour_proprio_{index}" for index in range(53)
     ]
-    assert manifest["official_action_horizon"] == 40
     validation_manifest = json.loads(
         (output.with_name(f"{output.name}__val") / "manifest.json").read_text()
     )
     assert validation_manifest["dataset_name"] == "lerobot__val"
     assert validation_manifest["split"] == "val"
     assert validation_manifest["training_dataset_name"] == "lerobot"
-    assert validation_manifest["official_action_horizon"] == 40
 
 
 def test_parkour_bootstrap_rows_preserve_actor_observation_and_termination(tmp_path):
@@ -296,93 +293,3 @@ def test_parkour_bootstrap_rows_preserve_actor_observation_and_termination(tmp_p
     assert len(row_out["actor_observation"]) == 5
     assert len(row_out["actor_observation"][0]) == 753
     assert row_out["termination"] == [False, False, False, False, True]
-
-
-def test_dagger_prepare_copies_bootstrap_stats(tmp_path, monkeypatch):
-    from scripts.official_gr00t import prepare_parkour_dataset as prepare_module
-
-    output = tmp_path / "lerobot"
-    val_output = tmp_path / "lerobot__val"
-    bootstrap = tmp_path / "bootstrap"
-    (bootstrap / "meta").mkdir(parents=True)
-    bootstrap_stats = b'{"action":{"mean":[1.0]}}\n'
-    (bootstrap / "meta/stats.json").write_bytes(bootstrap_stats)
-    commands = []
-
-    def fake_convert(*args, **kwargs):
-        (output / "meta").mkdir(parents=True)
-        (val_output / "meta").mkdir(parents=True)
-        return {"dataset_name": output.name}
-
-    monkeypatch.setattr(
-        prepare_module, "convert_parkour_dagger_shards_to_lerobot", fake_convert
-    )
-    monkeypatch.setattr(
-        prepare_module.subprocess,
-        "run",
-        lambda command, **kwargs: commands.append(command),
-    )
-
-    manifest = prepare_module.prepare_parkour_dataset(
-        tmp_path / "raw",
-        output,
-        force=False,
-        dagger=True,
-        normalization_source=bootstrap,
-    )
-
-    assert manifest == {"dataset_name": "lerobot"}
-    assert commands == []
-    assert (output / "meta/stats.json").read_bytes() == bootstrap_stats
-    assert (val_output / "meta/stats.json").read_bytes() == bootstrap_stats
-
-
-def test_video_shard_prepare_runs_stats_for_train_and_validation(tmp_path, monkeypatch):
-    from scripts.official_gr00t import prepare_parkour_dataset as prepare_module
-
-    output = tmp_path / "lerobot"
-    val_output = tmp_path / "lerobot__val"
-    calls = []
-
-    def fake_convert(*args, **kwargs):
-        assert kwargs["video_shards"] is True
-        output.mkdir(parents=True)
-        val_output.mkdir(parents=True)
-        return {"dataset_name": output.name}
-
-    monkeypatch.setattr(
-        prepare_module, "convert_parkour_dagger_shards_to_lerobot", fake_convert
-    )
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        dataset_dir = Path(command[command.index("--dataset-path") + 1])
-        (dataset_dir / "meta").mkdir(parents=True, exist_ok=True)
-        (dataset_dir / "meta/stats.json").write_text(
-            json.dumps(
-                {
-                    "issued_command_chunk": {
-                        "min": [0.0] * 34,
-                        "max": [0.0] * 34,
-                    }
-                }
-            )
-        )
-
-    monkeypatch.setattr(prepare_module.subprocess, "run", fake_run)
-
-    manifest = prepare_module.prepare_parkour_dataset(
-        tmp_path / "raw",
-        output,
-        force=False,
-        video_shards=True,
-    )
-
-    assert manifest == {"dataset_name": "lerobot"}
-    assert [command[command.index("--dataset-path") + 1] for command in calls] == [
-        str(output),
-        str(val_output),
-    ]
-    for dataset_dir in (output, val_output):
-        stats = json.loads((dataset_dir / "meta/stats.json").read_text())
-        assert stats["issued_command_chunk"]["min"] == [-1.0] * 32 + [-np.pi / 1.5] * 2
-        assert stats["issued_command_chunk"]["max"] == [1.0] * 32 + [np.pi / 1.5] * 2

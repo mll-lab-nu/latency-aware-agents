@@ -154,15 +154,11 @@ def make_demon_attack_sf_env(
         env = RewardTraceWrapper(env)
     wrapper_seed = env_instance_seed(
         base_seed=cfg.seed,
-        worker_index=env_config.worker_index,
-        vector_index=env_config.vector_index,
         env_id=env_config.env_id,
     )
     latency_seed = sample_factory_latency_seed_from_flat_config(
         cfg,
         fallback_seed=wrapper_seed,
-        worker_index=env_config.worker_index,
-        vector_index=env_config.vector_index,
         env_id=env_config.env_id,
     )
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)

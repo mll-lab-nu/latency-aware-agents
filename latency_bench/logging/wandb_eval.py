@@ -20,9 +20,12 @@ def eval_scalar_payload(
         metric_prefix = f"{prefix}/{summary_metric_group(summary)}/{summary_series_name(summary)}"
         for metric in EVAL_SCALAR_METRICS:
             payload[f"{metric_prefix}/{metric}"] = float(summary[metric])
-        payload[f"{metric_prefix}/completed_episodes"] = float(
-            summary.get("completed_episodes", len(summary.get("returns", [])))
-        )
+        payload[f"{metric_prefix}/completed_episodes"] = float(len(summary["returns"]))
+        if "task_metrics" in summary:
+            for name, task_metric in summary["task_metrics"].items():
+                task_metric_prefix = f"{metric_prefix}/task_metrics/{name}"
+                payload[f"{task_metric_prefix}/mean"] = float(task_metric["mean"])
+                payload[f"{task_metric_prefix}/std"] = float(task_metric["std"])
     return payload
 
 
