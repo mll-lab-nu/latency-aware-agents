@@ -173,19 +173,29 @@ def _default_uploader(job: dict[str, str]) -> None:
 
     api = HfApi(token=_resolve_hf_token())
     if eval_repo_id:
-        api.create_repo(
-            repo_id=eval_repo_id,
-            repo_type=str(job["eval_upload_repo_type"]),
-            exist_ok=True,
-        )
-        api.upload_folder(
-            repo_id=eval_repo_id,
-            repo_type=str(job["eval_upload_repo_type"]),
-            folder_path=str(job["eval_artifact_dir"]),
-            path_in_repo=str(job["eval_artifact_repo_path"]),
-            ignore_patterns=UPLOAD_IGNORE_PATTERNS,
-        )
+        eval_artifact_dir = Path(str(job["eval_artifact_dir"]))
+        if eval_artifact_dir.is_dir():
+            api.create_repo(
+                repo_id=eval_repo_id,
+                repo_type=str(job["eval_upload_repo_type"]),
+                exist_ok=True,
+            )
+            api.upload_folder(
+                repo_id=eval_repo_id,
+                repo_type=str(job["eval_upload_repo_type"]),
+                folder_path=str(eval_artifact_dir),
+                path_in_repo=str(job["eval_artifact_repo_path"]),
+                ignore_patterns=UPLOAD_IGNORE_PATTERNS,
+            )
+        else:
+            print(
+                f"[upload] skipping missing eval artifact dir: {eval_artifact_dir}",
+                file=sys.stderr,
+            )
     if train_repo_id:
+        train_artifact_dir = Path(str(job["train_artifact_dir"]))
+        if not train_artifact_dir.is_dir():
+            raise ValueError(f"train artifact dir does not exist: {train_artifact_dir}")
         api.create_repo(
             repo_id=train_repo_id,
             repo_type=str(job["train_upload_repo_type"]),
@@ -194,7 +204,7 @@ def _default_uploader(job: dict[str, str]) -> None:
         api.upload_folder(
             repo_id=train_repo_id,
             repo_type=str(job["train_upload_repo_type"]),
-            folder_path=str(job["train_artifact_dir"]),
+            folder_path=str(train_artifact_dir),
             path_in_repo=str(job["train_artifact_repo_path"]),
             ignore_patterns=UPLOAD_IGNORE_PATTERNS,
         )
@@ -244,7 +254,7 @@ def run_jobs(
             row
             for row in rows
             if states.get(row["job_id"], "")
-            in {"eval_succeeded", "upload_started", "upload_failed"}
+            in {"train_succeeded", "eval_succeeded", "upload_started", "upload_failed"}
         ]
     job_queue: queue.Queue[dict[str, str] | None] = queue.Queue()
     upload_queue: queue.Queue[UploadTask | None] = queue.Queue()

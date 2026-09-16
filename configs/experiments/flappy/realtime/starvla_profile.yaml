@@ -47,7 +47,6 @@ policy:
   device: cuda
   unnorm_key: new_embodiment
   prompt_mode: latency_neutral
-  latency_prompt_map_path: third_party/starVLA/prompt/flappy_latency_prompt_map.json
   actions:
     - noop
     - flap
@@ -59,10 +58,6 @@ evaluation:
   eval_max_steps: 3600
   eval_deterministic: true
   eval_raw_reward: true
-  eval_suites:
-    fixed: []
-    normal: []
-    uniform: []
 
 logging:
   output_dir: outputs/starvla_flappy_profile
