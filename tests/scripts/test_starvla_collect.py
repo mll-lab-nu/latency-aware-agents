@@ -21,6 +21,9 @@ def test_balance_dagger_model_geometry_and_latency_recipes():
     qwenoft = profile.vla_experiment_config("qwenoft", "zero_full")
     assert qwenpi["training"]["ppo"]["chunk_horizon"] == 16
     assert qwenpi["training"]["ppo"]["active_heads"] == [0, 16]
+    assert qwenpi["latency"]["method"] == "temporal"
+    assert qwenpi["latency"]["profile_worker_slot"] == 0
+    assert qwenpi["latency"]["add_latency_info"] is True
     assert "/qwenpi_v3/" in qwenpi["latency"]["profile_path"]
     assert qwenoft["training"]["ppo"]["chunk_horizon"] == 8
     assert qwenoft["training"]["ppo"]["active_heads"] == [0, 8]
@@ -29,6 +32,48 @@ def test_balance_dagger_model_geometry_and_latency_recipes():
             task_spec("balance_profile_h16").state_dim) == (16, 902)
     assert (task_spec("balance_profile_h8").action_horizon,
             task_spec("balance_profile_h8").state_dim) == (8, 550)
+
+
+def test_profile_teacher_suffix_stops_at_last_executed_head():
+    """Executed-only relabeling does no work past its replay clock."""
+    from collections import Counter
+
+    import torch
+    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import VLAProfileRollout
+
+    class Physics:
+        frames = 0
+
+        def step(self, action):
+            self.frames += 1
+            return np.full(198, self.frames, dtype=np.float32), 0.0, False, False, {}
+
+    class Teacher:
+        queries = 0
+
+        def empirical_obs_normalizer(self, observation, update_stats):
+            return observation
+
+        def actor(self, observation):
+            self.queries += 1
+            return torch.full((1, 16 * 43), float(self.queries))
+
+    physics, teacher = Physics(), Teacher()
+    rollout = object.__new__(VLAProfileRollout)
+    rollout.prediction = SimpleNamespace(unwrapped=physics)
+    rollout.chunk = SimpleNamespace(
+        native_action_space=SimpleNamespace(low=-np.ones(43), high=np.ones(43)),
+        env=SimpleNamespace(action=lambda action: action),
+    )
+    targets, valid, timings = np.zeros((16, 43)), np.zeros(16, dtype=bool), Counter()
+
+    rollout._teacher_suffix(teacher, np.zeros(198), 100, 5, 11, targets, valid, timings)
+
+    assert valid.tolist() == [False] * 5 + [True] * 6 + [False] * 5
+    assert teacher.queries == timings["teacher_queries"] == 2
+    assert physics.frames == timings["teacher_branch_frames"] == 6
+    np.testing.assert_array_equal(targets[5:10], np.ones((5, 43)))
+    np.testing.assert_array_equal(targets[10], np.full(43, 2.0))
 
 
 def test_qwenpi_flow_loss_ignores_masked_teacher_heads(monkeypatch):
@@ -91,7 +136,8 @@ def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch
                              command[command.index("--model") + 1],
                              "--collect-bootstrap-only" in command,
                              "--bootstrap-data" in command,
-                             kwargs["env"]["WANDB_MODE"], kwargs["env"]["CUDA_VISIBLE_DEVICES"]))
+                             "--rollout-overlap" in command, kwargs["env"]["WANDB_MODE"],
+                             kwargs["env"]["CUDA_VISIBLE_DEVICES"]))
 
         def poll(self):
             return 0
@@ -103,13 +149,13 @@ def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch
     monkeypatch.setattr(queue.time, "sleep", lambda seconds: None)
     assert queue.main() == 0
     assert launched == [
-        ("zero_full", True, True, "qwenpi_v3", False, False, "disabled", "2,3"),
-        ("profile_suffix", True, True, "qwenpi_v3", False, False, "disabled", "4,5"),
-        ("profile_executed", True, True, "qwenpi_v3", False, False, "disabled", "6,7"),
-        ("zero_full", False, True, "qwenpi_v3", False, False, "online", "2,3"),
-        ("profile_executed", False, True, "qwenpi_v3", True, False, "online", "4,5"),
-        ("profile_suffix", False, True, "qwenpi_v3", False, True, "online", "4,5"),
-        ("profile_executed", False, True, "qwenpi_v3", False, True, "online", "6,7"),
+        ("zero_full", True, True, "qwenpi_v3", False, False, True, "disabled", "2,3"),
+        ("profile_suffix", True, True, "qwenpi_v3", False, False, True, "disabled", "4,5"),
+        ("profile_executed", True, True, "qwenpi_v3", False, False, True, "disabled", "6,7"),
+        ("zero_full", False, True, "qwenpi_v3", False, False, True, "online", "2,3"),
+        ("profile_executed", False, True, "qwenpi_v3", True, False, True, "online", "4,5"),
+        ("profile_suffix", False, True, "qwenpi_v3", False, True, True, "online", "4,5"),
+        ("profile_executed", False, True, "qwenpi_v3", False, True, True, "online", "6,7"),
     ]
     jobs = json.loads((tmp_path / "queue.json").read_text())["jobs"]
     assert [jobs[mode]["status"] for mode, _ in queue.JOBS] == ["completed"] * 3

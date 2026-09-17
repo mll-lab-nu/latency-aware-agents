@@ -67,7 +67,7 @@ def main():
                    "--backbone", args.qwen_backbone,
                    "--port", str(29772 + [pair for _, pair in JOBS].index(pair)),
                    "--rollout-workers", "16", "--inference-batch-size", "8",
-                   "--no-rollout-overlap", "--no-gradient-checkpointing"]
+                   "--rollout-overlap", "--no-gradient-checkpointing"]
         if stage == "smoke":
             command.append("--smoke")
         if bootstrap_data is not None:

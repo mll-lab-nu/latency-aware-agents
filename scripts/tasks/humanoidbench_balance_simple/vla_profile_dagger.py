@@ -57,9 +57,15 @@ def vla_experiment_config(model, label_mode):
     if label_mode == "zero_full":
         config["latency"] = {"method": "zero", "seed": 271828, "add_latency_info": True}
     else:
-        config["latency"]["profile_path"] = str(
-            ROOT / "results/profiling/profiles" / model / "1x-rtx3090/g1_sonic_balance_simple"
-            / "instance_3a0d42681a03715c/profile.json")
+        config["latency"] = {
+            "method": "temporal",
+            "profile_path": str(
+                ROOT / "results/profiling/profiles" / model / "1x-rtx3090/g1_sonic_balance_simple"
+                / "instance_3a0d42681a03715c/profile.json"),
+            "profile_worker_slot": 0,
+            "seed": 271828,
+            "add_latency_info": True,
+        }
     config["training"]["ppo"]["chunk_horizon"] = horizon
     config["training"]["ppo"]["active_heads"] = [0, horizon]
     return config
@@ -80,9 +86,10 @@ class VLAProfileRollout:
         self.env = make_gymnasium_sf_env(
             self.cfg.env, self.cfg, SimpleNamespace(worker_index=0, vector_index=0, env_id=0)).env
         self.chunk = self.env.env
-        self.latency = self.chunk.env
+        self.latency = self.chunk.env.env
         self.initial_sampler = copy.deepcopy(self.latency.profile_sampler)
-        kwargs = {**config["env"]["make_kwargs"], "control_mode": "direct_absolute_position"}
+        kwargs = {**config["env"]["make_kwargs"], "control_mode": "direct_absolute_position",
+                  "render_mode": None}
         self.prediction = gym.make(config["env"]["env_id"], **kwargs)
         self.prediction.reset(seed=1)
         self.label_mode = label_mode
@@ -91,9 +98,38 @@ class VLAProfileRollout:
         self.prediction.close()
         self.env.close()
 
+    def _teacher_suffix(self, teacher, observation, frame, start, stop, targets, valid, timings):
+        """Roll the zero10 teacher from the private branch in five-frame blocks."""
+        physics = self.prediction.unwrapped
+        teacher_expected = {}
+        commands = None
+        for head in range(start, stop):
+            if (head - start) % TEACHER_BLOCK == 0:
+                started = time.perf_counter()
+                physical = torch.as_tensor(observation, dtype=torch.float32)[None]
+                with torch.no_grad():
+                    commands = teacher.actor(teacher.empirical_obs_normalizer(physical, update_stats=False))
+                commands = commands[0].reshape(16, 43)[:TEACHER_BLOCK].cpu().numpy()
+                timings["teacher_forward_seconds"] += time.perf_counter() - started
+                timings["teacher_queries"] += 1
+            targets[head] = commands[(head - start) % TEACHER_BLOCK]
+            valid[head] = True
+            raw = scale_box_action(targets[head], self.chunk.native_action_space.low,
+                                   self.chunk.native_action_space.high)
+            started = time.perf_counter()
+            observation, reward, terminated, _, _ = physics.step(self.chunk.env.action(raw))
+            timings["branch_step_seconds"] += time.perf_counter() - started
+            timings["teacher_branch_frames"] += 1
+            done = terminated or frame + head + 1 == 1000
+            teacher_expected[head] = (observation.copy(), reward, done)
+            if done:
+                break
+        return teacher_expected
+
     def teacher_labels(self, teacher, physical_observation, timings):
-        """Replay the committed prefix, then roll the zero10 teacher in five-frame blocks."""
+        """Replay the committed prefix, then roll the teacher suffix."""
         frame = self.latency.env_step_idx
+        started = time.perf_counter()
         shadow = copy.copy(self.latency)
         shadow.profile_sampler = copy.deepcopy(self.latency.profile_sampler)
         sample = shadow._next_latency_sample(worker_slot=0)
@@ -102,9 +138,10 @@ class VLAProfileRollout:
         timeline = copy.deepcopy(self.latency.result_timeline)
         physics = self.prediction.unwrapped
         physics.copy_balance_state_from(self.env.unwrapped)
+        timings["branch_setup_seconds"] += time.perf_counter() - started
         targets = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
         valid = np.zeros(self.chunk.horizon, dtype=bool)
-        expected, teacher_expected = {}, {}
+        expected = {}
         obs = physical_observation
 
         started = time.perf_counter()
@@ -121,31 +158,10 @@ class VLAProfileRollout:
             expected[current] = (obs.copy(), reward, done)
             if done:
                 timings["prefix_replay_seconds"] += time.perf_counter() - started
-                return targets, valid, expected, teacher_expected, sample
+                return targets, valid, expected, {}, sample
         timings["prefix_replay_seconds"] += time.perf_counter() - started
-
-        commands = None
-        for head in range(prefix_length, self.chunk.horizon):
-            if (head - prefix_length) % TEACHER_BLOCK == 0:
-                started = time.perf_counter()
-                physical = torch.as_tensor(obs, dtype=torch.float32)[None]
-                with torch.no_grad():
-                    commands = teacher.actor(teacher.empirical_obs_normalizer(physical, update_stats=False))
-                commands = commands[0].reshape(16, 43)[:TEACHER_BLOCK].cpu().numpy()
-                timings["teacher_forward_seconds"] += time.perf_counter() - started
-                timings["teacher_queries"] += 1
-            targets[head] = commands[(head - prefix_length) % TEACHER_BLOCK]
-            valid[head] = True
-            raw = scale_box_action(targets[head], self.chunk.native_action_space.low,
-                                   self.chunk.native_action_space.high)
-            started = time.perf_counter()
-            obs, reward, terminated, _, _ = physics.step(self.chunk.env.action(raw))
-            timings["branch_step_seconds"] += time.perf_counter() - started
-            timings["teacher_branch_frames"] += 1
-            done = terminated or frame + head + 1 == 1000
-            teacher_expected[head] = (obs.copy(), reward, done)
-            if done:
-                break
+        teacher_expected = self._teacher_suffix(
+            teacher, obs, frame, prefix_length, self.chunk.horizon, targets, valid, timings)
         return targets, valid, expected, teacher_expected, sample
 
     def requests(self, teacher, seed, slot, directory, config, *, collect, oracle, writer, timings):
@@ -154,15 +170,53 @@ class VLAProfileRollout:
         if self.initial_sampler is not None:
             self.latency.profile_sampler = copy.deepcopy(self.initial_sampler)
             self.latency.profile_sampler.rng.seed(derive_seed(271828, episode_idx=seed))
-        rows, prefix = {}, {}
+        rows, records, prefix = {}, {}, {}
         frames, total = 0, 0.0
         applied_heads = np.zeros(self.chunk.horizon, dtype=np.int64)
         issued = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
+        deferred = collect and not oracle and self.label_mode != "zero_full"
+        active_source = None
+
+        def finish(source, stop):
+            record = records[source]
+            targets = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
+            valid = np.zeros(self.chunk.horizon, dtype=bool)
+            self._teacher_suffix(teacher, record["observation"], source, record["start"], stop,
+                                 targets, valid, timings)
+            absolute = np.stack([self.chunk.env.action(head) for head in targets])
+            row = _balance_row(config["env"], record["image_path"], record["state"], absolute[0],
+                               seed, source, seed, "train")
+            executed = np.logical_and(record["executed"], valid)
+            row.update(issued_command_chunk=absolute.tolist(),
+                       teacher_valid_mask=valid.tolist(),
+                       executed_action_mask=executed.tolist(),
+                       action_valid_mask=(executed if self.label_mode == "profile_executed"
+                                          else valid).tolist(),
+                       latency_raw_frames=record["latency_raw_frames"],
+                       latency_ms=record["latency_ms"])
+            rows[source] = (row, valid, {})
+
         while True:
+            if deferred:
+                event, head = self.latency.action_scheduler.scheduled_chunk_event(
+                    self.latency.env_step_idx,
+                    self.latency.clock.step_to_time_ms(self.latency.env_step_idx))
+                source = -1 if event is None else event.obs_env_step
+                if source in records and source != active_source:
+                    if active_source is not None and self.label_mode == "profile_executed":
+                        finish(active_source, np.flatnonzero(records[active_source]["executed"])[-1] + 1)
+                    started = time.perf_counter()
+                    self.prediction.unwrapped.copy_balance_state_from(self.env.unwrapped)
+                    timings["branch_setup_seconds"] += time.perf_counter() - started
+                    records[source]["observation"] = observation["obs"].copy()
+                    records[source]["start"] = head
+                    active_source = source
+                    if self.label_mode == "profile_suffix":
+                        finish(source, self.chunk.horizon)
             admit = self.latency.worker_capacity.can_submit()
             sample = None
             if admit:
-                if collect:
+                if collect and not deferred:
                     targets, valid, expected, teacher_expected, sample = self.teacher_labels(
                         teacher, observation["obs"], timings)
                     prefix.update(expected)
@@ -176,16 +230,22 @@ class VLAProfileRollout:
                     started = time.perf_counter()
                     writer.write(image, image_path)
                     timings["image_submit_seconds"] += time.perf_counter() - started
-                    absolute = np.stack([self.chunk.env.action(head) for head in targets])
-                    row = _balance_row(config["env"], str(image_path), state, absolute[0],
-                                       seed, frames, seed, "train")
-                    suffix_mask = valid.tolist()
-                    row.update(issued_command_chunk=absolute.tolist(),
-                               teacher_valid_mask=suffix_mask,
-                               executed_action_mask=[False] * self.chunk.horizon,
-                               action_valid_mask=suffix_mask if self.label_mode != "profile_executed"
-                               else [False] * self.chunk.horizon)
-                    rows[frames] = (row, valid, teacher_expected)
+                    if deferred:
+                        records[frames] = {
+                            "image_path": str(image_path), "state": state,
+                            "executed": np.zeros(self.chunk.horizon, dtype=bool),
+                        }
+                    else:
+                        absolute = np.stack([self.chunk.env.action(head) for head in targets])
+                        row = _balance_row(config["env"], str(image_path), state, absolute[0],
+                                           seed, frames, seed, "train")
+                        suffix_mask = valid.tolist()
+                        row.update(issued_command_chunk=absolute.tolist(),
+                                   teacher_valid_mask=suffix_mask,
+                                   executed_action_mask=[False] * self.chunk.horizon,
+                                   action_valid_mask=suffix_mask if self.label_mode != "profile_executed"
+                                   else [False] * self.chunk.horizon)
+                        rows[frames] = (row, valid, teacher_expected)
                 request = _student_observation(image, state, frames, slot)
                 absolute = yield request
                 issued = targets if oracle else np.stack([self.chunk.env.reverse_action(head) for head in absolute])
@@ -199,6 +259,9 @@ class VLAProfileRollout:
                     info["latency_raw_frames"], info["worker_service_raw_frames"])
                 rows[frames][0]["latency_raw_frames"] = info["latency_raw_frames"]
                 rows[frames][0]["latency_ms"] = info["latency_ms"]
+            elif deferred and admit:
+                records[frames]["latency_raw_frames"] = info["latency_raw_frames"]
+                records[frames]["latency_ms"] = info["latency_ms"]
             if frames in prefix:
                 predicted, predicted_reward, predicted_done = prefix.pop(frames)
                 np.testing.assert_array_equal(observation["obs"], predicted)
@@ -207,17 +270,25 @@ class VLAProfileRollout:
             if source >= 0:
                 applied_heads[head] += 1
                 if collect:
-                    row, valid, teacher_expected = rows[source]
-                    row["executed_action_mask"][head] = bool(valid[head])
-                    if self.label_mode == "profile_executed":
-                        row["action_valid_mask"][head] = bool(valid[head])
-                    if oracle and valid[head]:
-                        predicted, predicted_reward, predicted_done = teacher_expected[head]
-                        np.testing.assert_array_equal(observation["obs"], predicted)
-                        assert reward == predicted_reward and done == predicted_done
+                    if deferred:
+                        records[source]["executed"][head] = True
+                        if source in rows:
+                            row, valid, _ = rows[source]
+                            row["executed_action_mask"][head] = bool(valid[head])
+                    else:
+                        row, valid, teacher_expected = rows[source]
+                        row["executed_action_mask"][head] = bool(valid[head])
+                        if self.label_mode == "profile_executed":
+                            row["action_valid_mask"][head] = bool(valid[head])
+                        if oracle and valid[head]:
+                            predicted, predicted_reward, predicted_done = teacher_expected[head]
+                            np.testing.assert_array_equal(observation["obs"], predicted)
+                            assert reward == predicted_reward and done == predicted_done
             frames += 1
             total += reward
             if done:
+                if deferred and active_source is not None and self.label_mode == "profile_executed":
+                    finish(active_source, np.flatnonzero(records[active_source]["executed"])[-1] + 1)
                 samples = [row for row, _, _ in rows.values() if any(row["action_valid_mask"])]
                 return {"seed": seed, "length": frames, "return": total,
                         "applied_heads": applied_heads.tolist(), "valid_labels": len(samples)}, samples

@@ -923,3 +923,96 @@ optimizer,checkpoint and evaluation contracts before collection. Focused local
 tests pass; formal training/evaluation/acceptance/publication all remain false.
 Next: review the staged diff and checklist,then run unchanged smokes before any
 formal launch.
+
+### 2026-09-17 08:49 UTC — Balance H8/H16 rollout optimized; smoke gates passed and four-arm matrix launched
+
+The staged rollout was corrected and optimized before launch. Profile recipes
+now explicitly use `method=temporal`,worker slot0 and latency metadata; the
+collector now points directly at `GymnasiumActionLatencyWrapper` instead of
+relying on prohibited private-attribute forwarding through
+`G1RawRequestWrapper`. Private prediction environments no longer create a render
+context. For DAgger profile rows,the teacher branch now starts from the live
+application-boundary physical state,so scheduler/timeline copies and committed
+prefix replay are gone. `profile_executed` delays relabeling until replacement or
+termination and stops at the last executed head. Oracle bootstrap retains eager
+prefix replay because its teacher chunk controls the live environment. The
+existing single raw profile bootstrap reuse remains the only bootstrap for both
+profile arms. Formal DAgger now enables the existing overlap path.
+
+Validation passed locally and on the H200 snapshot:23 passed,1 skipped in
+`tests/scripts/test_starvla_collect.py`. A fixed seed4100001 live-physics audit
+ran266 frames and compared50 application-boundary rows head-by-head with the old
+prefix-replay result. Both suffix and executed supervision matched; suffix used
+533 private suffix steps with no prefix replay,while executed dropped the same
+episode from137 to62 teacher queries and from533 to261 suffix steps. This is a
+54.7% teacher-query and51.0% suffix-step reduction; including the removed
+five-to-six-frame prefix,the private-physics reduction is about67% for this
+episode.
+
+The fixed-seed H200 overlap comparison used the same QwenPI H16 student,profile,
+seed5100001,16 workers and inference batch8 for2,048 retained labels. Sync took
+130.7394s total,including38.4795s startup and87.9095s steady; overlap took
+125.4416s total,42.5707s startup and78.3043s steady. Thus overlap reduced steady
+time10.9% and cold total4.1%,despite completing2,393 rows versus2,200 during
+cohort drain. In the sync run,the aggregate worker counters were render544.9611s,
+live env46.6792s,private branch35.6792s,branch setup8.5726s,teacher forward
+1.6513s and image submit0.3571s; serialized inference was36.9654s. These worker
+sums overlap across16 processes and must not be added as wall time. Evidence:
+[sync](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/rollout_benchmark/sync_2048.json) and
+[overlap](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/rollout_benchmark/overlap_2048.json).
+
+The optimized H16 DAgger smoke gives the mask-specific comparison. Suffix used
+4,312 branch frames,1,155 teacher queries and97.2358s steady; executed used2,303
+frames,587 queries and73.4010s steady. Executed therefore reduced branch frames
+46.6%,queries49.2% and steady wall24.5% in this smoke; both recorded zero prefix
+replay. Evidence: [suffix](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/smoke_timing/profile_suffix_dagger_01.json) and
+[executed](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/smoke_timing/profile_executed_dagger_01.json).
+The remaining rollout bottlenecks are EGL render and student inference; teacher
+forward and PNG submission are now small. Cross-worker teacher batching and
+image-semantic changes remain intentionally out of scope.
+
+All four unchanged end-to-end smokes completed6 optimizer updates and two held-
+out episodes per checkpoint. Their held-out bootstrap/best/latest mean survival
+frames were: local QwenOFT H8 zero15.0/24.5/24.0; remote QwenPI H16 zero
+17.5/17.5/19.0; profile suffix19.5/26.5/26.5; profile executed18.0/27.0/22.0.
+These two-episode values are plumbing evidence only and do not establish
+acceptance. Local smoke evidence is
+[result.json](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/local_qwenoft_h8_smoke/result.json); remote smoke roots are under
+`/mnt/local/balance-profile-matrix-20260917T0812Z/remote_qwenpi_h16/` on the
+eight-H200 host.
+
+The requested formal matrix is now live. Local tmux
+`balance_qwenoft_h8_matrix` (controller pane PID2242358) launched
+`local_qwenoft_h8_zero_full` on GPUs0--1 with checkpointing on. Its fresh71,000-
+row bootstrap completed in333.7158s:218.3979s steady,104.9859s conversion,
+72,028 generated rows across1,165 episodes and212.7559 retained labels/s. It
+then started the fresh5,000-update bootstrap learner; the08:48:49 UTC log had
+reached step55 at about1.9s/update. Its online [bootstrap run](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/profile_matrix_20260917T0812Z-local_qwenoft_h8_zero_full-bootstrap)
+uses ID `profile_matrix_20260917T0812Z-local_qwenoft_h8_zero_full-bootstrap`;
+the reserved DAgger ID is the same prefix plus `-dagger`.
+
+On the H200 host,queue controller PID1783088 passed all three smokes and launched
+QwenPI H16 zero_full PID1805191 on GPUs2--3 plus the sole raw profile bootstrap
+collector PID1805192 on GPUs4--5. At this audit they had3,315 and3,004 retained
+labels respectively. The profile collector uses `profile_executed` only to
+ensure retained rows have an execution mask; after71,000 rows the queue will
+derive suffix/executed datasets by changing only `action_valid_mask`,then launch
+fresh independent models on GPUs4--5 and6--7. GPU6--7 are intentionally idle
+until that shared source is ready. The remote root is
+`/mnt/local/balance-profile-matrix-20260917T0812Z`; queue state is
+`remote_qwenpi_h16/queue.json`. The zero IDs are
+`remote_qwenpi_h16-qwenpi_v3_h16_zero_full_formal-bootstrap` and `-dagger`.
+
+Every formal arm records71,000 bootstrap rows,5,000 fresh bootstrap updates and
+10 rounds of16,000 rows plus500 updates; no old model or optimizer is reused.
+The teacher remains the frozen zero10 FastTD3 small checkpoint and only heads
+0--4 are consumed. Source revisions are benchmark
+`bd3baacbdb2e0cc3a43d14040dcd2cbdbccb0ecd` dirty,StarVLA
+`d9e060588c4303b927a518948380647dcec4aca7` dirty,Sample Factory
+`4b11d8754ffc989cdd15a340cfc9be0277377d5b` and HumanoidBench
+`bfb63711ebe41bc0965287353b657f9bc52699da`. The deployed rollout and queue
+SHA256 values are `3958629b...709` and `0c2cccd0...670`. Formal launch=true;
+training completion=false;evaluation completion=false;acceptance=false;
+publication=false. Next: monitor both fresh bootstrap learners and the shared
+profile collection,then verify the two profile arms start from that one source
+with independent random initializations.
