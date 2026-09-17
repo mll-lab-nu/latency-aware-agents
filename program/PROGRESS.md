@@ -857,3 +857,69 @@ are not justified by this gate result. From-scratch and other-task work stays
 deferred. Current entry points and SF ownership are in
 [BALANCE_MC_PPO](BALANCE_MC_PPO.md); native resume applies to the new SF experiment
 directories, while historical standalone checkpoints remain archived.
+
+### 2026-09-17 — Corrected Balance DAgger H8/H16 matrix staged for review; no new experiment launched
+
+The preceding QwenOFT H16 profile recovery is no longer active. It was stopped
+with SIGINT after DAgger optimizer step1,500 (6,500 combined updates); latest is
+`dagger_03_1500`,32-seed development mean survival66.78125 and return
+54.74927086. Best is `dagger_03_1250`,mean survival70.78125. Its output remains
+under `/mnt/local/balance-profile-qwenoft-iterative-v2-20260917/formal_v2` and
+the stop evidence is
+`/mnt/local/balance-profile-qwenoft-iterative-v2-20260917/stop_audit_20260917T0708Z.json`.
+No matching remote process remained and all remote GPUs were idle at that audit.
+
+The old local `balance-qwenpi-v3-h8-fullchunk2k-stride8-20260917T1740Z` run was
+also stopped because QwenPI v3 must use H16,not H8. It received SIGINT at
+2026-09-17 15:24:09 UTC during DAgger step3,755/4,000; step3,500 is the last
+complete periodic checkpoint. The interrupt directory contains model/optimizer
+shards but no RNG/latest files after elastic forced the ranks down at its30-second
+grace boundary,so it is not a resumable accepted checkpoint. No post-interrupt
+evaluation ran. All earlier data and checkpoints were preserved; local GPUs0--1
+were verified at0MiB afterward. [Stop audit](../outputs/tasks/humanoidbench_balance_simple/full_chunk_baselines_20260917/qwenpi/zero/stop_audit_20260917T1524Z.json).
+
+The replacement implementation is staged for review only. No smoke or formal
+run has been launched. The exact planned matrix is:
+
+| Hardware | GPUs | Student | Horizon/state | Condition and loss mask | Gradient checkpointing |
+|---|---:|---|---:|---|---|
+| local |0--1|QwenOFT|H8 /550D|zero latency,whole teacher-valid chunk|on|
+| H200 remote |2--3|QwenPI v3|H16 /902D|zero latency,whole teacher-valid chunk|off|
+| H200 remote |4--5|QwenPI v3|H16 /902D|RTX3090 QwenPI temporal profile,entire teacher-valid suffix|off|
+| H200 remote |6--7|QwenPI v3|H16 /902D|same profile,teacher-valid intersect same-request executed heads|off|
+
+Every arm starts model training from a fresh bootstrap initialization. No old
+bootstrap model or optimizer is reused. The two profile arms reuse the same raw
+bootstrap rows,images and target chunks; the shared source is collected with the
+execution-aligned mask so every retained row is trainable,then each arm writes
+only its own `action_valid_mask` and computes its own normalization statistics.
+They do not share trained weights. Zero and profile data are not mixed.
+
+The frozen teacher is the zero10 FastTD3 small model at
+`outputs/tasks/humanoidbench_balance_simple/h16_optimizer100k/20260915T124345Z/rl_checkpoints/balance-qwenpi_v3-h16-zero10-w128e1s1-replay6553600-100kopt-20260915T124345Z-s1-rl/checkpoint_p0/checkpoint_000100000_31400509.pth`,with config
+`outputs/tasks/humanoidbench_balance_simple/h16_optimizer100k/20260915T124345Z/configs/qwenpi_h16_zero10_w128e1s1_optimizer100k.yaml`.
+Only its trained heads0--4 are consumed. Closed-loop labels re-query the teacher
+every five private physics frames: H8 uses5+3 (two queries),H16 uses5+5+5+1
+(four queries). Under profile latency,the private branch first replays admitted
+commands into the target with mask false,then generates the teacher suffix from
+the resulting application state. `profile_executed` further intersects teacher
+validity with the live student's `replay_clock` for the same request.
+
+Formal budget is71,000 bootstrap rows (episode split approximately64k train/7k
+validation),5,000 fresh bootstrap updates,then ten DAgger rounds of16,000 rows
+and500 updates each. DAgger round1 samples bootstrap/latest50/50; subsequent
+rounds sample bootstrap/latest/all-old-history40/40/20. Dataset-size weighting
+is disabled and step sampling is random. Bootstrap→DAgger intentionally creates
+a fresh optimizer; all DAgger rounds then resume one complete optimizer,
+scheduler and RNG state. The latest checkpoint drives collection; best is only
+reported. Development evaluation is32 fixed seeds after bootstrap and every
+round; held-out evaluation is32 episodes. Metrics use `eval/*`.
+
+Collection evidence records teacher-forward,prefix-replay,private-branch-step,
+environment-step,render,image-submit/image-flush,inference and conversion wall
+times plus teacher query and branch-frame counts. The run writes a
+`semantic_checklist.json` containing model geometry,mask,teacher,replay,
+optimizer,checkpoint and evaluation contracts before collection. Focused local
+tests pass; formal training/evaluation/acceptance/publication all remain false.
+Next: review the staged diff and checklist,then run unchanged smokes before any
+formal launch.

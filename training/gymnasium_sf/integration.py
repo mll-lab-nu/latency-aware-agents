@@ -181,7 +181,7 @@ class G1RawRequestWrapper(gym.ActionWrapper):
 
 
 class ActionChunkWrapper(gym.Wrapper):
-    """Expose normalized chunks, raw-frame traces, and optional committed context."""
+    """Expose normalized chunks, raw-frame traces, and returned action context."""
 
     def __init__(self, env, horizon, obs_stride, *, latency_env=None, context_delay=None):
         super().__init__(env)
@@ -231,10 +231,14 @@ class ActionChunkWrapper(gym.Wrapper):
                 latency.env_step_idx, latency.clock.step_to_time_ms(latency.env_step_idx),
             )
             if event is not None:
-                start, end = chunk_context_window(
-                    latency.env_step_idx, event.obs_env_step, self.context_delay,
-                    [pending.obs_env_step for pending in latency.result_timeline.get_pending_events()],
-                )
+                if latency.profile_sampler is not None:
+                    # Returned commands are known, but their replacement time is not.
+                    start, end = index, self.horizon
+                else:
+                    start, end = chunk_context_window(
+                        latency.env_step_idx, event.obs_env_step, self.context_delay,
+                        [pending.obs_env_step for pending in latency.result_timeline.get_pending_events()],
+                    )
                 for head in np.unique(np.minimum(np.arange(start, end), self.horizon - 1)):
                     chunk[head] = self.env.reverse_action(event.action_chunk[head])
                 indices[index] = 1.0

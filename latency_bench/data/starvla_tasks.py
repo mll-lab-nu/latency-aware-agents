@@ -33,6 +33,26 @@ class StarVLATaskSpec:
 
 
 TASK_SPECS: dict[str, StarVLATaskSpec] = {
+    "balance_profile_h16": StarVLATaskSpec(
+        name="humanoidbench_balance_simple",
+        robot_type="latency_balance_profile_h16",
+        auxiliary_shapes=(("action_valid_mask", (16,)),),
+        action_horizon=16,
+        state_dim=902,
+        action_dim=43,
+        fps=50.0,
+        video_keys=("video.ego_view",),
+    ),
+    "balance_profile_h8": StarVLATaskSpec(
+        name="humanoidbench_balance_simple",
+        robot_type="latency_balance_profile_h8",
+        auxiliary_shapes=(("action_valid_mask", (8,)),),
+        action_horizon=8,
+        state_dim=550,
+        action_dim=43,
+        fps=50.0,
+        video_keys=("video.ego_view",),
+    ),
     "balance": StarVLATaskSpec(
         name="humanoidbench_balance_simple",
         robot_type="latency_balance_h8",
@@ -162,8 +182,9 @@ def write_task_contract(
         if normalization_source is None
         else _normalization_source_contract(normalization_source)["normalization"]
     )
+    version = 3 if spec.robot_type in ("latency_balance_profile_h8", "latency_balance_profile_h16") else (2 if spec.name == TASK_SPECS["balance"].name else 1)
     contract: dict[str, Any] = {
-        "format": f"latency_bench_starvla_h{spec.action_horizon}_v{2 if spec.name == TASK_SPECS['balance'].name else 1}",
+        "format": f"latency_bench_starvla_h{spec.action_horizon}_v{version}",
         "task": spec.name,
         "robot_type": spec.robot_type,
         "state_dim": spec.state_dim,
