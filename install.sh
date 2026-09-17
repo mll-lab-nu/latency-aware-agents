@@ -195,15 +195,9 @@ install_latency_env() {
     python -m pip install pip==25.3 setuptools==80.9.0 wheel==0.47.0
     ensure_uv
     PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
-    local root_package=".[dev]"
-    if [[ "${MODEL_TARGET}" == "gr00t" || "${MODEL_TARGET}" == "all" ]]; then
-        root_package=".[dev,sonic]"
-    fi
-    pip_install -e "${root_package}"
-    if [[ "${MODEL_TARGET}" == "gr00t" || "${MODEL_TARGET}" == "all" ]]; then
-        pip_install --no-deps -e third_party/humanoid-bench
-        python -c 'import humanoid_bench, mujoco, onnxruntime; print("latency Sonic imports complete")'
-    fi
+    pip_install -e ".[dev,sonic]"
+    pip_install --no-deps -e third_party/humanoid-bench
+    python -c 'import humanoid_bench, mujoco, onnxruntime; print("latency Sonic imports complete")'
     pip_install -e third_party/sample-factory
 
     for env_name in demon_attack deadly_corridor flappy; do
@@ -224,13 +218,11 @@ init_model_submodules() {
         third_party/starVLA
         third_party/sample-factory
         third_party/flappy-bird-gymnasium
+        third_party/humanoid-bench
     )
 
     case "${MODEL_TARGET}" in
         gr00t|all)
-            submodules+=(
-                third_party/humanoid-bench
-            )
             if [[ "${INIT_PRIVATE_SUBMODULES}" == "true" ]]; then
                 submodules+=(
                     third_party/MIKASA-Robo

@@ -346,7 +346,10 @@ def test_install_script_forwards_fixed_stack_bootstrap(tmp_path):
     assert "conda activate latency" in calls
     assert "bash third_party/starVLA/examples/rl_games/install/torch.sh" in calls
     assert "uv pip install" in calls
-    assert "-e .[dev]" in calls
+    assert "-e .[dev,sonic]" in calls
+    assert "--no-deps -e third_party/humanoid-bench" in calls
+    assert "python -c import humanoid_bench, mujoco, onnxruntime" in calls
+    assert "third_party/humanoid-bench" in calls.split("git submodule update --init --recursive ", 1)[1]
     assert "-e third_party/sample-factory" in calls
     for game in ("demon_attack", "deadly_corridor", "flappy"):
         assert f"bash third_party/starVLA/examples/rl_games/install/env/{game}.sh" in calls
@@ -387,7 +390,7 @@ def test_install_script_updates_existing_latency_environment(tmp_path):
         "python=3.10 cuda-toolkit=12.8.1 pip setuptools wheel packaging zlib=1.3.2 -y"
     ) in calls
     assert "conda create -n latency" not in calls
-    assert "-e .[dev]" in calls
+    assert "-e .[dev,sonic]" in calls
     assert "bootstrap.sh --tier use --model openvla" in calls
 
 

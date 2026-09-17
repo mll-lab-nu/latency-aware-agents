@@ -124,7 +124,7 @@ def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch
     """Long-lived contract: exact GPU recipes pass smoke and share profile bootstrap rows."""
     from scripts.tasks.humanoidbench_balance_simple import queue_profile as queue
 
-    launched = []
+    launched, environments = [], []
 
     class Process:
         pid = 123
@@ -132,6 +132,7 @@ def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch
         def __init__(self, command, **kwargs):
             self.mode = command[command.index("--label-mode") + 1]
             self.smoke = "--smoke" in command
+            environments.append(kwargs["env"])
             launched.append((self.mode, self.smoke, "--no-gradient-checkpointing" in command,
                              command[command.index("--model") + 1],
                              "--collect-bootstrap-only" in command,
@@ -157,6 +158,8 @@ def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch
         ("profile_suffix", False, True, "qwenpi_v3", False, True, True, "online", "4,5"),
         ("profile_executed", False, True, "qwenpi_v3", False, True, True, "online", "6,7"),
     ]
+    assert all(str(queue.ROOT / "third_party/humanoid-bench") in env["PYTHONPATH"].split(":")
+               for env in environments)
     jobs = json.loads((tmp_path / "queue.json").read_text())["jobs"]
     assert [jobs[mode]["status"] for mode, _ in queue.JOBS] == ["completed"] * 3
 
@@ -198,7 +201,7 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
     output = tmp_path / "output"
-    collections, training, wandb_calls = [], [], []
+    collections, rollouts, training, wandb_calls = [], [], [], []
 
     class Run:
         url = "https://wandb.invalid/run"
@@ -219,6 +222,7 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
             pass
 
     def rollout(args, config, directory, *, bundle, run, count=None, seeds=None):
+        rollouts.append((directory, bundle, count))
         if count is not None:
             collections.append(bundle)
             return {"seconds": 1.0, "startup_seconds": 0.1, "steady_seconds": 0.8,
@@ -266,6 +270,28 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
         "bootstrap": {"id": f"{tmp_path.name}-output-bootstrap", "url": "https://wandb.invalid/run"},
         "dagger": {"id": f"{tmp_path.name}-output-dagger", "url": "https://wandb.invalid/run"},
     }
+    pending_bundle = output / "bundles/dagger_09_4500"
+    pending_state = output / "training/dagger/checkpoints/steps_4500_state"
+    pending_state.mkdir(parents=True)
+    (pending_state.parent / "steps_4500_pytorch_model.pt").touch()
+    (pending_bundle / "checkpoints").mkdir(parents=True)
+    (pending_bundle / "checkpoints/model.pt").touch()
+    pending_collection = output / "dagger_09/episodes.json"
+    pending_collection.parent.mkdir()
+    pending_collection.write_text(json.dumps({
+        "seconds": 1.0, "startup_seconds": 0.1, "steady_seconds": 0.8,
+        "conversion_seconds": 0.1, "labels_per_second": 1.0,
+        "generated_labels": 16000, "num_envs": 16, "inference_seconds": 0.1,
+    }))
+    history_path = output / "history.json"
+    profile.write_json(history_path, json.loads(history_path.read_text())[:9])
+    rollouts.clear()
+    training.clear()
+    monkeypatch.setattr(sys, "argv", [*sys.argv, "--resume"])
+    profile.main()
+
+    assert rollouts[0] == (output / "evaluation/dagger_09_4500", pending_bundle, None)
+    assert training == [("dagger_10", 5000, 5000, pending_state, True)]
 
 
 def test_profile_bootstrap_reuse_changes_only_the_supervision_mask(tmp_path, monkeypatch):

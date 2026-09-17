@@ -8,12 +8,13 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+
+from scripts.starvla.train_task import environment
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -74,8 +75,9 @@ def main():
             command.extend(("--bootstrap-data", str(bootstrap_data)))
         if collect_only:
             command.append("--collect-bootstrap-only")
-        env = os.environ | {"CUDA_VISIBLE_DEVICES": pair, "MUJOCO_EGL_DEVICE_ID": pair.split(",")[0],
-                            "WANDB_MODE": "disabled" if stage == "smoke" else "online"}
+        env = environment() | {"CUDA_VISIBLE_DEVICES": pair,
+                               "MUJOCO_EGL_DEVICE_ID": pair.split(",")[0],
+                               "WANDB_MODE": "disabled" if stage == "smoke" else "online"}
         log_name = "shared_profile_bootstrap.log" if collect_only else f"{mode}_{stage}.log"
         with (args.output / log_name).open("x") as log:
             process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,

@@ -722,9 +722,11 @@ def main():
     parser.add_argument("--rollout-workers", type=int, default=16)
     parser.add_argument("--inference-batch-size", type=int, default=8)
     parser.add_argument("--rollout-overlap", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     args.output_dir = args.output.resolve()
-    args.output_dir.mkdir(parents=True, exist_ok=False)
+    if not args.resume:
+        args.output_dir.mkdir(parents=True, exist_ok=False)
     args.run_id = f"{args.output_dir.parent.name}-{args.output_dir.name}"
     os.environ["WANDB_RUN_GROUP"] = args.run_id
     args.task = "balance"
@@ -735,71 +737,115 @@ def main():
     args.normalization_source = None
     torch.set_num_threads(1)
     torch.manual_seed(1)
-    config = vla_experiment_config(args.model, args.label_mode)
-    config["env"]["make_kwargs"]["render_mode"] = "rgb_array"
-    config["env"]["make_kwargs"]["camera_name"] = "head_camera"
-    config["backend"]["initial_model_path"] = str(args.teacher)
-    write_json(args.output_dir / "environment.json", config)
-    bootstrap_data = args.bootstrap_data.resolve() if args.bootstrap_data is not None else None
-    profile_path = None if args.label_mode == "zero_full" else config["latency"]["profile_path"]
-    budget = {"bootstrap_labels": 512 if args.smoke else 71000, "bootstrap_steps": 2 if args.smoke else 5000,
-              "round_labels": 512 if args.smoke else 16000, "round_steps": 2 if args.smoke else 500,
-              "rounds": 2 if args.smoke else 10, "micro_batch": 64, "global_batch": 128,
-              "gradient_checkpointing": args.gradient_checkpointing, "workers_per_rank": 16, "prefetch": 3,
-              "inference_seed": INFERENCE_SEED, "profile_is_deployment_proxy": True,
-              "rollout_workers": args.rollout_workers, "inference_batch_size": args.inference_batch_size,
-              "rollout_overlap": args.rollout_overlap, "model": args.model,
-              "action_horizon": args.horizon, "state_dim": 198 + args.horizon * 43 + args.horizon,
-              "label_mode": args.label_mode, "teacher_block": TEACHER_BLOCK,
-              "profile_path": profile_path,
-              "bootstrap_data": str(bootstrap_data) if bootstrap_data is not None else None}
-    write_json(args.output_dir / "budget.json", budget)
-    write_json(args.output_dir / "semantic_checklist.json", {
-        "bootstrap_training": ("data_source_only" if args.collect_bootstrap_only
-                               else "from_random_initialization"),
-        "model_geometry": f"{args.model}_h{args.horizon}",
-        "gradient_checkpointing": args.gradient_checkpointing,
-        "teacher": "zero10_fasttd3_h16_heads_0_through_4",
-        "teacher_chunking": f"closed_loop_requery_every_{TEACHER_BLOCK}_frames",
-        "label_mode": args.label_mode,
-        "profile_prefix": "committed_actions_in_target_but_masked",
-        "profile_executed_mask": "teacher_valid_intersection_same_request_replay_clock",
-        "replay": "round1_bootstrap_latest_50_50_then_bootstrap_latest_history_40_40_20",
-        "dagger_optimizer": "single_continuous_optimizer_scheduler_rng_across_rounds",
-        "rollout_checkpoint": "latest",
-        "selection_checkpoint": "best_only_for_reporting",
-        "development_eval_episodes": 0 if args.collect_bootstrap_only else (2 if args.smoke else 32),
-        "heldout_eval_episodes": 0 if args.collect_bootstrap_only else (2 if args.smoke else 32),
-    })
-    development = list(range(810001, 810003 if args.smoke else 810033))
-    heldout = list(range(820101, 820103)) if args.smoke else list(range(820001, 820033))
+    if args.resume:
+        config = json.loads((args.output_dir / "environment.json").read_text())
+        budget = json.loads((args.output_dir / "budget.json").read_text())
+        run_record = json.loads((args.output_dir / "run.json").read_text())
+        history = json.loads((args.output_dir / "history.json").read_text())
+        bootstrap_data = (Path(run_record["bootstrap_data"])
+                          if run_record["bootstrap_data"] is not None else None)
+        development = run_record["development_seeds"]
+        heldout = run_record["heldout_seeds"]
+        args.wandb_runs = run_record["wandb_runs"]
+    else:
+        config = vla_experiment_config(args.model, args.label_mode)
+        config["env"]["make_kwargs"]["render_mode"] = "rgb_array"
+        config["env"]["make_kwargs"]["camera_name"] = "head_camera"
+        config["backend"]["initial_model_path"] = str(args.teacher)
+        write_json(args.output_dir / "environment.json", config)
+        bootstrap_data = args.bootstrap_data.resolve() if args.bootstrap_data is not None else None
+        profile_path = None if args.label_mode == "zero_full" else config["latency"]["profile_path"]
+        budget = {"bootstrap_labels": 512 if args.smoke else 71000,
+                  "bootstrap_steps": 2 if args.smoke else 5000,
+                  "round_labels": 512 if args.smoke else 16000,
+                  "round_steps": 2 if args.smoke else 500,
+                  "rounds": 2 if args.smoke else 10, "micro_batch": 64,
+                  "global_batch": 128, "gradient_checkpointing": args.gradient_checkpointing,
+                  "workers_per_rank": 16, "prefetch": 3,
+                  "inference_seed": INFERENCE_SEED, "profile_is_deployment_proxy": True,
+                  "rollout_workers": args.rollout_workers,
+                  "inference_batch_size": args.inference_batch_size,
+                  "rollout_overlap": args.rollout_overlap, "model": args.model,
+                  "action_horizon": args.horizon,
+                  "state_dim": 198 + args.horizon * 43 + args.horizon,
+                  "label_mode": args.label_mode, "teacher_block": TEACHER_BLOCK,
+                  "profile_path": profile_path,
+                  "bootstrap_data": str(bootstrap_data) if bootstrap_data is not None else None}
+        write_json(args.output_dir / "budget.json", budget)
+        write_json(args.output_dir / "semantic_checklist.json", {
+            "bootstrap_training": ("data_source_only" if args.collect_bootstrap_only
+                                   else "from_random_initialization"),
+            "model_geometry": f"{args.model}_h{args.horizon}",
+            "gradient_checkpointing": args.gradient_checkpointing,
+            "teacher": "zero10_fasttd3_h16_heads_0_through_4",
+            "teacher_chunking": f"closed_loop_requery_every_{TEACHER_BLOCK}_frames",
+            "label_mode": args.label_mode,
+            "profile_prefix": "committed_actions_in_target_but_masked",
+            "profile_executed_mask": "teacher_valid_intersection_same_request_replay_clock",
+            "replay": "round1_bootstrap_latest_50_50_then_bootstrap_latest_history_40_40_20",
+            "dagger_optimizer": "single_continuous_optimizer_scheduler_rng_across_rounds",
+            "rollout_checkpoint": "latest",
+            "selection_checkpoint": "best_only_for_reporting",
+            "development_eval_episodes": (0 if args.collect_bootstrap_only
+                                            else (2 if args.smoke else 32)),
+            "heldout_eval_episodes": (0 if args.collect_bootstrap_only
+                                       else (2 if args.smoke else 32)),
+        })
+        development = list(range(810001, 810003 if args.smoke else 810033))
+        heldout = list(range(820101, 820103)) if args.smoke else list(range(820001, 820033))
+        history = []
+        args.wandb_runs = {
+            "bootstrap": {"id": f"{args.run_id}-bootstrap"},
+            "dagger": {"id": f"{args.run_id}-dagger"},
+        }
+        run_record = {"wandb_runs": args.wandb_runs, "development_seeds": development,
+                      "heldout_seeds": heldout, "teacher": str(args.teacher),
+                      "teacher_config": str(args.teacher_config),
+                      "bootstrap_data": str(bootstrap_data) if bootstrap_data is not None else None,
+                      "bootstrap_bundle": None}
+        write_json(args.output_dir / "run.json", run_record)
     bootstrap = args.output_dir / "bootstrap"
-    deltas, history = [], []
-    best_bundle, best_score, best_stage, optimizer_steps = None, -float("inf"), None, 0
-    bootstrap_best, rollout_bundle = None, None
+    args.normalization_source = bootstrap / "lerobot" if args.resume else None
+    deltas = []
+    best_entry = max(history, key=lambda entry: entry["evaluation"]["mean_length"]) if history else None
+    best_bundle = Path(best_entry["bundle"]) if best_entry is not None else None
+    best_score = best_entry["evaluation"]["mean_length"] if best_entry is not None else -float("inf")
+    best_stage = ("bootstrap" if best_entry["round"] == 0 else "dagger") if best_entry else None
+    optimizer_steps = history[-1]["optimizer_steps"] if history else 0
+    bootstrap_best = (Path(run_record["bootstrap_bundle"])
+                      if run_record["bootstrap_bundle"] is not None else None)
+    rollout_bundle = Path(history[-1]["bundle"]) if history else None
     dagger_pretrained, dagger_resume = None, False
-    args.wandb_runs = {
-        "bootstrap": {"id": f"{args.run_id}-bootstrap"},
-        "dagger": {"id": f"{args.run_id}-dagger"},
-    }
-    run_record = {"wandb_runs": args.wandb_runs, "development_seeds": development,
-                  "heldout_seeds": heldout, "teacher": str(args.teacher),
-                  "teacher_config": str(args.teacher_config),
-                  "bootstrap_data": str(bootstrap_data) if bootstrap_data is not None else None,
-                  "bootstrap_bundle": str(bootstrap_best) if bootstrap_best is not None else None}
-    write_json(args.output_dir / "run.json", run_record)
+    completed = {entry["round"]: entry for entry in history}
     for round_number in range(budget["rounds"] + 1):
         stage = "bootstrap" if round_number == 0 else "dagger"
         phase = "bootstrap" if round_number == 0 else f"dagger_{round_number:02d}"
         directory = args.output_dir / phase
+        if round_number in completed:
+            latest = Path(completed[round_number]["bundle"])
+            if round_number == 0:
+                bootstrap_best = latest
+                rollout_bundle = latest
+                dagger_pretrained, dagger_resume = latest / "checkpoints/model.pt", False
+            else:
+                deltas.append(directory)
+                boundary = round_number * budget["round_steps"]
+                state = args.output_dir / f"training/dagger/checkpoints/steps_{boundary}_state"
+                rollout_bundle = latest
+                dagger_pretrained, dagger_resume = state, True
+            continue
         args.collection_seed = 4100001 + round_number * 100000
         labels = budget["bootstrap_labels"] if round_number == 0 else budget["round_labels"]
         with _wandb_stage_run(args, stage, budget) as run:
             run.define_metric("eval/*", step_metric="optimizer_steps")
             run.log({"round": round_number})
-            collection = (reuse_bootstrap(args, config, bootstrap_data, directory)
-                          if round_number == 0 and bootstrap_data is not None
-                          else rollout_batch(args, config, directory, bundle=rollout_bundle, run=run, count=labels))
+            if (directory / "episodes.json").is_file():
+                collection = json.loads((directory / "episodes.json").read_text())
+            else:
+                collection = (reuse_bootstrap(args, config, bootstrap_data, directory)
+                              if round_number == 0 and bootstrap_data is not None
+                              else rollout_batch(args, config, directory, bundle=rollout_bundle,
+                                                 run=run, count=labels))
             run.log({"round": round_number, "collection/labels": labels,
                      **{f"collection/{key}": collection[key] for key in (
                          "seconds", "startup_seconds", "steady_seconds", "conversion_seconds",
@@ -824,7 +870,15 @@ def main():
             start, end = (round_number - 1) * budget["round_steps"], round_number * budget["round_steps"]
             interval, pretrained, resume = budget["round_steps"], dagger_pretrained, dagger_resume
         for boundary in range(start + interval, end + 1, interval):
-            latest, state = train_segment(args, bootstrap, deltas, phase, steps, boundary, pretrained, resume)
+            training_phase = "bootstrap" if round_number == 0 else "dagger"
+            checkpoint_dir = args.output_dir / "training" / training_phase / "checkpoints"
+            state = checkpoint_dir / f"steps_{boundary}_state"
+            weights = checkpoint_dir / f"steps_{boundary}_pytorch_model.pt"
+            latest = args.output_dir / f"bundles/{phase}_{boundary}"
+            if not (args.resume and state.is_dir() and weights.is_file()
+                    and (latest / "checkpoints/model.pt").is_file()):
+                latest, state = train_segment(
+                    args, bootstrap, deltas, phase, steps, boundary, pretrained, resume)
             evaluation = rollout_batch(args, config, args.output_dir / f"evaluation/{phase}_{boundary}",
                                        bundle=latest, run=None, seeds=development)
             optimizer_steps = boundary if round_number == 0 else budget["bootstrap_steps"] + boundary

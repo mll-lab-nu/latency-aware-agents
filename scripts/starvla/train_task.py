@@ -91,7 +91,9 @@ def conda_python(name: str) -> Path:
 
 def environment() -> dict[str, str]:
     return os.environ | {
-        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA), str(ROOT / 'third_party/sample-factory')]),
+        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA),
+                                      str(ROOT / 'third_party/humanoid-bench'),
+                                      str(ROOT / 'third_party/sample-factory')]),
         'TOKENIZERS_PARALLELISM': 'false', 'MUJOCO_GL': 'egl',
         'OMNI_KIT_ACCEPT_EULA': 'YES', 'NO_ALBUMENTATIONS_UPDATE': '1',
         'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
