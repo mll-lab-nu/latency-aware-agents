@@ -1,1018 +1,184 @@
-# Benchmark 进度与评测结果
+# Benchmark 核心进展
 
-最后核查：**2026-09-16 13:24 UTC（本轮更新 Balance MC PPO）**。文档入口：[program 索引](README.md)。
-本表记录已确认的产物和评测；各行证据采用固定版本，后续工作确认结果后同步更新。
+最后核查：**2026-09-17**。本文只记录四个主任务的已核验结果、关键决策、当前缺口和下一步；清理前的完整时间线见
+[历史快照](logs/PROGRESS-pre-cleanup-2026-09-17.md)，运行手册和专题记录见 [program 索引](README.md)。
 
-- 模型仓库：[e05ca26afde4f509b0f838742c522f3a068596a8](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)，最后修改 2026-09-14T01:41:19.000Z。
-- Profile 仓库：[e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4](https://huggingface.co/datasets/latency-sensitive-bench/profiles/tree/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles)，最后修改 2026-09-14T12:59:01.000Z。
-- 四模型：`qwenoft`、`qwengr00t`、`qwenpi_v3`（用户所称 qwenpi）、`wanoft`；主表为 StarVLA H1，official GR00T 和其他实验另列。
+固定公共版本：
 
-## 状态与口径
+- zero-latency 模型：[benchmark-models@e05ca26](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)
+- RTX 3090 profiles：[profiles@e8be1e5](https://huggingface.co/datasets/latency-sensitive-bench/profiles/tree/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles)
+- Parkour latency small：[benchmark-models@6348f44](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/6348f44ce65c1414dbc4f2ec46e0d5eb525ab770/latency-aware/extreme-parkour-go2/small-policy)
+- MIKASA WanOFT latency-aware VLA：[benchmark-models@ad40d57](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ad40d57c5747761705770aa557db0f287888f727/latency-aware/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_wanoft_latency_3090_20260916T094307Z)
 
-“已完成”只表示相应训练/评测完成；“达标”按既有 task gate 判断；“已发布”表示远端产物存在。
-“未核验”表示没有最终证据；“未找到正式产物”仅描述本次仓库/本地产物核查，不断言从未运行。
-两步或少量 episode 的 smoke 单独记录。旧 running/远端训练消息不作为当前进程状态。
+## 阅读口径
 
-VLA return 使用 `episode_return_env`，长度使用 `survival_steps`，单位为该配置的控制步；
-原生 PPO 保留源 `metrics.return` 与 `metrics.episode_len`。
-± 是 episode return 的标准差，跨 training seeds 的 SD 会另行注明。
-成功率保留源指标名：`success_at_end`、`success_once`、task `success` 分别记录。
-源文件没有的指标/时间/seed 写“未记录”，不从 return、长度或其他模型推断。
+- “训练完成”“评测完成”“达标”和“已发布”是四个独立状态。
+- VLA return 使用 `episode_return_env`，长度使用 `survival_steps`；原生 PPO 保留源指标名。
+- `±` 是 episode return 的总体标准差；跨 training seeds 的标准差会单独注明。
+- 不同频率、latency profile、seed 集和 episode 数的结果不可直接混用。
+- smoke 只证明流水线可运行，不作为策略质量结果；旧 running 消息不代表当前进程状态。
+- 缺失指标写“未记录”，不从其他指标或模型推断。
 
 ## 四任务总览
 
-七阶段依次为：zero-latency small model、zero-latency VLA training、zero-latency VLA eval、
-latency profile、latency-aware small model、latency-aware VLA training、latency-aware VLA eval。
+| 任务 | Zero VLA | RTX 3090 profile | Latency small | Latency VLA | 当前结论 |
+|---|---|---|---|---|---|
+| Balance Simple | 4/4 完成 | 4/4 完成 | H8/H16 专题实验完成多组，尚无统一正式产物 | 正式四模型终点未完成 | 延迟控制可由 oracle/BC 部分恢复，但现有 RL/PPO 未超过 BC；新 DAgger 矩阵待终点结果 |
+| MIKASA InterceptGrabFast | 4/4 完成 | 4/4 完成 | 4/4 达标并发布 | 4/4 SFT 5k；四组矩阵完成，仅 WanOFT 已发布 | latency-aware VLA 能恢复部分 profile 性能，模型间恢复幅度差异明显 |
+| Extreme Parkour Go2 | 3/4 完成 | 3/4 完成 | 3/4 训练、评测、发布完成 | 未找到正式产物 | 三个 small policy 在 profile 下均完成正式评测；未预设 acceptance threshold |
+| HAIC PullCart | 1/4 完成 | 1/4 完成 | 正式终点未核验 | 未找到正式产物 | 当前只有 QwenOFT 正式 VLA 结果，任务覆盖仍不完整 |
 
-| 任务 | 0 small | 0 VLA train | 0 VLA eval | RTX 3090 profile | Latency small | Latency VLA train | Latency VLA eval / 下一步 |
-|---|---|---|---|---|---|---|---|
-| Balance Simple | FastTD3 teacher 已发布 | 4/4；各 SFT 15k | 4/4；QwenOFT return98.4357±15.4165，n=100 | 4/4 | H1/H8 实验已完成，合同不同；H8 消融见下 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；D/E 组合与单独消融待验证 |
-| MIKASA InterceptGrabFast | PPO teacher；100% | 4/4；各 SFT 5k | 4/4 本地补评测；QwenOFT success56%，return21.7417±16.4361，n=50；两类HF标准文件缺失 | 4/4 | 4/4 已发布；end SR 96.88–98.83%（20Hz），Wan 93.75%（10Hz） | QwenOFT SFT 5k 本地完成；远端QwenPI SFT 5k完成，12线程、micro128＋CPU offload；未发布 | QwenOFT temporal success 57%，return 19.4161±15.0048；QwenPI三项100局矩阵已完成：no_latency_model_no_latency return23.0983, n=100；no_latency_model_profile_latency return0.2862, n=100；latency_aware_model_profile_latency return14.9605, n=100 |
-| Extreme Parkour Go2 | PPO teacher；reward 23.14±6.02 | 3/4；各 SFT 5k + DAgger 5k | 3/4；QwenOFT return23.3283±7.7106，n=100 | 3/4 | 历史训练暂停/退化；本轮正式最终结果未核验 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；Wan H1 与 latency small 最终状态待核验 |
-| HAIC PullCart | PPO teacher；native success 93.8965%，未达 native 100% gate | 1/4；QwenOFT SFT 5k + DAgger 5k | 1/4；QwenOFT success56%，return13.3497±8.2155，n=100 | 1/4 | 历史训练/smoke 存在，正式最终结果未核验 | 四模型正式产物未找到；旧 GR00T 两步 smoke | 正式结果未找到；其余三模型与 latency small 最终状态待核验 |
+## 公共 zero-latency small policy
 
-## 公共 zero-latency 小模型
-
-| 任务 | checkpoint / 训练进度 | 已记录评测 | 证据与限制 |
+| 任务 | checkpoint / 训练进度 | 已核验结果 | 状态与证据 |
 |---|---|---|---|
-| Balance | `checkpoint.pth`；训练总预算25M，选中20,864,000步模型 | 中央 `wandb-summary.json` 是训练摘要，独立 L0 return/SR/n 未记录 | [B-teacher]；选择分数702.976来自训练checkpoint名，不标作eval；[runbook](BALANCE.md) |
-| MIKASA | `checkpoint.pt`；tuned zero teacher 12,288,000步 | strict `success_rate=100%`；文档 canonical 为100/100 | [M-teacher]；该JSON未记return/n/seed，100局口径见[MIKASA](MIKASA.md#8-实际运行记录) |
-| Parkour | `model_14999.pt`；fixed LR，15k iterations | reward 23.14±6.02；length 907.95±296.15；waypoint progress 1.00±0.01；n/seed未记录 | [任务运行记录](EXTREME_PARKOUR.md#9-实际运行记录)；数值来自文档，独立原始eval尚未回读 |
-| HAIC | `checkpoint_final.pt`；499,908,608 frames，3814 iterations | native `success=0.93896484375`；2048 env，源 `episode_cnt=2308`；return未记录 | [任务运行记录](HAIC.md#5-实际运行记录)；成功率的分母语义按原生metrics保留；VLA标签源已接受，native student gate未达到 |
+| Balance | `checkpoint.pth`；25M 预算，选中 20,864,000 步 | 独立 L0 return/SR/n 未记录 | 已发布；checkpoint 名中的 702.976 不是独立 eval；[BALANCE](BALANCE.md) |
+| MIKASA | `checkpoint.pt`；12,288,000 步 | strict success 100%；canonical 100/100 | 已发布；[MIKASA](MIKASA.md) |
+| Parkour | `model_14999.pt`；15k iterations | reward 23.14±6.02；length 907.95±296.15；progress 1.00±0.01 | n/seed 未记录；[EXTREME_PARKOUR](EXTREME_PARKOUR.md) |
+| HAIC | `checkpoint_final.pt`；499,908,608 frames | native success 93.8965%；源 `episode_cnt=2308` | 未达到 native 100% gate；[HAIC](HAIC.md) |
 
-## Balance Simple：四模型明细
+## 正式 zero-latency VLA 与 profile
 
-控制/观测频率 **50/50 Hz**。zero small 使用上方公共 teacher。
+### Balance Simple
 
-L0 数值来自本次固定中央模型revision的 `eval_l0.json`，各100 episodes；
-JSON未记录评测时间，episode seed记录保留在该文件。训练seed见provenance。
+50/50Hz；L0 各 100 episodes。profile 为 1×RTX 3090 temporal observation-to-action latency。
 
-| 模型 | 0 VLA training | 0 VLA eval：return ± SD；长度；成功率；n | Latency profile | Latency small | Latency VLA training | Latency VLA eval |
-|---|---|---|---|---|---|---|
-| qwenoft | 已完成SFT 15,000；[B-qwenoft-source] | 98.4357±15.4165；111.10步；SR未记录；n=100 [B-qwenoft-eval] | 已发布；均值 37.88ms [B-qwenoft-profile] | H1/H8实验完成；profile合同见下方实验表 | 未找到正式产物 | 未找到正式评测 |
-| qwengr00t | 已完成SFT 15,000；[B-qwengr00t-source] | 27.4931±2.4959；39.12步；SR未记录；n=100 [B-qwengr00t-eval] | 已发布；均值 60.01ms [B-qwengr00t-profile] | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
-| qwenpi_v3 | 已完成SFT 15,000；[B-qwenpi_v3-source] | 41.1143±7.7280；54.44步；SR未记录；n=100 [B-qwenpi_v3-eval] | 已发布；均值 99.18ms [B-qwenpi_v3-profile] | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
-| wanoft | 已完成SFT 15,000；[B-wanoft-source] | 90.6691±13.8048；100.97步；SR未记录；n=100 [B-wanoft-eval] | 已发布；均值 300.02ms [B-wanoft-profile] | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
+| 模型 | 训练 | L0 return ± SD | mean length | profile mean |
+|---|---:|---:|---:|---:|
+| QwenOFT | SFT 15k | 98.4357±15.4165 | 111.10 | 37.881ms |
+| QwenGR00T | SFT 15k | 27.4931±2.4959 | 39.12 | 60.013ms |
+| QwenPI v3 | SFT 15k | 41.1143±7.7280 | 54.44 | 99.176ms |
+| WanOFT | SFT 15k | 90.6691±13.8048 | 100.97 | 300.024ms |
 
-## MIKASA InterceptGrabFast：四模型明细
+模型、评测和 profile 均在上方固定公共版本中；这些 L0 文件没有 task success 指标。
 
-控制/观测频率 **20/20 Hz**。zero small 使用上方公共 teacher。
+### MIKASA InterceptGrabFast
 
-L0 主对比采用本地 **50个共同seed，4242424242–4242424291** 的补评测（2026-09-08）；
-下载模型revision `aed114b6c4746917e84fabc3eaf0999be25aadb9`。100局复核/远端评测另列，保留各自版本。
+QwenOFT/QwenGR00T/QwenPI v3 为 20/20Hz，WanOFT zero VLA 主表也按 20/20Hz。
+L0 使用 50 个共同 seeds `4242424242–4242424291`。
 
-| 模型 | 0 VLA training | 0 VLA eval：return ± SD；长度；成功率；n | Latency profile | Latency small | Latency VLA training | Latency VLA eval |
-|---|---|---|---|---|---|---|
-| qwenoft | 已完成SFT 5,000；[M-qwenoft-source] | 21.7417±16.4361；60.00步；task success 56%；n=50 [M-qwenoft-eval] | 已发布；均值 99.05ms [M-qwenoft-profile] | 已发布；strict评测见下方小模型表 | 本地SFT 5,000；未发布 [M-latency-run] | temporal task success 57%；19.4161±15.0048；n=100 [M-latency-eval] |
-| qwengr00t | 已完成SFT 5,000；[M-qwengr00t-source] | 21.2928±16.6083；60.00步；task success 56%；n=50 [M-qwengr00t-eval] | 已发布；均值 99.35ms [M-qwengr00t-profile] | 已发布；strict评测见下方小模型表 | 远端SFT5,000运行中；12线程、micro128＋CPU offload；未发布 | 正式评测待训练完成 |
-| qwenpi_v3 | 已完成SFT 5,000；[M-qwenpi_v3-source] | 21.9671±17.2095；60.00步；task success 54%；n=50 [M-qwenpi_v3-eval] | 已发布；均值 148.69ms [M-qwenpi_v3-profile] | 已发布；strict评测见下方小模型表 | 远端SFT5,000完成；12线程、micro128＋CPU offload；未发布 | 三项100局矩阵完成：no_latency_model_no_latency return23.0983, n=100；no_latency_model_profile_latency return0.2862, n=100；latency_aware_model_profile_latency return14.9605, n=100；详见下方证据 |
-| wanoft | 已完成SFT 5,000；[M-wanoft-source] | 18.9461±16.4028；60.00步；task success 42%；n=50 [M-wanoft-eval] | 已发布；均值 300.54ms [M-wanoft-profile] | 已发布；strict评测见下方小模型表；10Hz | 未找到正式产物 | 未找到正式评测 |
+| 模型 | 训练 | L0 return ± SD | task success | profile mean |
+|---|---:|---:|---:|---:|
+| QwenOFT | SFT 5k | 21.7417±16.4361 | 56% | 99.050ms |
+| QwenGR00T | SFT 5k | 21.2928±16.6083 | 56% | 99.352ms |
+| QwenPI v3 | SFT 5k | 21.9671±17.2095 | 54% | 148.689ms |
+| WanOFT | SFT 5k | 18.9461±16.4028 | 42% | 300.539ms |
 
-## Extreme Parkour Go2：四模型明细
+本表是共同 50-seed 补评测；中央模型中的其他 100-episode 文件使用不同协议，不与本表合并。
 
-控制/观测频率 **50/10 Hz**。zero small 使用上方公共 teacher。
+### Extreme Parkour Go2
 
-L0 数值来自本次固定中央模型revision的 `eval_l0.json`，各100 episodes；
-JSON未记录评测时间，episode seed记录保留在该文件。训练seed见provenance。
+50Hz control、10Hz decision；L0 各 100 episodes。
 
-| 模型 | 0 VLA training | 0 VLA eval：return ± SD；长度；成功率；n | Latency profile | Latency small | Latency VLA training | Latency VLA eval |
-|---|---|---|---|---|---|---|
-| qwenoft | 已完成SFT 5,000 + DAgger 5,000；[P-qwenoft-source] | 23.3283±7.7106；927.49步；progress 0.9075；SR未记录；n=100 [P-qwenoft-eval] | 已发布；均值 103.43ms [P-qwenoft-profile] | 历史训练/暂停记录；最终状态未核验 | 未找到正式产物 | 未找到正式评测 |
-| qwengr00t | 已完成SFT 5,000 + DAgger 5,000；[P-qwengr00t-source] | 22.3789±6.7888；887.38步；progress 0.9163；SR未记录；n=100 [P-qwengr00t-eval] | 已发布；均值 157.36ms [P-qwengr00t-profile] | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
-| qwenpi_v3 | 已完成SFT 5,000 + DAgger 5,000；[P-qwenpi_v3-source] | 21.8744±7.9515；938.61步；progress 0.8500；SR未记录；n=100 [P-qwenpi_v3-eval] | 已发布；均值 238.73ms [P-qwenpi_v3-profile] | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
-| wanoft | 未找到正式产物；已有两步smoke | 正式评测未找到 | 未找到正式RTX3090 profile | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
+| 模型 | 训练 | L0 return ± SD | waypoint progress | profile mean |
+|---|---:|---:|---:|---:|
+| QwenOFT | SFT 5k + DAgger 5k | 23.3283±7.7106 | 0.9075 | 103.426ms |
+| QwenGR00T | SFT 5k + DAgger 5k | 22.3789±6.7888 | 0.9163 | 157.357ms |
+| QwenPI v3 | SFT 5k + DAgger 5k | 21.8744±7.9515 | 0.8500 | 238.729ms |
+| WanOFT | 未完成 | — | — | — |
 
-## HAIC PullCart：四模型明细
+### HAIC PullCart
 
-控制/观测频率 **50/50 Hz**。zero small 使用上方公共 teacher。
+50/50Hz。QwenOFT 完成 SFT 5k + DAgger 5k；100-episode L0 return
+13.3497±8.2155、mean length 187.09、task success 56%，RTX 3090 profile mean 126.288ms。
+其余三模型未找到正式 zero VLA、profile 或 latency-aware 产物。
 
-L0 数值来自本次固定中央模型revision的 `eval_l0.json`，各100 episodes；
-JSON未记录评测时间，episode seed记录保留在该文件。训练seed见provenance。
+## Latency-aware small policy
 
-| 模型 | 0 VLA training | 0 VLA eval：return ± SD；长度；成功率；n | Latency profile | Latency small | Latency VLA training | Latency VLA eval |
-|---|---|---|---|---|---|---|
-| qwenoft | 已完成SFT 5,000 + DAgger 5,000；[H-qwenoft-source] | 13.3497±8.2155；187.09步；task success 56%；n=100 [H-qwenoft-eval] | 已发布；均值 126.29ms [H-qwenoft-profile] | 历史训练/暂停记录；最终状态未核验 | 未找到正式产物 | 未找到正式评测 |
-| qwengr00t | 未找到正式产物；已有两步smoke | 正式评测未找到 | 未找到正式RTX3090 profile | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
-| qwenpi_v3 | 未找到正式产物；已有两步smoke | 正式评测未找到 | 未找到正式RTX3090 profile | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
-| wanoft | 未找到正式产物；已有两步smoke | 正式评测未找到 | 未找到正式RTX3090 profile | 未找到该profile对应正式最终产物 | 未找到正式产物 | 未找到正式评测 |
+### MIKASA
 
-## 逐局task指标与MIKASA远端100局结果
+单 worker、temporal profile、deterministic mean action；环境 seed `20260910`、latency seed `271828`，各 256 episodes。
+既有 gate 为 `success_at_end >= 90%`。WanOFT 为 10Hz，其余为 20Hz，不能把四行当作同频率公平比较。
 
-下表由固定中央版本 `eval_l0.json` 的 `episodes[].metadata.task_metrics` 聚合；
-各组n=100。Progress/score取episode等权平均，±为episode总体SD；success按源0/1指标计数。
-MIKASA远端100局与主表本地50局补评测分别保留，不能混用其成功率或return。
+| Profile | checkpoint step | success_at_end | success_once | mean return | 状态 |
+|---|---:|---:|---:|---:|---|
+| QwenOFT 20Hz | 13,824,000 | 98.83% | 99.61% | 33.6446 | 达标、已发布 |
+| QwenGR00T 20Hz | 20,951,040 | 98.05% | 98.05% | 31.7504 | 达标、已发布 |
+| QwenPI v3 20Hz | 15,360,000 | 96.88% | 98.83% | 28.6463 | 达标、已发布 |
+| WanOFT 10Hz | 23,040,000 | 93.75% | 98.44% | 30.8664 | 达标、已发布 |
 
-| Task / model | task指标 | mean return ± SD | mean length | 证据 |
-|---|---|---:|---:|---|
-| extreme-parkour-go2 / qwenoft | waypoint progress=0.9075±0.1901 | 23.3283±7.7106 | 927.49步 | [原始eval](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwenoft-h1/20260912T072315-nocache32v2/eval_l0.json) |
-| extreme-parkour-go2 / qwengr00t | waypoint progress=0.9163±0.1871 | 22.3789±6.7888 | 887.38步 | [原始eval](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwengr00t-h1/20260912T180303/eval_l0.json) |
-| extreme-parkour-go2 / qwenpi_v3 | waypoint progress=0.8500±0.2417 | 21.8744±7.9515 | 938.61步 | [原始eval](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwenpi_v3-h1/20260912T175510/eval_l0.json) |
-| haic-pull-cart / qwenoft | task success=56%（56/100）；cart_progress=0.3563；pullcart_score=58.0530 | 13.3497±8.2155 | 187.09步 | [原始eval](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/haic-pull-cart/vla/starvla-qwenoft-h1/haic-qwenoft-50hz-fresh-20260913T035850Z/eval_l0.json) |
-| mikasa-intercept-grab-fast / qwenpi_v3 | task success=51%（51.0/100） | 20.1415±15.8556 | 60.00步 | [原始eval](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z/eval_l0.json) |
-| mikasa-intercept-grab-fast / wanoft | task success=31%（31.0/100） | 13.6323±14.2860 | 60.00步 | [原始eval](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z/eval_l0.json) |
+完整训练/eval 配置和 profile 固定版本见各发布 bundle；旧 WanOFT 20Hz 结果不替代当前 10Hz 版本。
 
-## MIKASA latency-aware 小模型：独立严格评测
+### Parkour
 
-四类原生PPO均从scratch训练，单worker、temporal profile、deterministic mean actions；
-environment seed `20260910`、latency seed `271828`，各256 episodes。
-acceptance 为既有 `success_at_end >= 90%`。JSON未记录episode return SD。
-WanOFT最新bundle使用10Hz，其他三类使用20Hz；下表分别报告，不作为同频率公平比较。
+三个模型均训练 3,000 PPO iterations，并在各自 RTX 3090 profile 与 fixed 0ms 下各评测 100 episodes；
+协议为 50Hz control、10Hz decision、seed 1、1500 raw-frame cap。
 
-| Profile | checkpoint训练步数 / W&B | success_at_end | success_once | mean return | mean length | admission/drop | 状态 / 证据 |
-|---|---|---|---|---:|---:|---|---|
-| qwenoft（20Hz） | 13,824,000；[ks6d837t](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/ks6d837t) | 98.83%（253/256） | 99.61%（255/256） | 33.6446 | 60步 | 7606/7754 | 已发布/达标；[MS-qwenoft] [MS-qwenoft-source] |
-| qwengr00t（20Hz） | 20,951,040；[2papyzq7](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/2papyzq7) | 98.05%（251/256） | 98.05%（251/256） | 31.7504 | 60步 | 7582/7778 | 已发布/达标；[MS-qwengr00t] [MS-qwengr00t-source] |
-| qwenpi_v3（20Hz） | 15,360,000；[u46f6pzq](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/u46f6pzq) | 96.88%（248/256） | 98.83%（253/256） | 28.6463 | 60步 | 5099/10261 | 已发布/达标；[MS-qwenpi_v3] [MS-qwenpi_v3-source] |
-| wanoft（10Hz） | 23,040,000；[s463nqus](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/s463nqus) | 93.75%（240/256） | 98.44%（252/256） | 30.8664 | 60步 | 5119/10241 | 已发布/达标；[MS-wanoft] [MS-wanoft-source] |
-
-严格评测配置为各bundle的 `eval.yaml`，训练配置为 `train.yaml`，checkpoint为 `checkpoint.pt`；具体路径：
-
-- qwenoft：[训练配置][MS-qwenoft-train]、[评测配置][MS-qwenoft-config]、[训练使用的固定profile][MS-qwenoft-profile]。
-- qwengr00t：[训练配置][MS-qwengr00t-train]、[评测配置][MS-qwengr00t-config]、[训练使用的固定profile][MS-qwengr00t-profile]。
-- qwenpi_v3：[训练配置][MS-qwenpi_v3-train]、[评测配置][MS-qwenpi_v3-config]、[训练使用的固定profile][MS-qwenpi_v3-profile]。
-- wanoft：[训练配置][MS-wanoft-train]、[评测配置][MS-wanoft-config]、[训练使用的固定profile][MS-wanoft-profile]。
-
-WanOFT旧20Hz run `sw3b981e`：69,120,000步，end success 122/256（47.66%），
-mean return 22.5840。该历史配置与clock10当前发布版本不同；旧记录见
-[原本地评测](../outputs/latency_rl/mikasa/wanoft_rtx3090_recipe_25m/20260910T093825Z/strict_eval_best_150m/evaluation.json)。
-
-## MIKASA QwenPI：2026-09-14 远端训练与批量测试
-
-服务器 `xinyuan@81.85.2.28`，独立目录 `/home/xinyuan/mikasa-qwenpi-latency`，
-单张 RTX PRO 6000 Blackwell Server Edition（nvidia-smi 总显存97,887MiB）。
-训练代码已包含 performance 提交 `978359fc65e34915c5971d815a700de729bf823f`；
-StarVLA revision `7a4ee2014ddd389404b5c1d7d8053144619f00ea`。
-旧实验/缓存全部保留；本地两卡训练未启动。
-
-本轮额外重训了一个 QwenPI-profile small：PPO seed123，1024env，60-step rollout，
-lr1e-4，8epochs；25M预算实际24,944,640步，选中15,360,000步的 `run/small/best_policy.pt`。
-256局独立评测（20Hz，env seed20260910，latency seed271828）end success247/256（96.484375%），
-once254/256（99.21875%），return29.688919，length60，admission/drop5099/10261，达标。
-该新增checkpoint未发布HF；上方四个已发布small的状态不变。
-证据：[独立评测](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/small_acceptance.json)、
-[small W&B](https://wandb.ai/saberrr-zju/starvla_mikasa/runs/mikasa-qwenpi-small-20260914T122034Z)。
-使用固定profile revision `66414463f2a609316da63935941a79abf0a73ce9`，
-`profiles/qwenpi_v3/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c`。
-
-采集275成功episodes，train250/val25，admitted issued-action样本3,691/385；
-H1，state/action7，两路RGB224×224输入。QwenPI从Qwen3-VL-4B-Instruct backbone开始全参数训练，
-5,072.110M trainable，bf16，ZeRO2，Qwen3 gradient checkpointing启用（non-reentrant，use_cache=false）。
-初始正式配置单GPU micro8、累积16、global128，CPU optimizer offload启用，计划5,000更新；
-base/action lr3e-5/1e-4，warmup100，cosine min1e-6，seed0。
-2026-09-14 14:12 UTC在第100更新保存 `run/vla/training/bootstrap/checkpoints/steps_100_state`
-及 `steps_100_pytorch_model.pt`；14:13 UTC进程退出，显存归零，正式训练暂停。
-正式训练/正式评测/发布均未完成；两步CPU-offload smoke训练及2局rollout已完成。
-[正式 VLA W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi_v3-mikasa_qwenpi_latency_3090_20260914T122034Z-bootstrap)。
-
-已依次测试micro16无offload、micro32有offload、micro32无offload，累积8/4/4，global128。
-用户追加后测试micro128有offload（累积1）和micro8无offload（累积16），global仍为128。
-均保留上述模型、数据、checkpointing，启用 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，
-显存caching保持启用。各组12更新，排除前2更新预热；计时包含整次梯度累积，记录Torch峰值显存及NVML采样。
-首次计时入口缺少multiprocessing main入口隔离，造成数据worker重复启动训练，已修正并通过CPU子进程导入检查；
-该无效尝试不作为OOM或速度结果。
-
-| Microbatch / optimizer offload | 完整更新数 / 结果 | 稳态秒/更新 | 稳态样本/秒 | Torch allocated/reserved峰值（GiB） | NVML used峰值（GiB） | W&B |
-|---|---|---:|---:|---:|---:|---|
-| 8 / 无 | 1；第2次优化器更新FP32梯度转换OOM，需16.88GiB，剩余9.27GiB | 未形成稳态 | 未形成稳态 | 85.29 / 87.65 | 89.24 | [8无offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb8_no_offload) |
-| 16 / 无 | 1；第2次优化器更新FP32梯度转换OOM，需16.88GiB，剩余8.95GiB | 未形成稳态 | 未形成稳态 | 85.68 / 88.39 | 89.97 | [16无offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb16_no_offload) |
-| 32 / CPU | 12；通过，排除前2更新，统计10更新 | 8.419945 | 15.202000 | 28.36 / 31.81 | 33.57 | [32有offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb32_offload) |
-| 32 / 无 | 1；第2次更新action-head前向attention key投影OOM，需38MiB，剩余27.56MiB | 未形成稳态 | 未形成稳态 | 93.10 / 93.36 | 94.94 | [32无offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb32_no_offload) |
-| 128 / CPU | 12；通过，排除前2更新，统计10更新 | 7.582636 | 16.880672 | 76.93 / 77.04 | 78.77 | [128有offload](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-bench-20260914-v2-mb128_offload) |
-
-128＋offload相对32＋offload吞吐提高11.04%，每更新耗时降低9.94%。
-此前正式micro8＋offload的稳态tqdm约13.7秒/完整更新，累积16、global128；
-这是历史正式训练的近似参考，非本轮12-update计时。
-128＋offload相对该参考吞吐约提高80%；micro8无offload只完成1更新，不能拿含冷启动的26.37秒当稳态速度。
-micro8参考证据：[原正式配置](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap_micro8_cpu_offload.yaml)、
-[原正式日志](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap_micro8_cpu_offload.log)。
-
-原始日志/配置/逐更新统计已回传至 [批量测试目录](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/batch_benchmark/)，
-[聚合结果](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/batch_benchmark/results.json)；
-各W&B run的summary也已记录最终结果、offload、allocator、峰值显存和完整更新吞吐。
-14:27 UTC启动正式恢复，micro32、累积4、global128，CPU optimizer offload；
-第100步完整state及LR scheduler恢复成功，实际推进到110更新。
-按用户补充，14:32 UTC在110停止更新；14:37 UTC已保存完整 `steps_110_state` 和
-`steps_110_pytorch_model.pt`，进程退出且显存归零。
-micro128＋offload与micro8无offload实测均已完成；micro64暂不运行。
-[110步暂停/恢复证据](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap_micro32_cpu_offload_until110.log)。
-14:47 UTC重新启动正式恢复，micro128、累积1、global128、CPU optimizer offload，
-保留bf16、checkpointing、expandable_segments及显存caching，恢复第110步完整state/scheduler。
-使用 [恢复脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/resume_after_benchmark_128.sh)，
-tmux session `mikasa-qwenpi-latency`。14:53 UTC已确认完整state恢复成功并实际推进至122/5,000更新，
-DeepSpeed运行配置micro128、累积1、global128；第112–118更新约7.5–7.9秒，显存80,663MiB，GPU利用率100%。
-[当前正式配置](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap.yaml)、
-[恢复后正式日志](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/vla/bootstrap.log)已回传。
-按7.58秒/更新估算完整5k纯训练约10小时32分；checkpoint保存及最终评测另计，预计总计11–12小时。
-正式训练仍在运行，下一步完成5k、L0/temporal各100局评测。
-
-按用户追加的CPUAdam线程优化测试，14:57 UTC在156/5,000更新请求安全停止，
-15:02 UTC已保存完整 `steps_156_state`、LR scheduler及模型checkpoint，worker退出、显存归零。
-服务器12个物理核心、24个逻辑线程、单NUMA节点；各组16完整更新，排除前2更新，统计14稳态更新，
-保持micro128、累积1、global128及模型/数据/checkpointing/allocator一致。
-通过CPUAdam原生扩展的 `omp_get_max_threads()` 核对实际线程数；CPUAdam计时累计全部参数组。
-
-| 实际线程数 | 完整更新秒/步 | CPUAdam秒/步 | 相对8线程吞吐 | W&B |
-|---|---:|---:|---:|---|
-| 8 | 7.579100 | 0.901108 | 基准 | [8线程](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-cputhreads-20260914-t8-v1) |
-| 12 | 7.475353 | 0.768198 | +1.38785% | [12线程](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-cputhreads-20260914-t12-v1) |
-| 16 | 7.578428 | 0.906631 | +0.00887% | [16线程](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwenpi-cputhreads-20260914-t16-v2) |
-
-12线程比8线程每步省0.103747秒，5k纯训练约省8.65分钟。各组Torch峰值allocated/reserved均76.93/77.04GiB。
-[线程测试聚合](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/thread_benchmark/results.json)、
-[日志/配置/逐步记录](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/thread_benchmark/)已回传，W&B summary已更新。
-首次16线程尝试环境变量为16、PyTorch及CPUAdam实际12，已停止并保留 `t16_invalid_default12`，不计入比较；
-重测通过 `torch.set_num_threads()` 显式设置，原生CPUAdam实际16已确认。32线程比较按用户要求取消，不参与配置选择。
-15:26 UTC按用户选择启动12线程正式恢复，micro128、累积1、global128、CPU offload、bf16、checkpointing、
-expandable_segments及显存caching保持启用。使用 [12线程恢复脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/resume_threads12.sh)，
-继续原正式W&B run `mikasa-qwenpi_v3-mikasa_qwenpi_latency_3090_20260914T122034Z-bootstrap`；已确认从156步完整state恢复并实际推进至182/5,000更新，最近7.4–7.5秒/更新；
-原W&B显示Resuming run，worker环境确认OMP_NUM_THREADS=12、WANDB_RESUME=allow及原WANDB_RUN_ID。
-
-训练完成后追加以下三项100局评测：
-
-1. 已发布no-latency QwenPI，在no latency下。
-2. 同一个no-latency QwenPI，在固定profile latency下。
-3. 本轮latency-aware QwenPI的5,000更新checkpoint，在同一profile latency下。
-
-通用训练入口内置的latency-aware L0评测保留；上方三项为本次追加对照矩阵。
-基线固定HF模型revision `e05ca26afde4f509b0f838742c522f3a068596a8`，
-`zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z`；
-config、dataset_statistics、task_contract、provenance已在远端核验，使用基线自己的归一化统计。
-三项均20/20Hz、H1、100局，环境reset seeds4242424242–4242424341、单env/单模拟worker、inference batch1；
-两个temporal项共用上述固定RTX3090 profile revision及latency seed271828。
-[评测脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/post_eval_matrix.py)已接入恢复流水线，
-结果写入远端 `run/eval_matrix` 和同一正式W&B run的 `eval_matrix/<model_latency_condition>/...` summary指标。
-本地tmux `mikasa-qwenpi-eval-progress`运行 [回传/进度更新脚本](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/sync_eval_progress.py)，
-等待远端流水线退出后回传原始结果/配置/日志，并将已确认的结果更新至本地本文件。
-正式5k训练及三项100局矩阵评测已完成，原始结果见下方。
-
-## MIKASA QwenOFT VLA：100 episode复核
-
-2026-09-11，20/20Hz，H1持续hold上一动作，env seeds 4242424242–4242424341。
-旧baseline下载revision `c72713d3eeba1f33d08c9c909d7caa868b62d717`；新模型是本地SFT5k，
-`no_publish=true`。具体比较和输出目录见 [M-latency-eval]，训练身份见 [M-latency-run]。
-`success` 为源比较文件记录的 task success；各组平均长度60步，n=100。
-
-| 模型 | Eval latency | success_rate | mean return ± SD | 结果 |
-|---|---|---:|---:|---|
-| Baseline QwenOFT | zero | 57% | 22.0986±15.8734 | L0复核完成 |
-| Baseline QwenOFT | temporal | 0% | 0.4274±0.1224 | 延迟退化 |
-| Latency-aware QwenOFT | zero | 0% | 0.5868±0.1957 | zero下退化，不能用temporal结果覆盖 |
-| Latency-aware QwenOFT | temporal | 57% | 19.4161±15.0048 | 本地复核完成，temporal恢复；未发布 |
-
-Temporal各组applied/dropped/unfinished为2857/10/100。未把它们解释为success计数。
-Latency seed、完整逐局数据与执行配置以该组输出中的原始文件为准；汇总没有的字段不补造。
-
-## 已发布 RTX 3090 profile 数值
-
-12组profile，均记录session IDs 0–4，使用temporal observation-to-action latency。
-单位ms，五场是否能用于某一后续实验仍按具体模型、频率及运行合同判断。
-模型来源由各profile的 `provenance.model_artifact` 记录；该来源未记resolved revision时明确保留缺失，
-不能把本次模型仓库revision当成其测量时revision。
-
-| Task / model | 控制频率 / physical instance | mean ms | p95 ms | p99 ms | samples；admission/drop | source run / 证据 |
-|---|---|---:|---:|---:|---|---|
-| Balance Simple / qwenoft | 50Hz；`instance_3a0d42681a03715c` | 37.881 | 39.449 | 41.419 | 10,840；10,840/10,869 | `20260909T050028237618Z`；[B-qwenoft-profile] |
-| Balance Simple / qwengr00t | 50Hz；`instance_3a0d42681a03715c` | 60.013 | 63.154 | 64.689 | 5,577；5,577/11,834 | `20260909T042707692652Z`；[B-qwengr00t-profile] |
-| Balance Simple / qwenpi_v3 | 50Hz；`instance_3a0d42681a03715c` | 99.176 | 103.613 | 107.123 | 2,847；2,847/11,326 | `20260909T035342113762Z`；[B-qwenpi_v3-profile] |
-| Balance Simple / wanoft | 50Hz；`instance_3a0d42681a03715c` | 300.024 | 307.783 | 310.533 | 1,134；1,134/14,432 | `20260909T031304517915Z`；[B-wanoft-profile] |
-| MIKASA InterceptGrabFast / qwenoft | 20Hz；`instance_3a0d42681a03715c` | 99.050 | 100.327 | 100.644 | 7,505；7,505/7,495 | `20260909T044501695676Z`；[M-qwenoft-profile] |
-| MIKASA InterceptGrabFast / qwengr00t | 20Hz；`instance_3a0d42681a03715c` | 99.352 | 100.351 | 100.632 | 7,500；7,500/7,500 | `20260909T041122796788Z`；[M-qwengr00t-profile] |
-| MIKASA InterceptGrabFast / qwenpi_v3 | 20Hz；`instance_3a0d42681a03715c` | 148.689 | 150.353 | 150.654 | 5,000；5,000/10,000 | `20260909T033716462687Z`；[M-qwenpi_v3-profile] |
-| MIKASA InterceptGrabFast / wanoft | 20Hz；`instance_3a0d42681a03715c` | 300.539 | 300.201 | 349.782 | 2,498；2,498/12,502 | `20260909T025113875647Z`；[M-wanoft-profile] |
-| Extreme Parkour Go2 / qwenoft | 50Hz；`instance_6e332477bffea7da` | 103.426 | 146.078 | 150.313 | 52,094；52,094/0 | `20260913T140346673977Z`；[P-qwenoft-profile] |
-| Extreme Parkour Go2 / qwengr00t | 50Hz；`instance_6e332477bffea7da` | 157.357 | 163.036 | 166.160 | 52,952；52,952/0 | `20260914T033146019182Z`；[P-qwengr00t-profile] |
-| Extreme Parkour Go2 / qwenpi_v3 | 50Hz；`instance_b19d7af6f1bdd95d` | 238.729 | 246.982 | 250.157 | 53,087；53,087/0 | `20260913T140435541240Z`；[P-qwenpi_v3-profile] |
-| HAIC PullCart / qwenoft | 50Hz；`instance_b19d7af6f1bdd95d` | 126.288 | 130.240 | 132.731 | 9,791；9,791/0 | `20260914T033618205895Z`；[H-qwenoft-profile] |
-
-早期MIKASA QwenOFT另有 `1x-rpbzzz6` profile：mean 99.563ms，p95 168.197ms、
-p99 219.746ms，16,473 samples，admission/drop 16,473/13,527；与RTX3090分开保留。
-证据见 [PROFILE](PROFILE.md) 及
-[固定profile](https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwenoft/1x-rpbzzz6/mikasa_intercept_grab_fast/instance_e906b84a82f9e086/profile.json)。
-
-## H1 训练产物身份
-
-下列run-id与中央模型snapshot共同标识主表产物。训练配置、teacher/dataset/backbone版本、
-training seed与代码状态以各 `provenance.json` 为准；配置为同bundle `config.yaml`。
-MIKASA两类checkpoint-only来源未完整记录training seed，不从其他模型补填。
-
-| Task / model | run-id | checkpoint / 发布完整性 | provenance |
+| 模型 | Profile return ± SD / progress | Zero return ± SD / progress | 状态 |
 |---|---|---|---|
-| Balance Simple / qwenoft | `humanoidbench_balance_simple_qwenoft_formal_latest` | `checkpoints/model.pt`；inference/eval已发布；质量gate未据此推断 | [B-qwenoft-source] |
-| Balance Simple / qwengr00t | `humanoidbench_balance_simple_qwengr00t_formal_latest` | `checkpoints/model.pt`；inference/eval已发布；质量gate未据此推断 | [B-qwengr00t-source] |
-| Balance Simple / qwenpi_v3 | `humanoidbench_balance_simple_qwenpi_v3_formal_latest` | `checkpoints/model.pt`；inference/eval已发布；质量gate未据此推断 | [B-qwenpi_v3-source] |
-| Balance Simple / wanoft | `humanoidbench_balance_simple_wanoft_formal_latest` | `checkpoints/model.pt`；inference/eval已发布；质量gate未据此推断 | [B-wanoft-source] |
-| MIKASA InterceptGrabFast / qwenoft | `mikasa_intercept_grab_fast_qwenoft_formal_latest_r8gpu8_20260907T082154Z` | `checkpoints/model.pt`；checkpoint-only；HF eval_l0缺失 | [M-qwenoft-source] |
-| MIKASA InterceptGrabFast / qwengr00t | `mikasa_intercept_grab_fast_qwengr00t_formal_latest_r8gpu7_20260907T075003Z` | `checkpoints/model.pt`；checkpoint-only；HF eval_l0缺失 | [M-qwengr00t-source] |
-| MIKASA InterceptGrabFast / qwenpi_v3 | `mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z` | `checkpoints/model.pt`；inference/eval已发布 | [M-qwenpi_v3-source] |
-| MIKASA InterceptGrabFast / wanoft | `mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z` | `checkpoints/model.pt`；inference/eval已发布 | [M-wanoft-source] |
-| Extreme Parkour Go2 / qwenoft | `20260912T072315-nocache32v2` | `checkpoints/model.pt`；inference/eval已发布；质量gate未据此推断 | [P-qwenoft-source] |
-| Extreme Parkour Go2 / qwengr00t | `20260912T180303` | `checkpoints/model.pt`；inference/eval已发布；质量gate未据此推断 | [P-qwengr00t-source] |
-| Extreme Parkour Go2 / qwenpi_v3 | `20260912T175510` | `checkpoints/model.pt`；inference/eval已发布；质量gate未据此推断 | [P-qwenpi_v3-source] |
-| HAIC PullCart / qwenoft | `haic-qwenoft-50hz-fresh-20260913T035850Z` | `checkpoints/model.pt`；inference/eval已发布；质量gate未据此推断 | [H-qwenoft-source] |
+| QwenOFT | 16.2985±5.8936 / 0.8314 | 16.7771±6.1831 / 0.8329 | 已发布 |
+| QwenPI v3 | 17.1554±4.3398 / 0.9214 | 11.8676±4.5410 / 0.6757 | 已发布 |
+| QwenGR00T | 18.6098±3.5573 / 0.9814 | 12.7761±4.3001 / 0.7900 | 已发布 |
 
-## 历史 official GR00T、Balance实验与smoke
+原始结果与 checkpoint 审计见 [completion audit](../outputs/latency_rl/parkour/h200_20260916_completion_audit.md)。
+该项目没有预设 acceptance threshold，因此这里只声明训练、评测和发布完成。
 
-这些结果采用不同checkpoint、输入、频率或协议，分别保留；不替换上方中央H1基线。
+## MIKASA latency-aware VLA
 
-| 路线 | training / evaluation协议 | 已记录数值 | 状态 / 证据 |
-|---|---|---|---|
-| Balance official GR00T | fresh10k；checkpoint-10000；10个seed；zero | return353.5317±133.5709；length371.0 | 已完成/历史已发布，未达目标return500；[固定eval](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/gr00t-n1.7-10k-v1/zero-latency-eval.json)；fresh15k未核验 |
-| MIKASA早期QwenOFT-v1 | SFT5k；canonical50episode zero | success27/50（54%）；return22.326 | 已完成/历史发布；[runbook](MIKASA.md)；不是主表formal_latest checkpoint |
-| Balance修正标签DAgger | 500updates；100episode zero；seed0–99 | return68.0205±3.0410；length79.73；前50为68.3031±3.1028 | 已完成/未发布/低于原始模型；[短交接](BALANCE_DAGGER.md) |
-| Balance十轮DAgger scratch/checkpoint | 各5000updates；共同50episode final；2026-09-11记录 | return144.532006/377.179249；length157.30/397.54；SD未记录 | 训练和逐轮eval文档记载完成；终点确认/全流程验收待核验；[待办](BALANCE_DAGGER.md#ten-round-dagger-latest-recorded-result-and-pending-verification) |
-| Balance fixed1 F2 | 6M raw frames；固定1帧延迟 | mean survival525.44帧 | fixed1已恢复；[历史诊断](archive/LATENCY_DEBUG_PLAN.md)；不能外推到fixed2/profile |
-| Balance H8 profile修复前/后 | 5,000,064raw steps；25env seeds×4latency seeds | length72.88→172.14；return59.45→150.37；≥100帧3%→93% | 修复配对完成，SD以原始表为准；[CHUNK](CHUNK.md) |
-| Balance H8 fixed40 | 50Hz；6M；25场景；保留/移除自定义限幅 | length83.40/244.80；≥100帧20%/100% | 已完成历史对照；与当前D/E生产版分开；[CHUNK](CHUNK.md) |
-| Balance H8第一版消融full | 4training seeds；各10M；每seed100评测场景 | length304.73±232.32；mean return269.956；≥100比例0.742 | 20run全部训练/final eval完成；±为training-seed间样本SD；[消融](CHUNK_RL_ABLATION.md) |
-| Balance H8第一版删除ABCHJ | 同上四seed协议 | length417.24±88.05；mean return378.106；≥100比例1.000 | 通过既有相对full筛选；D/E-only组合尚未直接验证；[消融](CHUNK_RL_ABLATION.md) |
-| Balance旧H1 temporal small | 25,000,192步；2026-09-07log已退出 | log FPS4188.2；该run最终strict eval未找到 | 训练完成，评测/质量未核验；[log](../outputs/latency_rl/balance/h1/train.log) |
-| Parkour旧latency small | 文档记录model_600、iteration610附近collapse/暂停 | 最终同种子zero/profile数值未核验 | 历史消息不代表当前running；[中文交接](LATENCY_RL_HANDOFF.zh-CN.md) |
-| HAIC旧latency small | h1 log最后记录911/15258iterations；acceptance曾32+16iterations | 正式最终eval未找到；不以finite/resume检查代替成功率 | 最终运行状态未核验；[log](../outputs/latency_rl/haic/h1/train.log)、[中文交接](LATENCY_RL_HANDOFF.zh-CN.md) |
-| 四任务×四模型acceptance-v1 | 各2updates、保存/重载和短L0 | 16组smoke完成 | pipeline功能验证，非正式策略质量；[SCALE_MODELS](SCALE_MODELS.md#smoke-acceptance--acceptance-v1) |
-| Balance旧GR00T latency smoke | checkpoint-2；zero/profile各2episode | new return7.5175±0.0136 / 11.0231±0.4348；length20.5/23.5 | smoke；[zero](../outputs/latency_rl/balance/final_revalidated/new_zero/queue_eval_latency_0.json)、[profile](../outputs/latency_rl/balance/final_revalidated/new_profile/queue_eval_latency_profile_sample.json) |
-| Parkour旧GR00T latency smoke | checkpoint-2；zero/profile各1episode | new return3.6618 / 2.4672；length1500/494 | 旧local-backbone wiring；[zero](../outputs/latency_rl/parkour/real_chain_remote/evals/new_zero/queue_eval_latency_0.json)、[profile](../outputs/latency_rl/parkour/real_chain_remote/evals/new_iid/queue_eval_latency_profile_sample.json) |
-| HAIC旧GR00T latency smoke | checkpoint-2；zero/profile各1episode | new return2.4688 / 2.0471；length45/37；task success0 | acceptance3 wiring；[zero](../outputs/latency_rl/haic/acceptance3/evals/eval_new_zero/queue_eval_latency_0.json)、[profile](../outputs/latency_rl/haic/acceptance3/evals/eval_new_profile/queue_eval_latency_profile_sample.json) |
+所有矩阵均使用 100 episodes、reset seeds `4242424242–4242424341`、deterministic inference；
+temporal 项使用 latency seed `271828`。WanOFT 为 10Hz，其余为 20Hz。
 
-## 待推进与更新约定
+| 模型 | Baseline zero | Baseline profile | Latency-aware profile | 训练 / 发布 |
+|---|---|---|---|---|
+| QwenOFT | success 57%；return 22.0986 | 0%；0.4274 | 57%；19.4161 | SFT 5k 完成；未发布 |
+| QwenPI v3 | 60%；23.0983 | 0%；0.2862 | 48%；14.9605 | SFT 5k 完成；未发布 |
+| QwenGR00T | 63%；24.1050 | 0%；0.4136 | 35%；11.8917 | SFT 5k 完成；未发布 |
+| WanOFT | 41%；16.8500 | 0%；0.3368 | 21%；6.8902 | SFT 5k 完成；已发布 |
 
-- Balance：既有D/E-only生产组合、单独D/E及zero/fixed对照未验证；十轮DAgger终点确认和完整回传待核验。官方GR00T fresh15k与StarVLA SFT15k分别记录。
-- MIKASA：远端QwenPI用12线程、micro128＋offload从156步继续至5k，完成no-latency模型zero/profile及latency-aware模型profile三项各100局评测；补齐qwenoft/qwengr00t远端canonical eval文件。latency-aware QwenOFT保留zero退化与temporal恢复，发布及其他模型进展待核验；Wan10Hz和旧20Hz分开维护。
-- Parkour：Wan H1正式产物、latency small终点状态及正式latency VLA缺口待核验。
-- HAIC：其余三类H1模型及profile、latency small终点状态及正式latency VLA缺口待核验。50Hz H1与旧20Hz latent/H40合同分别记录。
+证据：[QwenOFT](../outputs/latency_rl/mikasa/qwenoft_rtx3090_h1_v1/direct_eval_revalidation_20260911/comparison.json)、
+[QwenPI v3](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/eval_matrix/results.json)、
+[QwenGR00T](../outputs/tasks/mikasa_intercept_grab_fast/qwengr00t_latency_20260915T035000Z/eval_matrix/results.json)、
+[WanOFT](../outputs/tasks/mikasa_intercept_grab_fast/wanoft_latency_20260916T094307Z/eval_matrix/results.json)。
 
-后续训练、评测、profile、发布、暂停或失败确认后，同步更新受影响的总览、明细、数值、
-checkpoint/配置/版本、核查日期和下一步。保留可比较的旧结果；更新日志只写实际确认的变化。
+结论：四个 zero-latency VLA 在对应 profile 下均降到 0% success；latency-aware 训练恢复到 21%–57%，
+但除 QwenOFT 外仍低于各自 zero/zero 成功率。WanOFT 的 21% 也低于其 41% zero/zero ceiling，尚未作 acceptance 决定。
 
-| 核查日期（UTC） | 更新 | 证据范围 |
+## Balance 关键实验与决策
+
+### Action chunk 与监督合同
+
+- H8 profile 合同修复后，6M-step 配对结果从 mean length 72.88 提升到 172.14，`>=100` 从 3% 提升到 93%；旧结果不能代表修复后实现。[CHUNK](CHUNK.md)
+- 第一版 4-seed 消融中，full mean length 304.73±232.32，删除 `ABCHJ` 后为 417.24±88.05 且 `>=100` 为 100%。这支持删除对应机制，但 D/E 组合与单独消融仍未完成。[CHUNK_RL_ABLATION](CHUNK_RL_ABLATION.md)
+- 延迟标签必须对应实际 application state 和同一 request 真正执行的 heads；“整段 teacher chunk”与“executed heads”是需要正式对照的两个不同合同。
+
+### Fixed100 诊断
+
+- startup no-op 曾把绝对 SONIC 默认姿态当作 normalized MuJoCo action；修复前依赖该启动行为的 delayed 结果不再作为当前证据。
+- 修复后 H16 QwenPI 50k optimizer-step 对照仍失败：temporal profile mean length 61.75，fixed100 mean length 69.625，各 n=8，均低于 100 rejection gate。[pair record](../outputs/tasks/humanoidbench_balance_simple/h16_profile_fixed100_corrected_noop_50k/20260915T174801Z/launch.json)
+- native fixed100 oracle 在 32 seeds 上达到 mean length 673.1875、`>=100` 32/32、`>=500` 23/32，说明该延迟合同本身可解；问题在学习和状态覆盖，而不是单纯“延迟必然不可控”。[oracle](../outputs/tasks/humanoidbench_balance_simple/h16_fixed100_delayed_imitation/20260916T061955Z/oracle.json)
+
+### BC、RL 与 PPO
+
+所有下表 fixed100 结果均使用 H16、50/50Hz、capacity 1；不同表行的 seed 集按证据文件保留。
+
+| 路线 | 正式结果 | 结论 |
 |---|---|---|
-| 2026-09-14 | 初始化四任务总览、16模型明细、12组RTX3090 profile、4组MIKASA严格小模型eval与QwenOFT VLA复核；迁移历史实验待办 | 上方固定HF版本、本地补评测/复核JSON及注明为文档记载的历史结果 |
-| 2026-09-14 15:33 | 12线程正式恢复已核查170/5k，最近7.4–7.5秒/更新；原W&B已续上。远端后置三项100局评测与本地tmux结果回传均已接入 | 正式worker环境、当前日志、评测/回传脚本 |
-| 2026-09-14 15:30 | CPUAdam线程8/12/16实测完成，12线程7.475秒/更新、吞吐+1.39%；选择12从156完整state恢复，继续原W&B。三项100局矩阵评测及自动回传/PROGRESS更新已安排 | 线程聚合、恢复/评测/回传脚本、原正式W&B run |
-| 2026-09-14 14:53 | MIKASA QwenPI已确认从110完整state恢复，micro128＋CPU offload、累积1、global128，实际122/5k，最近7.5–7.9秒/更新；正式评测/发布未完成 | 当前正式配置、恢复后正式日志、同一正式W&B run |
-| 2026-09-14 14:48 | MIKASA额外small达标、未发布；275成功episodes；QwenPI完整state保存于110步。5组批量测试：8/16/32无offload均OOM，32/128有offload通过；选择128恢复正式训练 | 本轮任务目录、逐更新统计/峰值显存、原正式日志与各W&B summary |
-
-## 证据链接
-
-[B-teacher]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/small-policy/fasttd3-v1/wandb-summary.json
-[M-teacher]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/strict-eval.json
-[B-qwenoft-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/starvla-qwenoft-h1/humanoidbench_balance_simple_qwenoft_formal_latest/provenance.json
-[B-qwenoft-eval]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/starvla-qwenoft-h1/humanoidbench_balance_simple_qwenoft_formal_latest/eval_l0.json
-[B-qwenoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwenoft/1x-rtx3090/g1_sonic_balance_simple/instance_3a0d42681a03715c/profile.json
-[B-qwengr00t-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/starvla-qwengr00t-h1/humanoidbench_balance_simple_qwengr00t_formal_latest/provenance.json
-[B-qwengr00t-eval]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/starvla-qwengr00t-h1/humanoidbench_balance_simple_qwengr00t_formal_latest/eval_l0.json
-[B-qwengr00t-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwengr00t/1x-rtx3090/g1_sonic_balance_simple/instance_3a0d42681a03715c/profile.json
-[B-qwenpi_v3-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/starvla-qwenpi_v3-h1/humanoidbench_balance_simple_qwenpi_v3_formal_latest/provenance.json
-[B-qwenpi_v3-eval]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/starvla-qwenpi_v3-h1/humanoidbench_balance_simple_qwenpi_v3_formal_latest/eval_l0.json
-[B-qwenpi_v3-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwenpi_v3/1x-rtx3090/g1_sonic_balance_simple/instance_3a0d42681a03715c/profile.json
-[B-wanoft-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/starvla-wanoft-h1/humanoidbench_balance_simple_wanoft_formal_latest/provenance.json
-[B-wanoft-eval]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/humanoidbench-balance-simple/vla/starvla-wanoft-h1/humanoidbench_balance_simple_wanoft_formal_latest/eval_l0.json
-[B-wanoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/wanoft/1x-rtx3090/g1_sonic_balance_simple/instance_3a0d42681a03715c/profile.json
-[M-qwenoft-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h1/mikasa_intercept_grab_fast_qwenoft_formal_latest_r8gpu8_20260907T082154Z/provenance.json
-[M-qwenoft-eval]: ../outputs/starvla/eval_backfill/results/mikasa/qwenoft/job.json
-[M-qwenoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwenoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
-[M-latency-run]: ../outputs/latency_rl/mikasa/qwenoft_rtx3090_h1_v1/vla/run.json
-[M-latency-eval]: ../outputs/latency_rl/mikasa/qwenoft_rtx3090_h1_v1/direct_eval_revalidation_20260911/comparison.json
-[M-qwengr00t-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h1/mikasa_intercept_grab_fast_qwengr00t_formal_latest_r8gpu7_20260907T075003Z/provenance.json
-[M-qwengr00t-eval]: ../outputs/starvla/eval_backfill/results/mikasa/qwengr00t/job.json
-[M-qwengr00t-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwengr00t/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
-[M-qwenpi_v3-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z/provenance.json
-[M-qwenpi_v3-eval]: ../outputs/starvla/eval_backfill/results/mikasa/qwenpi_v3/job.json
-[M-qwenpi_v3-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwenpi_v3/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
-[M-wanoft-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z/provenance.json
-[M-wanoft-eval]: ../outputs/starvla/eval_backfill/results/mikasa/wanoft/job.json
-[M-wanoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/wanoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
-[P-qwenoft-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwenoft-h1/20260912T072315-nocache32v2/provenance.json
-[P-qwenoft-eval]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwenoft-h1/20260912T072315-nocache32v2/eval_l0.json
-[P-qwenoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwenoft/1x-rtx3090/extreme_parkour_go2/instance_6e332477bffea7da/profile.json
-[P-qwengr00t-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwengr00t-h1/20260912T180303/provenance.json
-[P-qwengr00t-eval]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwengr00t-h1/20260912T180303/eval_l0.json
-[P-qwengr00t-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwengr00t/1x-rtx3090/extreme_parkour_go2/instance_6e332477bffea7da/profile.json
-[P-qwenpi_v3-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwenpi_v3-h1/20260912T175510/provenance.json
-[P-qwenpi_v3-eval]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/extreme-parkour-go2/vla/starvla-qwenpi_v3-h1/20260912T175510/eval_l0.json
-[P-qwenpi_v3-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwenpi_v3/1x-rtx3090/extreme_parkour_go2/instance_b19d7af6f1bdd95d/profile.json
-[H-qwenoft-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/haic-pull-cart/vla/starvla-qwenoft-h1/haic-qwenoft-50hz-fresh-20260913T035850Z/provenance.json
-[H-qwenoft-eval]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/zero-latency/haic-pull-cart/vla/starvla-qwenoft-h1/haic-qwenoft-50hz-fresh-20260913T035850Z/eval_l0.json
-[H-qwenoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles/qwenoft/1x-rtx3090/haic_pull_cart/instance_b19d7af6f1bdd95d/profile.json
-[MS-qwenoft]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/strict-eval.json
-[MS-qwenoft-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/provenance.json
-[MS-qwenoft-train]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/train.yaml
-[MS-qwenoft-config]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/eval.yaml
-[MS-qwenoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/66414463f2a609316da63935941a79abf0a73ce9/profiles/qwenoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
-[MS-qwengr00t]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1/strict-eval.json
-[MS-qwengr00t-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1/provenance.json
-[MS-qwengr00t-train]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1/train.yaml
-[MS-qwengr00t-config]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1/eval.yaml
-[MS-qwengr00t-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/66414463f2a609316da63935941a79abf0a73ce9/profiles/qwengr00t/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
-[MS-qwenpi_v3]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1/strict-eval.json
-[MS-qwenpi_v3-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1/provenance.json
-[MS-qwenpi_v3-train]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1/train.yaml
-[MS-qwenpi_v3-config]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1/eval.yaml
-[MS-qwenpi_v3-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/66414463f2a609316da63935941a79abf0a73ce9/profiles/qwenpi_v3/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
-[MS-wanoft]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/strict-eval.json
-[MS-wanoft-source]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/provenance.json
-[MS-wanoft-train]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/train.yaml
-[MS-wanoft-config]: https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/e05ca26afde4f509b0f838742c522f3a068596a8/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/eval.yaml
-[MS-wanoft-profile]: https://huggingface.co/datasets/latency-sensitive-bench/profiles/blob/66414463f2a609316da63935941a79abf0a73ce9/profiles/wanoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
-
-### 2026-09-15 07:29 UTC — Balance QwenPI H16 诊断
-
-`balance-qwenpi_v3-h16-replay6553600-25m-20260915T061441Z-profile-rl`
-在 4,976,384 raw frames 被人工中断，保留
-`checkpoint_000077618_4976384.pth`；配置为 H16、50Hz observation、QwenPI v3
-RTX 3090 temporal profile、capacity 1、replay 6,553,600、64 raw frames/update。
-固定 8 reset seeds × 4 latency seeds 的正式评测 n=32：return
-27.892326±2.722401，mean survival 35.46875 raw frames，≥100/≥500 比例均为 0。
-[训练 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-replay6553600-25m-20260915T061441Z-profile-rl)；
-[评测 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-replay6553600-25m-20260915T061441Z-profile-rl-diagnostic-eval)；
-[诊断目录](../outputs/tasks/humanoidbench_balance_simple/h16_causal_diagnostics/20260915T071310Z)。
-该 profile 训练未完成，未验收、未发布。后续两个旧语义因果 arm 已于 08:42 UTC 完成，
-均为 H16、zero latency、obs_fps=10、capacity=1、约 5M raw frames、n=8：
-`update64` checkpoint `checkpoint_000078040_5000972.pth` 的 return
-39.335382±4.280865、mean survival 55.75；`update160` checkpoint
-`checkpoint_000031217_5001189.pth` 的 return 60.552981±6.150873、mean survival 78.375；
-两者 ≥100/≥500 比例均为 0。它们按 raw frames 给 optimizer 累积 credit，而 chunk replay
-只存完成的 execution segment，因此只作为修复前历史结果保留，不能用于新的等 optimizer-step 比较。
-
-08:55 UTC 已启动修复后的 QwenPI H16 zero10 诊断：update credit 改为新完成的 replay
-transitions，raw frames 只作环境吞吐计数；训练停止、TensorBoard/W&B `global_step` 和周期评测横轴
-统一为 critic optimizer step，目标精确为 500,000，`64 transitions/update`，即 warmup 后
-32,000,000 个 credited replay transitions。run 已验证到 optimizer step 458 / raw frames 137,157，
-replay 29,981，首个 checkpoint 为 `checkpoint_000000102_35697.pth`。
-[训练 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-zero10-replay6553600-500kopt-20260915T084909Z-rl)；
-[配置与启动记录](../outputs/tasks/humanoidbench_balance_simple/h16_optimizer500k/20260915T084909Z/launch.json)。
-源码基线 revision `a81af1e4cec246d4b8401a41f19d39db18dbd0f1`、Sample Factory
-`d74dd462919c1583601079a06d0d9055eeef501e`，实际补丁哈希保存在 launch 记录中。
-当前仅确认训练正常 running；评测、验收和发布均未完成。每 25,000 optimizer steps 保留周期
-checkpoint，训练结束后串行评测；约 75k 的 checkpoint 用于和旧 77,618-update 结果比较。若恢复
-学习，再运行其余机制消融及新的 QwenOFT H8 zero/profile 500k optimizer-step baseline。
-
-W&B history 复核确认，`episode/return` 是 Sample Factory 对最近 `stats_avg=100` 个 episode
-求均值后写出的训练曲线，并与 optimizer `global_step` 同行记录；它可直接用于当前 run 的学习趋势。
-逐局原始值为 `episode_train/latest_return`，其原生横轴仍是
-`episode_train/completed_episodes`。后续 run 已显式将 `episode/*` 的 step metric 声明为
-`global_step`；当前 run 无需停止或重训。
-
-### 2026-09-15T10:00:06.202003+00:00 — Balance H8 VLA training checkpoint saved
-
-latency-aware bootstrap, optimizer step 5000, formal; H8, seed=0, microbatch=64, accumulation=1, global batch=128, GPUs=2. [Configuration](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/bootstrap.yaml), [log](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/bootstrap.log), [checkpoint](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/training/bootstrap/checkpoints/steps_5000_pytorch_model.pt), [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile-bootstrap). Training checkpoint saved; next: evaluation. Acceptance/publication remain separate.
-
-Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
-
-### 2026-09-15T10:02:20.109074+00:00 — Balance H8 evaluation complete
-
-Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/inference/checkpoints/model.pt`, step 5000; H8, 50 Hz, `temporal`, formal, n=32. Return 106.463683 ± 21.284356; mean length 121.281250; fraction ≥100 0.875000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/evals/final/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile-bootstrap-eval-5000). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
-
-Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
-
-### 2026-09-15T10:04:23.614225+00:00 — Balance H8 evaluation complete
-
-Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/inference/checkpoints/model.pt`, step 5000; H8, 50 Hz, `zero`, formal, n=25. Return 121.023290 ± 28.059735; mean length 137.760000; fraction ≥100 0.920000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/evals/final_matrix/zero/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile-final-zero). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
-
-Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
-
-### 2026-09-15T10:10:17.891953+00:00 — Balance H8 evaluation complete
-
-Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/inference/checkpoints/model.pt`, step 5000; H8, 50 Hz, `temporal`, formal, n=100. Return 102.433854 ± 15.147160; mean length 117.900000; fraction ≥100 0.880000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/evals/final_matrix/temporal/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile-final-temporal). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
-
-Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
-
-### 2026-09-15T10:11:39.415694+00:00 — Balance H8 publication complete
-
-profile QwenOFT H8 pure-SFT model, optimizer step 5000, DAgger updates 0; published to `latency-sensitive-bench/benchmark-models/latency-aware/humanoidbench-balance-simple/vla/starvla-qwenoft-h8/balance-qwenoft-h8-25m-sft5k-20260915T040718Z-profile` at revision `4ada4d52f711167a3bb40829b8617e4caafbac2f`. [Publication record](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/profile/publication.json). Training and final matrix evaluation completed before publication; acceptance remains separate.
-
-### 2026-09-15T12:11:30+00:00 — MIKASA QwenGr00T resumed after disk-full interruption
-
-The single-GPU RTX PRO 6000 latency-aware SFT reached optimizer step 1500 before the root filesystem filled while writing the separate model file. The DeepSpeed `steps_1500_state` had already completed; superseded QwenGr00T step-500 and step-1000 state/model pairs were removed, leaving 137 GiB free. Training resumed from the complete step-1500 state at 12:08 UTC and was verified at step 1512/5000, with recent updates taking 7.40–7.49 seconds and about 90.3 GiB GPU memory in use. The original W&B run is `running`: [MIKASA QwenGr00T SFT](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/mikasa-qwengr00t-mikasa_qwengr00t_latency_3090_20260915T035000Z-bootstrap).
-
-The resumed run keeps micro/global batch 128, accumulation 1, CPU optimizer offload, 12 CPUAdam threads, bf16, gradient checkpointing, CUDA expandable segments, and GPU caching. Intermediate checkpoint writes are disabled until step 5000 for this recovery, and the source setting is restored automatically when the process exits. At the observed rate, pure training has about 7 hours 13 minutes remaining; final checkpoint export and the queued three-condition 100-episode evaluation matrix add roughly 25–35 minutes plus save/load time. [Recovery script and task record](../outputs/tasks/mikasa_intercept_grab_fast/qwengr00t_latency_20260915T035000Z/).
-
-### 2026-09-15 14:27 UTC — Balance FastTD3 correctness and throughput verification
-
-The final H16 FastTD3 path was verified on the idle private NVIDIA RTX PRO 6000 host with
-seed 1, replay capacity 6,553,600, batch 32,768, 64 credited replay transitions per
-optimizer update, and 2,000 optimizer updates. The zero-latency protocol used 50 Hz env,
-10 Hz observations, 64 workers × 2 envs × 2 splits. Three final runs reached exactly step
-2,000 with median 13.662786 optimizer updates/s, 4,064.565 raw frames/s, 181.89 s wall
-time, and replay/raw 0.214302. The old environment plus unordered replay baseline was
-11.993094 updates/s and 202.19 s, so the final correct path improves optimizer throughput
-13.92%, reduces wall time 10.04%, and changes the 500k-step projection from 11.58 h to
-10.17 h. [Aggregate results and exact run links](../outputs/tasks/humanoidbench_balance_simple/final_layout_benchmark/summary.json).
-
-The replay failure was traced to startup decorrelation: with 64 × 2 × 2, the second split
-advanced each environment before its first trace, consuming frames 0–4 while ordered
-replay waited for frame 0. Disabling that FastTD3 decorrelation restored the zero run from
-1,203,707 raw frames and replay/raw 0.106338 to the final median 0.214302. Replay now
-buffers cross-batch events per environment and drains them in episode/frame order. Latency
-and reset streams are keyed by global env id; all 128 historical 128 × 1 seeds are
-preserved. Accelerator batching now counts worker splits: min request target 42 versus 21
-improved the paired three-run median from 13.222920 to 13.662786 updates/s (+3.33%).
-
-The topology check used the same target 42 and seed mapping. The 128 workers × 1 env × 1
-split zero run reached step 2,000 at 13.211374 updates/s and 202.39 s; 64 × 2 × 2 remained
-3.42% faster by stable optimizer throughput and reduced wall time 10.13%. The QwenPI v3
-RTX 3090 temporal-profile run used 50 Hz observations and 64 × 2 × 2; it reached step
-2,000 at 6.743590 updates/s, 2,468.717 raw frames/s, 748,416 raw frames, and replay/raw
-0.171028 (about 1/5.85), with no missing-frame wait or expanding backlog. Exact configs,
-logs, exit codes, source snapshots, and per-run JSON are under the linked evidence directory.
-
-The optimized G1 wrapper was also checked against the prior implementation for zero,
-fixed 40 ms, and temporal latency over 50 nonconstant H16 decisions each; state, reward,
-terminal flags, replay trace, and scheduler metadata matched exactly. This entry records
-correctness and performance only. No policy-quality evaluation, acceptance, or publication
-was performed. The local source baselines were repository revision
-`558af6c2573ecb00041a4413cb1b1065084f4570` and Sample Factory revision
-`f6050eeefa3739968c494b68060cbd50c09017f9`, both dirty. The benchmark host was a file
-sync rather than a git checkout, so its exact hot-path sources are retained in the evidence
-directory. Next: use 64 × 2 × 2 for the next long zero/profile learning run, then run the
-documented seeded evaluation protocol separately.
-
-### 2026-09-15 15:20 UTC — Balance QwenPI H16 target-actor / stale-state treatments running
-
-The zero10 `w128e1s1` control completed 100,000 critic optimizer steps at 31,400,509
-raw frames with final checkpoint `checkpoint_000100000_31400509.pth`; no new evaluation,
-acceptance, or publication has been performed. Its target-actor treatment is running on GPU 0
-with the same seed 1, H16, zero latency at 10 Hz observations, replay 6,553,600, batch
-32,768, 64 replay transitions/update, and 100,000-step budget. The only algorithm flag enabled
-for this arm is `fasttd3_target_actor`; it was verified running through optimizer step 2,088 at
-628,846 raw frames. [Target-actor W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-zero10-w128e1s1-target_actor-replay6553600-100kopt-20260915T151542Z-s1-rl).
-
-The slow profile control was intentionally stopped at optimizer step 48,346 / 17,344,000 raw
-frames (`checkpoint_000048346_17344000.pth`, exit 2). Its stale-state treatment is running on
-GPU 1 with the same seed 1, H16, QwenPI v3 RTX 3090 temporal profile, 50 Hz observations,
-capacity 1, replay/update settings, and 100,000-step budget. This arm leaves target actor off and
-enables observation-boundary result release plus the causal scheduled chunk remainder/head index;
-it was verified through optimizer step 283 at 116,992 raw frames. [Chunk-context W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-profile-w128e1s1-chunk_context-replay6553600-100kopt-20260915T151542Z-s1-rl).
-[Exact configs, isolated runtime hashes, scripts, and logs](../outputs/tasks/humanoidbench_balance_simple/h16_target_actor_chunk_context_100k/20260915T151542Z/launch.json).
-The isolated runtime preserves the controls' worker/vector seed mapping; evaluation, acceptance,
-and publication remain pending. Next: compare training return and periodic n=8 evaluation at equal
-25k/50k/75k/100k optimizer steps.
-
-### 2026-09-15 18:03 UTC — Balance H16 treatments rejected; G1 no-op and periodic eval corrected
-
-The target-actor treatment completed 100,000 optimizer steps / 31,302,628 raw frames at
-`checkpoint_000100000_31302628.pth`. Deterministic equal-checkpoint evaluation used 8 episodes
-per policy. At 25k/50k/75k/100k, the zero-control mean lengths were
-239.750/294.625/714.250/875.000; the treatment's deployed live actor was
-76.125/231.500/90.500/871.750, and its stored EMA actor was
-100.375/188.875/93.250/834.875. Thus the EMA bootstrap slowed learning, did not smooth deployed
-behavior, and gave no final gain. The standard evaluator/deployment loads checkpoint `model`, not
-the separate experimental `target_actor`; target/live relative parameter L2 was only about
-0.48%-0.57% with tau 0.1. This treatment is rejected, not accepted or published.
-
-The chunk-context treatment was intentionally terminated after its exact 50k checkpoint was
-loaded and verified (`checkpoint_000050000_17866880.pth`, 60,044,671 bytes, 48 model/critic
-tensors all finite). Shutdown occurred at 2026-09-15 17:36:01 UTC; the later automatic
-`checkpoint_000053067_18937600.pth` is retained, but comparisons remain anchored at 50k. At 25k
-under the corrected no-op runtime, its n=4 mean length was 35.500 versus 36.500 for the profile
-control, so the added scheduled-chunk remainder/head input did not improve the blocking behavior.
-The target-actor, chunk-context, observation-boundary release, config flags, checkpoint state, and
-their tests were deleted rather than retained as inactive compatibility surface.
-
-The deeper fault was at the G1 action boundary: the latency scheduler received the configured
-normalized no-op after the native environment had already switched to `direct_absolute_position`,
-while ordinary policy actions were converted by the outer raw-request wrapper. Wrong-versus-raw
-maximum observation errors over the first six frames were
-18.21/15.11/13.68/13.09/11.60/9.66; converting the no-op through the same G1 transform restores
-raw/direct trajectories to about 1e-6. The old profile 25k checkpoint scored mean length 50.375
-with the wrong training no-op but only 32.500 in corrected-runtime n=8 evaluation, so it cannot
-stand in for a retrained corrected-profile arm. A second bug caused no-suite periodic jobs to
-write `{"summaries": []}` without running episodes; they now evaluate the current condition and
-the terminal periodic step is not repeated as a final eval.
-
-Implementation revisions are root `3586443134acc6f68739f76f575e7b4aac0f1871` and Sample Factory
-`636e92744a2f47e0f9f2c34c795acee13022e6fc`. Targeted tests passed 75 with 6 skips; the broader
-related selection passed 175 tests, with 13 unrelated Flappy imports unavailable in this
-environment. Isolated 2k smokes both exited 0: corrected profile at
-`checkpoint_000002000_759680.pth` and fixed100/capacity1 at
-`checkpoint_000002000_741632.pth`; both had finite model/critic tensors and no target-actor state.
-[Diagnosis and episode metrics](../outputs/tasks/humanoidbench_balance_simple/h16_profile_fixed100_corrected_noop_50k/20260915T174801Z/diagnosis.json) and
-[paired configs, hashes, smoke records, and decision gates](../outputs/tasks/humanoidbench_balance_simple/h16_profile_fixed100_corrected_noop_50k/20260915T174801Z/launch.json).
-Training completion and evaluation completion for the formal pair remain false. The owner-confirmed
-private host is one RTX PRO 6000 Blackwell, so the two arms use the same GPU sequentially. The
-corrected-profile arm launched at 2026-09-15 18:17:27 UTC in tmux
-`balance_noop_pair_174801`; it crossed warmup and a checkpoint snapshot was verified at optimizer
-step 389 / 165,504 raw frames with finite model/critic tensors and no target-actor state.
-Fixed100/capacity1 is queued behind its successful training and deferred 25k/50k evaluations.
-[Profile W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-profile-corrected_noop-w128e1s1-replay6553600-50kopt-20260915T174801Z-s1-rl) and
-[fixed100 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenpi_v3-h16-fixed100-cap1-corrected_noop-w128e1s1-replay6553600-50kopt-20260915T174801Z-s1-rl).
-Acceptance and publication remain false. Next: verify warmup/optimizer checkpoints, let both arms
-reach 50k, then apply the documented mean-length gates; resume both to 100k only if either result is
-in the 100-300 grey zone.
-
-### 2026-09-15T18:15:27.313160+00:00 — Balance H8 DAgger failure
-
-zero pipeline exited with code 1. [Pipeline log](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/dagger10_20260915T180849Z/zero.log), [status](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/dagger10_20260915T180849Z/status.json). Completed rounds and checkpoints are retained; next: diagnose and resume this exact run.
-
-### 2026-09-15T18:18:38.519283+00:00 — Balance H8 evaluation complete
-
-Checkpoint `/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/sft5k_only/zero/inference/checkpoints/model.pt`, step 0; H8, 50 Hz, `zero`, formal, n=8. Return 71.686991 ± 16.825506; mean length 87.625000; fraction ≥100 0.250000, ≥500 0.000000. [Exact seed protocol and metrics](/pfs/users/lxy/latency-sensitive-bench/outputs/tasks/humanoidbench_balance_simple/local_h8/closed_loop_h8_replay6553600/vla/dagger10_20260915T180849Z/zero/evals/sft_0/summary.json); [W&B](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/balance-qwenoft-balance-qwenoft-h8-25m-sft5k-dagger10-20260915T180849Z-zero-dagger). Evaluation completion does not establish acceptance or publication. Next: continue the scheduled training/publication stage.
-
-Code revision `6ab79709c2ac8b40609a878ebc36c1cd8cd43e1a` (dirty workspace; run directory retains configuration and diff).
-
-### 2026-09-16 11:10 UTC — Native MC PPO implemented; smoke and resume verified, formal budget not yet started
-
-Public `training.train` now dispatches `backend.algo: PPO` to complete-episode,
-synchronous Monte Carlo PPO; existing FAST_TD3/APPO paths remain. Root revision
-`f0929454423a5f170eb3c226aec42103ea351248` plus the uncommitted PPO implementation;
-SF revision `636e92744a2f47e0f9f2c34c795acee13022e6fc` unchanged. Initial weights are
-`h16_fixed100_delayed_imitation/20260916T061955Z/followup_20260916T070429Z/student_correction_2000.pth`.
-Native H16/fixed100/capacity1/50-50Hz/heads5:10, normalized reset-pose noop,
-frozen BC normalization, gamma1, survival-frame MC targets /1000, independent
-128/128 V with remaining time; no Q gradient or BC-relative coordinate tether.
-Gymnasium CPU vector workers feed centralized GPU inference at fixed batch shape.
-
-The proposed actor LR1e-5 overshot the joint Gaussian KL target0.02 in one step:
-11.39 in smoke,15.15 on a new128-episode calibration batch. LR1e-6 gave0.151;
-LR3e-7 gave0.024 after3 actor steps, so the formal recipe uses3e-7. Other planned
-budgets are unchanged:128 complete episodes/round, minibatch1024,2 epochs,
-200 rounds; V LR3e-4 and128-episode/10-epoch warmup, fixed pre-tanh std0.02,
-PPO clip0.2, joint KL early-stop for actor only. Calibration is not policy
-acceptance. [Calibration](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/lr_calibration.json).
-
-Serial BC audit exactly reproduced464.1875 length /421.429847 return /30 of32
->=100 /13 of32 >=500 on seeds104730–104761, cap1000. Batched FP32 inference
-changes closed-loop trajectories, so each run re-evaluates its own BC baseline;
-the old scalar baseline is not substituted into batched comparisons.
-[Serial audit](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/bc_serial_audit.json).
-
-Final implementation smoke used4 workers,8 episodes/round,2 rounds, then resumed
-to round3 on the same online W&B run. Latest checkpoint is
-`balance_h16_fixed100_mcppo_smoke_final_20260916T1107Z/checkpoint_p0/checkpoint_latest.pth`:
-6 actor /16 V optimizer calls,14,370 training+warmup raw frames,32 episodes.
-Round3 development32:487.34375 length /442.997474 return /32 of32 >=100;
-its matched BC was491.0 /445.265735 /30 of32. Selected best remains round0 BC;
-the8 smoke test seeds650001–650008 give paired gain0, interval[0,0], not accepted.
-First/final smoke KL0.018626/0.009496. Training and evaluation completion here
-refer only to smoke, not the formal200-round budget. No publication.
-[Smoke result](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_smoke_final_20260916T1107Z/result.json),
-[online W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/lvsuko7t).
-
-Verification:128 native wrapper/scheduler/executor/PPO/checkpoint/W&B tests and
-58 FAST_TD3 tests pass. GPU tests require explicit `CUDA_VISIBLE_DEVICES`;
-the first invocation omitted it, then all58 passed with it set. Broader Flappy
-tests are unavailable because `flappy_bird_gymnasium` is not installed.
-[128-test log](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/tests_final.log),
-[58-test log](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/fasttd3_tests_final.log).
-Occam review retained one dedicated episode trainer and existing installed
-vector-env/actor implementations; no new dependency or parallel framework.
-Next: finish the public eval smoke, benchmark16/32/64 workers on128 BC episodes
-three times, then complete seed1's200 rounds and64 heldout episodes per policy.
-Development seeds104730–104761 select best every10 rounds; heldout seeds640001–640064
-are not used for selection. [Recipe](../configs/examples/gymnasium/g1_sonic_balance_simple/ppo_train.yaml).
-
-### 2026-09-16 11:15 UTC — Formal Balance MC PPO seed1 running, round11/200 verified
-
-Online run `balance_h16_fixed100_mcppo_s1_20260916T1110Z`, PID1334277, GPU0,
-uses the recipe and revisions above. No performance-based stop was added.
-Three128-episode BC timing repeats per setting gave median raw frames/s:
-16 workers3316.75,32 workers5998.17,64 workers9315.48. The smallest setting
-within95% of peak is64 workers (2.81x the16-worker median); GPU inference batch
-is fixed64, CPU simulation remains the dominant collection cost. The cgroup
-CPU quota is43 cores. The profiling episodes are separate from the training
-budget. [Timing evidence](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_s1_20260916T1110Z/throughput.json).
-
-Verified immutable `checkpoint_p0/checkpoint_0011.pth`: round11,131 actor updates,
-402 V updates including130 warmup updates,727,092 raw training+warmup frames,
-1,536 complete episodes including128 warmup episodes. Round11 collection128
-episodes/63,943 frames took7.139s; learner0.048s, KL0.02309,
-value explained variance0.63191. Round10 development32 seeds104730–104761:
-469.875 mean length /427.424475 mean return /30 of32 >=100 /15 of32 >=500.
-Matched fixed-batch64 frozen BC is525.1875 /477.932544 /30 of32 /19 of32.
-This interim policy is not an improvement; selected best remains BC at round0.
-The200-round run continues, and no heldout640001–640064 evaluations have run yet.
-Formal training completion, final evaluation completion, acceptance and
-publication are all false at this audit.
-[Round11](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_s1_20260916T1110Z/round_0011.json),
-[round10 evaluation](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_s1_20260916T1110Z/round_0010.json),
-[online W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/z3y85xez),
-[launch log](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/formal_s1_20260916T1110Z.log).
-
-Public `--mode eval --checkpoint-kind best` also completed on the smoke run,
-loading round0 and reproducing paired gain0 on its8 test seeds without changing
-the training run's files or W&B history. [Eval result](../outputs/tasks/humanoidbench_balance_simple/ppo_fixed100/balance_h16_fixed100_mcppo_smoke_final_20260916T1107Z/eval_best_1789556969818619221/result.json).
-Resume this formal run, only if its process has stopped, with:
-`CUDA_VISIBLE_DEVICES=0 .venv/bin/python -m training.train --config configs/examples/gymnasium/g1_sonic_balance_simple/ppo_train.yaml --run-name balance_h16_fixed100_mcppo_s1_20260916T1110Z --restart-behavior resume`.
-Next: complete200 rounds; automatic best-checkpoint/BC evaluation uses64 heldout
-seeds each and paired95% intervals. Only a verified gain with no >=100-count
-regression warrants the planned seed2/3 repetitions. No success claim from smoke
-or development-set checkpoint selection.
-
-
-### 2026-09-16 12:55 UTC — Balance MC PPO moved into Sample Factory; throughput and resume verified
-
-This supersedes the old standalone-trainer status above, without accepting a new
-policy yet. Root base revision `d5158888066c41b3c79a0f1a5e22344c379a15be`; Sample
-Factory base `636e92744a2f47e0f9f2c34c795acee13022e6fc`; implementation is an
-uncommitted working-tree change. The old `training/gymnasium_sf/ppo.py` is removed;
-MC PPO now uses SF runner, inference worker, shared trajectory buffers, batcher,
-learner, parameter server, and checkpoints. Root integration supplies the task
-and latency adapter. Complete-episode gamma=1 returns, frozen BC normalization,
-independent value network, H16 active heads5:10, fixed100ms/capacity1/50Hz remain.
-
-The archived200-round run actually completed: best round190 development return
-506.554 and latest round200 return396.479 on the same32 seeds, a110.075 drop.
-Its old64-seed heldout gain in survival was30.4375 frames, paired95% interval
-[-24.5973,85.0156]; acceptance was false. The previous running entry did not
-establish its current process state. The new control and candidate each retain
-200 rounds,128 complete episodes/round, plus128 warmup episodes; final heldout
-seeds670001–670064 are separate from the prior640001–640064 evaluation.
-
-Fixed BC benchmark:128 episodes on seeds600001–600128, three timed repeats after
-warmup, fixed GPU inference GEMM64,63060 raw frames/repeat. Legacy collector median
-9011.26 FPS; SF before vectorized conversion12282.55 (+36.30%). Optimized SF with
-32/43/64 workers gives9601.42/11875.71/13089.60 FPS.64 workers is the only setting
-within95% of peak, so the recipe selects64: **+45.26% raw-frame throughput** versus
-legacy. All repeats have identical per-seed survival lengths (mean492.65625;
-mean raw return447.327677). CPU cgroup quota43 cores. These isolated timings
-exclude startup, evaluation and learning; simultaneous formal runs are not used
-as throughput measurements. This is simulator collection FPS, not model latency.
-[Timing evidence](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/throughput_comparison.json).
-
-Stability implementation normalizes advantages across the complete round and
-checks full-batch joint pre-tanh Gaussian KL after every actor step. A step over
-0.01 restores both actor parameters and Adam state, stops actor updates for that
-round, and continues all value updates. The20-round KL-only ablation at the old
-actor LR3e-7 had6 initial rounds without an accepted actor update, then33 accepted
-updates total. Candidate LR is therefore1e-7; its first10 rounds verified continued
-learning and KL below0.01. Normalization-only and KL-only use the old LR for causal
-short comparisons; the complete candidate also changes LR. Performance/stability
-acceptance awaits the full budgets, and is not implied by the KL bound.
-[KL-only evidence](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_kl_only_s1_20260916/round_0020.json).
-
-Verified public train→resume smoke: round3,3 actor/4 value updates,8946 raw frames,
-16 complete episodes including4 warmup episodes. Model, both Adam states and
-Torch/CUDA RNG are bitwise identical to uninterrupted round3. Public best/latest
-evaluation each completed4 heldout smoke seeds680001–680004, mean survival578.25,
-return524.600761; these are smoke outcomes only. A spawned-worker regression test
-also verifies unequal episode lengths, resume, and no resampling after budget
-completion. It exposed and fixed numeric checkpoint ordering when actor updates
-stay constant and the raw-frame counter crosses a decimal boundary.
-[Resume evidence](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/resume_comparison.json),
-[lifecycle test](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_sf_lifecycle_final.log).
-
-Validation so far:99 training/FastTD3 tests,36 real SONIC scene tests, and1 SF
-process-lifecycle test pass. Initial broad runs used a wrong scene-root path or
-omitted required CUDA_VISIBLE_DEVICES; corrected runs passed. The older broad
-Flappy suite remains unavailable because flappy_bird_gymnasium is absent.
-[Training tests](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_training_verified.log),
-[scene tests](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_env_verified.log).
-Next: complete both200-round SF runs, compare fixed32-seed development oscillation
-and final five evaluations, then evaluate BC/best/latest on64 fresh heldout seeds.
-Training completion, evaluation completion, acceptance, and publication of the
-formal candidate are still false. From-scratch and other-task generalization
-remain deferred as requested.
-
-
-### 2026-09-16 13:24 UTC — Balance SF MC PPO: full comparison completed; stability gate and policy acceptance fail
-
-Both one-seed runs completed200 PPO rounds plus value warmup, each25728 complete
-episodes (25600 train +128 warmup). Frozen BC initialization is
-`h16_fixed100_delayed_imitation/20260916T061955Z/followup_20260916T070429Z/student_correction_2000.pth`.
-Training seeds1000001–1025600; warmup999873–1000000. Development is the same32 seeds
-104730–104761 every10 rounds; heldout is64 fresh seeds670001–670064 for BC, best and
-latest separately. All use H16, active heads5:10, fixed100ms/capacity1/50Hz, fixed
-inference GEMM64,128 episodes/round,2 epochs, minibatch1024, std0.02 and V LR3e-4.
-Control uses raw advantages, actor LR3e-7, pre-step minibatch KL early-stop0.02;
-candidate uses whole-round advantage normalization, actor LR1e-7, post-step
-full-batch KL rollback0.01. These are joint treatment changes, not an isolated
-claim for normalization. Round0 model and V weights are bitwise equal across the
-two runs. Per-episode NumPy exploration streams differ from the historical
-standalone trainer's shared Torch stream; the new SF control is the matched
-algorithm comparison. [Warmup equality](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/warmup_comparison.json).
-
-| Fixed development metric, including initial BC | SF control | SF candidate | Outcome |
-|---|---:|---:|---|
-| Maximum adjacent return drop |44.808245|42.604804|4.92% smaller; fails30% target|
-| Mean absolute adjacent return change |24.764921|20.358284|17.79% smaller; fails25% target|
-| Last five evaluation mean return |442.518154|452.754211|+10.236057; passes non-regression target|
-| Maximum full-batch joint KL |0.05938414|0.00999902|candidate stays below0.01|
-| Actor updates / zero-update training rounds |2854 /0|4357 /0|candidate continues learning|
-| V updates including warmup |5180|5210|V continues after rejected actor steps|
-| Training + warmup raw frames |12397181|12532145|same episode budget, different lengths|
-
-The historical standalone run had maximum drop110.075425, mean change32.326937,
-last-five mean451.545304; it is a historical reference, not a matched RNG control.
-The candidate improves some stability metrics but **does not pass the predeclared
-stability gate**. A bounded KL is not a monotonic-return guarantee.
-[Full comparison](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/training_comparison.json),
-[curves and throughput](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/comparison.png),
-[PDF](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/comparison.pdf).
-
-Heldout results below each contain64 complete episodes, cap1000, deterministic
-mean actions. Paired95% intervals bootstrap10000 resamples of the same episode
-seeds; they do not quantify variation across training seeds.
-
-| Policy / exact round | Mean length | Mean raw return | >=100 / >=500 | Paired length gain vs BC [95% interval] |
-|---|---:|---:|---:|---|
-| Frozen BC |527.406250|479.162699|63 /36|reference|
-| SF control best50 |492.937500|447.461250|62 /30|-34.468750 [-88.453516,20.500391]|
-| SF control latest200 |532.843750|484.122036|63 /37|+5.437500 [-52.266016,65.985937]|
-| SF candidate best140 |505.796875|459.397210|64 /30|-21.609375 [-75.031250,28.875000]|
-| SF candidate latest200 |514.562500|466.794658|64 /34|-12.843750 [-60.375000,34.442187]|
-| Archived standalone best190, re-evaluated |521.187500|473.937553|63 /32|-6.218750 [-62.267188,51.109766]|
-| Archived standalone latest200, re-evaluated |525.109375|476.583885|63 /35|-2.296875 [-48.268750,44.251172]|
-
-No learned policy passes the heldout acceptance criterion. Training completion
-and evaluation completion are true for both SF runs; acceptance and model
-publication are false. Candidate best is round140/actor step3082/raw frame8735704;
-latest is round200/actor step4357/raw frame12532145. Immutable checkpoints:
-[best140](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_stable_s1_20260916/checkpoint_p0/best_000003082_8735704_development_540.406.pth),
-[latest200](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_stable_s1_20260916/checkpoint_p0/checkpoint_000004357_12532145.pth).
-[Candidate result](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_stable_s1_20260916/result.json),
-[control result](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/sf_control_s1_20260916/result.json),
-[archived policy fresh evaluation](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/archived_legacy_fresh_heldout.json),
-[candidate W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/sf_stable_s1_20260916),
-[control W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/sf_control_s1_20260916).
-
-Final-source isolated64-worker benchmark repeated the same128 BC episodes three
-times: median13252.85 raw frames/s versus legacy9011.26, **+47.07%**; all per-seed
-survival lengths still match. The prior45.26% measurement is retained above.
-The end-of-task isolated cProfile covers4 identical BC episodes/2308 raw frames
-per implementation: total environment time6.3938→5.7448s; action conversion
-0.65985→0.10649s, with converter calls36928→2308. MuJoCo mj_step consumes
-4.2714s (66.8%) before and4.2155s (73.4%) after. The remaining dominant cost is
-physics; the measured acceleration combines dynamic episode assignment, SF
-inference scheduling and vectorized conversion. Concurrent training wall times
-are not used for speedup claims. [Timing](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/throughput_comparison.json),
-[profile summary](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/profile_summary.json),
-[reproducible profiler](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/profile_environment.py).
-
-Final validation:169 relevant tests pass (100 training/FastTD3 including the new
-SF lifecycle case,36 real scene tests,33 checkpoint/latency/SF learner contracts).
-The final five MC tests pass after the implementation cleanup. Public train,
-resume, best/latest evaluation, KL rejection with exact Adam restoration,
-complete-episode masking and numeric checkpoint ordering were exercised.
-[Final MC tests](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_mc_final.log),
-[contract tests](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/tests_contracts.log).
-Root/SF base revisions remain those in the preceding entry; no commit was made.
-[Source manifest](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/source_manifest.json),
-[complete source snapshot including new SF modules](../outputs/tasks/humanoidbench_balance_simple/mcppo_sf_audit/implementation_sources.tar.gz).
-
-The engineering migration and speedup are verified; return stability is only
-partially improved, and a PPO gain beyond BC is unconfirmed. All jobs launched
-for this MC PPO audit have finished. Next: a separately budgeted development-only comparison of larger
-policy-gradient batches before another policy selection, followed by fresh
-heldout seeds if a new candidate is chosen. Seed2/3 confirmation and publication
-are not justified by this gate result. From-scratch and other-task work stays
-deferred. Current entry points and SF ownership are in
-[BALANCE_MC_PPO](BALANCE_MC_PPO.md); native resume applies to the new SF experiment
-directories, while historical standalone checkpoints remain archived.
-
-### 2026-09-17 — Corrected Balance DAgger H8/H16 matrix staged for review; no new experiment launched
-
-The preceding QwenOFT H16 profile recovery is no longer active. It was stopped
-with SIGINT after DAgger optimizer step1,500 (6,500 combined updates); latest is
-`dagger_03_1500`,32-seed development mean survival66.78125 and return
-54.74927086. Best is `dagger_03_1250`,mean survival70.78125. Its output remains
-under `/mnt/local/balance-profile-qwenoft-iterative-v2-20260917/formal_v2` and
-the stop evidence is
-`/mnt/local/balance-profile-qwenoft-iterative-v2-20260917/stop_audit_20260917T0708Z.json`.
-No matching remote process remained and all remote GPUs were idle at that audit.
-
-The old local `balance-qwenpi-v3-h8-fullchunk2k-stride8-20260917T1740Z` run was
-also stopped because QwenPI v3 must use H16,not H8. It received SIGINT at
-2026-09-17 15:24:09 UTC during DAgger step3,755/4,000; step3,500 is the last
-complete periodic checkpoint. The interrupt directory contains model/optimizer
-shards but no RNG/latest files after elastic forced the ranks down at its30-second
-grace boundary,so it is not a resumable accepted checkpoint. No post-interrupt
-evaluation ran. All earlier data and checkpoints were preserved; local GPUs0--1
-were verified at0MiB afterward. [Stop audit](../outputs/tasks/humanoidbench_balance_simple/full_chunk_baselines_20260917/qwenpi/zero/stop_audit_20260917T1524Z.json).
-
-The replacement implementation is staged for review only. No smoke or formal
-run has been launched. The exact planned matrix is:
-
-| Hardware | GPUs | Student | Horizon/state | Condition and loss mask | Gradient checkpointing |
-|---|---:|---|---:|---|---|
-| local |0--1|QwenOFT|H8 /550D|zero latency,whole teacher-valid chunk|on|
-| H200 remote |2--3|QwenPI v3|H16 /902D|zero latency,whole teacher-valid chunk|off|
-| H200 remote |4--5|QwenPI v3|H16 /902D|RTX3090 QwenPI temporal profile,entire teacher-valid suffix|off|
-| H200 remote |6--7|QwenPI v3|H16 /902D|same profile,teacher-valid intersect same-request executed heads|off|
-
-Every arm starts model training from a fresh bootstrap initialization. No old
-bootstrap model or optimizer is reused. The two profile arms reuse the same raw
-bootstrap rows,images and target chunks; the shared source is collected with the
-execution-aligned mask so every retained row is trainable,then each arm writes
-only its own `action_valid_mask` and computes its own normalization statistics.
-They do not share trained weights. Zero and profile data are not mixed.
-
-The frozen teacher is the zero10 FastTD3 small model at
-`outputs/tasks/humanoidbench_balance_simple/h16_optimizer100k/20260915T124345Z/rl_checkpoints/balance-qwenpi_v3-h16-zero10-w128e1s1-replay6553600-100kopt-20260915T124345Z-s1-rl/checkpoint_p0/checkpoint_000100000_31400509.pth`,with config
-`outputs/tasks/humanoidbench_balance_simple/h16_optimizer100k/20260915T124345Z/configs/qwenpi_h16_zero10_w128e1s1_optimizer100k.yaml`.
-Only its trained heads0--4 are consumed. Closed-loop labels re-query the teacher
-every five private physics frames: H8 uses5+3 (two queries),H16 uses5+5+5+1
-(four queries). Under profile latency,the private branch first replays admitted
-commands into the target with mask false,then generates the teacher suffix from
-the resulting application state. `profile_executed` further intersects teacher
-validity with the live student's `replay_clock` for the same request.
-
-Formal budget is71,000 bootstrap rows (episode split approximately64k train/7k
-validation),5,000 fresh bootstrap updates,then ten DAgger rounds of16,000 rows
-and500 updates each. DAgger round1 samples bootstrap/latest50/50; subsequent
-rounds sample bootstrap/latest/all-old-history40/40/20. Dataset-size weighting
-is disabled and step sampling is random. Bootstrap→DAgger intentionally creates
-a fresh optimizer; all DAgger rounds then resume one complete optimizer,
-scheduler and RNG state. The latest checkpoint drives collection; best is only
-reported. Development evaluation is32 fixed seeds after bootstrap and every
-round; held-out evaluation is32 episodes. Metrics use `eval/*`.
-
-Collection evidence records teacher-forward,prefix-replay,private-branch-step,
-environment-step,render,image-submit/image-flush,inference and conversion wall
-times plus teacher query and branch-frame counts. The run writes a
-`semantic_checklist.json` containing model geometry,mask,teacher,replay,
-optimizer,checkpoint and evaluation contracts before collection. Focused local
-tests pass; formal training/evaluation/acceptance/publication all remain false.
-Next: review the staged diff and checklist,then run unchanged smokes before any
-formal launch.
-
-### 2026-09-17 08:49 UTC — Balance H8/H16 rollout optimized; smoke gates passed and four-arm matrix launched
-
-The staged rollout was corrected and optimized before launch. Profile recipes
-now explicitly use `method=temporal`,worker slot0 and latency metadata; the
-collector now points directly at `GymnasiumActionLatencyWrapper` instead of
-relying on prohibited private-attribute forwarding through
-`G1RawRequestWrapper`. Private prediction environments no longer create a render
-context. For DAgger profile rows,the teacher branch now starts from the live
-application-boundary physical state,so scheduler/timeline copies and committed
-prefix replay are gone. `profile_executed` delays relabeling until replacement or
-termination and stops at the last executed head. Oracle bootstrap retains eager
-prefix replay because its teacher chunk controls the live environment. The
-existing single raw profile bootstrap reuse remains the only bootstrap for both
-profile arms. Formal DAgger now enables the existing overlap path.
-
-Validation passed locally and on the H200 snapshot:23 passed,1 skipped in
-`tests/scripts/test_starvla_collect.py`. A fixed seed4100001 live-physics audit
-ran266 frames and compared50 application-boundary rows head-by-head with the old
-prefix-replay result. Both suffix and executed supervision matched; suffix used
-533 private suffix steps with no prefix replay,while executed dropped the same
-episode from137 to62 teacher queries and from533 to261 suffix steps. This is a
-54.7% teacher-query and51.0% suffix-step reduction; including the removed
-five-to-six-frame prefix,the private-physics reduction is about67% for this
-episode.
-
-The fixed-seed H200 overlap comparison used the same QwenPI H16 student,profile,
-seed5100001,16 workers and inference batch8 for2,048 retained labels. Sync took
-130.7394s total,including38.4795s startup and87.9095s steady; overlap took
-125.4416s total,42.5707s startup and78.3043s steady. Thus overlap reduced steady
-time10.9% and cold total4.1%,despite completing2,393 rows versus2,200 during
-cohort drain. In the sync run,the aggregate worker counters were render544.9611s,
-live env46.6792s,private branch35.6792s,branch setup8.5726s,teacher forward
-1.6513s and image submit0.3571s; serialized inference was36.9654s. These worker
-sums overlap across16 processes and must not be added as wall time. Evidence:
-[sync](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/rollout_benchmark/sync_2048.json) and
-[overlap](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/rollout_benchmark/overlap_2048.json).
-
-The optimized H16 DAgger smoke gives the mask-specific comparison. Suffix used
-4,312 branch frames,1,155 teacher queries and97.2358s steady; executed used2,303
-frames,587 queries and73.4010s steady. Executed therefore reduced branch frames
-46.6%,queries49.2% and steady wall24.5% in this smoke; both recorded zero prefix
-replay. Evidence: [suffix](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/smoke_timing/profile_suffix_dagger_01.json) and
-[executed](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/smoke_timing/profile_executed_dagger_01.json).
-The remaining rollout bottlenecks are EGL render and student inference; teacher
-forward and PNG submission are now small. Cross-worker teacher batching and
-image-semantic changes remain intentionally out of scope.
-
-All four unchanged end-to-end smokes completed6 optimizer updates and two held-
-out episodes per checkpoint. Their held-out bootstrap/best/latest mean survival
-frames were: local QwenOFT H8 zero15.0/24.5/24.0; remote QwenPI H16 zero
-17.5/17.5/19.0; profile suffix19.5/26.5/26.5; profile executed18.0/27.0/22.0.
-These two-episode values are plumbing evidence only and do not establish
-acceptance. Local smoke evidence is
-[result.json](../outputs/tasks/humanoidbench_balance_simple/profile_matrix_20260917T0812Z/local_qwenoft_h8_smoke/result.json); remote smoke roots are under
-`/mnt/local/balance-profile-matrix-20260917T0812Z/remote_qwenpi_h16/` on the
-eight-H200 host.
-
-The requested formal matrix is now live. Local tmux
-`balance_qwenoft_h8_matrix` (controller pane PID2242358) launched
-`local_qwenoft_h8_zero_full` on GPUs0--1 with checkpointing on. Its fresh71,000-
-row bootstrap completed in333.7158s:218.3979s steady,104.9859s conversion,
-72,028 generated rows across1,165 episodes and212.7559 retained labels/s. It
-then started the fresh5,000-update bootstrap learner; the08:48:49 UTC log had
-reached step55 at about1.9s/update. Its online [bootstrap run](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks/runs/profile_matrix_20260917T0812Z-local_qwenoft_h8_zero_full-bootstrap)
-uses ID `profile_matrix_20260917T0812Z-local_qwenoft_h8_zero_full-bootstrap`;
-the reserved DAgger ID is the same prefix plus `-dagger`.
-
-On the H200 host,queue controller PID1783088 passed all three smokes and launched
-QwenPI H16 zero_full PID1805191 on GPUs2--3 plus the sole raw profile bootstrap
-collector PID1805192 on GPUs4--5. At this audit they had3,315 and3,004 retained
-labels respectively. The profile collector uses `profile_executed` only to
-ensure retained rows have an execution mask; after71,000 rows the queue will
-derive suffix/executed datasets by changing only `action_valid_mask`,then launch
-fresh independent models on GPUs4--5 and6--7. GPU6--7 are intentionally idle
-until that shared source is ready. The remote root is
-`/mnt/local/balance-profile-matrix-20260917T0812Z`; queue state is
-`remote_qwenpi_h16/queue.json`. The zero IDs are
-`remote_qwenpi_h16-qwenpi_v3_h16_zero_full_formal-bootstrap` and `-dagger`.
-
-Every formal arm records71,000 bootstrap rows,5,000 fresh bootstrap updates and
-10 rounds of16,000 rows plus500 updates; no old model or optimizer is reused.
-The teacher remains the frozen zero10 FastTD3 small checkpoint and only heads
-0--4 are consumed. Source revisions are benchmark
-`bd3baacbdb2e0cc3a43d14040dcd2cbdbccb0ecd` dirty,StarVLA
-`d9e060588c4303b927a518948380647dcec4aca7` dirty,Sample Factory
-`4b11d8754ffc989cdd15a340cfc9be0277377d5b` and HumanoidBench
-`bfb63711ebe41bc0965287353b657f9bc52699da`. The deployed rollout and queue
-SHA256 values are `3958629b...709` and `0c2cccd0...670`. Formal launch=true;
-training completion=false;evaluation completion=false;acceptance=false;
-publication=false. Next: monitor both fresh bootstrap learners and the shared
-profile collection,then verify the two profile arms start from that one source
-with independent random initializations.
+| Execution-aligned BC | mean length 387.906，`>=100` 31/32，`>=500` 8/32 | 明显优于 mapped-teacher baseline 71.0，但只有 oracle 的 57.6% |
+| Student-state correction | mean length 464.188，`>=100` 30/32，`>=500` 13/32 | 比等预算旧数据继续训练好；仍只有一个 training seed |
+| Joint TD3 updates | 464.188 → 24.313，32/32 paired seeds 退化 | 现有在线 actor update 会摧毁监督策略 |
+| Lower LR + frozen-BC anchor | 四个 endpoint mean length 29.69–65.47 | 只能减缓漂移，不能修复 |
+| Return-guided bounded regression | 463.156 vs BC 464.188，95% interval 跨 0 | 保留点性能但没有证明增益 |
+| SF MC PPO | candidate latest 514.563 vs BC 527.406，n=64 | 训练/评测完成；stability gate 与 policy acceptance 均失败 |
+
+主要证据：[BC/监督修正](../outputs/tasks/humanoidbench_balance_simple/h16_fixed100_delayed_imitation/20260916T061955Z/followup_20260916T070429Z/REPORT.md)、
+[anchored RL](../outputs/tasks/humanoidbench_balance_simple/h16_fixed100_delayed_imitation/20260916T061955Z/anchored_rl_20260916T074351Z/REPORT.md)、
+[return-guided](../outputs/tasks/humanoidbench_balance_simple/h16_fixed100_delayed_imitation/20260916T061955Z/return_guided_rl_20260916T085703Z/REPORT.md)、
+[MC PPO](BALANCE_MC_PPO.md)。
+
+### Profile BC/DAgger 与当前状态
+
+- Profile BC 在 64 fresh paired streams 上将 mean length 从 69.125 提升到 111.156，paired gain +42.031、95% interval `[32.296, 52.391]`；但仍有 24/64 在 100 frames 前结束，`>=500` 为 0。[report](../outputs/tasks/humanoidbench_balance_simple/profile_bc/formal_s1_20260916T1330Z/REPORT.md)
+- 旧 QwenOFT profile DAgger 每轮错误地从长期不变的 `best` model 重启，不能作为连续 5k DAgger 结果；修正版要求 `latest` 驱动采集并连续恢复 optimizer/scheduler/RNG。
+- 修正版 QwenOFT run 只到 DAgger step 1,500，best development mean length 70.781；没有 final held-out evaluation，故不作 acceptance。
+- 最近一次已记录的正式矩阵为 QwenOFT H8 zero 与 QwenPI H16 zero/profile-suffix/profile-executed 四臂；截至 2026-09-17 09:50 仅确认启动和早期 checkpoint，训练、终点评测、acceptance、publication 均未完成。旧 running 信息不证明其当前仍在运行。
+- **第二台 H200 launch audit（2026-09-17 13:10:52 UTC）**：主机 `h200-8-asia-test-1`，实验根目录 `/mnt/local/balance-zero-extra-20260917T1055Z`；root revision `f25fd8b7f932560833c771ca23d3cffd7e14df01`、humanoid-bench `bfb63711ebe41bc0965287353b657f9bc52699da`、starVLA `d9e060588c4303b927a518948380647dcec4aca7`。无头 MuJoCo 根因已由最小单环境渲染确认并以 launch 环境 `MUJOCO_GL=egl` 修复，不需要显式 `PYOPENGL_PLATFORM`；旧失败证据保留在 `logs/qwengr00t-chain.log`、`logs/wanoft-chain.log`。
+- **Smoke 完成**：QwenGR00T H16 `zero_full`（micro-batch 64、gradient checkpointing off）和 WanOFT H40 `zero_full`（micro-batch 16、gradient checkpointing on）均完成 6 optimizer steps。共同 held-out protocol 均为 n=2：QwenGR00T bootstrap/best/latest mean length `19.5/19.5/18.0`、mean return `12.296/12.296/11.417`；WanOFT 为 `38.5/38.5/16.5`、mean return `5.463/5.463/8.890`，两者 `>=100` 与 `>=500` 均为 0。WanOFT micro-batch 64、32 的可复现 OOM 分别保留在 `logs/wanoft-chain-egl.log`、`logs/wanoft-chain-mb32.log`；micro-batch 16 的完整 smoke 通过，生成 YAML 已核对 loader workers 16/rank、prefetch 3、save interval 500、`keep_last_n: 2` 和 checkpointing 设置。
+- **正式 launch 已验证，训练未完成**：chain PID `56221`/formal controller PID `65648` 在 GPU 4–5 运行 QwenGR00T；chain PID `62034`/formal controller PID `74006` 在 GPU 6–7 运行 WanOFT。两臂均为 fresh bootstrap、71k labels/5k updates 后接 10×(16k labels/500 updates)、rollout overlap、16 rollout workers、inference batch 8、global batch 128；QwenGR00T micro-batch 64/accumulation 1，WanOFT micro-batch 16/accumulation 4。审计时两者仍在 formal bootstrap 数据采集（QwenGR00T 46,702 labels，WanOFT 1,799 labels），formal optimizer step 均为 0、尚无 formal checkpoint；成功链日志 `logs/qwengr00t-chain-egl.log`、`logs/wanoft-chain-mb16.log` 无 traceback/OOM。
+- **状态分离与下一步**：launch/smoke 已完成；formal training、终点共同-seed evaluation、acceptance 和 publication 均未完成。继续监控 5k bootstrap checkpoint 与 10 个 500-step DAgger 边界，完成后核验 final held-out 指标和 `publication.json`，再分别记录 training/evaluation/acceptance/publication 结果；当前 smoke 数值不得作为质量 acceptance。
+
+## 下一决策
+
+- **Balance**：先核验四臂矩阵的终点产物和共同 seed 评测；结果齐全前不接受旧 DAgger 中间值。另补 D/E 组合及单独消融。
+- **MIKASA**：评审 WanOFT 21% profile recovery 是否可接受；为 QwenOFT/QwenPI/QwenGR00T 补齐 canonical bundle/发布状态，保持 10Hz 与 20Hz 分开报告。
+- **Parkour**：补 WanOFT H1/profile/latency-small；在新的质量声明前先定义 acceptance threshold。
+- **HAIC**：核验其余三模型、RTX 3090 profiles、latency-small 终点和正式 latency-aware VLA；不以 smoke 代替质量结果。

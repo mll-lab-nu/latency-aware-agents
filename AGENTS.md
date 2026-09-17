@@ -41,12 +41,39 @@ Testing guidance:
 
 # program Progress Maintenance
 
-For training, evaluation, profiling, publication, pause, or failure work related
-to HumanoidBench Balance Simple, MIKASA InterceptGrabFast, Extreme Parkour Go2,
-or HAIC PullCart, update `program/PROGRESS.md` once the outcome is verified.
-Record the audit date, exact checkpoint/training step and configuration, evidence
-links and revisions, numeric evaluation metrics with episode counts, and the next
-step. Keep training completion, evaluation completion, acceptance, and publication
-separate. Distinguish latency/FPS/seed protocols and retain historical results;
-old running messages do not establish current process state. Use
-`program/README.md` to locate active handoffs and archived experiment records.
+`program/PROGRESS.md` is the concise source of truth for HumanoidBench Balance
+Simple, MIKASA InterceptGrabFast, Extreme Parkour Go2, and HAIC PullCart. Update it
+only after a verified result, decision, or latest task status changes.
+
+Keep in `PROGRESS.md`:
+
+- formal key metrics with episode counts and the latency/FPS/seed protocol;
+- the exact checkpoint/training step or stable artifact revision needed to identify
+  the result, plus one primary evidence link;
+- durable decisions and conclusions that change subsequent work;
+- at most one latest verified status and next decision per task;
+- training completion, evaluation completion, acceptance, and publication as
+  separate states.
+
+Do not append chronological activity logs. In particular, exclude launch/stop
+times, hosts, GPU allocation, PID/tmux details, routine pause/resume instructions,
+intermediate progress checks, smoke details, troubleshooting timelines, cleanup
+operations, and per-checkpoint narration. Hardware belongs in `PROGRESS.md` only
+when it is part of the measurement protocol, such as an RTX 3090 latency profile.
+Old running messages never establish current process state.
+
+Route details as follows:
+
+- `program/logs/`: curated chronological experiment notes, operational history,
+  pauses/resumes, failures, and debugging timelines;
+- `outputs/`: raw logs, configs, JSON, profiles, checkpoints, manifests, and full
+  experiment reports;
+- task documents under `program/`: reusable commands, contracts, algorithms, and
+  run/resume instructions;
+- `program/archive/`: closed or superseded plans and handoffs.
+
+Retain an old result in `PROGRESS.md` only when it remains a formal baseline,
+necessary comparison, or explanation for a current decision. When a result is
+invalidated or superseded, record the reason and replacement conclusion without
+preserving its operational timeline. Update `program/README.md` when adding a
+long-lived handoff, log, or archive document.

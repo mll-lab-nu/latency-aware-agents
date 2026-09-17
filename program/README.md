@@ -1,8 +1,8 @@
 # program 文档索引
 
-整理日期：2026-09-14。本轮开始时有24份原文，新增本索引后共25份。进度入口为 [PROGRESS](PROGRESS.md)，包含四任务×四模型的
-训练、评测、profile、发布状态及具体数值。使用仓库实际模型名 `qwenpi_v3`。
-各文档中的运行消息以其记录时间为准；历史实验不会因归档而自动恢复执行。
+核心进展入口为 [PROGRESS](PROGRESS.md)，只保留四任务的已核验结果、关键决策、最新状态和下一步。
+运行时间线放在 `logs/`，原始证据放在 `outputs/`，可执行方法和实验合同放在对应任务文档。
+使用仓库实际模型名 `qwenpi_v3`；历史运行消息不代表当前进程状态。
 
 ## 任务与运行手册
 
@@ -50,13 +50,10 @@
 | [archive/LATENCY_DEBUG_PLAN](archive/LATENCY_DEBUG_PLAN.md) | Balance history/critic、fixed1/F2、fixed2/profile、service/hold/admission 诊断 | 中文交接保留最新结论；fixed1 F2 成功与后续失败分开记录 |
 | [archive/LATENCY_PLAN](archive/LATENCY_PLAN.md) | 早期 fixed-latency 分阶段实验计划及执行摘要 | 实验 3–5 保持历史未执行状态，本轮产物已删除 |
 | [archive/LATENCY_RL_HANDOFF](archive/LATENCY_RL_HANDOFF.md) | 2026-09-09 英文 Balance PPO/FastTD3 交接及当时结论 | 中文交接与 PROGRESS 记录更新证据；旧结论按原日期阅读 |
+| [logs/PROGRESS-pre-cleanup-2026-09-17](logs/PROGRESS-pre-cleanup-2026-09-17.md) | PROGRESS 清理前的完整时间线与运行细节 | 仅供追溯；当前状态和结论以 PROGRESS 为准 |
 
-## 进度与空文件
+## 进度
 
 | 文档 | 用途 | 状态 |
 |---|---|---|
-| [PROGRESS](PROGRESS.md) | 四主任务总览、四模型明细、评测数值、证据与下一步 | 相关工作确认结果后同步更新 |
-| [balance/已排除](balance/已排除.md) | 空文件，占位用途尚未确定 | 暂时保留；没有可归纳的排除结论 |
-
-初次梳理时的 `RUN.md`、`HURDLE.md` 在本轮开始前已不在工作区，本轮未恢复。
-此前分别记录 Run history/recovery/DAgger 和 Hurdle tiny overfit；不提供失效文件链接。
+| [PROGRESS](PROGRESS.md) | 四主任务的核心结果、关键决策、最新状态与下一步 | 只在已核验结果、决策或最新状态变化后更新 |
