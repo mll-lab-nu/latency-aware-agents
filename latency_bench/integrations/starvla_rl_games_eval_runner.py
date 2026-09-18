@@ -298,10 +298,12 @@ def build_latency_bench_config_for_rl_games(
     }
     if str(config["env"].get("name", "")) == "gymnasium":
         data_cfg = model_cfg["datasets"]["vla_data"]
-        policy["task_manifest_path"] = str(
-            Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
-        )
-        task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
+        task_manifest_path = Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
+        policy["task_manifest_path"] = str(task_manifest_path)
+        if "gymnasium_task_contract" in data_cfg:
+            task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
+        else:
+            task_contract = json.loads(task_manifest_path.read_text(encoding="utf-8"))["gymnasium_task"]
         policy["gymnasium_training_task_contract"] = task_contract
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key

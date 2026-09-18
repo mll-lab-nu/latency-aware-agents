@@ -984,12 +984,14 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
         )
-    if _canonical_gymnasium_contract_namespace(
-        model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]
-    ) != _canonical_gymnasium_contract_namespace(expected):
-        raise ValueError(
-            "Evaluation Gymnasium task contract does not match the StarVLA model config"
-        )
+    model_contract = model_cfg["datasets"]["vla_data"].get("gymnasium_task_contract")
+    if model_contract is not None:
+        if _canonical_gymnasium_contract_namespace(
+            model_contract
+        ) != _canonical_gymnasium_contract_namespace(expected):
+            raise ValueError(
+                "Evaluation Gymnasium task contract does not match the StarVLA model config"
+            )
     action_space = gymnasium_action_space_contract(env_cfg)
     if manifest["active_action_dim"] != len(action_space["labels"]):
         raise ValueError(
