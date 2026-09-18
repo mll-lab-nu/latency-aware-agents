@@ -77,8 +77,9 @@ environments; MIKASA, HAIC, and Parkour require the separate setup steps there.
 Clone this repository with submodules:
 
 ```bash
-git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive-bench.git
+git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-bench.git
 cd latency-sensitive-bench
+git submodule update --init --depth 1 --jobs 8
 ```
 
 The shared `latency` environment and the RL-games model environments use

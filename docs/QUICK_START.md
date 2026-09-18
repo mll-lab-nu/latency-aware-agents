@@ -6,13 +6,23 @@
 
 ```bash
 git lfs install
-git clone --recurse-submodules https://github.com/ZihanWang314/latency-sensitive-bench.git
+git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-bench.git
 cd latency-sensitive-bench
+git submodule update --init --depth 1 --jobs 8
 export BENCH_ROOT="$PWD"
 nvidia-smi
 ```
 
-HAIC、Isaaclab_Parkour 的 submodule URL 使用 GitHub SSH，需要该仓库的访问权限及 SSH key。已有 checkout 更新子模块使用 `git submodule update --init --recursive`；根目录安装脚本也会执行此命令，开发中的子模块应先保存修改。
+根仓库保留完整 commit/tree 历史，旧版本文件内容按需下载；父仓库记录的 8 个固定
+顶层 submodule commit 以 depth 1 检出，不递归初始化第三方仓库内部的任务专用依赖。
+需要修改某个顶层 submodule 并查看其完整历史时，执行
+`git -C third_party/<name> fetch --unshallow`。HAIC、Isaaclab_Parkour 的 submodule URL
+使用 GitHub SSH，需要对应仓库的访问权限及 SSH key。
+
+已有 checkout 更新子模块使用 `git submodule update --init`，新初始化的顶层子模块会
+遵循 `.gitmodules` 中的浅克隆设置；根目录安装脚本也会执行此命令。该设置不会清理已经下载
+的完整子模块历史。需要回收已有 checkout 的磁盘空间时，先保存子模块中的修改，再重新 clone，
+不要直接删除 `.git/modules`。
 
 主机需有 Git、Git LFS、编译工具、可用的 NVIDIA 驱动，以及支持离屏渲染的 NVIDIA EGL/Vulkan runtime。`nvidia-smi` 成功只说明 CUDA 驱动可见，不能代替渲染检查。Isaac Sim 首次启动还需要下载资源；接受 NVIDIA EULA 后设置 `OMNI_KIT_ACCEPT_EULA=YES`。MIKASA 的 Vulkan 主机诊断见 [MIKASA §3.4](../program/MIKASA.md#34-mikasa-环境)，其中特定驱动版本的修复是历史服务器操作，不能直接套用到另一台机器。
 

@@ -234,7 +234,7 @@ init_model_submodules() {
             ;;
     esac
 
-    git submodule update --init --recursive "${submodules[@]}"
+    git submodule update --init "${submodules[@]}"
 }
 
 ensure_conda

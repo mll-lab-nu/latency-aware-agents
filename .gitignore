@@ -8,6 +8,7 @@ outputs_old/
 vizdoom_basic_models/
 vizdoom.ini
 wandb/
+/tb_logs/
 models/
 
 results/
