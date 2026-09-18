@@ -1,3 +1,8 @@
 @import url("../pendulum/styles.css");
 
 .callout a { overflow-wrap: anywhere; }
+
+/* Hopper current report only: inherited styles for Walker/HC stay unchanged. */
+.hopper-current .gr00t-report{scroll-margin-top:2rem}.hopper-current .gr00t-report p{max-width:75ch}.hopper-current .gr00t-report figure{margin:2rem 0}.hopper-current .gr00t-report img{display:block;width:100%;height:auto}.hopper-current .gr00t-table-scroll{overflow-x:auto;margin:1.25rem 0}.hopper-current .gr00t-report table{width:100%;border-collapse:collapse;font-size:.94rem}.hopper-current .gr00t-report th,.hopper-current .gr00t-report td{padding:.75rem;text-align:left;border-bottom:1px solid #dce3e7;vertical-align:top}.hopper-current .gr00t-report caption{text-align:left;margin-bottom:.65rem}.hopper-current .gr00t-note{border-left:3px solid #137a7f;padding-left:1rem}.hopper-current .gr00t-fingerprints{overflow-wrap:anywhere}.hopper-current .gr00t-report figcaption{font-size:.9rem;color:#43545f}
+
+.hopper-current .gr00t-table-scroll:focus-visible{outline:3px solid #137a7f;outline-offset:3px}

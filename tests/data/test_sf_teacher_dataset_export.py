@@ -2911,9 +2911,11 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
         def __init__(self):
             self.action_space = object()
             self.reset_seeds: list[int] = []
+            self.seed = 0
 
         def reset(self, seed=None):
             self.reset_seeds.append(seed)
+            self.seed = int(seed)
             return np.zeros((3, 2, 2), dtype=np.uint8), [
                 {"env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(5)}
             ]
@@ -2921,7 +2923,7 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
         def step(self, action):
             return (
                 np.zeros((3, 2, 2), dtype=np.uint8),
-                np.float32(1.5),
+                np.float32(1.5 if self.seed % 3 == 0 else 0.5),
                 np.bool_(True),
                 np.bool_(False),
                 [{"latency_raw_frames": 2, "latency_ms": 66.0, "env_raw_rgb_frame_stack": _env_raw_rgb_frame_stack(6)}],
@@ -2962,7 +2964,8 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
     result = exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy"),
         output_dir=output_dir,
-        max_episodes=1,
+        max_episodes=12,
+        max_attempts=12,
         max_steps_per_episode=1,
         val_fraction=0.0,
         split_seed=0,
@@ -2973,16 +2976,42 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
         row_buffer_size=1,
         rollout_seed_offset=1000,
         probe_only=True,
+        episode_return_gt=1.0,
     )
 
     # Probe-only returns its marker and writes the resume state, but does not replay.
     assert result["probe_only"] is True
-    assert result["accepted_episodes"] == 1
+    assert result["accepted_episodes"] == 4
+    assert result["attempted_episodes"] == 12
+    assert result["rejected_episodes"] == 8
+    assert result["attempt_budget"] == 12
     state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
-    assert len(state["accepted_specs"]) == 1
+    assert len(state["accepted_specs"]) == 4
+    assert state["attempted_episodes"] == 12
+    assert state["rejected_episodes"] == 8
+    assert state["next_attempt_idx"] == 12
     # Reset seed carries the rollout_seed_offset (base_seed cfg.seed=11 + offset 1000).
     assert state["accepted_specs"][0]["seed"] == 11 + 1000
     assert fake_env.reset_seeds[0] == 11 + 1000
+    resumed = exporter.collect_teacher_dataset(
+        _rollout_descriptor("flappy"),
+        output_dir=output_dir,
+        max_episodes=12,
+        max_attempts=12,
+        max_steps_per_episode=1,
+        val_fraction=0.0,
+        split_seed=0,
+        num_envs=1,
+        deterministic=False,
+        export_image_size=None,
+        image_writer_workers=0,
+        row_buffer_size=1,
+        rollout_seed_offset=1000,
+        probe_only=True,
+        episode_return_gt=1.0,
+    )
+    assert resumed["accepted_episodes"] == 4
+    assert len(fake_env.reset_seeds) == 12
     # No episode row shards were materialized (replay skipped).
     assert completed_episode_indices_from_shards(output_dir) == set()
 

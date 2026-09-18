@@ -1,2 +1,5 @@
 @import url("../walker2d/styles.css");
 .notrun{color:#5d6971;background:#f0f1f2}
+
+/* Ant current report only; other importers retain their existing styles. */
+.ant-current .gr00t-report{scroll-margin-top:2rem}.ant-current .gr00t-report p{max-width:75ch}.ant-current .gr00t-report figure{margin:2rem 0}.ant-current .gr00t-report img{display:block;width:100%;height:auto}.ant-current .gr00t-table-scroll{overflow-x:auto;margin:1.25rem 0}.ant-current .gr00t-table-scroll:focus-visible{outline:3px solid #137a7f;outline-offset:3px}.ant-current .gr00t-report table{width:100%;border-collapse:collapse;font-size:.94rem}.ant-current .gr00t-report th{padding:.75rem;text-align:left;border-bottom:1px solid #dce3e7;vertical-align:top}.ant-current .gr00t-report td{padding:.75rem;text-align:left;border-bottom:1px solid #dce3e7;vertical-align:top}.ant-current .gr00t-report caption{text-align:left;margin-bottom:.65rem}.ant-current .gr00t-note{border-left:3px solid #137a7f;padding-left:1rem}.ant-current .gr00t-fingerprints{overflow-wrap:anywhere}.ant-current .gr00t-report figcaption{font-size:.9rem;color:#43545f}

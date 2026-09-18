@@ -1,0 +1,433 @@
+{
+  "audit_date": "2026-09-18",
+  "GR00T": {
+    "verified_at": "2026-09-17T21:34:33.830761+00:00",
+    "task": "hopper",
+    "B": {
+      "episodes": 20,
+      "mean_return": 8.553798918701421,
+      "population_std": 0.09164445349807723,
+      "mean_length": 9,
+      "mean_episode_latency_ms": 111.10969192814082,
+      "observation_drops": 0,
+      "submitted_observations": 180,
+      "action_drops": 0,
+      "invalid_actions": 0,
+      "metrics_sha256": "15e0fff2f282cce88a408993c1d1c1c608a8e534af55df802f5019924bb2e9b0"
+    },
+    "F": {
+      "episodes": 20,
+      "mean_return": 242.55055665478992,
+      "population_std": 127.57369659782253,
+      "mean_length": 100.1,
+      "mean_episode_latency_ms": 110.7924141313037,
+      "observation_drops": 0,
+      "submitted_observations": 2002,
+      "action_drops": 0,
+      "invalid_actions": 0,
+      "metrics_sha256": "7e98ffea9db1d79cea521fcba68cf2a1ad76d818eae318a09aaa98e37a70aceb"
+    },
+    "paired": [
+      {
+        "seed": 42,
+        "B": 8.601128245693165,
+        "F": 343.6761117591365,
+        "delta": 335.0749835134433
+      },
+      {
+        "seed": 43,
+        "B": 8.698451451997723,
+        "F": 77.48860293690754,
+        "delta": 68.79015148490981
+      },
+      {
+        "seed": 44,
+        "B": 8.675803868427353,
+        "F": 112.99006876226332,
+        "delta": 104.31426489383597
+      },
+      {
+        "seed": 45,
+        "B": 8.530831452718134,
+        "F": 342.75501631999356,
+        "delta": 334.2241848672754
+      },
+      {
+        "seed": 46,
+        "B": 8.616775268138941,
+        "F": 82.57466802682492,
+        "delta": 73.95789275868599
+      },
+      {
+        "seed": 47,
+        "B": 8.399036294860874,
+        "F": 346.3568388160152,
+        "delta": 337.95780252115435
+      },
+      {
+        "seed": 48,
+        "B": 8.527887103971324,
+        "F": 342.9612816173764,
+        "delta": 334.4333945134051
+      },
+      {
+        "seed": 49,
+        "B": 8.517139018075015,
+        "F": 116.06720384039482,
+        "delta": 107.55006482231981
+      },
+      {
+        "seed": 50,
+        "B": 8.448905777753668,
+        "F": 171.36873558575093,
+        "delta": 162.91982980799725
+      },
+      {
+        "seed": 51,
+        "B": 8.57681750029125,
+        "F": 107.03821019089881,
+        "delta": 98.46139269060755
+      },
+      {
+        "seed": 52,
+        "B": 8.499147733543529,
+        "F": 407.27526018834806,
+        "delta": 398.77611245480455
+      },
+      {
+        "seed": 53,
+        "B": 8.580534329357635,
+        "F": 168.11576973272216,
+        "delta": 159.5352354033645
+      },
+      {
+        "seed": 54,
+        "B": 8.693173128612607,
+        "F": 112.27675191351292,
+        "delta": 103.58357878490031
+      },
+      {
+        "seed": 55,
+        "B": 8.503254728109283,
+        "F": 345.791405216921,
+        "delta": 337.28815048881177
+      },
+      {
+        "seed": 56,
+        "B": 8.617020606791158,
+        "F": 371.0030376043078,
+        "delta": 362.38601699751666
+      },
+      {
+        "seed": 57,
+        "B": 8.438460003247506,
+        "F": 409.7465920290405,
+        "delta": 401.30813202579304
+      },
+      {
+        "seed": 58,
+        "B": 8.423442879493416,
+        "F": 404.90933966988376,
+        "delta": 396.48589679039037
+      },
+      {
+        "seed": 59,
+        "B": 8.493276290159583,
+        "F": 345.40185098954646,
+        "delta": 336.90857469938686
+      },
+      {
+        "seed": 60,
+        "B": 8.707425662635234,
+        "F": 74.85872734440912,
+        "delta": 66.15130168177389
+      },
+      {
+        "seed": 61,
+        "B": 8.527467030151016,
+        "F": 168.3556605515446,
+        "delta": 159.8281935213936
+      }
+    ],
+    "wins": 20,
+    "ties": 0,
+    "losses": 0,
+    "mean_difference": 233.99675773608848,
+    "F_step_interval_ms": {
+      "mean": 200.0077628149011,
+      "min": 198.96644609980285,
+      "max": 201.19602186605334
+    },
+    "F_revision": "d33af26b7f87357c1b7a2b75bae4923bd90b6cc1",
+    "F_checkpoint_sha256": "fe4fb89a88d9aab7f266a69921b32cfc00a0e2964664be3953988a8f4062d3ca",
+    "protocol": "20 matched seeds42-61;5FPS;cap1000;measured-only;same B/F runtime with model and prompt0→1 changes",
+    "interpretation": "Compare measured outcomes and realized latencies; no equal-latency causal claim and no teacher gate applied to VLA.",
+    "L0_simulated": {
+      "verified_at": "2026-09-17T14:13:17.029371+00:00",
+      "episodes": 20,
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61
+      ],
+      "returns": [
+        1282.1555676491873,
+        366.05242016047794,
+        913.858877998007,
+        1191.3960892024,
+        921.2143774371431,
+        283.5313980536821,
+        1459.5742400242764,
+        1255.278374269173,
+        277.90720736037014,
+        935.1710716954052,
+        1290.9800537752794,
+        277.45689777280415,
+        982.4008424617601,
+        289.80142580106235,
+        1220.3819055826225,
+        1402.9969813054104,
+        278.20307535073226,
+        1815.2644508418452,
+        709.778048448092,
+        303.28291056031935
+      ],
+      "lengths": [
+        346,
+        165,
+        258,
+        335,
+        261,
+        126,
+        400,
+        344,
+        124,
+        265,
+        354,
+        124,
+        286,
+        128,
+        338,
+        385,
+        124,
+        511,
+        228,
+        133
+      ],
+      "mean_return": 872.8343107875025,
+      "std_return_population": 479.65390591614806,
+      "mean_length": 261.75,
+      "raw_steps": 5235,
+      "actions": 5235,
+      "latency_records": 5235,
+      "env_fps": 5,
+      "obs_fps": 5,
+      "latency_mode": "simulated zero",
+      "latency_ms": 0,
+      "dropped_observations": 0,
+      "dropped_actions": 0,
+      "invalid_actions": 0,
+      "logged_preclip_action_out_of_bounds_steps": 3704,
+      "logged_preclip_action_range": [
+        -1.1191151142120361,
+        1.1177167892456055
+      ],
+      "action_clipping_evidence": "HopperEnv.step clips to env.action_space bounds before env.step; GymnasiumEnvAdapter.step overwrites applied_action with preclip action.value, so postclip physical actions are not directly logged",
+      "action_clipping_source_sha256": "616473b67fa33c759bed07e28d4736613b6f4600674da966d754dd18c27669f7",
+      "action_logging_source_sha256": "e5351a4d70520350c8bcbdcaf958ab57d8eca83e251adfd6f520ac34e40254f5",
+      "raw_step_time_reward_consistency": true,
+      "bundle_files": 8,
+      "bundle_sha256": {
+        "checkpoints/model.pt": "5ec4a5fbdfb7fac819a51b523f3735c6702b90a2440a2957c5cc699941ffbf1e",
+        "config.full.yaml": "ea0131fb531e70f404a252344589dd8f71c56f3d897699a20df32dbc2a80a371",
+        "config.yaml": "f40ecb9bb5f1450edd45f2bd473b3e6fc9ac65f91154629d3f80ea58673cb4c0",
+        "dataset_statistics.json": "bb23771f87f039a7fa41a682933aac9099f45c4c26b103fe03a51cb84b82c2c6",
+        "latency_prompt_map.json": "9fd22cc880afbd45589baa0db9ca0e237c3f89b4811156f6ed964600f82b186e",
+        "manifest.json": "4c45ebf784a7e606efc55711c65cf0525c0261d5d32a1963b02d23728a67a815",
+        "provenance.json": "835befe92adb1b99cefe0534d90dd93484f79870bf1f4e8cea6aa27047ef74f3"
+      },
+      "checkpoint_steps": 5000,
+      "reload_evidence": "existing successful L0sim20 executed this final bundle; no repeated evaluation",
+      "acceptance": "L0evaluationcomplete; downstream3090P/Bandprofilepipelinepending"
+    },
+    "profile": {
+      "frame_ms": 200.0,
+      "max_ms": 139.58361220359802,
+      "mean_effective_frames": 0.5730859419054455,
+      "mean_ms": 114.61718838108911,
+      "min_ms": 100.25659894943237,
+      "n_samples": 450,
+      "p50_frames": 0.5904062056541443,
+      "p50_ms": 118.08124113082886,
+      "p90_frames": 0.6055044454336166,
+      "p90_ms": 121.10088908672333,
+      "p95_frames": 0.6130285086631775,
+      "p95_ms": 122.6057017326355,
+      "p99_frames": 0.6377877252340316,
+      "p99_ms": 127.55754504680631,
+      "prob_latency_gt_1_frame": 0.0,
+      "prob_latency_gt_2_frames": 0.0,
+      "prob_latency_gt_3_frames": 0.0,
+      "std_ms": 7.419009630839383
+    },
+    "teacher_selection": {
+      "selected": "training_best",
+      "candidates": {
+        "final": {
+          "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/hopper/profile_latency/teacher/checkpoints/hopper_profile_appo_h1_5fps_20260917/checkpoint_p0/checkpoint_000019536_10002432.pth",
+          "sha256": "d7bccf0797e5622069c1af0aa67796863bd68c40707cd96c7e7399fa27ca49e0",
+          "episodes": 20,
+          "returns": [
+            3813.902369620451,
+            3814.717929846383,
+            3815.678995110681,
+            3813.5158104903485,
+            3812.1721732868205,
+            3822.869610539937,
+            3816.213698287465,
+            3819.3530723476006,
+            3809.7239266677057,
+            3819.2709564714014,
+            3804.324024566971,
+            3818.1522276093633,
+            3829.262769910777,
+            3815.7688288666577,
+            3814.218115130112,
+            3802.188637269843,
+            3814.133230818948,
+            3811.2177504405886,
+            3803.348027121752,
+            3819.7451215416377
+          ],
+          "mean": 3814.488863797272,
+          "std": 6.329159120614397,
+          "strict_gt3000": 20
+        },
+        "training_best": {
+          "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/hopper/profile_latency/teacher/checkpoints/hopper_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000019512_9990144_reward_3220.937.pth",
+          "sha256": "f8b6089e67f129a7c17504bc8d6146003177b260e927cc1281a178d26f404b74",
+          "episodes": 20,
+          "returns": [
+            3818.3299991080344,
+            3801.949979062483,
+            3799.39904827517,
+            3806.0984441131777,
+            3821.3468930346507,
+            3818.6013992377857,
+            3825.5948641715036,
+            3817.364507562392,
+            3814.7261006971084,
+            3825.008281517956,
+            3816.453969095774,
+            3815.17650963725,
+            3816.6675065195645,
+            3810.7786398491785,
+            3813.106914295106,
+            3803.3492543466577,
+            3815.0139371581436,
+            3819.671617704402,
+            3825.458467648868,
+            3825.03671743075
+          ],
+          "mean": 3815.4566525232976,
+          "std": 7.632802007802108,
+          "strict_gt3000": 20
+        }
+      },
+      "completed_at": "2026-09-17T14:44:34.549937+00:00"
+    },
+    "teacher_E10": {
+      "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/hopper/profile_latency/teacher/checkpoints/hopper_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000019512_9990144_reward_3220.937.pth",
+      "sha256": "f8b6089e67f129a7c17504bc8d6146003177b260e927cc1281a178d26f404b74",
+      "episodes": 10,
+      "returns": [
+        3818.3299991080344,
+        3801.949979062483,
+        3799.39904827517,
+        3806.0984441131777,
+        3821.3468930346507,
+        3818.6013992377857,
+        3825.5948641715036,
+        3817.364507562392,
+        3814.7261006971084,
+        3825.008281517956
+      ],
+      "mean": 3814.8419516780264,
+      "std": 8.80400721259514,
+      "strict_gt3000": 10
+    },
+    "demonstrations": {
+      "accepted_episodes": 100,
+      "accepted_train_episodes": 90,
+      "accepted_val_episodes": 10,
+      "attempted_episodes": 101,
+      "episode_return_gate": {
+        "field": "episode_raw_return",
+        "operator": ">",
+        "threshold": 3000.0
+      },
+      "preset": "none",
+      "rejected_episodes": 1,
+      "train_rows_after_row_filter": 90000,
+      "train_rows_before_row_filter": 90000,
+      "val_rows_after_row_filter": 10000,
+      "val_rows_before_row_filter": 10000
+    },
+    "state_dim": 11,
+    "action_dim": 3,
+    "action_horizon": 1,
+    "clock_fps": 5,
+    "training_updates_each": 5000,
+    "global_batch": 64
+  },
+  "OpenVLA": {
+    "status": "HISTORICAL_REFERENCE",
+    "clock_fps": 10,
+    "B_mean": 67.88,
+    "B_population_std": 150.09,
+    "F_mean": 424.58,
+    "F_population_std": 348.01,
+    "archive": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/hopper"
+  },
+  "comparison_scope": "Within-model only; different clocks and recipes are not a controlled architecture comparison.",
+  "raw_trace_scope": "Full F step/action/latency traces audited on server and retained on3090; only compact episode/config/summary evidence uploaded.",
+  "historical_L0_teacher": {
+    "mean_return": 2682.0948329674925,
+    "population_std_return": 900.2873303273988,
+    "episodes": 10,
+    "evaluation_type": "historical simulated zero-latency evaluation",
+    "env_fps": 125,
+    "obs_fps": 125,
+    "seed": 3333,
+    "source": "outputs/examples/gymnasium_hopper_rgb_state/eval/queue_eval_latency_0.json",
+    "returns": [
+      3587.068563680536,
+      3567.0324268269596,
+      3586.756549482192,
+      1847.535380084084,
+      1769.4205044087253,
+      3586.945098238727,
+      1849.2953502970063,
+      3578.643361987409,
+      1681.198334391966,
+      1767.052760277319
+    ]
+  }
+}

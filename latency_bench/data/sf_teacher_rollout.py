@@ -579,6 +579,7 @@ def _probe_accepted_specs(
     env_name: str,
     output_dir: Path,
     max_episodes: int,
+    max_attempts: int | None,
     max_steps_per_episode: int,
     val_fraction: float,
     split_seed: int,
@@ -640,6 +641,8 @@ def _probe_accepted_specs(
         next_attempt_idx = int(probe_state["next_attempt_idx"])
         initial_reset_plan: dict[int, int] = {}
         for slot in range(driver.slot_count):
+            if max_attempts is not None and next_attempt_idx >= max_attempts:
+                break
             spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed) + int(rollout_seed_offset))
             next_attempt_idx += 1
             active_specs[slot] = spec
@@ -758,7 +761,10 @@ def _probe_accepted_specs(
                             target_reached = len(accepted_specs) >= int(max_episodes)
                         else:
                             probe_state["rejected_episodes"] += 1
-                        if len(accepted_specs) < int(max_episodes):
+                        if (
+                            len(accepted_specs) < int(max_episodes)
+                            and (max_attempts is None or next_attempt_idx < max_attempts)
+                        ):
                             next_spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed) + int(rollout_seed_offset))
                             next_attempt_idx += 1
                             active_specs[slot] = next_spec
@@ -772,7 +778,11 @@ def _probe_accepted_specs(
                             active_decision_steps[slot] = 0
                             rnn_states[slot].zero_()
                         probe_state["next_attempt_idx"] = next_attempt_idx
-                        if accepted or int(probe_state["attempted_episodes"]) % PROBE_STATE_WRITE_EVERY == 0:
+                        if (
+                            max_attempts is not None
+                            or accepted
+                            or int(probe_state["attempted_episodes"]) % PROBE_STATE_WRITE_EVERY == 0
+                        ):
                             _write_probe_state(output_dir, probe_state)
                         _update_probe_progress(
                             progress,
@@ -1171,6 +1181,7 @@ def collect_teacher_dataset(
     *,
     output_dir: Path,
     max_episodes: int,
+    max_attempts: int | None = None,
     max_steps_per_episode: int,
     val_fraction: float,
     split_seed: int,
@@ -1247,6 +1258,7 @@ def collect_teacher_dataset(
             env_name=env_name,
             output_dir=output_dir,
             max_episodes=int(max_episodes),
+            max_attempts=max_attempts,
             max_steps_per_episode=int(max_steps_per_episode),
             val_fraction=float(val_fraction),
             split_seed=int(split_seed),
@@ -1269,6 +1281,9 @@ def collect_teacher_dataset(
             "probe_only": True,
             "env_name": env_name,
             "accepted_episodes": len(probe_state["accepted_specs"]),
+            "attempted_episodes": int(probe_state["attempted_episodes"]),
+            "rejected_episodes": int(probe_state["rejected_episodes"]),
+            "attempt_budget": max_attempts,
             "rollout_seed_offset": int(rollout_seed_offset),
             "filter_preset": filter_preset,
         }
@@ -1283,6 +1298,20 @@ def collect_teacher_dataset(
         return metadata
 
     accepted_specs = probe_state["accepted_specs"]
+    if len(accepted_specs) < int(max_episodes):
+        report = {
+            "status": "incomplete_attempt_budget_exhausted",
+            "requested_episodes": int(max_episodes),
+            "accepted_episodes": len(accepted_specs),
+            "attempted_episodes": int(probe_state["attempted_episodes"]),
+            "rejected_episodes": int(probe_state["rejected_episodes"]),
+            "attempt_budget": max_attempts,
+        }
+        (output_dir / "incomplete_probe.json").write_text(json.dumps(report, indent=2) + "\n")
+        raise RuntimeError(
+            f"Probe accepted {len(accepted_specs)}/{int(max_episodes)} episodes "
+            f"within max_attempts={max_attempts}; replay was not started."
+        )
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
     remaining_specs = [
         spec for spec in accepted_specs if int(spec["episode_idx"]) not in completed_episode_indices

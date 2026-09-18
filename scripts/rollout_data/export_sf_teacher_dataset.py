@@ -51,7 +51,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional Gymnasium make_kwargs overrides for rollout reset/runtime settings.",
     )
     parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "defend_the_line", "demon_attack", "flappy"])
-    parser.add_argument("--max-episodes", type=int, required=True)
+    parser.add_argument("--max-episodes", type=int, required=True, help="Target number of accepted episodes.")
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=None,
+        help="Maximum total rollout attempts, including resumed attempts; default unlimited.",
+    )
     parser.add_argument(
         "--max-steps-per-episode",
         type=int,
@@ -147,6 +153,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
         env_name=str(args.env_name),
         max_episodes=int(args.max_episodes),
+        max_attempts=args.max_attempts,
         max_steps_per_episode=int(args.max_steps_per_episode),
         val_fraction=float(args.val_fraction),
         split_seed=int(args.split_seed),

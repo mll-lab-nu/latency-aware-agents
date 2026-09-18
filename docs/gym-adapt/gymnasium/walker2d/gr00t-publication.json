@@ -1,0 +1,112 @@
+{
+  "state": "FINAL_SMALL_EVIDENCE_PUBLISHED_VERIFIED",
+  "dataset": {
+    "revision": "b59922566cb475e61455342b1111b9e9771c09de",
+    "prefix": "walker2d/profile_latency/GR00T/h1_5fps_20260917",
+    "files": [
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/baseline/evaluation/B-verification.json",
+        "size": 1325,
+        "sha256": "43b2d1be28a3a877c55ff71542532c4612d18e48a9a8a03d3314ee4b0a77e19e",
+        "remote_hash": "d6f6871ad8fbaf49f5bf0d65b455fdeb6cb91539"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/baseline/evaluation/B.yaml",
+        "size": 4036,
+        "sha256": "4c428d580058d464292cc7b1d5f2730919cc180191a8c6db7a72d282c64dcafb",
+        "remote_hash": "0fc29e00e6804b36d68aae9d54cb20d4660d0888"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/baseline/evaluation/episode_metrics.jsonl",
+        "size": 83702,
+        "sha256": "0c585c07d028987d60f03f5cad990f7b424e97917d139fa66f44e6573f75ee34",
+        "remote_hash": "dc76bafb2fa87879038bfcc7afb353b66ae6bd6c"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/baseline/evaluation/exit-code",
+        "size": 2,
+        "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "remote_hash": "573541ac9702dd3969c9bc859d2b91ec1f7e6e56"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/F-verification.json",
+        "size": 230,
+        "sha256": "9c76df1674596a3e0cd363785d61912fd031128ac0001455cd6a6dc8ed0cb9cf",
+        "remote_hash": "186633358011ab5373a4185f0c67777886b4d3ee"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/F.yaml",
+        "size": 4056,
+        "sha256": "ecf9f54c7eedd8e8e1549d8a6419810158252a7f73814d6ad24f15d3449b76a5",
+        "remote_hash": "e58a5694d770cd57cd5bdf2b08ab08dd0a894894"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/episode_metrics.jsonl",
+        "size": 83787,
+        "sha256": "456db545a2fb07edfe7a339761b34782dd5a2987f3f28eb0e241e550c7aa6ced",
+        "remote_hash": "dcc19c8f2a1f6af1a85fe2cec62bacdeea23f23b"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/exit-code",
+        "size": 2,
+        "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+        "remote_hash": "573541ac9702dd3969c9bc859d2b91ec1f7e6e56"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/comparison/F-summary.json",
+        "size": 3990,
+        "sha256": "6e4b6f346aaf3d1c130ed23d90ea1f649bc93aba9e1f3154b3c2c57315491d8c",
+        "remote_hash": "18dfecf3d1185deaf8b3b9fb1eb07236a70490b4"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/comparison/F-comparison-contract.json",
+        "size": 738,
+        "sha256": "5e54f1d822eb72f528601d0c0eb0621c3a504d4772ce27684cbb85024d652a8b",
+        "remote_hash": "d4c8b660af699217f1c657d3f29c9ebbc8c1d209"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/h1_5fps_20260917/experiment.json",
+        "size": 5502,
+        "sha256": "51fb919f3c92af732cf38a3911d9cf65e4a38d679c243bae527d27d39bc53ab4",
+        "remote_hash": "18febfb4b3d65eff0f35d80040d41af8b30e1aaf"
+      }
+    ],
+    "bytes": 187370
+  },
+  "model": {
+    "revision": "54172536f1a4819babf336e599ea38ef4e88809a",
+    "prefix": "walker2d/profile_latency/GR00T",
+    "files": [
+      {
+        "path": "walker2d/profile_latency/GR00T/README.md",
+        "size": 729,
+        "sha256": "f673c0687e4525506692153a0a29bfe0b3c20fbb2b7b52df559b36d569dcd5d5",
+        "remote_hash": "372c982f7f630f23dc5ef5b69b2be04852cd794b"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/F-summary.json",
+        "size": 3990,
+        "sha256": "6e4b6f346aaf3d1c130ed23d90ea1f649bc93aba9e1f3154b3c2c57315491d8c",
+        "remote_hash": "18dfecf3d1185deaf8b3b9fb1eb07236a70490b4"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/F-verification.json",
+        "size": 230,
+        "sha256": "9c76df1674596a3e0cd363785d61912fd031128ac0001455cd6a6dc8ed0cb9cf",
+        "remote_hash": "186633358011ab5373a4185f0c67777886b4d3ee"
+      },
+      {
+        "path": "walker2d/profile_latency/GR00T/SHA256SUMS",
+        "size": 922,
+        "sha256": "bbe639ebb54f5e5a435703ec4273c592cc09f1383247b83c52942e68d2024323",
+        "remote_hash": "4cc7b00d97a8f660c467598c24c69a3c88650c0d"
+      }
+    ],
+    "bytes": 5871
+  },
+  "evaluated_model_revision": "af4f38060b0374c5684c43f22cd504257cf2bffd",
+  "checkpoint_sha256": "1859cec5319db37b97a62d8190f081771f38978fa2ade39cfb82b155ac56b83b",
+  "checkpoint_bytes": 9976860963,
+  "verified_at": "2026-09-17T22:21:09.116743+00:00",
+  "full_raw_traces": "remain3090notuploaded"
+}

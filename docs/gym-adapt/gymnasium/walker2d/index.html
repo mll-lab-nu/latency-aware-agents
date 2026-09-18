@@ -1,21 +1,46 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Walker2d — adaptation and latency experiments</title><link rel="stylesheet" href="styles.css?layout=experiment"></head><body><a class="skip-link" href="#main">Skip to content</a>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Walker2D — GR00T and OpenVLA results</title><link rel="stylesheet" href="styles.css?layout=walker2d-results-20260918"><link rel="stylesheet" href="../report-layout.css?v=20260918"></head><body class="report-unified"><a class="skip-link" href="#main">Skip to content</a>
 <header class="hero">
 <div class="hero-inner">
 <p class="eyebrow">latency-sensitive-bench / experiment report</p>
 <h1>Walker2d</h1>
-<p class="lede">Autonomous environment adaptation, zero-latency policies, and profile-latency training with original data, model and evaluation evidence.</p>
+<p class="lede">OpenVLA and GR00T: training outcomes, measured real-time evaluation, and traceable experiment archives.</p>
 
-<div class="badges"><span>Native environment semantics</span><span>RGB VLA input</span><span>10 / 10 FPS realtime evaluation</span><span>Complete pipeline</span></div>
+<div class="badges"><span>Native environment semantics</span><span>RGB + state · H1</span><span>GR00T 5 FPS · OpenVLA 10 FPS</span><span>Complete</span><span>Updated 18 September 2026</span></div>
 </div>
 </header>
 
 <div class="layout">
 <aside class="toc" aria-label="Table of contents"><a class="toc-title" href="#main">Walker2d</a>
-<nav><a href="#adaptation">01 · Adaptation</a><a href="#zero-small">02 · Zero-latency small model training &amp; evaluation</a><a href="#zero-vla">03 · Zero-latency VLA training &amp; evaluation</a><a href="#profiling">04 · Profiling</a><a href="#baseline-vla">05 · Baseline VLA evaluation</a><a href="#profile-small">06 · Profile-latency small model training &amp; evaluation</a><a href="#profile-vla">07 · Profile-latency VLA training &amp; evaluation</a></nav>
+<nav><a href="#overview">Results overview</a><a href="#gr00t">GR00T · results</a><a href="#gr00t-training">GR00T · pipeline &amp; training</a><a href="#openvla">OpenVLA · reference results</a><a href="#openvla-details">OpenVLA · detailed record</a><a href="#archive">Models, data &amp; evidence</a></nav>
 </aside>
 
-<main id="main"><span id="content"></span>
-<section id="adaptation">
+<main id="main"><span id="content"></span><section id="overview"><p class="section-kicker">Results / verified 18 September 2026</p><h2>Results at a glance</h2><p>Both model pipelines completed measured real-time evaluation. The original OpenVLA and current GR00T runs retain their own clocks, training recipes and evidence.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Real-time evaluation · 20 episodes per available checkpoint · seeds 42–61"><table class="results-table"><caption>Real-time evaluation · 20 episodes per available checkpoint · seeds 42–61</caption><thead><tr><th scope="col">Model / run</th><th scope="col">B · zero-trained</th><th scope="col">F · profile-trained</th><th scope="col">Mean gain</th></tr></thead><tbody><tr><th scope="row"><a href="#gr00t">GR00T (QwenGR00T)</a><small>5 / 5 FPS</small></th><td>63.24 ± 6.58</td><td>852.87 ± 357.10</td><td>+789.63<small>+1,248.60%</small></td></tr><tr><th scope="row"><a href="#openvla">OpenVLA (QwenOFT)</a><small>10 / 10 FPS</small></th><td>103.65 ± 4.90</td><td>857.44 ± 971.04</td><td>+753.79<small>+727.24%</small></td></tr></tbody></table></div>
+<p class="report-note">Return = mean ± population SD. B/F evaluate zero-trained/profile-trained VLAs with measured inference latency. These are within-model comparisons from one training run, not a controlled architecture ranking: clocks, recipes and realized latency distributions differ.</p><p><a href="results-summary.json">Machine-readable GR00T results</a> · <a href="#archive">Publication index</a> · <a href="../README.md">All environments</a></p><p class="report-note">Mean gain = F − B; percentage = (F − B) / B × 100%. An unavailable F has no gain estimate.</p></section>
+<section id="gr00t"><span id="gr00t-results"></span><p class="section-kicker">Model 01 / GR00T · H1 · 5 FPS</p>
+<h2>GR00T: completed real-time evaluation</h2>
+<p>Profile-trained GR00T improves return for all 20 matched seeds on RTX 3090. Mean episode length increases from <strong>61.15 to 250.6 steps</strong>. F still terminates well before the 1,000-step cap on average.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Evaluation conditions remain separate"><table class="results-table"><caption>Evaluation conditions remain separate</caption><thead><tr><th scope="col">Checkpoint / stage</th><th scope="col">Execution</th><th scope="col">Episodes</th><th scope="col">Return mean ± SD</th><th scope="col">Mean raw steps</th></tr></thead><tbody><tr><th scope="row">Zero VLA · L0</th><td>Simulated, zero latency</td><td>20</td><td>3,527.99 ± 945.27</td><td>901.45</td></tr><tr><th scope="row">Zero VLA · B</th><td>3090 real-time, measured</td><td>20</td><td>63.24 ± 6.58</td><td>61.15</td></tr><tr><th scope="row">Profile teacher · E</th><td>Simulated IID, one worker</td><td>10</td><td>4,228.54 ± 14.59</td><td>1,000.00</td></tr><tr><th scope="row">Profile VLA · F</th><td>3090 real-time, measured</td><td>20</td><td>852.87 ± 357.10</td><td>250.60</td></tr></tbody></table></div>
+<p class="report-note">These are separate within-model comparisons, not a controlled architecture ranking. Different clocks, recipes and realized latency distributions matter. Standard deviations describe episodes from one training run.</p>
+<figure><img src="gr00t-paired-returns.svg" alt="Walker2D GR00T returns for matched seeds 42 to 61. Baseline returns average 63.24; final returns average 852.87. All paired gains are positive." width="900" height="650"><figcaption>20 wins, 0 ties, 0 losses means higher return for each matched seed; it is not an independent training-seed study. <a href="gr00t-paired-returns.svg">Open full-size chart</a>.</figcaption></figure>
+<h3>Matched runtime and latency audit</h3>
+<p>B/F share seeds 42–61, a 1,000-step cap, 5 FPS environment/observation clocks, one inference worker, hold/FIFO scheduling and measured-only latency. The model paths, prompt key 0 → 1 and output directory change. No IID delay is overlaid on F.</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="Measured runtime audit · B and F"><table class="results-table"><caption>Measured runtime audit · B and F</caption><thead><tr><th scope="col">Metric</th><th scope="col">B</th><th scope="col">F</th></tr></thead><tbody><tr><th scope="row">Mean of episode latency means (ms)</th><td>107.05</td><td>107.06</td></tr><tr><th scope="row">Mean raw steps</th><td>61.15</td><td>250.60</td></tr><tr><th scope="row">Dropped observations</th><td>0</td><td>0</td></tr><tr><th scope="row">Dropped actions</th><td>0</td><td>0</td></tr><tr><th scope="row">Invalid actions</th><td>0</td><td>0</td></tr></tbody></table></div>
+<p>F frame intervals average 200.00296 ms (198.95315–201.21660 ms). Similar episode-mean latencies do not establish identical per-step delays or an equal-latency causal effect. Logged commands retain the established native torque interface; no action normalization change was introduced for F.</p>
+<p class="report-note">L0 simulation, measured B/F and teacher E are distinct evaluations. E10 reuses the selected teacher’s first ten selection seeds; it is not an independent extra seed block.</p><p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/a260732e0bce9771ca62a3c336bb446ecd0ea5df/walker2d/profile_latency/GR00T/h1_5fps_20260917/teacher/teacher_probe_audit.json">Teacher E10 source / step audit</a> · <a href="report-tables.json">Table values, definitions and provenance</a></p></section><section id="gr00t-training"><p class="section-kicker">GR00T / Training and provenance</p><h2>Training, data and evaluation contract</h2><div class="table-wrap" tabindex="0" role="region" aria-label="GR00T pipeline stages"><table><thead><tr><th scope="col">Stage</th><th scope="col">Completed result</th><th scope="col">Evidence</th></tr></thead><tbody><tr><th scope="row">Zero VLA</th><td>5,000 updates; seed 42; global batch 64. Original APPO H1 data reused; L0 simulation completed.</td><td><a href="results-summary.json">Stage record</a></td></tr><tr><th scope="row">P · latency profile</th><td>5 × 10 episodes on RTX 3090; 3,095 samples; mean 111.29 ms / P95 118.32 ms.</td><td><a href="results-summary.json">Stage record</a></td></tr><tr><th scope="row">S / E · APPO teacher</th><td>Fresh APPO, 10M target frames. Selected training best: 4,223.32 ± 18.18 over 20 selection episodes. E10 reported in the evaluation table.</td><td><a href="results-summary.json">Stage record</a></td></tr><tr><th scope="row">R / C · demonstrations</th><td>100 accepted / 100 attempts; 90 / 10 episode split. Conversion verified.</td><td><a href="results-summary.json">Stage record</a></td></tr><tr><th scope="row">V · profile VLA</th><td>Fresh initialization; 5,000 updates; save and reload verified.</td><td><a href="results-summary.json">Stage record</a></td></tr><tr><th scope="row">F · measured real-time</th><td>Completed 20 episodes, seeds 42–61; actual RTX 3090 inference latency.</td><td><a href="results-summary.json">Stage record</a></td></tr></tbody></table></div><details><summary>Full training recipe, data contract and provenance</summary>
+<div class="table-wrap" tabindex="0" aria-label="Scrollable results table"><table><thead><tr><th scope="col">Stage</th><th scope="col">Verified result and fixed protocol</th></tr></thead><tbody>
+<tr><th scope="row">Task / VLA</th><td>Walker2d-v4 native physics; 17D state, six native torques in [−1, 1], single RGB224, H1. QwenGR00T / DiT-B; 4 inference timesteps and 8 diffusion repeats.</td></tr>
+<tr><th scope="row">L0 data / model</th><td>Original APPO H1 demonstrations retained: 100 episodes, 85,160 / 9,664 train/validation rows. Only nominal clocks and prompts retimed 125 → 5 FPS. Fresh VLA: 5,000 updates, seed 42, global batch 64.</td></tr>
+<tr><th scope="row">L0 simulation (20)</th><td>3527.99 ± 945.27; mean length 901.45. Zero simulated latency, distinct from measured baseline B.</td></tr>
+<tr><th scope="row">RTX 3090 profile P</th><td>5 × 10 episodes, cap 900, no FPS calibration; 3,095 admitted observations. Observation-to-action mean 111.28701 ms; P95 118.31860 ms.</td></tr>
+<tr><th scope="row">Profile APPO teacher</th><td>Fresh 10M-step original sf_official_10m recipe, seed 0, actual-profile IID. Final / training-best each evaluated for 20 episodes; best selected: 4223.32 ± 18.18.</td></tr>
+<tr><th scope="row">Teacher E10</th><td>4228.54 ± 14.59; 10/10 returns &gt;3000. E10 repeats the first 10 selection seeds (104771–104780), not independent evidence.</td></tr>
+<tr><th scope="row">Profile demonstrations</th><td>100 accepted / 100 total attempts including the 12-attempt probe; 90,000 / 10,000 rows. Strict teacher replay return &gt;3000; train-only state min-max applied once.</td></tr>
+<tr><th scope="row">Profile VLA / F</th><td>Fresh 5,000 updates, seed 42, global batch 64 = 2 × microbatch 32 × accumulation 1. VLM/head LR 1e−5 / 1e−4; warmup 100; held-out 200 batches and save every 500. Final F uses actual measured latency.</td></tr></tbody></table></div>
+<p class="report-note">The &gt;3000 threshold filters teacher demonstrations. It is not a new VLA acceptance threshold; teacher E10, zero-latency L0 simulation and measured B/F must not be conflated.</p>
+</details></section>
+<section id="openvla"><p class="section-kicker">Model 02 / OpenVLA · historical reference</p><h2>OpenVLA: completed real-time evaluation</h2><p>The original QwenOFT run is archived under OpenVLA. Environment and observation clocks are 10 FPS; seeds 42–61 identify the matched real-time episode block. This result is separate from the GR00T H1 / 5 FPS run.</p><p>Paired seeds: <strong>17 wins, 0 ties, 3 losses</strong>. Mean return changes by +753.79. Both checkpoints were evaluated with measured real-time latency.</p><div class="table-wrap" tabindex="0" role="region" aria-label="OpenVLA evaluation conditions remain separate"><table class="results-table"><caption>OpenVLA evaluation conditions remain separate</caption><thead><tr><th scope="col">Checkpoint / stage</th><th scope="col">Execution</th><th scope="col">Episodes</th><th scope="col">Return mean ± SD</th><th scope="col">Mean raw steps</th></tr></thead><tbody><tr><th scope="row">Zero VLA · L0</th><td>Simulated, zero latency (historical clock)</td><td>20</td><td>983.91 ± 373.09</td><td>469.45</td></tr><tr><th scope="row">Zero VLA · B</th><td>3090 real-time, measured</td><td>20</td><td>103.65 ± 4.90</td><td>78.65</td></tr><tr><th scope="row">Profile teacher · E</th><td>Simulated IID, one worker</td><td>10</td><td>4,102.87 ± 593.64</td><td>910.40</td></tr><tr><th scope="row">Profile VLA · F</th><td>3090 real-time, measured</td><td>20</td><td>857.44 ± 971.04</td><td>400.25</td></tr></tbody></table></div><figure id="openvla-paired-comparison" style="margin:1.5rem 0"><a href="openvla-paired-returns.svg"><img src="openvla-paired-returns.svg" width="900" height="640" loading="lazy" alt="OpenVLA Walker2D: per-seed measured real-time B and F returns. 17 wins, 0 ties, 3 losses; mean paired gain +753.79."></a><figcaption>OpenVLA (QwenOFT), 10 FPS, RTX 3090; 20 episodes, seeds 42–61. B: zero-latency-trained VLA; F: profile-latency-trained VLA. 17 wins, 0 ties, 3 losses; mean paired gain +753.79. Legend shows mean ± population SD. <a href="openvla-paired-returns.svg">Full-size chart</a> · <a href="openvla-paired-results.json">Exact values and pinned sources</a>. This is a within-run descriptive comparison; realized latency distributions may differ.</figcaption></figure><p><a href="#openvla-details">Original adaptation, training and stage-by-stage evidence</a> · <a href="openvla-paired-results.json">Exact paired results and pinned sources</a></p><p class="report-note">Historical L0 clocks differ from the 10 FPS B/E/F protocol; the original L0 configuration and seed conventions remain in the detailed record. Tables do not imply matched L0 and real-time episodes.</p></section>
+<details class="legacy-record" id="openvla-details"><summary>OpenVLA detailed record &amp; original adaptation</summary><section id="adaptation">
 <p class="section-kicker">01 / Adaptation</p>
 
 <h2>Adaptation</h2>
@@ -83,7 +108,6 @@ latency: {method: zero}</code></pre></details>
 <p>Native six-value StarVLA handoff.</p>
 </article></div>
 </section>
-
 <section id="zero-small">
 <p class="section-kicker">02 / Zero-latency small model training &amp; evaluation</p>
 
@@ -145,7 +169,6 @@ latency: {method: zero}</code></pre></details>
 
 <div class="callout warning"><strong>Interpretation:</strong> the zero-latency policy is strong at L0 but fails under even one frame of action latency. Latency robustness requires mixed-latency training rather than relying on zero-latency optimization alone.</div>
 </section>
-
 <section id="zero-vla">
 <p class="section-kicker">03 / Zero-latency VLA training &amp; evaluation</p>
 
@@ -232,7 +255,6 @@ python -m latency_bench.run \
 <p>See the <a href="../../../gymnasium_adapter.md">normative guide</a> and <a href="../README.md">examples index</a>.</p>
 </details>
 </section>
-
 <section id="profiling">
 <p class="section-kicker">04 / Profiling</p>
 
@@ -240,7 +262,6 @@ python -m latency_bench.run \
 
 <p>P completed five sessions × ten episodes with natural termination: 3,895 admitted canonical observation-to-action samples, no capacity drops, mean 70.496 ms, P95 72.069 ms, P99 74.436 ms. The original source clocks were 125 / 125 FPS; this run uses 10 / 10 FPS while preserving simulator physics, observation stride and raw-frame budgets. Repeated profiling sessions are not independent training seeds.</p>
 </section>
-
 <section id="baseline-vla">
 <p class="section-kicker">05 / Baseline VLA evaluation</p>
 
@@ -260,7 +281,6 @@ python -m latency_bench.run \
 </table>
 </div>
 </section>
-
 <section id="profile-small">
 <p class="section-kicker">06 / Profile-latency small model training &amp; evaluation</p>
 
@@ -280,7 +300,6 @@ python -m latency_bench.run \
 
 <p>Train the small model for 10,006,528 frames using the original APPO recipe and best-reward checkpoint selection, with the measured IID profile and 10/10 FPS. Independent simulated evaluation uses a one-worker pool, configuration seed 0 (actual seeds 104729–104738), and a 1,000-step raw cap. It admits all 9,104 observations. Training and rollout inject action-delay IID; evaluation additionally models worker occupancy.</p>
 </section>
-
 <section id="profile-vla">
 <p class="section-kicker">07 / Profile-latency VLA training &amp; evaluation</p>
 
@@ -315,9 +334,13 @@ python -m latency_bench.run \
 <p>All required uploads are verified: profile <code>verified bundle</code> (109 files), teacher <code>verified bundle</code> (14), raw <code>verified bundle</code> (9), converted <code>verified bundle</code> (120), final VLA <code>verified bundle</code> (22). Full verification records are in the <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/provenance/pipeline/status.md">run ledger</a>.</p>
 
 <p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/provenance/pipeline/3090/P.summary.json">P summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/baseline_OpenVLA/evaluation/summary.json">B summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/small_model/evaluation/summary.json">E summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/OpenVLA/evaluation/summary.json">F summary</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/provenance/pipeline/paired_B_F.json">Paired B/F returns</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/OpenVLA/training/vla_completion.json">V completion</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/provenance/execution/data.upload.json">Dataset publication</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/OpenVLA/training/vla.upload.json">Final model publication</a> · <a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/provenance/pipeline/continuation.md">Completion ledger</a></p>
-</section>
+
+
+</section></details><section id="archive"><p class="section-kicker">Publication / fixed revisions</p><h2>Models, data and scientific evidence</h2><p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/b59922566cb475e61455342b1111b9e9771c09de/walker2d/profile_latency/GR00T/h1_5fps_20260917">Complete compact experiment evidence and raw data</a> · <a href="https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/54172536f1a4819babf336e599ea38ef4e88809a/walker2d/profile_latency/GR00T">Final model</a> · <a href="https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/9ea50f42a1e93a9035c8df6a392e5e9f141493de/walker2d/zero_latency/GR00T">L0 model / simulation</a> · <a href="https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/3ceab6778f0e7aef377fdfd7e4faa9685ede7a78/walker2d/profile_latency/small_model/GR00T">Selected teacher and profile</a> · <a href="results-summary.json">Results JSON</a> · <a href="gr00t-publication.json">Publication receipt</a></p>
+<p class="gr00t-fingerprints">Evaluated F revision <code>af4f38060b0374c5684c43f22cd504257cf2bffd</code>; checkpoint SHA256 <code>1859cec5319db37b97a62d8190f081771f38978fa2ade39cfb82b155ac56b83b</code>. Model documentation revision <code>54172536f1a4819babf336e599ea38ef4e88809a</code> preserves these weights. Final dataset revision <code>b59922566cb475e61455342b1111b9e9771c09de</code>.</p>
+<p>Published evidence includes episode metrics, configurations, exit receipts and compact audits. Full step/action/latency traces remain on the evaluation server after audit; they are not claimed as uploaded. The original OpenVLA record, anchors, media and conditions continue below.</p><div class="table-wrap" tabindex="0" role="region" aria-label="Published artifacts"><table><thead><tr><th scope="col">Artifact</th><th scope="col">GR00T</th><th scope="col">OpenVLA</th></tr></thead><tbody><tr><th scope="row">Models, raw data and provenance</th><td><a href="gr00t-publication.json">Pinned publication index</a></td><td><a href="assets/standard_pipeline.json">Pinned archive index</a></td></tr><tr><th scope="row">Evaluation and comparison</th><td><a href="results-summary.json">Stage results</a> · <a href="report-tables.json">Normalized tables</a></td><td><a href="openvla-paired-results.json">Paired returns and sources</a></td></tr></tbody></table></div><p class="report-note">Original experiment protocols and publication scope are preserved. Local files contain report media and compact indices; model weights and scientific evidence are linked to pinned Hugging Face revisions.</p></section>
 </main>
 </div>
 
-<footer><p><a href="https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/walker2d">Complete experiment archive on Hugging Face</a> · <a href="assets/standard_pipeline.json">Archive verification receipt</a>. Only raw demonstrations are distributed; conversion runs on the training server.</p>Walker2d · experiment report</footer>
+<footer><p>Walker2D · OpenVLA &amp; GR00T · <a href="#archive">Pinned publication index</a> · <a href="../README.md">All environments</a></p></footer>
 </body></html>

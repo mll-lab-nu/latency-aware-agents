@@ -834,6 +834,23 @@ def test_starvla_lerobot_converter_writes_handoff_contract(tmp_path):
         "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium"]],
     }
 
+def test_generic_dataset_language_matches_registered_loader(tmp_path, monkeypatch):
+    pytest.importorskip("accelerate")
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
+    from examples.rl_games.train_files.data_registry.data_config import GymnasiumDataConfig
+    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+
+    image = tmp_path / "image.png"
+    save_test_image(image, 7)
+    raw = tmp_path / "raw"
+    _write_generic_export(raw, [_canonical_row(image)])
+    converted = tmp_path / "lerobot"
+    convert_canonical_rollout_to_lerobot(raw, converted)
+    modality = json.loads((converted / "meta/modality.json").read_text())
+    language_key = GymnasiumDataConfig.language_keys[0].removeprefix("annotation.")
+    assert modality["annotation"][language_key]["original_key"] == "task_index"
+
+
 def test_starvla_lerobot_converter_normalizes_gymnasium_state_from_train(tmp_path):
     from latency_bench.data.exporters.starvla_lerobot import (
         convert_canonical_rollout_to_lerobot,

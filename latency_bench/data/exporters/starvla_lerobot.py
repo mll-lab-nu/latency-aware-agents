@@ -176,8 +176,12 @@ def _load_rows(raw_export_dir: Path, split: str) -> list[dict[str, Any]]:
         Rows as Python dictionaries.
     """
     path = raw_export_dir / f"{split}.parquet"
-    table = pq.read_table(path)
-    return table.to_pylist()
+    # Bound nested image buffers per Arrow batch; the converter still owns all rows.
+    return [
+        row
+        for batch in pq.ParquetFile(path).iter_batches(batch_size=1024)
+        for row in batch.to_pylist()
+    ]
 
 
 def _episode_groups(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:

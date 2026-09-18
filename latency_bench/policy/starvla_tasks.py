@@ -72,12 +72,15 @@ def build_task_starvla_policy(config: dict) -> TaskStarVlaPolicyRunner:
 
     cfg = config["policy"]
     model_config, _ = read_mode_config(cfg["checkpoint_path"])
-    backbone = model_config["backbone"]
-    backbone_path = snapshot_download(
-        backbone["repo_id"],
-        allow_patterns=backbone["allow_patterns"],
-        local_dir=STARVLA_ROOT / "playground/Pretrained_models" / backbone["repo_id"].split("/")[-1],
-    )
+    if "backbone_path" in cfg:
+        backbone_path = cfg["backbone_path"]
+    else:
+        backbone = model_config["backbone"]
+        backbone_path = snapshot_download(
+            backbone["repo_id"],
+            allow_patterns=backbone["allow_patterns"],
+            local_dir=STARVLA_ROOT / "playground/Pretrained_models" / backbone["repo_id"].split("/")[-1],
+        )
     framework = baseframework.from_pretrained(cfg["checkpoint_path"], backbone_path=backbone_path)
     framework = framework.to(device=cfg["device"], dtype=torch.bfloat16).eval()
     contract = json.loads(Path(cfg["task_contract_path"]).read_text(encoding="utf-8"))

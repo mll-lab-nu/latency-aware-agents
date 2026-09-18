@@ -2,10 +2,30 @@ from __future__ import annotations
 
 import json
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 from helpers import save_test_image
+
+
+def test_load_rows_preserves_nested_values_and_order_across_batches(tmp_path):
+    from latency_bench.data.exporters.starvla_lerobot import _load_rows
+
+    rows = [
+        {
+            "image": {"bytes": f"image-{index}".encode(), "path": None},
+            "episode_idx": index // 1000,
+            "decision_step": index % 1000,
+            "state": [float(index), 0.5],
+            "issued_command_chunk": [[float(index), float(step)] for step in range(8)],
+            "action_valid_mask": [True] * 8,
+        }
+        for index in range(2053)
+    ]
+    pq.write_table(pa.Table.from_pylist(rows), tmp_path / "train.parquet", row_group_size=257)
+
+    assert _load_rows(tmp_path, "train") == rows
 
 
 def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):

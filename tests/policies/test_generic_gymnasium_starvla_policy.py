@@ -29,11 +29,13 @@ class GenericPolicyServerWrapper:
         rl_games_action_env_dim=None,
         rl_games_gymnasium_action_space_type=None,
         rl_games_gymnasium_robot_type=None,
+        backbone_path=None,
     ):
         self.rl_games_env_name = rl_games_env_name
         self.rl_games_action_env_dim = rl_games_action_env_dim
         self.rl_games_gymnasium_action_space_type = rl_games_gymnasium_action_space_type
         self.rl_games_gymnasium_robot_type = rl_games_gymnasium_robot_type
+        self.backbone_path = backbone_path
         self.calls = []
         self._model_cfg = {
             "datasets": {"vla_data": {"include_state": False}},
@@ -157,9 +159,11 @@ def _read_model_config(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+@pytest.mark.parametrize("backbone_path", [None, "/models/pinned-qwen"])
 def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
     monkeypatch,
     tmp_path: Path,
+    backbone_path,
 ):
     from latency_bench.policy import starvla
 
@@ -176,11 +180,14 @@ def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
     )
     monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
     config = _generic_config(tmp_path)
+    if backbone_path is not None:
+        config["policy"]["backbone_path"] = backbone_path
 
     policy = build_policy(config, ActionResolver(config["env"]))
     output = policy.predict(_observation())
 
     wrapper = GenericPolicyServerWrapper.instances[0]
+    assert wrapper.backbone_path == backbone_path
     assert wrapper.rl_games_env_name == "gymnasium"
     assert wrapper.rl_games_action_env_dim == 3
     assert wrapper.rl_games_gymnasium_action_space_type is None

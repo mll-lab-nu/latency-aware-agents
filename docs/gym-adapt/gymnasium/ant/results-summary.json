@@ -1,0 +1,469 @@
+{
+  "audit_date": "2026-09-18",
+  "GR00T": {
+    "verified_at": "2026-09-17T22:54:19.842855+00:00",
+    "task": "ant",
+    "B": {
+      "episodes": 20,
+      "mean_return": 165.37481726082865,
+      "population_std": 224.74334398914203,
+      "mean_length": 117.95,
+      "mean_episode_latency_ms": 109.68601172344802,
+      "observation_drops": 0,
+      "submitted_observations": 2359,
+      "action_drops": 0,
+      "invalid_actions": 0,
+      "metrics_sha256": "ff2ac48ce6a80f3ce86f8bf463d176901e80fdfc1da4e5d257619103f38ef4c5"
+    },
+    "F": {
+      "episodes": 20,
+      "mean_return": 1955.9665903901682,
+      "population_std": 780.5126269537432,
+      "mean_length": 864.15,
+      "mean_episode_latency_ms": 109.09411537718458,
+      "observation_drops": 0,
+      "submitted_observations": 17283,
+      "action_drops": 0,
+      "invalid_actions": 0,
+      "metrics_sha256": "b2ff83fadbbd9b5ff7a993ffc7c56d6123551fd3e54e69ae4c195b15e367a1c1"
+    },
+    "paired": [
+      {
+        "seed": 42,
+        "B": 84.23832372672278,
+        "F": 2292.6968727353537,
+        "delta": 2208.458549008631
+      },
+      {
+        "seed": 43,
+        "B": 220.64860271191372,
+        "F": 2446.8842789472274,
+        "delta": 2226.235676235314
+      },
+      {
+        "seed": 44,
+        "B": 82.47454937825414,
+        "F": 2216.5797605405637,
+        "delta": 2134.1052111623094
+      },
+      {
+        "seed": 45,
+        "B": -4.504193144900196,
+        "F": 2142.8017952860573,
+        "delta": 2147.3059884309573
+      },
+      {
+        "seed": 46,
+        "B": 135.89834927015684,
+        "F": 188.51157208027374,
+        "delta": 52.613222810116895
+      },
+      {
+        "seed": 47,
+        "B": 310.16685900344226,
+        "F": 2363.7111567928623,
+        "delta": 2053.54429778942
+      },
+      {
+        "seed": 48,
+        "B": 5.584900419653708,
+        "F": 2431.2759348566005,
+        "delta": 2425.6910344369467
+      },
+      {
+        "seed": 49,
+        "B": 9.684860212951424,
+        "F": 2499.53692677071,
+        "delta": 2489.852066557759
+      },
+      {
+        "seed": 50,
+        "B": 47.248299954800345,
+        "F": 217.1451078385491,
+        "delta": 169.89680788374875
+      },
+      {
+        "seed": 51,
+        "B": 5.167858550249113,
+        "F": 2422.6259882746626,
+        "delta": 2417.4581297244135
+      },
+      {
+        "seed": 52,
+        "B": 370.3559614500507,
+        "F": 158.85814296104954,
+        "delta": -211.49781848900116
+      },
+      {
+        "seed": 53,
+        "B": 10.138585515091348,
+        "F": 2246.49195197768,
+        "delta": 2236.3533664625884
+      },
+      {
+        "seed": 54,
+        "B": 168.33526952279541,
+        "F": 1496.3920763222004,
+        "delta": 1328.056806799405
+      },
+      {
+        "seed": 55,
+        "B": 49.10090104723927,
+        "F": 2469.0992048851253,
+        "delta": 2419.998303837886
+      },
+      {
+        "seed": 56,
+        "B": 87.00520589558394,
+        "F": 2293.215249054828,
+        "delta": 2206.210043159244
+      },
+      {
+        "seed": 57,
+        "B": 331.03135865679553,
+        "F": 2373.2643569530505,
+        "delta": 2042.2329982962551
+      },
+      {
+        "seed": 58,
+        "B": 140.152490197422,
+        "F": 2130.680296901256,
+        "delta": 1990.5278067038341
+      },
+      {
+        "seed": 59,
+        "B": 104.24116955116817,
+        "F": 2579.2123334397365,
+        "delta": 2474.9711638885683
+      },
+      {
+        "seed": 60,
+        "B": 128.06272573477975,
+        "F": 2349.218781207481,
+        "delta": 2221.156055472701
+      },
+      {
+        "seed": 61,
+        "B": 1022.4642675624029,
+        "F": 1801.130019978099,
+        "delta": 778.665752415696
+      }
+    ],
+    "wins": 19,
+    "ties": 0,
+    "losses": 1,
+    "mean_difference": 1790.5917731293396,
+    "F_step_interval_ms": {
+      "mean": 200.0007746919855,
+      "min": 198.89273610897362,
+      "max": 201.13411615602672
+    },
+    "F_revision": "bfab5cbb9abbadb03eb39593d3f403471b835882",
+    "F_checkpoint_sha256": "77dfb363a28a363a3acec7f53892e80c773cd8e2e5850ecff980abf6dbfff18b",
+    "protocol": "20 matched seeds42-61;5FPS;cap1000;measured-only;same B/F runtime with model and prompt0\u21921 changes",
+    "interpretation": "Compare measured outcomes and realized latencies; no equal-latency causal claim and no teacher gate applied to VLA.",
+    "L0_simulated": {
+      "task": "ant",
+      "state": "L0_SIM20_COMPLETED_AND_VERIFIED",
+      "verified_at": "2026-09-17T15:01:41.223248+00:00",
+      "evaluation_finished_at": "2026-09-17T14:40:00.468345+00:00",
+      "episodes": 20,
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61
+      ],
+      "env_fps": 5,
+      "obs_fps": 5,
+      "latency": "zero",
+      "mode": "simulated",
+      "max_raw_steps": 1000,
+      "returns": [
+        6078.757318398879,
+        6239.587802841108,
+        6186.588741289055,
+        6411.707138638104,
+        6424.013422597254,
+        6382.1938936108045,
+        6470.375480132934,
+        6303.337963528924,
+        6142.183339632129,
+        6222.816094687569,
+        6169.222793059305,
+        6058.8632473583675,
+        6219.57533484306,
+        6377.415154784045,
+        6205.273527850029,
+        6112.204410544666,
+        6048.150800598399,
+        6295.392950621552,
+        6040.352327131771,
+        6064.02653622431
+      ],
+      "mean_return": 6222.601913918613,
+      "population_std_return": 133.91557274427223,
+      "lengths": [
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000
+      ],
+      "mean_length": 1000,
+      "total_raw_steps": 20000,
+      "raw_step_rewards_match_episode_returns": true,
+      "raw_step_indices_contiguous": true,
+      "dropped_actions": 0,
+      "dropped_observations": 0,
+      "invalid_actions": 0,
+      "action_events": 20000,
+      "all_action_latencies_zero": true,
+      "training_steps": 5000,
+      "global_batch": 64,
+      "checkpoint_sha256": "ca07c97e015f096866fcbcdd2deda0c37429f2b3cd56f127df0d31c6f09a676d",
+      "command_semantics": "Generic adapter applied_action may be preclip; native environment clipping unchanged. No preclip-bound assertion was imposed.",
+      "remaining": "RTX3090 P/B, actual-profile teacher/data/profile-VLA, F; not yet complete",
+      "acceptance": "Full pipeline acceptance not established"
+    },
+    "profile": {
+      "frame_ms": 200.0,
+      "max_ms": 137.3708097934723,
+      "mean_effective_frames": 0.558224778717296,
+      "mean_ms": 111.6449557434592,
+      "min_ms": 99.1965548992157,
+      "n_samples": 2655,
+      "p50_frames": 0.5661978304386139,
+      "p50_ms": 113.23956608772278,
+      "p90_frames": 0.5858671226501465,
+      "p90_ms": 117.1734245300293,
+      "p95_frames": 0.5922446048259735,
+      "p95_ms": 118.4489209651947,
+      "p99_frames": 0.6012670528888703,
+      "p99_ms": 120.25341057777405,
+      "prob_latency_gt_1_frame": 0.0,
+      "prob_latency_gt_2_frames": 0.0,
+      "prob_latency_gt_3_frames": 0.0,
+      "std_ms": 5.13591597589706
+    },
+    "teacher_selection": {
+      "selected": "final",
+      "candidates": {
+        "final": {
+          "checkpoint": "/mnt/ant/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/ant/profile_latency/teacher/checkpoints/ant_profile_appo_h1_5fps_20260917/checkpoint_p0/checkpoint_000019536_10002432.pth",
+          "sha256": "139c918c2c8f69dd0e4d53d21ae3270915a2b394f3239e75271aec2444cd1062",
+          "episodes": 20,
+          "seeds": [
+            104771,
+            104772,
+            104773,
+            104774,
+            104775,
+            104776,
+            104777,
+            104778,
+            104779,
+            104780,
+            104781,
+            104782,
+            104783,
+            104784,
+            104785,
+            104786,
+            104787,
+            104788,
+            104789,
+            104790
+          ],
+          "returns": [
+            3382.677040453233,
+            3318.1248481651,
+            3273.349414924928,
+            3224.238673604737,
+            3395.6075937873156,
+            3366.9126813337966,
+            3208.0866069443746,
+            2266.063192680125,
+            3224.1032590358996,
+            3336.4378573833874,
+            3209.1014860794185,
+            3239.4162337542502,
+            65.35835528853453,
+            3457.247616390922,
+            3257.669667139658,
+            3175.3473724499313,
+            2138.0057259589803,
+            3191.436948757271,
+            3433.4580466589496,
+            3350.2776480398716
+          ],
+          "mean": 3025.6460134415343,
+          "std": 758.4735774062908,
+          "strict_gt3000": 17
+        },
+        "training_best": {
+          "checkpoint": "/mnt/ant/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/ant/profile_latency/teacher/checkpoints/ant_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000019328_9895936_reward_2910.431.pth",
+          "sha256": "bc670dd6c50aaf193540f3e7aa65e6a0dc9f0eaa4cd85bf938f61f4ea9e7c8eb",
+          "episodes": 20,
+          "seeds": [
+            104771,
+            104772,
+            104773,
+            104774,
+            104775,
+            104776,
+            104777,
+            104778,
+            104779,
+            104780,
+            104781,
+            104782,
+            104783,
+            104784,
+            104785,
+            104786,
+            104787,
+            104788,
+            104789,
+            104790
+          ],
+          "returns": [
+            136.13698742534154,
+            3352.5923869960147,
+            3228.754616579218,
+            3395.732770350594,
+            3176.318284717083,
+            3203.881065772374,
+            3195.0852196073834,
+            3317.5664711655136,
+            1902.8629020119117,
+            3352.1049139879538,
+            3313.594436589807,
+            3360.6664730930424,
+            3244.416883269659,
+            3351.188932970402,
+            3274.4894246891963,
+            3302.2400362033814,
+            3295.8381294497713,
+            3396.964774800347,
+            3347.7049103253566,
+            1497.4428169791954
+          ],
+          "mean": 2982.2791218491775,
+          "std": 814.5490112319865,
+          "strict_gt3000": 17
+        }
+      },
+      "completed_at": "2026-09-17T17:00:18.536786+00:00"
+    },
+    "teacher_E10": {
+      "checkpoint": "/mnt/ant/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/ant/profile_latency/teacher/checkpoints/ant_profile_appo_h1_5fps_20260917/checkpoint_p0/checkpoint_000019536_10002432.pth",
+      "sha256": "139c918c2c8f69dd0e4d53d21ae3270915a2b394f3239e75271aec2444cd1062",
+      "episodes": 10,
+      "seeds": [
+        104771,
+        104772,
+        104773,
+        104774,
+        104775,
+        104776,
+        104777,
+        104778,
+        104779,
+        104780
+      ],
+      "returns": [
+        3382.677040453233,
+        3318.1248481651,
+        3273.349414924928,
+        3224.238673604737,
+        3395.6075937873156,
+        3366.9126813337966,
+        3208.0866069443746,
+        2266.063192680125,
+        3224.1032590358996,
+        3336.4378573833874
+      ],
+      "mean": 3199.5601168312896,
+      "std": 317.9484044775569,
+      "strict_gt3000": 9
+    },
+    "demonstrations": {
+      "accepted_episodes": 100,
+      "accepted_train_episodes": 90,
+      "accepted_val_episodes": 10,
+      "attempted_episodes": 109,
+      "episode_return_gate": {
+        "field": "episode_raw_return",
+        "operator": ">",
+        "threshold": 3000.0
+      },
+      "preset": "none",
+      "rejected_episodes": 9,
+      "train_rows_after_row_filter": 90000,
+      "train_rows_before_row_filter": 90000,
+      "val_rows_after_row_filter": 10000,
+      "val_rows_before_row_filter": 10000
+    },
+    "state_dim": 27,
+    "action_dim": 8,
+    "action_horizon": 1,
+    "clock_fps": 5,
+    "training_updates_each": 5000,
+    "global_batch": 64,
+    "teacher_seed": 2222,
+    "F_raw_steps": 17283,
+    "F_within_episode_intervals": 17263,
+    "B_F_config_changed_fields": [
+      "policy.checkpoint_path",
+      "policy.model_config_path",
+      "policy.task_manifest_path",
+      "policy.latency_prompt_map_path",
+      "policy.latency_prompt_key",
+      "logging.output_dir"
+    ]
+  },
+  "OpenVLA": {
+    "status": "HISTORICAL_REFERENCE",
+    "clock_fps": 10,
+    "B_mean": 194.33,
+    "B_population_std": 259.05,
+    "F_mean": 1853.33,
+    "F_population_std": 508.69,
+    "archive": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/ant"
+  },
+  "comparison_scope": "Within-model measured B/F only; not a controlled architecture ranking. Teacher gate is not a VLA acceptance threshold.",
+  "execution_host": "34.6.91.253",
+  "full_raw_traces": "Audited on3090 and retained there; only compact evidence published."
+}

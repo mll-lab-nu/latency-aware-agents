@@ -1,0 +1,241 @@
+{
+  "repo": "latency-sensitive-bench/Standard-Pipeline",
+  "repo_type": "dataset",
+  "prefix": "air_raid/profile_latency/GR00T/gr00t_h1_iid_20260917",
+  "revision": "6dfb05ebfc2dd01fbd64076b1b2f8d78898cc3e8",
+  "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/commit/6dfb05ebfc2dd01fbd64076b1b2f8d78898cc3e8",
+  "files_verified": 46,
+  "bytes": 82329005,
+  "files": [
+    {
+      "path": "FINALIZATION.md",
+      "bytes": 2184,
+      "sha256": "dd31a9b7955fb1b9c10a866fb747b708d1d541449309589f8564d4c13aeeca5e"
+    },
+    {
+      "path": "SHA256SUMS.finalization",
+      "bytes": 4764,
+      "sha256": "cb3a3905e231dfd9b4bc6d7a5ed39dfe132b6958e17c8e785d8fb6c491ddd7d7"
+    },
+    {
+      "path": "baseline/evaluation/config/B.json",
+      "bytes": 3812,
+      "sha256": "a4adb86f43e489a41e97a4588e1be14d5cc4d457c6c468a14ed074ae451df498"
+    },
+    {
+      "path": "baseline/evaluation/summary.json",
+      "bytes": 770,
+      "sha256": "07a411f16b7413be9173f1634d5bc8eb0065716c9a0c2fce88cdfd3f15c4f36b"
+    },
+    {
+      "path": "comparison.json",
+      "bytes": 4526,
+      "sha256": "1357f4f3f2c3818f449162ee5f541b94baeaacd11fcdce33070eb75380ffd26c"
+    },
+    {
+      "path": "curation/finalization-manifest.json",
+      "bytes": 19052,
+      "sha256": "8a2d357775ac5559232a810b2bc3d12abd0019ec2943241c41e6f48c5b6052b7"
+    },
+    {
+      "path": "experiment.json",
+      "bytes": 2305,
+      "sha256": "42d8327b5bccfd6b3b3e2fa21ee4525826ad1ea0686bd4bfdf5bdebd98e9a37e"
+    },
+    {
+      "path": "small_model/evaluation/config/E.json",
+      "bytes": 3763,
+      "sha256": "182acf4866f99aa3629c6c5cb54b60759bf532daa4cc5d8a18f85d909643d56d"
+    },
+    {
+      "path": "small_model/evaluation/summary/queue_eval_latency_profile_sample.json",
+      "bytes": 876,
+      "sha256": "3079da306131738cfea6a031497ab8877553d0e08bd91f067c42e523d2cea3df"
+    },
+    {
+      "path": "small_model/evaluation/traces/actions.jsonl",
+      "bytes": 3781066,
+      "sha256": "8d8ed55ef3b0d7901aa038f48465266b1ebf63c1e598f8c291235f0694f11256"
+    },
+    {
+      "path": "small_model/evaluation/traces/e2e_latencies.jsonl",
+      "bytes": 1509524,
+      "sha256": "9ee0fcc684b9bcaf03124b5f936c29f988845f30fbb9743527b142fb4f9405ea"
+    },
+    {
+      "path": "small_model/evaluation/traces/episode_metrics.jsonl",
+      "bytes": 6014,
+      "sha256": "7bde4ab7fe5dbe587967ed581208a10c217dcc89ca6838a9013ab9fd641890b1"
+    },
+    {
+      "path": "small_model/evaluation/traces/latencies.jsonl",
+      "bytes": 1102729,
+      "sha256": "f153a86b316eff7f398e916b236133cac88cfe4b9e241347e9bdc2c88151fcf0"
+    },
+    {
+      "path": "small_model/evaluation/traces/observation_attempts.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "small_model/evaluation/traces/queue_eval_results.jsonl",
+      "bytes": 369,
+      "sha256": "2b770696baa8f5eb3b7f17652a2068539592152e4032884084e08e30a76c16b8"
+    },
+    {
+      "path": "small_model/evaluation/traces/steps.jsonl",
+      "bytes": 19739610,
+      "sha256": "2494a7001d1f08a102424a696688af91fb9561e723e5081752c9ec10c0a8d898"
+    },
+    {
+      "path": "vla/evaluation/config/F.json",
+      "bytes": 3926,
+      "sha256": "8ef860e4c8b7ec39759f24f204f3eda4b36090e14253c058c2dcd083e30db662"
+    },
+    {
+      "path": "vla/evaluation/summary/eval_latency_trace.png",
+      "bytes": 92138,
+      "sha256": "672cc8451cbe7aaf02896b19297232e386e10fa93840ed4f8bbdaa251c983d52"
+    },
+    {
+      "path": "vla/evaluation/summary/queue_eval_latency_measured.json",
+      "bytes": 911,
+      "sha256": "5ee6e7287b81c3d03fbd48a5f87d47dc4129641c9b6aa047e432159374a60e07"
+    },
+    {
+      "path": "vla/evaluation/summary/warmup_stability.png",
+      "bytes": 58648,
+      "sha256": "e196a069c771c851d89308d98ba634e51e29f0e40fcb70fbb1540cb64185a5fe"
+    },
+    {
+      "path": "vla/evaluation/summary/warmup_summary.json",
+      "bytes": 3217,
+      "sha256": "670aa93e7e13dfb73593e01bd2b40ab14e737f5c368be075bca3d6a830e0fc94"
+    },
+    {
+      "path": "vla/evaluation/summary.json",
+      "bytes": 1157,
+      "sha256": "b6c576ec91ffc4528359142d01227c7dec65dfac3431211f9c3a29905487ca54"
+    },
+    {
+      "path": "vla/evaluation/traces/actions.jsonl",
+      "bytes": 13359187,
+      "sha256": "c7cee0485b29a2449fcbbc5b5e8edd64d732f11dc67a1fa44453a9dc9ee59ef1"
+    },
+    {
+      "path": "vla/evaluation/traces/e2e_latencies.jsonl",
+      "bytes": 2599916,
+      "sha256": "0ace3b96d1a728cd4ec82de31af4de94078987c9d4051b5db8e6dba87faa036d"
+    },
+    {
+      "path": "vla/evaluation/traces/episode_metrics.jsonl",
+      "bytes": 67155,
+      "sha256": "bf146916da61cc4178cdbce564bcde929f3d3e544800308bcb235f6d3101ee9d"
+    },
+    {
+      "path": "vla/evaluation/traces/latencies.jsonl",
+      "bytes": 2336655,
+      "sha256": "eed9a6be84a08bb8f39cab56f3e3de7f3318bf445f5424ce30d58561f8d2d378"
+    },
+    {
+      "path": "vla/evaluation/traces/observation_attempts.jsonl",
+      "bytes": 2425615,
+      "sha256": "bd056b9b8644e7894c1ed0ca51bba80ffcbaf61417b28ebe3827b1242663f2a5"
+    },
+    {
+      "path": "vla/evaluation/traces/queue_eval_results.jsonl",
+      "bytes": 469,
+      "sha256": "bda2f0bd92dc941302061cecefaa1b820c099d445fa6a8a742f7de0968d2f4e7"
+    },
+    {
+      "path": "vla/evaluation/traces/steps.jsonl",
+      "bytes": 35100982,
+      "sha256": "cc168918c1237ca955220691bc5b8e4940a777a46246e86786ccab577a26c613"
+    },
+    {
+      "path": "vla/evaluation/traces/warmup_latencies.jsonl",
+      "bytes": 17335,
+      "sha256": "eb2d1fe361eeeec27edcf904f6f8614ab416bbcb74c2d8518eb1ff3ee8c148e9"
+    },
+    {
+      "path": "vla/evaluation/traces/warmup_pipeline_profile.jsonl",
+      "bytes": 58047,
+      "sha256": "3b3caab5eb74d923622545a90c1d5940f700e58b07fbb1671f2c259013a99dc5"
+    },
+    {
+      "path": "vla/evaluation/validation/F.ended-at",
+      "bytes": 21,
+      "sha256": "a75e0554c4bebdff90259c99fba6e7b08e54978331d700082d3b9107bcd73f8c"
+    },
+    {
+      "path": "vla/evaluation/validation/F.exit-code",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "vla/evaluation/validation/F.started-at",
+      "bytes": 21,
+      "sha256": "455b46f0a13047eeac5216b3553a8650c54b7848df955a6a05e94065eca6ae6f"
+    },
+    {
+      "path": "vla/evaluation/validation/source.json",
+      "bytes": 2245,
+      "sha256": "a224578e74cafd51fa4d7819255c710edcd3c7d58e729ec2abf2dbcdd2ed5b23"
+    },
+    {
+      "path": "vla/evaluation/validation/summary.json",
+      "bytes": 1157,
+      "sha256": "b6c576ec91ffc4528359142d01227c7dec65dfac3431211f9c3a29905487ca54"
+    },
+    {
+      "path": "vla/evaluation/validation/verification.json",
+      "bytes": 2273,
+      "sha256": "aeb6bd4f1dca57fcc82c2a8372b6c158a642645cdd9cf61216672a9944903468"
+    },
+    {
+      "path": "vla/training/config/resolved.json",
+      "bytes": 7268,
+      "sha256": "da87582672a2bc7fc4c7a9f6c54d9ea7b39b7b35821f5af0eb4233d3638964ea"
+    },
+    {
+      "path": "vla/training/config/training.json",
+      "bytes": 6321,
+      "sha256": "91738b492104ec075a75af6f0b33ed4fd0874b17aee6c1d4166b4813701a4787"
+    },
+    {
+      "path": "vla/training/dataset_statistics.json",
+      "bytes": 1249,
+      "sha256": "7b561f4d97723380c4ef838ddada6024164abc32b57227431853c07099992b09"
+    },
+    {
+      "path": "vla/training/summary.jsonl",
+      "bytes": 159,
+      "sha256": "2905acb79c5fffb33fd4689d87af3bd05d74f4184b9d36ff3eae0c64deecd930"
+    },
+    {
+      "path": "vla/training/validation/V.ended-at",
+      "bytes": 21,
+      "sha256": "46555c930b11bea30e568040a4d2c54ce573f642b9147a58eafc29814f7ac644"
+    },
+    {
+      "path": "vla/training/validation/V.exit-code",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "vla/training/validation/V.started-at",
+      "bytes": 21,
+      "sha256": "4f477c69debb0072edee568ce5c5fce1b9a638d56a25cf97319dd2ef966847aa"
+    },
+    {
+      "path": "vla/training/validation/completion.json",
+      "bytes": 524,
+      "sha256": "fcc1d6b0932dde235a0b04adb78d3dfdddff08d7a5cbbf04b15964be6085b5af"
+    },
+    {
+      "path": "vla/training/validation/final_bundle.json",
+      "bytes": 999,
+      "sha256": "29d0f1cdb4e3b529960d2a7676b980b0ab76a0f1220ba62eaff111d6b192dd6c"
+    }
+  ]
+}

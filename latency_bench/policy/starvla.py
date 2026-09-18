@@ -1092,7 +1092,10 @@ def build_starvla_policy(
         ),
     )
     if model_cfg is not None:
-        backbone_path = _resolve_starvla_backbone_path(model_cfg)
+        backbone_path = (
+            policy_cfg["backbone_path"] if "backbone_path" in policy_cfg
+            else _resolve_starvla_backbone_path(model_cfg)
+        )
         if backbone_path is not None:
             wrapper_kwargs["backbone_path"] = backbone_path
     if integration_env_name == "gymnasium":

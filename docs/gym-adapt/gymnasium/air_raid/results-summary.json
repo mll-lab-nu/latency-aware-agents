@@ -1,0 +1,287 @@
+{
+  "audit_date": "2026-09-17",
+  "GR00T": {
+    "B": {
+      "episodes": 20,
+      "returns": [
+        575.0,
+        1275.0,
+        1000.0,
+        400.0,
+        575.0,
+        600.0,
+        425.0,
+        975.0,
+        700.0,
+        800.0,
+        1275.0,
+        675.0,
+        925.0,
+        375.0,
+        750.0,
+        925.0,
+        550.0,
+        300.0,
+        875.0,
+        700.0
+      ],
+      "mean_return": 733.75,
+      "population_std_return": 268.70929924362497,
+      "mean_length": 2825.25,
+      "mean_of_episode_latency_ms": 83.28640915069279,
+      "action_weighted_mean_latency_ms": 82.18843196666928,
+      "action_latency_p95_ms": 95.14477360062301,
+      "actions": 11091,
+      "invalid_actions": 0,
+      "dropped_actions": 0,
+      "submitted_observations": 11108,
+      "dropped_observations": 3023,
+      "observation_opportunities": 14131,
+      "observation_drop_fraction": 0.21392682754228293,
+      "verified_step_rows": 56505
+    },
+    "F": {
+      "episodes": 20,
+      "returns": [
+        2375.0,
+        750.0,
+        1650.0,
+        2100.0,
+        1500.0,
+        1775.0,
+        2125.0,
+        1200.0,
+        750.0,
+        525.0,
+        2325.0,
+        775.0,
+        1850.0,
+        1200.0,
+        1400.0,
+        1300.0,
+        2225.0,
+        1750.0,
+        2200.0,
+        1950.0
+      ],
+      "mean_return": 1586.25,
+      "population_std_return": 564.8271306337896,
+      "mean_length": 2818.05,
+      "mean_of_episode_latency_ms": 78.45446552962868,
+      "action_weighted_mean_latency_ms": 78.40102386141893,
+      "action_latency_p95_ms": 85.8093008864671,
+      "actions": 13301,
+      "invalid_actions": 0,
+      "dropped_actions": 0,
+      "submitted_observations": 13321,
+      "dropped_observations": 775,
+      "observation_opportunities": 14096,
+      "observation_drop_fraction": 0.05498013620885357,
+      "verified_step_rows": 56361
+    },
+    "state": "VERIFIED_B_F",
+    "verified_at": "2026-09-17T09:56:40.391446+00:00",
+    "checkpoint_revision": "06a0d90722e3b1cfd2117a3577e34ed01e4aed74",
+    "checkpoint_sha256": "530ee1a1b62ccdec8ef77a0d1c639eb8c16782dd94d91b5e5444c162da0e58b2",
+    "paired_mean_delta": 852.5,
+    "relative_mean_improvement": 1.161839863713799,
+    "paired_wins": 18,
+    "paired_ties": 0,
+    "paired_losses": 2,
+    "latency_comparison_note": "Both are measured-latency runs; realized latency distributions differ. The return difference is not an equal-latency isolated estimate.",
+    "seeds": [
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61
+    ],
+    "paired": [
+      {
+        "seed": 42,
+        "B": 575.0,
+        "F": 2375.0,
+        "delta": 1800.0
+      },
+      {
+        "seed": 43,
+        "B": 1275.0,
+        "F": 750.0,
+        "delta": -525.0
+      },
+      {
+        "seed": 44,
+        "B": 1000.0,
+        "F": 1650.0,
+        "delta": 650.0
+      },
+      {
+        "seed": 45,
+        "B": 400.0,
+        "F": 2100.0,
+        "delta": 1700.0
+      },
+      {
+        "seed": 46,
+        "B": 575.0,
+        "F": 1500.0,
+        "delta": 925.0
+      },
+      {
+        "seed": 47,
+        "B": 600.0,
+        "F": 1775.0,
+        "delta": 1175.0
+      },
+      {
+        "seed": 48,
+        "B": 425.0,
+        "F": 2125.0,
+        "delta": 1700.0
+      },
+      {
+        "seed": 49,
+        "B": 975.0,
+        "F": 1200.0,
+        "delta": 225.0
+      },
+      {
+        "seed": 50,
+        "B": 700.0,
+        "F": 750.0,
+        "delta": 50.0
+      },
+      {
+        "seed": 51,
+        "B": 800.0,
+        "F": 525.0,
+        "delta": -275.0
+      },
+      {
+        "seed": 52,
+        "B": 1275.0,
+        "F": 2325.0,
+        "delta": 1050.0
+      },
+      {
+        "seed": 53,
+        "B": 675.0,
+        "F": 775.0,
+        "delta": 100.0
+      },
+      {
+        "seed": 54,
+        "B": 925.0,
+        "F": 1850.0,
+        "delta": 925.0
+      },
+      {
+        "seed": 55,
+        "B": 375.0,
+        "F": 1200.0,
+        "delta": 825.0
+      },
+      {
+        "seed": 56,
+        "B": 750.0,
+        "F": 1400.0,
+        "delta": 650.0
+      },
+      {
+        "seed": 57,
+        "B": 925.0,
+        "F": 1300.0,
+        "delta": 375.0
+      },
+      {
+        "seed": 58,
+        "B": 550.0,
+        "F": 2225.0,
+        "delta": 1675.0
+      },
+      {
+        "seed": 59,
+        "B": 300.0,
+        "F": 1750.0,
+        "delta": 1450.0
+      },
+      {
+        "seed": 60,
+        "B": 875.0,
+        "F": 2200.0,
+        "delta": 1325.0
+      },
+      {
+        "seed": 61,
+        "B": 700.0,
+        "F": 1950.0,
+        "delta": 1250.0
+      }
+    ],
+    "standard_deviation": "population",
+    "observation_drop_denominator": "submitted + dropped observations",
+    "protocol": {
+      "env_fps": 50,
+      "obs_fps": 12.5,
+      "raw_step_cap": 3600,
+      "latency": "measured",
+      "prompt_key": 4,
+      "hardware": "RTX3090"
+    }
+  },
+  "OpenVLA": {
+    "baseline_mean_return": 878.75,
+    "new_mean_return": 2353.75,
+    "absolute_return_gain": 1475.0,
+    "relative_return_gain_percent": 167.85206258890472,
+    "baseline_episodes_at_3600": 11,
+    "new_episodes_at_3600": 20,
+    "episodes_each": 20,
+    "seeds": [
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61
+    ],
+    "env_fps": 50,
+    "obs_fps": 12.5,
+    "eval_horizon": 3600,
+    "note": "One training run, matched seed block and realtime contract; descriptive comparison."
+  },
+  "archive": {
+    "GR00T": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/6dfb05ebfc2dd01fbd64076b1b2f8d78898cc3e8/air_raid/profile_latency/GR00T/gr00t_h1_iid_20260917",
+    "OpenVLA": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/571cb5801720488ed6458b9cfe3f4c595b069cea/air_raid/profile_latency/OpenVLA/native_20260911"
+  },
+  "note": "Within-model paired comparisons only; recipes and measured latency distributions differ."
+}

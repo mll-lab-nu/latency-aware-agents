@@ -1,3 +1,6 @@
 @import url("../walker2d/styles.css");
 .verified{color:var(--good);background:var(--good-bg)}
 .failed{color:var(--not);background:var(--not-bg)}
+
+/* Current Humanoid only; preserve inherited historical presentation. */
+.humanoid-current .humanoid-report p{max-width:75ch}.humanoid-current .humanoid-report img{display:block;width:100%;height:auto}.humanoid-current .humanoid-report figure{margin:2rem 0}.humanoid-current .humanoid-scroll{overflow-x:auto;margin:1.25rem 0}.humanoid-current .humanoid-scroll:focus-visible{outline:2px solid #137a7f;outline-offset:4px}.humanoid-current .humanoid-report table{width:100%;border-collapse:collapse;font-size:.94rem}.humanoid-current .humanoid-report th,.humanoid-current .humanoid-report td{padding:.7rem;text-align:left;border-bottom:1px solid #dce3e7;vertical-align:top}.humanoid-current .humanoid-report caption{text-align:left;margin-bottom:.65rem}.humanoid-current .humanoid-note{border-left:3px solid #a74a35;padding-left:1rem}.humanoid-current .humanoid-fingerprints{overflow-wrap:anywhere}.humanoid-current .humanoid-report figcaption{font-size:.9rem;color:#43545f}
