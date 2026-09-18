@@ -91,7 +91,15 @@ def _starvla_latency_label_to_raw_frames(
     latency_prompt_map_path: str | None,
 ) -> int:
     if latency_prompt_map_path is not None:
-        entry = load_latency_prompt_map(latency_prompt_map_path)[str(latency_steps)]
+        prompt_map = load_latency_prompt_map(latency_prompt_map_path)
+        key = str(latency_steps)
+        if key not in prompt_map:
+            available = ", ".join(sorted(prompt_map.keys(), key=lambda x: int(x))[:20])
+            raise KeyError(
+                f"Latency prompt key {key!r} not found in {latency_prompt_map_path}. "
+                f"Available keys include: {available}"
+            )
+        entry = prompt_map[key]
         if "latency_raw_frames" in entry:
             return entry["latency_raw_frames"]
         return entry["latency"]
@@ -456,6 +464,21 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         )
         mode = str(mode or "").strip().lower()
         return None if mode in {"", "default", "none", "raw"} else mode
+
+    def _get_latency_values(self, stage: str, task: str | None = None) -> list[int]:
+        stage_cfg = self._task_stage_cfg(task, stage)
+        if bool(_cfg_get(stage_cfg, "latencies_from_prompt_map", False)):
+            prompt_map_path = self._prompt_map_path(task)
+            if not prompt_map_path:
+                raise ValueError(
+                    f"rl_games.env_eval.{stage}.latencies_from_prompt_map=true "
+                    "but no latency prompt map path was configured"
+                )
+            prompt_map = load_latency_prompt_map(prompt_map_path)
+            if not prompt_map:
+                raise ValueError(f"Latency prompt map is empty: {prompt_map_path}")
+            return sorted(int(key) for key in prompt_map.keys())
+        return super()._get_latency_values(stage=stage, task=task)
 
     def _model_cfg_from_training_cfg(self) -> dict[str, Any]:
         from omegaconf import OmegaConf
