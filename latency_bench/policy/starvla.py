@@ -995,7 +995,12 @@ def _validate_gymnasium_starvla_contract(
                 "Evaluation Gymnasium task contract does not match the StarVLA model config"
             )
     action_space = gymnasium_action_space_contract(env_cfg)
-    if manifest["active_action_dim"] != len(action_space["labels"]):
+    action_layout = str(policy_cfg.get("action_layout", "") or "").strip().lower()
+    is_asterix_factorized = (
+        str(env_cfg.get("task_name", "")) == "asterix"
+        and action_layout in {"factorized_6", "factorized6", "asterix_factorized_6", "asterix_factorized6"}
+    )
+    if not is_asterix_factorized and manifest["active_action_dim"] != len(action_space["labels"]):
         raise ValueError(
             "StarVLA dataset active_action_dim does not match its Gymnasium action catalog"
         )
