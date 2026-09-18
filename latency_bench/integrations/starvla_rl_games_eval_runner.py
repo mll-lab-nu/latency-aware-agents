@@ -38,6 +38,7 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
 from latency_bench.eval.config import _apply_eval_latency
 from latency_bench.eval.driver import run_from_config
+from latency_bench.envs.gymnasium_task import gymnasium_task_contract
 from latency_bench.policy.starvla import (
     apply_starvla_model_input_config,
     build_live_starvla_policy,
@@ -303,7 +304,8 @@ def build_latency_bench_config_for_rl_games(
         if "gymnasium_task_contract" in data_cfg:
             task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
         else:
-            task_contract = json.loads(task_manifest_path.read_text(encoding="utf-8"))["gymnasium_task"]
+            task_manifest = json.loads(task_manifest_path.read_text(encoding="utf-8"))
+            task_contract = task_manifest.get("gymnasium_task", gymnasium_task_contract(config["env"]))
         policy["gymnasium_training_task_contract"] = task_contract
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key

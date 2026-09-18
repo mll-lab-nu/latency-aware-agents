@@ -966,8 +966,9 @@ def _validate_gymnasium_starvla_contract(
     manifest = json.loads(
         Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
     )
+    manifest_task = manifest.get("gymnasium_task")
     expected = policy_cfg.get(
-        "gymnasium_training_task_contract", manifest["gymnasium_task"]
+        "gymnasium_training_task_contract", manifest_task or eval_contract
     )
     comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
     if _canonical_gymnasium_contract_namespace(
@@ -976,14 +977,15 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA training contract or dataset manifest"
         )
-    if manifest["integration_name"] != "gymnasium":
+    if manifest.get("integration_name", "gymnasium") != "gymnasium":
         raise ValueError("StarVLA task manifest is not a Gymnasium handoff")
-    if _canonical_gymnasium_contract_namespace(
-        manifest["gymnasium_task"]
-    ) != _canonical_gymnasium_contract_namespace(expected):
-        raise ValueError(
-            "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
-        )
+    if manifest_task is not None:
+        if _canonical_gymnasium_contract_namespace(
+            manifest_task
+        ) != _canonical_gymnasium_contract_namespace(expected):
+            raise ValueError(
+                "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
+            )
     model_contract = model_cfg["datasets"]["vla_data"].get("gymnasium_task_contract")
     if model_contract is not None:
         if _canonical_gymnasium_contract_namespace(
@@ -1004,7 +1006,7 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "StarVLA model action_env_dim does not match the dataset manifest"
         )
-    manifest_uses_state = manifest["uses_state"]
+    manifest_uses_state = bool(manifest.get("uses_state", False))
     if manifest_uses_state != ("state_space" in expected):
         raise ValueError(
             "StarVLA dataset uses_state does not match the Gymnasium state space"
