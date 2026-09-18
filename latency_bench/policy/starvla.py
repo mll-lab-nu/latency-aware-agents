@@ -1251,7 +1251,7 @@ def build_live_starvla_policy(
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=normalized_model_cfg if integration_env_name == "gymnasium" else None,
         state_normalization=(
-            task_manifest["state_normalization"]
+            task_manifest.get("state_normalization")
             if integration_env_name == "gymnasium"
             else None
         ),
