@@ -198,6 +198,72 @@ def test_normalize_matches_min_max_boundaries_and_constant_dimensions(monkeypatc
         np.testing.assert_allclose(output["action.target"].numpy(), 3.0)
 
 
+def test_dagger_mixture_refresh_opens_only_new_sources_and_updates_weights(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("accelerate")
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
+    from starVLA.dataloader import latency_bench_tasks
+
+    class Source:
+        def __init__(self, name):
+            self.name = name
+            self.tag = "robot"
+            self.trajectory_lengths = np.asarray([8])
+            self.transform_metadata = None
+
+        def __len__(self):
+            return 8
+
+        def set_transforms_metadata(self, metadata):
+            self.transform_metadata = metadata
+
+    opened = []
+
+    def open_source(_root, name, _robot_type, **_kwargs):
+        opened.append(name)
+        return Source(name)
+
+    monkeypatch.setattr(latency_bench_tasks, "make_LeRobotSingleDataset", open_source)
+    mixture_path = tmp_path / "mixture.json"
+    mixture_path.write_text(json.dumps({"train": [["bootstrap", 1.0, "robot"]]}))
+    dataset = object.__new__(latency_bench_tasks._RefreshableLatencyBenchMixture)
+    dataset._refresh_data_cfg = {"data_root_dir": "/", "data_mix": "train",
+                                 "custom_mixtures_path": str(mixture_path)}
+    dataset._refresh_data_root = Path("/")
+    dataset._refresh_mixture_name = "train"
+    dataset._refresh_mixture_path = mixture_path
+    dataset._refresh_source_cache = {}
+    dataset._shared_mixture_generation = torch.zeros(
+        (), dtype=torch.int64, device="cpu"
+    ).share_memory_()
+    dataset._local_mixture_generation = 0
+    dataset.balance_dataset_weights = False
+    dataset.balance_trajectory_weights = False
+    dataset.epoch = 0
+    dataset._sequential_step_sampling = False
+    dataset._replace_data_mixture(dataset._materialize_current_mixture(None))
+    dataset.merged_metadata = {"robot": "frozen-bootstrap-metadata"}
+    bootstrap_source = dataset.datasets[0]
+
+    mixture_path.write_text(json.dumps({"train": [
+        ["bootstrap", 1.0, "robot"], ["delta_1", 1.0, "robot"],
+    ]}))
+    dataset.refresh_custom_mixture()
+    assert dataset._shared_mixture_generation.item() == 1
+    delta_1_source = dataset.datasets[1]
+    mixture_path.write_text(json.dumps({"train": [
+        ["bootstrap", 1.0, "robot"], ["delta_1", 0.5, "robot"],
+        ["delta_2", 1.0, "robot"],
+    ]}))
+    dataset.refresh_custom_mixture()
+    assert dataset._shared_mixture_generation.item() == 2
+
+    assert opened == ["bootstrap", "delta_1", "delta_2"]
+    assert dataset.datasets[:2] == [bootstrap_source, delta_1_source]
+    assert dataset.datasets[2].transform_metadata == "frozen-bootstrap-metadata"
+    np.testing.assert_allclose(dataset.dataset_sampling_weights, [0.4, 0.2, 0.4])
+
+
 def test_lerobot_sample_preserves_finite_state_outside_float16_range(monkeypatch):
     pytest.importorskip("accelerate")
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))

@@ -11,6 +11,7 @@ import json
 import multiprocessing as mp
 import os
 import shutil
+import subprocess
 import time
 import traceback
 from collections import Counter, deque
@@ -31,7 +32,12 @@ from latency_bench.core.config import load_config
 from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
-from scripts.starvla.balance_dagger import _balance_row, _student_observation, write_balance_dataset
+from scripts.starvla.balance_dagger import (
+    _balance_row_for_image_path,
+    _student_observation,
+    write_balance_dataset,
+)
+from scripts.starvla import artifacts
 from scripts.starvla.prepare_dataset import prepare_lerobot
 from scripts.starvla.train_task import BACKBONES, STARVLA, environment, inference_bundle, run_command, training_config
 from latency_bench.data.rollout_image_io import RolloutImageWriter
@@ -45,9 +51,21 @@ ROOT = Path(__file__).resolve().parents[3]
 INFERENCE_SEED = 941731
 MODEL_HORIZONS = {"qwenoft": 8, "qwenpi_v3": 16}
 LABEL_MODES = ("zero_full", "profile_suffix", "profile_executed")
-TEACHER_BLOCK = 5
-TEACHER = ROOT / "outputs/tasks/humanoidbench_balance_simple/h16_optimizer100k/20260915T124345Z/rl_checkpoints/balance-qwenpi_v3-h16-zero10-w128e1s1-replay6553600-100kopt-20260915T124345Z-s1-rl/checkpoint_p0/checkpoint_000100000_31400509.pth"
-TEACHER_CONFIG = ROOT / "outputs/tasks/humanoidbench_balance_simple/h16_optimizer100k/20260915T124345Z/configs/qwenpi_h16_zero10_w128e1s1_optimizer100k.yaml"
+TEACHER_QUERY_CADENCE_RAW_FRAMES = 1
+TEACHER_REVISION = "a8210caa0e7432f208b377d678ca5f10f5f1b879"
+TEACHER_SHA256 = "f29be9c198553fc498f1977891d9299af57d4c6f11b4d1a44d355e830cc6f3c3"
+TEACHER_ROOT = (ROOT / "outputs/starvla/artifacts/models/zero-latency"
+                / "humanoidbench-balance-simple/small-policy/fasttd3-h1-v1")
+TEACHER = TEACHER_ROOT / "checkpoint.pth"
+TEACHER_CONFIG = TEACHER_ROOT / "fasttd3_train.yaml"
+
+
+def _write_json_atomic(path: Path, value) -> None:
+    """Publish one complete controller message or mixture revision."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
 
 
 def vla_experiment_config(model, label_mode):
@@ -60,7 +78,8 @@ def vla_experiment_config(model, label_mode):
         config["latency"] = {
             "method": "temporal",
             "profile_path": str(
-                ROOT / "results/profiling/profiles" / model / "1x-rtx3090/g1_sonic_balance_simple"
+                ROOT / "results/profiling/downloads/profiles" / model
+                / "1x-rtx3090/g1_sonic_balance_simple"
                 / "instance_3a0d42681a03715c/profile.json"),
             "profile_worker_slot": 0,
             "seed": 271828,
@@ -99,20 +118,17 @@ class VLAProfileRollout:
         self.env.close()
 
     def _teacher_suffix(self, teacher, observation, frame, start, stop, targets, valid, timings):
-        """Roll the zero10 teacher from the private branch in five-frame blocks."""
+        """Roll the H1 teacher from the private branch with one query per frame."""
         physics = self.prediction.unwrapped
         teacher_expected = {}
-        commands = None
         for head in range(start, stop):
-            if (head - start) % TEACHER_BLOCK == 0:
-                started = time.perf_counter()
-                physical = torch.as_tensor(observation, dtype=torch.float32)[None]
-                with torch.no_grad():
-                    commands = teacher.actor(teacher.empirical_obs_normalizer(physical, update_stats=False))
-                commands = commands[0].reshape(16, 43)[:TEACHER_BLOCK].cpu().numpy()
-                timings["teacher_forward_seconds"] += time.perf_counter() - started
-                timings["teacher_queries"] += 1
-            targets[head] = commands[(head - start) % TEACHER_BLOCK]
+            started = time.perf_counter()
+            physical = torch.as_tensor(observation, dtype=torch.float32)[None]
+            with torch.inference_mode():
+                command = teacher.actor(teacher.empirical_obs_normalizer(physical, update_stats=False))
+            targets[head] = command[0].cpu().numpy()
+            timings["teacher_forward_seconds"] += time.perf_counter() - started
+            timings["teacher_queries"] += 1
             valid[head] = True
             raw = scale_box_action(targets[head], self.chunk.native_action_space.low,
                                    self.chunk.native_action_space.high)
@@ -173,6 +189,7 @@ class VLAProfileRollout:
         rows, records, prefix = {}, {}, {}
         frames, total = 0, 0.0
         applied_heads = np.zeros(self.chunk.horizon, dtype=np.int64)
+        action_ready_frames, worker_service_frames = Counter(), Counter()
         issued = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
         deferred = collect and not oracle and self.label_mode != "zero_full"
         active_source = None
@@ -184,8 +201,9 @@ class VLAProfileRollout:
             self._teacher_suffix(teacher, record["observation"], source, record["start"], stop,
                                  targets, valid, timings)
             absolute = np.stack([self.chunk.env.action(head) for head in targets])
-            row = _balance_row(config["env"], record["image_path"], record["state"], absolute[0],
-                               seed, source, seed, "train")
+            row = _balance_row_for_image_path(
+                config["env"], record["image_path"], record["state"], absolute[0],
+                seed, source, seed, "train")
             executed = np.logical_and(record["executed"], valid)
             row.update(issued_command_chunk=absolute.tolist(),
                        teacher_valid_mask=valid.tolist(),
@@ -216,37 +234,42 @@ class VLAProfileRollout:
             admit = self.latency.worker_capacity.can_submit()
             sample = None
             if admit:
-                if collect and not deferred:
+                if oracle or (collect and not deferred):
                     targets, valid, expected, teacher_expected, sample = self.teacher_labels(
                         teacher, observation["obs"], timings)
-                    prefix.update(expected)
-                started = time.perf_counter()
-                image = self.env.unwrapped.render()
-                timings["render_seconds"] += time.perf_counter() - started
+                    if collect:
+                        prefix.update(expected)
                 timings["requests"] += 1
-                state = causal_state(observation)
-                if collect:
-                    image_path = directory / f"images/{seed}/{frames:06d}.png"
+                if oracle and not collect:
+                    request = None
+                else:
                     started = time.perf_counter()
-                    writer.write(image, image_path)
-                    timings["image_submit_seconds"] += time.perf_counter() - started
-                    if deferred:
-                        records[frames] = {
-                            "image_path": str(image_path), "state": state,
-                            "executed": np.zeros(self.chunk.horizon, dtype=bool),
-                        }
-                    else:
-                        absolute = np.stack([self.chunk.env.action(head) for head in targets])
-                        row = _balance_row(config["env"], str(image_path), state, absolute[0],
-                                           seed, frames, seed, "train")
-                        suffix_mask = valid.tolist()
-                        row.update(issued_command_chunk=absolute.tolist(),
-                                   teacher_valid_mask=suffix_mask,
-                                   executed_action_mask=[False] * self.chunk.horizon,
-                                   action_valid_mask=suffix_mask if self.label_mode != "profile_executed"
-                                   else [False] * self.chunk.horizon)
-                        rows[frames] = (row, valid, teacher_expected)
-                request = _student_observation(image, state, frames, slot)
+                    image = self.env.unwrapped.render()
+                    timings["render_seconds"] += time.perf_counter() - started
+                    state = causal_state(observation)
+                    if collect:
+                        image_path = directory / f"images/{seed}/{frames:06d}.png"
+                        started = time.perf_counter()
+                        writer.write(image, image_path)
+                        timings["image_submit_seconds"] += time.perf_counter() - started
+                        if deferred:
+                            records[frames] = {
+                                "image_path": str(image_path), "state": state,
+                                "executed": np.zeros(self.chunk.horizon, dtype=bool),
+                            }
+                        else:
+                            absolute = np.stack([self.chunk.env.action(head) for head in targets])
+                            row = _balance_row_for_image_path(
+                                config["env"], image_path, state, absolute[0],
+                                seed, frames, seed, "train")
+                            suffix_mask = valid.tolist()
+                            row.update(issued_command_chunk=absolute.tolist(),
+                                       teacher_valid_mask=suffix_mask,
+                                       executed_action_mask=[False] * self.chunk.horizon,
+                                       action_valid_mask=(suffix_mask if self.label_mode != "profile_executed"
+                                                          else [False] * self.chunk.horizon))
+                            rows[frames] = (row, valid, teacher_expected)
+                    request = _student_observation(image, state, frames, slot)
                 absolute = yield request
                 issued = targets if oracle else np.stack([self.chunk.env.reverse_action(head) for head in absolute])
             started = time.perf_counter()
@@ -254,11 +277,15 @@ class VLAProfileRollout:
             timings["env_step_seconds"] += time.perf_counter() - started
             done = terminated or truncated
             assert info["command_admitted"] == admit
+            if admit:
+                action_ready_frames[info["latency_raw_frames"]] += 1
+                worker_service_frames[info["worker_service_raw_frames"]] += 1
             if sample is not None:
                 assert (sample.action_ready_raw_frames, sample.worker_service_raw_frames) == (
                     info["latency_raw_frames"], info["worker_service_raw_frames"])
-                rows[frames][0]["latency_raw_frames"] = info["latency_raw_frames"]
-                rows[frames][0]["latency_ms"] = info["latency_ms"]
+                if collect:
+                    rows[frames][0]["latency_raw_frames"] = info["latency_raw_frames"]
+                    rows[frames][0]["latency_ms"] = info["latency_ms"]
             elif deferred and admit:
                 records[frames]["latency_raw_frames"] = info["latency_raw_frames"]
                 records[frames]["latency_ms"] = info["latency_ms"]
@@ -291,16 +318,19 @@ class VLAProfileRollout:
                     finish(active_source, np.flatnonzero(records[active_source]["executed"])[-1] + 1)
                 samples = [row for row, _, _ in rows.values() if any(row["action_valid_mask"])]
                 return {"seed": seed, "length": frames, "return": total,
-                        "applied_heads": applied_heads.tolist(), "valid_labels": len(samples)}, samples
+                        "applied_heads": applied_heads.tolist(), "valid_labels": len(samples),
+                        "action_ready_frame_counts": dict(action_ready_frames),
+                        "worker_service_frame_counts": dict(worker_service_frames)}, samples
 
 
-def policy_config(config, bundle, vla_python, batch_size):
+def policy_config(config, bundle, vla_python, batch_size, backbone):
     result = copy.deepcopy(config)
     result["experiment"]["seed"] = INFERENCE_SEED
     result["executor"]["inference_batch_size"] = batch_size
     result["policy"] = {
         "type": "starvla", "checkpoint_path": str(bundle / "checkpoints/model.pt"),
         "task_contract_path": str(bundle / "task_contract.json"),
+        "backbone_path": str(backbone),
         "state_info_key": "gymnasium_state", "image_views_info_key": ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
         "worker_python_executable": str(vla_python), "device": "cuda:0",
     }
@@ -317,18 +347,18 @@ def _audit_label_contract(rollout, teacher, directory):
         assert rollout.latency.profile_sampler.rng.getstate() == sampler_state
     prefix_length = min(sample.action_ready_raw_frames, rollout.chunk.horizon)
     assert not valid[:prefix_length].any()
-    assert timings["teacher_queries"] == (valid.sum() + TEACHER_BLOCK - 1) // TEACHER_BLOCK
+    assert timings["teacher_queries"] == valid.sum()
     write_json(directory / "label_contract_audit.json", {
         "live_sampler_unchanged": True,
         "prefix_masked": True,
-        "teacher_block": TEACHER_BLOCK,
+        "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
         "horizon": rollout.chunk.horizon,
         "teacher_queries": timings["teacher_queries"],
     })
 
 
-def _rollout_worker(connection, config, directory, teacher_path, slots, render_device, collecting, oracle,
-                    label_mode):
+def _rollout_worker(connection, config, directory, teacher_path, teacher_config_path, slots,
+                    render_device, collecting, oracle, label_mode):
     """Own each assigned simulator, its private teacher branch and bounded image I/O."""
     os.environ["MUJOCO_EGL_DEVICE_ID"] = render_device
     torch.set_num_threads(1)
@@ -341,14 +371,16 @@ def _rollout_worker(connection, config, directory, teacher_path, slots, render_d
             writer = RolloutImageWriter(max_workers=1, row_buffer_size=8, export_image_size=None)
             cleanup.callback(writer.close)
             teacher, timings = None, Counter()
-            if collecting:
+            if collecting or oracle:
                 first = envs[slots[0]]
-                # The zero10 expert is H16, but only its trained heads 0..4 are consumed.
-                teacher_actions = gym.spaces.Box(-1.0, 1.0, (16 * 43,), dtype=np.float32)
-                teacher = FastTD3ActorCritic(first.env.observation_space, teacher_actions, first.cfg).eval()
+                teacher_cfg = build_train_cfg_from_config(load_config(teacher_config_path))
+                teacher_actions = gym.spaces.Box(
+                    -1.0, 1.0, (teacher_cfg.fasttd3_action_chunk_horizon * 43,), dtype=np.float32)
+                teacher = FastTD3ActorCritic(
+                    first.env.observation_space, teacher_actions, teacher_cfg).eval()
                 teacher.load_state_dict(torch.load(teacher_path, map_location="cpu", weights_only=False)["model"])
                 teacher.requires_grad_(False)
-                if 0 in slots:
+                if collecting and 0 in slots:
                     _audit_label_contract(first, teacher, directory)
             generators = {}
             connection.send(("ready", None))
@@ -397,8 +429,9 @@ class _ProfileEnvPool:
             for worker in range(workers):
                 parent, child = context.Pipe()
                 process = context.Process(target=_rollout_worker, args=(
-                    child, config, directory, args.teacher, list(range(worker, num_envs, workers)),
-                    devices[worker % len(devices)], collecting, oracle, args.label_mode),
+                    child, config, directory, args.teacher, args.teacher_config,
+                    list(range(worker, num_envs, workers)), devices[worker % len(devices)],
+                    collecting, oracle, args.label_mode),
                     name=f"profile-rollout-{worker}")
                 process.start()
                 child.close()
@@ -523,7 +556,7 @@ def _collect_requests(envs, pool, *, count, seeds, seed_start, cohort_size, run)
                     finished.append(slot)
                     print(json.dumps({"phase": envs.directory.name, "episodes": len(episodes),
                                       "labels": len(rows), "length": episode["length"]}), flush=True)
-                    if collecting:
+                    if collecting and run is not None:
                         run.log({"collection/valid_labels": min(len(rows), count),
                                  "collection/episodes": len(episodes)})
             start(finished)
@@ -557,7 +590,9 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
         cleanup.callback(envs.close)
         pool = None
         if not oracle:
-            pool = ProcessInferencePool(config=policy_config(config, bundle, args.vla_python, args.inference_batch_size),
+            pool = ProcessInferencePool(config=policy_config(
+                                            config, bundle, args.vla_python,
+                                            args.inference_batch_size, args.backbone),
                                         inference_devices=["cuda:0", "cuda:1"])
             cleanup.callback(pool.close)
         startup_seconds = time.perf_counter() - started
@@ -567,11 +602,16 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
         worker_timings = envs.flush()
     collection_seconds = time.perf_counter() - started
     conversion_started = time.perf_counter()
+    label_counts = {}
     if collecting:
-        episode_ids = list(dict.fromkeys(row["episode_idx"] for row in rows))
-        validation = set(episode_ids[::10])
-        train = [row for row in rows if row["episode_idx"] not in validation]
-        val = [row for row in rows if row["episode_idx"] in validation]
+        if args.smoke:
+            train = [row for index, row in enumerate(rows) if index % 10]
+            val = [row for index, row in enumerate(rows) if not index % 10]
+        else:
+            episode_ids = list(dict.fromkeys(row["episode_idx"] for row in rows))
+            validation = set(episode_ids[::10])
+            train = [row for row in rows if row["episode_idx"] not in validation]
+            val = [row for row in rows if row["episode_idx"] in validation]
         for row in val:
             row["split"] = "val"
         write_balance_dataset(directory, config["env"], train, val)
@@ -583,13 +623,21 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
         metadata["label_provenance"] = {
             "semantics": args.label_mode,
             "teacher_checkpoint": str(args.teacher), "teacher_config": str(args.teacher_config),
-            "teacher_block": TEACHER_BLOCK, "latency": config["latency"],
+            "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
+            "teacher_revision": args.teacher_revision,
+            "teacher_sha256": args.teacher_sha256,
+            "latency": config["latency"],
             "state": f"physical198+returned_normalized_chunk{args.horizon}x43+current_index{args.horizon}",
             "student_control": not oracle, "labels": len(rows),
             "teacher_valid_head_counts": teacher_valid.sum(0).tolist(),
             "executed_head_counts": executed.sum(0).tolist(),
             "supervised_head_counts": supervised.sum(0).tolist(),
             "student_checkpoint": str(bundle / "checkpoints/model.pt") if bundle is not None else None,
+        }
+        label_counts = {
+            "teacher_valid_head_counts": teacher_valid.sum(0).tolist(),
+            "executed_head_counts": executed.sum(0).tolist(),
+            "supervised_head_counts": supervised.sum(0).tolist(),
         }
         write_json(metadata_path, metadata)
         if not args.collect_bootstrap_only:
@@ -599,6 +647,11 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
             prepare_lerobot(f"balance_profile_h{args.horizon}", converted, directory / "converted__val",
                             directory / "lerobot", normalization_source=args.normalization_source)
     finished = time.perf_counter()
+    applied_head_counts = np.asarray([episode["applied_heads"] for episode in episodes]).sum(0).tolist()
+    action_ready_frame_counts, worker_service_frame_counts = Counter(), Counter()
+    for episode in episodes:
+        action_ready_frame_counts.update(episode["action_ready_frame_counts"])
+        worker_service_frame_counts.update(episode["worker_service_frame_counts"])
     result = {**episode_summary(episodes), **metrics, "seconds": finished - started,
               "startup_seconds": startup_seconds, "collection_seconds": collection_seconds,
               "conversion_seconds": finished - conversion_started,
@@ -606,7 +659,10 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
               "labels_per_second": len(rows) / (finished - started),
               "inference_seed": INFERENCE_SEED, "label_contract_audit": "passed" if collecting else None,
               "rollout_workers": min(args.rollout_workers, num_envs), "num_envs": num_envs,
-              "inference_batch_size": args.inference_batch_size, "overlap": num_envs > cohort_size}
+              "inference_batch_size": args.inference_batch_size, "overlap": num_envs > cohort_size,
+              "teacher_controlled": oracle, "applied_head_counts": applied_head_counts,
+              "action_ready_frame_counts": dict(action_ready_frame_counts),
+              "worker_service_frame_counts": dict(worker_service_frame_counts), **label_counts}
     write_json(directory / "episodes.json", result)
     return result
 
@@ -614,6 +670,7 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
 def reuse_bootstrap(args, config, source, directory):
     """Reuse identical profile targets/images while selecting this arm's requested mask."""
     started = time.perf_counter()
+    source_result = json.loads((source / "episodes.json").read_text())
     directory.mkdir(parents=True)
     mask_column = {"profile_suffix": "teacher_valid_mask",
                    "profile_executed": "executed_action_mask"}[args.label_mode]
@@ -638,12 +695,53 @@ def reuse_bootstrap(args, config, source, directory):
                     directory / "lerobot", normalization_source=args.normalization_source)
     seconds = time.perf_counter() - started
     labels = metadata["train_rows"] + metadata["val_rows"]
-    result = {"seconds": seconds, "startup_seconds": 0.0, "steady_seconds": 0.0,
+    result = {key: source_result[key] for key in (
+                  "n", "mean_length", "mean_return", "ge100", "ge500", "episodes",
+                  "label_contract_audit")}
+    result.update({"seconds": seconds, "startup_seconds": 0.0, "steady_seconds": 0.0,
               "conversion_seconds": seconds, "labels_per_second": labels / seconds,
               "generated_labels": labels, "num_envs": 0, "inference_seconds": 0.0,
-              "bootstrap_source": str(source)}
+              "bootstrap_source": str(source), "teacher_controlled": True,
+              "teacher_valid_head_counts": metadata["label_provenance"]["teacher_valid_head_counts"],
+              "executed_head_counts": metadata["label_provenance"]["executed_head_counts"],
+              "supervised_head_counts": metadata["label_provenance"]["supervised_head_counts"]})
     write_json(directory / "episodes.json", result)
     return result
+
+
+def _rollout_quality_metrics(prefix, result):
+    metrics = {
+        f"{prefix}/{key}": result[key]
+        for key in ("mean_length", "mean_return", "n", "ge100", "ge500")
+    }
+    if "teacher_controlled" in result:
+        metrics[f"{prefix}/teacher_controlled"] = int(result["teacher_controlled"])
+    if "applied_head_counts" in result:
+        counts = result["applied_head_counts"]
+    elif result["episodes"] and "applied_heads" in result["episodes"][0]:
+        counts = np.asarray([episode["applied_heads"] for episode in result["episodes"]]).sum(0)
+    else:
+        counts = None
+    if counts is not None:
+        total = sum(counts)
+        metrics.update({f"{prefix}/applied_head_{index}_fraction": value / total
+                        for index, value in enumerate(counts)})
+    for name in ("action_ready_frame_counts", "worker_service_frame_counts"):
+        if name in result:
+            total = sum(result[name].values())
+            metrics.update({f"{prefix}/{name.removesuffix('_counts')}_{frame}_fraction": count / total
+                            for frame, count in result[name].items()})
+    for name in ("teacher_valid_head_counts", "executed_head_counts", "supervised_head_counts"):
+        if name in result:
+            metrics.update({f"{prefix}/{name.removesuffix('_counts')}_{index}": count
+                            for index, count in enumerate(result[name])})
+    if "worker_timings_sum" in result:
+        metrics.update({f"{prefix}/timing/{name}": value
+                        for name, value in result["worker_timings_sum"].items()})
+    if result["label_contract_audit"] is not None:
+        metrics[f"{prefix}/label_contract_audit_passed"] = int(
+            result["label_contract_audit"] == "passed")
+    return metrics
 
 
 def _wandb_stage_run(args, stage, config=None):
@@ -665,13 +763,74 @@ def _log_periodic_eval(args, stage, training_step, optimizer_steps, evaluation, 
                       "eval/ge100": evaluation["ge100"], "eval/ge500": evaluation["ge500"]})
 
 
-def train_segment(args, bootstrap, deltas, phase, steps, boundary, pretrained, resume):
-    """Native ZeRO-2 training; fail on OOM without changing the requested batch."""
+def publish_result(args, bundle, evaluation, result, run_record):
+    eval_name = "eval_l0.json" if args.condition == "zero-latency" else "eval_profile.json"
+    write_json(bundle / eval_name, evaluation)
+    write_json(bundle / "provenance.json", {
+        "task": "humanoidbench_balance_simple", "model": args.model,
+        "run_id": args.run_id, "condition": args.condition,
+        "action_horizon": args.horizon, "label_mode": args.label_mode,
+        "teacher": str(args.teacher), "teacher_config": str(args.teacher_config),
+        "teacher_revision": args.teacher_revision, "teacher_sha256": args.teacher_sha256,
+        "selected_checkpoint": str(bundle / "checkpoints/model.pt"),
+        "selection": "best development mean episode length over 32 fixed seeds",
+        "optimizer_steps": result["optimizer_steps"],
+        "development_seeds": run_record["development_seeds"],
+        "heldout_seeds": run_record["heldout_seeds"],
+        "wandb_runs": run_record["wandb_runs"],
+    })
+    (bundle / "README.md").write_text(
+        f"# {args.model} — HumanoidBench Balance Simple\n\n"
+        f"DAgger with {args.label_mode} supervision, action horizon {args.horizon}, "
+        "and a 50 Hz H1 teacher queried every physical frame.\n")
+    revision = artifacts.publish_model(
+        bundle, task="humanoidbench_balance_simple", model=args.model,
+        run_id=args.run_id, condition=args.condition, action_horizon=args.horizon)
+    publication = {
+        "repo_id": artifacts.MODEL_REPO_ID,
+        "path": artifacts.model_path(
+            "humanoidbench_balance_simple", args.model, args.run_id,
+            condition=args.condition, action_horizon=args.horizon),
+        "revision": revision,
+    }
+    write_json(args.output_dir / "publication.json", publication)
+    return publication
+
+
+def _write_training_mixture(bootstrap, deltas, robot_type, mixture_path):
+    mixture = [[str(bootstrap / "lerobot"), 1.0, robot_type]]
+    if deltas:
+        mixture.extend([str(delta / "lerobot"), 0.5 / (len(deltas) - 1), robot_type]
+                       for delta in deltas[:-1])
+        mixture.append([str(deltas[-1] / "lerobot"), 1.0, robot_type])
+    _write_json_atomic(mixture_path, {
+        "train": mixture,
+        "validation": [[str(bootstrap / "lerobot__val"), 1.0, robot_type]],
+    })
+
+
+def _training_launch(
+    args,
+    bootstrap,
+    deltas,
+    phase,
+    steps,
+    stop_step,
+    pretrained,
+    resume,
+    *,
+    control_dir=None,
+    save_interval=500,
+):
     training_phase = "bootstrap" if phase == "bootstrap" else "dagger"
     config = training_config(args, bootstrap=bootstrap, deltas=deltas, backbone=args.backbone,
-                             actor_checkpoint=None, run_id=training_phase, steps=steps, stop_step=boundary,
+                             actor_checkpoint=None, run_id=training_phase, steps=steps, stop_step=stop_step,
                              pretrained=pretrained, resume=resume)
-    config["wandb_tags"] = ["balance", f"h{args.horizon}", args.label_mode, "zero10-teacher",
+    config["wandb_name"] = f"{args.task}-{args.label_mode}-{args.model}"
+    config["trainer"]["save_interval"] = save_interval
+    if control_dir is not None:
+        config["trainer"]["dagger_control_dir"] = str(control_dir)
+    config["wandb_tags"] = ["balance", f"h{args.horizon}", args.label_mode, "h1-teacher",
                             "smoke" if args.smoke else "formal"]
     config["wandb_entity"] = None if args.smoke else os.environ["WANDB_ENTITY"]
     config["wandb_group"] = args.run_id
@@ -680,29 +839,99 @@ def train_segment(args, bootstrap, deltas, phase, steps, boundary, pretrained, r
     # One held-out minibatch does not need another 32 persistent loader workers.
     config["datasets"]["vla_data"]["eval_num_workers"] = 0
     robot_type = json.loads((bootstrap / "lerobot/task_contract.json").read_text())["robot_type"]
-    mixture = [[str(bootstrap / "lerobot"), 1.0, robot_type]]
-    if deltas:
-        mixture.extend([str(delta / "lerobot"), 0.5 / (len(deltas) - 1), robot_type]
-                       for delta in deltas[:-1])
-        mixture.append([str(deltas[-1] / "lerobot"), 1.0, robot_type])
-    write_json(Path(config["datasets"]["vla_data"]["custom_mixtures_path"]), {
-        "train": mixture,
-        "validation": [[str(bootstrap / "lerobot__val"), 1.0, robot_type]],
-    })
-    path = args.output_dir / f"{phase}_{boundary}.yaml"
+    mixture_path = Path(config["datasets"]["vla_data"]["custom_mixtures_path"])
+    _write_training_mixture(bootstrap, deltas, robot_type, mixture_path)
+    stem = phase if stop_step is None else f"{phase}_{stop_step}"
+    path = args.output_dir / f"{stem}.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False))
-    env = environment() | {"WANDB_MODE": "disabled" if args.smoke else "online",
+    env = environment() | {"CUDA_HOME": str(args.vla_python.resolve().parent.parent),
+                           "WANDB_MODE": "disabled" if args.smoke else "online",
                            "WANDB_RUN_ID": args.wandb_runs[training_phase]["id"], "WANDB_RESUME": "allow"}
-    run_command([args.vla_python, "-m", "accelerate.commands.launch", "--config_file",
-                 STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml", "--num_processes", 2,
-                 "--main_process_port", args.port, STARVLA / "starVLA/training/train_starvla.py",
-                 "--config_yaml", path], args.output_dir / f"{phase}_{boundary}.log", cwd=STARVLA, env=env)
+    command = [args.vla_python, "-m", "accelerate.commands.launch", "--config_file",
+               STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml", "--num_processes", 2,
+               "--main_process_port", args.port, STARVLA / "starVLA/training/train_starvla.py",
+               "--config_yaml", path]
+    return command, env, mixture_path, args.output_dir / f"{stem}.log"
+
+
+def train_segment(args, bootstrap, deltas, phase, steps, boundary, pretrained, resume):
+    """Run the one-process bootstrap segment."""
+    command, env, _mixture_path, log = _training_launch(
+        args, bootstrap, deltas, phase, steps, boundary, pretrained, resume)
+    run_command(command, log, cwd=STARVLA, env=env)
+    training_phase = "bootstrap" if phase == "bootstrap" else "dagger"
     trained = args.output_dir / "training" / training_phase
     weights = trained / "checkpoints" / f"steps_{boundary}_pytorch_model.pt"
     bundle = inference_bundle(trained, weights, args.output_dir / f"bundles/{phase}_{boundary}",
                               bootstrap=bootstrap, backbone=BACKBONES["qwen"])
     state = trained / "checkpoints" / f"steps_{boundary}_state"
     return bundle, state
+
+
+def start_dagger_training(args, budget, bootstrap, deltas, pretrained, resume):
+    """Start the single long-lived DAgger trainer and return its control paths."""
+    control_dir = args.output_dir / "dagger_control"
+    command, env, mixture_path, log = _training_launch(
+        args,
+        bootstrap,
+        deltas,
+        "dagger",
+        budget["rounds"] * budget["round_steps"],
+        None,
+        pretrained,
+        resume,
+        control_dir=control_dir,
+        save_interval=budget["round_steps"],
+    )
+    log.parent.mkdir(parents=True, exist_ok=True)
+    print(" ".join(str(part) for part in command), flush=True)
+    print(f"Log: {log}", flush=True)
+    with log.open("a" if resume else "w") as output:
+        process = subprocess.Popen(
+            [str(part) for part in command],
+            cwd=STARVLA,
+            env=env,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+        )
+    return process, control_dir, mixture_path
+
+
+def _wait_for_round_ready(process, ready_path):
+    while not ready_path.is_file():
+        return_code = process.poll()
+        if return_code is not None:
+            raise subprocess.CalledProcessError(return_code, process.args)
+        time.sleep(1.0)
+
+
+def _complete_checkpoint_steps(checkpoint_dir, total_steps):
+    steps = []
+    for state in checkpoint_dir.glob("steps_*_state"):
+        step = int(state.name.removeprefix("steps_").removesuffix("_state"))
+        weights = checkpoint_dir / f"steps_{step}_pytorch_model.pt"
+        if state.is_dir() and weights.is_file() and step <= total_steps:
+            steps.append(step)
+    return sorted(steps)
+
+
+def _dagger_continue_metrics(round_number, optimizer_steps, evaluation, best_score, collection):
+    return {
+        "round": round_number,
+        "optimizer_steps": optimizer_steps,
+        "eval/mean_length": evaluation["mean_length"],
+        "eval/mean_return": evaluation["mean_return"],
+        "eval/best_mean_length": best_score,
+        "eval/n": evaluation["n"],
+        "eval/ge100": evaluation["ge100"],
+        "eval/ge500": evaluation["ge500"],
+        **{f"collection/{key}": collection[key] for key in (
+            "seconds", "startup_seconds", "steady_seconds", "conversion_seconds",
+            "labels_per_second", "generated_labels", "num_envs", "inference_seconds",
+        )},
+        **_rollout_quality_metrics("collection", collection),
+    }
 
 
 def main():
@@ -712,6 +941,8 @@ def main():
     parser.add_argument("--backbone", type=Path, required=True)
     parser.add_argument("--teacher", type=Path, default=TEACHER)
     parser.add_argument("--teacher-config", type=Path, default=TEACHER_CONFIG)
+    parser.add_argument("--teacher-revision", default=TEACHER_REVISION)
+    parser.add_argument("--teacher-sha256", default=TEACHER_SHA256)
     parser.add_argument("--bootstrap-data", type=Path)
     parser.add_argument("--collect-bootstrap-only", action="store_true")
     parser.add_argument("--model", choices=MODEL_HORIZONS, default="qwenpi_v3")
@@ -723,6 +954,7 @@ def main():
     parser.add_argument("--inference-batch-size", type=int, default=8)
     parser.add_argument("--rollout-overlap", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
     args.output_dir = args.output.resolve()
     if not args.resume:
@@ -737,11 +969,13 @@ def main():
     args.normalization_source = None
     torch.set_num_threads(1)
     torch.manual_seed(1)
+    teacher_oracle_seeds = list(range(800001, 800003 if args.smoke else 800033))
     if args.resume:
         config = json.loads((args.output_dir / "environment.json").read_text())
         budget = json.loads((args.output_dir / "budget.json").read_text())
         run_record = json.loads((args.output_dir / "run.json").read_text())
-        history = json.loads((args.output_dir / "history.json").read_text())
+        history_path = args.output_dir / "history.json"
+        history = json.loads(history_path.read_text()) if history_path.is_file() else []
         bootstrap_data = (Path(run_record["bootstrap_data"])
                           if run_record["bootstrap_data"] is not None else None)
         development = run_record["development_seeds"]
@@ -768,7 +1002,11 @@ def main():
                   "rollout_overlap": args.rollout_overlap, "model": args.model,
                   "action_horizon": args.horizon,
                   "state_dim": 198 + args.horizon * 43 + args.horizon,
-                  "label_mode": args.label_mode, "teacher_block": TEACHER_BLOCK,
+                  "label_mode": args.label_mode,
+                  "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
+                  "teacher_revision": args.teacher_revision,
+                  "teacher_sha256": args.teacher_sha256,
+                  "teacher_oracle_seeds": teacher_oracle_seeds,
                   "profile_path": profile_path,
                   "bootstrap_data": str(bootstrap_data) if bootstrap_data is not None else None}
         write_json(args.output_dir / "budget.json", budget)
@@ -777,8 +1015,10 @@ def main():
                                    else "from_random_initialization"),
             "model_geometry": f"{args.model}_h{args.horizon}",
             "gradient_checkpointing": args.gradient_checkpointing,
-            "teacher": "zero10_fasttd3_h16_heads_0_through_4",
-            "teacher_chunking": f"closed_loop_requery_every_{TEACHER_BLOCK}_frames",
+            "teacher": "zero50_fasttd3_h1_step_200000",
+            "teacher_chunking": "closed_loop_requery_every_1_frame",
+            "teacher_revision": args.teacher_revision,
+            "teacher_sha256": args.teacher_sha256,
             "label_mode": args.label_mode,
             "profile_prefix": "committed_actions_in_target_but_masked",
             "profile_executed_mask": "teacher_valid_intersection_same_request_replay_clock",
@@ -789,10 +1029,11 @@ def main():
             "development_eval_episodes": (0 if args.collect_bootstrap_only
                                             else (2 if args.smoke else 32)),
             "heldout_eval_episodes": (0 if args.collect_bootstrap_only
-                                       else (2 if args.smoke else 32)),
+                                       else (2 if args.smoke else 64)),
+            "teacher_oracle_episodes": len(teacher_oracle_seeds),
         })
         development = list(range(810001, 810003 if args.smoke else 810033))
-        heldout = list(range(820101, 820103)) if args.smoke else list(range(820001, 820033))
+        heldout = list(range(820101, 820103)) if args.smoke else list(range(820001, 820065))
         history = []
         args.wandb_runs = {
             "bootstrap": {"id": f"{args.run_id}-bootstrap"},
@@ -801,12 +1042,22 @@ def main():
         run_record = {"wandb_runs": args.wandb_runs, "development_seeds": development,
                       "heldout_seeds": heldout, "teacher": str(args.teacher),
                       "teacher_config": str(args.teacher_config),
+                      "teacher_revision": args.teacher_revision,
+                      "teacher_sha256": args.teacher_sha256,
                       "bootstrap_data": str(bootstrap_data) if bootstrap_data is not None else None,
                       "bootstrap_bundle": None}
         write_json(args.output_dir / "run.json", run_record)
+        write_json(args.output_dir / "history.json", history)
+    args.collection_seed = 0
+    teacher_oracle_path = args.output_dir / "teacher_oracle/episodes.json"
+    teacher_oracle = (
+        json.loads(teacher_oracle_path.read_text())
+        if teacher_oracle_path.is_file()
+        else rollout_batch(args, config, teacher_oracle_path.parent, bundle=None, run=None,
+                           seeds=teacher_oracle_seeds)
+    )
     bootstrap = args.output_dir / "bootstrap"
     args.normalization_source = bootstrap / "lerobot" if args.resume else None
-    deltas = []
     best_entry = max(history, key=lambda entry: entry["evaluation"]["mean_length"]) if history else None
     best_bundle = Path(best_entry["bundle"]) if best_entry is not None else None
     best_score = best_entry["evaluation"]["mean_length"] if best_entry is not None else -float("inf")
@@ -814,43 +1065,30 @@ def main():
     optimizer_steps = history[-1]["optimizer_steps"] if history else 0
     bootstrap_best = (Path(run_record["bootstrap_bundle"])
                       if run_record["bootstrap_bundle"] is not None else None)
-    rollout_bundle = Path(history[-1]["bundle"]) if history else None
-    dagger_pretrained, dagger_resume = None, False
     completed = {entry["round"]: entry for entry in history}
-    for round_number in range(budget["rounds"] + 1):
-        stage = "bootstrap" if round_number == 0 else "dagger"
-        phase = "bootstrap" if round_number == 0 else f"dagger_{round_number:02d}"
-        directory = args.output_dir / phase
-        if round_number in completed:
-            latest = Path(completed[round_number]["bundle"])
-            if round_number == 0:
-                bootstrap_best = latest
-                rollout_bundle = latest
-                dagger_pretrained, dagger_resume = latest / "checkpoints/model.pt", False
-            else:
-                deltas.append(directory)
-                boundary = round_number * budget["round_steps"]
-                state = args.output_dir / f"training/dagger/checkpoints/steps_{boundary}_state"
-                rollout_bundle = latest
-                dagger_pretrained, dagger_resume = state, True
-            continue
-        args.collection_seed = 4100001 + round_number * 100000
-        labels = budget["bootstrap_labels"] if round_number == 0 else budget["round_labels"]
-        with _wandb_stage_run(args, stage, budget) as run:
+    if 0 in completed:
+        bootstrap_best = Path(completed[0]["bundle"])
+    else:
+        directory = bootstrap
+        args.collection_seed = 4100001
+        with _wandb_stage_run(args, "bootstrap", budget) as run:
             run.define_metric("eval/*", step_metric="optimizer_steps")
-            run.log({"round": round_number})
+            for key, value in _rollout_quality_metrics("teacher_oracle", teacher_oracle).items():
+                run.summary[key] = value
+            run.log({"round": 0})
             if (directory / "episodes.json").is_file():
                 collection = json.loads((directory / "episodes.json").read_text())
             else:
                 collection = (reuse_bootstrap(args, config, bootstrap_data, directory)
-                              if round_number == 0 and bootstrap_data is not None
-                              else rollout_batch(args, config, directory, bundle=rollout_bundle,
-                                                 run=run, count=labels))
-            run.log({"round": round_number, "collection/labels": labels,
+                              if bootstrap_data is not None
+                              else rollout_batch(args, config, directory, bundle=None,
+                                                 run=run, count=budget["bootstrap_labels"]))
+            run.log({"round": 0, "collection/labels": budget["bootstrap_labels"],
                      **{f"collection/{key}": collection[key] for key in (
                          "seconds", "startup_seconds", "steady_seconds", "conversion_seconds",
-                         "labels_per_second", "generated_labels", "num_envs", "inference_seconds")}})
-            args.wandb_runs[stage]["url"] = run.url
+                         "labels_per_second", "generated_labels", "num_envs", "inference_seconds")},
+                     **_rollout_quality_metrics("collection", collection)})
+            args.wandb_runs["bootstrap"]["url"] = run.url
             write_json(args.output_dir / "run.json", run_record)
         if args.collect_bootstrap_only:
             write_json(args.output_dir / "bootstrap_ready.json", {
@@ -858,53 +1096,154 @@ def main():
                 "model": args.model, "horizon": args.horizon, "label_mode": args.label_mode,
             })
             return
-        if round_number == 0:
-            args.normalization_source = bootstrap / "lerobot"
-        else:
-            deltas.append(directory)
-        if round_number == 0:
-            steps, start, end = budget["bootstrap_steps"], 0, budget["bootstrap_steps"]
-            interval, pretrained, resume = steps, None, False
-        else:
-            steps = budget["rounds"] * budget["round_steps"]
-            start, end = (round_number - 1) * budget["round_steps"], round_number * budget["round_steps"]
-            interval, pretrained, resume = budget["round_steps"], dagger_pretrained, dagger_resume
-        for boundary in range(start + interval, end + 1, interval):
-            training_phase = "bootstrap" if round_number == 0 else "dagger"
-            checkpoint_dir = args.output_dir / "training" / training_phase / "checkpoints"
-            state = checkpoint_dir / f"steps_{boundary}_state"
-            weights = checkpoint_dir / f"steps_{boundary}_pytorch_model.pt"
-            latest = args.output_dir / f"bundles/{phase}_{boundary}"
-            if not (args.resume and state.is_dir() and weights.is_file()
-                    and (latest / "checkpoints/model.pt").is_file()):
-                latest, state = train_segment(
-                    args, bootstrap, deltas, phase, steps, boundary, pretrained, resume)
-            evaluation = rollout_batch(args, config, args.output_dir / f"evaluation/{phase}_{boundary}",
-                                       bundle=latest, run=None, seeds=development)
-            optimizer_steps = boundary if round_number == 0 else budget["bootstrap_steps"] + boundary
-            if evaluation["mean_length"] > best_score:
-                best_bundle, best_score, best_stage = latest, evaluation["mean_length"], stage
-            history.append({"round": round_number, "phase_step": boundary - start,
-                            "optimizer_steps": optimizer_steps,
-                            "bundle": str(latest), "best_bundle": str(best_bundle), "evaluation": evaluation})
-            write_json(args.output_dir / "history.json", history)
-            write_json(args.output_dir / "checkpoints.json", {"best": str(best_bundle), "latest": str(latest),
-                       "best_mean_length": best_score, "optimizer_steps": optimizer_steps})
-            _log_periodic_eval(args, stage, boundary, optimizer_steps, evaluation, best_score)
-            pretrained, resume = state, True
-        if round_number == 0:
-            bootstrap_best = latest
-            run_record["bootstrap_bundle"] = str(bootstrap_best)
+        args.normalization_source = bootstrap / "lerobot"
+        checkpoint_dir = args.output_dir / "training/bootstrap/checkpoints"
+        state = checkpoint_dir / f"steps_{budget['bootstrap_steps']}_state"
+        weights = checkpoint_dir / f"steps_{budget['bootstrap_steps']}_pytorch_model.pt"
+        bootstrap_best = args.output_dir / f"bundles/bootstrap_{budget['bootstrap_steps']}"
+        if not (state.is_dir() and weights.is_file()):
+            partial_steps = _complete_checkpoint_steps(checkpoint_dir, budget["bootstrap_steps"])
+            partial_state = (checkpoint_dir / f"steps_{partial_steps[-1]}_state"
+                             if partial_steps else None)
+            bootstrap_best, state = train_segment(
+                args, bootstrap, [], "bootstrap", budget["bootstrap_steps"],
+                budget["bootstrap_steps"], partial_state, partial_state is not None)
+        elif not (bootstrap_best / "checkpoints/model.pt").is_file():
+            inference_bundle(args.output_dir / "training/bootstrap", weights, bootstrap_best,
+                             bootstrap=bootstrap, backbone=BACKBONES["qwen"])
+        evaluation_dir = args.output_dir / f"evaluation/bootstrap_{budget['bootstrap_steps']}"
+        evaluation = (json.loads((evaluation_dir / "episodes.json").read_text())
+                      if (evaluation_dir / "episodes.json").is_file()
+                      else rollout_batch(args, config, evaluation_dir, bundle=bootstrap_best,
+                                         run=None, seeds=development))
+        optimizer_steps = budget["bootstrap_steps"]
+        if evaluation["mean_length"] > best_score:
+            best_bundle, best_score, best_stage = bootstrap_best, evaluation["mean_length"], "bootstrap"
+        history.append({"round": 0, "phase_step": budget["bootstrap_steps"],
+                        "optimizer_steps": optimizer_steps,
+                        "bundle": str(bootstrap_best), "best_bundle": str(best_bundle),
+                        "evaluation": evaluation})
+        completed[0] = history[-1]
+        write_json(args.output_dir / "history.json", history)
+        write_json(args.output_dir / "checkpoints.json", {
+            "best": str(best_bundle), "latest": str(bootstrap_best),
+            "best_mean_length": best_score, "optimizer_steps": optimizer_steps})
+        _log_periodic_eval(args, "bootstrap", budget["bootstrap_steps"],
+                           optimizer_steps, evaluation, best_score)
+        run_record["bootstrap_bundle"] = str(bootstrap_best)
+        write_json(args.output_dir / "run.json", run_record)
+
+    args.normalization_source = bootstrap / "lerobot"
+    run_record["bootstrap_bundle"] = str(bootstrap_best)
+    write_json(args.output_dir / "run.json", run_record)
+    total_dagger_steps = budget["rounds"] * budget["round_steps"]
+    dagger_checkpoint_dir = args.output_dir / "training/dagger/checkpoints"
+    checkpoint_steps = _complete_checkpoint_steps(dagger_checkpoint_dir, total_dagger_steps)
+    current_step = checkpoint_steps[-1] if checkpoint_steps else 0
+    robot_type = json.loads((bootstrap / "lerobot/task_contract.json").read_text())["robot_type"]
+
+    def record_dagger_boundary(boundary, *, log_wandb):
+        nonlocal best_bundle, best_score, best_stage, optimizer_steps
+        round_number = boundary // budget["round_steps"]
+        if round_number in completed:
+            entry = completed[round_number]
+            return Path(entry["bundle"]), entry["evaluation"]
+        phase = f"dagger_{round_number:02d}"
+        latest_bundle = args.output_dir / f"bundles/{phase}_{boundary}"
+        weights = dagger_checkpoint_dir / f"steps_{boundary}_pytorch_model.pt"
+        if not (latest_bundle / "checkpoints/model.pt").is_file():
+            inference_bundle(args.output_dir / "training/dagger", weights, latest_bundle,
+                             bootstrap=bootstrap, backbone=BACKBONES["qwen"])
+        evaluation_dir = args.output_dir / f"evaluation/{phase}_{boundary}"
+        evaluation = (json.loads((evaluation_dir / "episodes.json").read_text())
+                      if (evaluation_dir / "episodes.json").is_file()
+                      else rollout_batch(args, config, evaluation_dir, bundle=latest_bundle,
+                                         run=None, seeds=development))
+        optimizer_steps = budget["bootstrap_steps"] + boundary
+        if evaluation["mean_length"] > best_score:
+            best_bundle, best_score, best_stage = latest_bundle, evaluation["mean_length"], "dagger"
+        entry = {"round": round_number, "phase_step": budget["round_steps"],
+                 "optimizer_steps": optimizer_steps, "bundle": str(latest_bundle),
+                 "best_bundle": str(best_bundle), "evaluation": evaluation}
+        history.append(entry)
+        completed[round_number] = entry
+        write_json(args.output_dir / "history.json", history)
+        write_json(args.output_dir / "checkpoints.json", {
+            "best": str(best_bundle), "latest": str(latest_bundle),
+            "best_mean_length": best_score, "optimizer_steps": optimizer_steps})
+        if log_wandb:
+            _log_periodic_eval(args, "dagger", boundary, optimizer_steps, evaluation, best_score)
+        return latest_bundle, evaluation
+
+    if current_step:
+        latest, _evaluation = record_dagger_boundary(current_step, log_wandb=True)
+    else:
+        latest = bootstrap_best
+    if current_step < total_dagger_steps:
+        next_round = current_step // budget["round_steps"] + 1
+        next_directory = args.output_dir / f"dagger_{next_round:02d}"
+        args.collection_seed = 4100001 + next_round * 100000
+        with _wandb_stage_run(args, "dagger", budget) as run:
+            run.define_metric("eval/*", step_metric="optimizer_steps")
+            for key, value in _rollout_quality_metrics("teacher_oracle", teacher_oracle).items():
+                run.summary[key] = value
+            if (next_directory / "episodes.json").is_file():
+                collection = json.loads((next_directory / "episodes.json").read_text())
+            else:
+                collection = rollout_batch(
+                    args, config, next_directory, bundle=latest, run=run,
+                    count=budget["round_labels"])
+            run.log({"round": next_round, "optimizer_steps": budget["bootstrap_steps"] + current_step,
+                     **_rollout_quality_metrics("collection", collection)})
+            args.wandb_runs["dagger"]["url"] = run.url
             write_json(args.output_dir / "run.json", run_record)
-            rollout_bundle = bootstrap_best
-            dagger_pretrained, dagger_resume = bootstrap_best / "checkpoints/model.pt", False
-        else:
-            rollout_bundle = latest
-            dagger_pretrained, dagger_resume = state, True
-    results = {}
+
+        deltas = [args.output_dir / f"dagger_{round_number:02d}"
+                  for round_number in range(1, next_round + 1)]
+        pretrained = (dagger_checkpoint_dir / f"steps_{current_step}_state"
+                      if current_step else bootstrap_best / "checkpoints/model.pt")
+        process, control_dir, mixture_path = start_dagger_training(
+            args, budget, bootstrap, deltas, pretrained, current_step > 0)
+        for boundary in range(current_step + budget["round_steps"],
+                              total_dagger_steps + 1, budget["round_steps"]):
+            if boundary < total_dagger_steps:
+                _wait_for_round_ready(process, control_dir / f"step_{boundary}.ready")
+            else:
+                return_code = process.wait()
+                if return_code:
+                    raise subprocess.CalledProcessError(return_code, process.args)
+            latest, evaluation = record_dagger_boundary(
+                boundary, log_wandb=boundary == total_dagger_steps)
+            if boundary == total_dagger_steps:
+                continue
+            next_round = boundary // budget["round_steps"] + 1
+            next_directory = args.output_dir / f"dagger_{next_round:02d}"
+            args.collection_seed = 4100001 + next_round * 100000
+            collection = (json.loads((next_directory / "episodes.json").read_text())
+                          if (next_directory / "episodes.json").is_file()
+                          else rollout_batch(args, config, next_directory, bundle=latest,
+                                             run=None, count=budget["round_labels"]))
+            deltas.append(next_directory)
+            _write_training_mixture(bootstrap, deltas, robot_type, mixture_path)
+            optimizer_steps = budget["bootstrap_steps"] + boundary
+            _write_json_atomic(
+                control_dir / f"step_{boundary}.continue.json",
+                {"metrics": _dagger_continue_metrics(
+                    next_round, optimizer_steps, evaluation, best_score, collection)},
+            )
+    else:
+        latest = Path(completed[budget["rounds"]]["bundle"])
+        optimizer_steps = completed[budget["rounds"]]["optimizer_steps"]
+    results, evaluated = {}, {}
     for name, bundle in (("bootstrap", bootstrap_best), ("best", best_bundle), ("latest", latest)):
-        results[name] = rollout_batch(args, config, args.output_dir / f"heldout/{name}",
-                                      bundle=bundle, run=None, seeds=heldout)
+        directory = args.output_dir / f"heldout/{name}"
+        if bundle not in evaluated:
+            evaluated[bundle] = rollout_batch(
+                args, config, directory, bundle=bundle, run=None, seeds=heldout)
+        else:
+            directory.mkdir(parents=True, exist_ok=True)
+            write_json(directory / "episodes.json", evaluated[bundle])
+        results[name] = evaluated[bundle]
     result = {"optimizer_steps": optimizer_steps,
               "new_optimizer_steps": optimizer_steps,
               "budget": budget, "heldout": results,
@@ -926,6 +1265,9 @@ def main():
         run.summary["best_vs_bootstrap_mean_length_gain"] = result["best_vs_bootstrap"]["mean_length_gain"]
         run.summary["best_vs_bootstrap_paired_95_interval"] = result["best_vs_bootstrap"]["paired_95_interval"]
         run.summary["best_vs_bootstrap_accepted"] = result["best_vs_bootstrap"]["accepted"]
+    if args.publish:
+        publication = publish_result(args, best_bundle, results["best"], result, run_record)
+        print(f"MODEL_REVISION={publication['revision']}")
 
 
 if __name__ == "__main__":

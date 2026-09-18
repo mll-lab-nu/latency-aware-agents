@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -25,9 +26,14 @@ def test_balance_dagger_model_geometry_and_latency_recipes():
     assert qwenpi["latency"]["profile_worker_slot"] == 0
     assert qwenpi["latency"]["add_latency_info"] is True
     assert "/qwenpi_v3/" in qwenpi["latency"]["profile_path"]
+    assert "/results/profiling/downloads/profiles/" in qwenpi["latency"]["profile_path"]
     assert qwenoft["training"]["ppo"]["chunk_horizon"] == 8
     assert qwenoft["training"]["ppo"]["active_heads"] == [0, 8]
     assert qwenoft["latency"]["method"] == "zero"
+    assert profile.TEACHER_QUERY_CADENCE_RAW_FRAMES == 1
+    assert profile.TEACHER.name == "checkpoint.pth"
+    assert profile.TEACHER_CONFIG.name == "fasttd3_train.yaml"
+    assert profile.TEACHER_REVISION == "a8210caa0e7432f208b377d678ca5f10f5f1b879"
     assert (task_spec("balance_profile_h16").action_horizon,
             task_spec("balance_profile_h16").state_dim) == (16, 902)
     assert (task_spec("balance_profile_h8").action_horizon,
@@ -56,7 +62,7 @@ def test_profile_teacher_suffix_stops_at_last_executed_head():
 
         def actor(self, observation):
             self.queries += 1
-            return torch.full((1, 16 * 43), float(self.queries))
+            return torch.full((1, 43), float(self.queries))
 
     physics, teacher = Physics(), Teacher()
     rollout = object.__new__(VLAProfileRollout)
@@ -70,10 +76,100 @@ def test_profile_teacher_suffix_stops_at_last_executed_head():
     rollout._teacher_suffix(teacher, np.zeros(198), 100, 5, 11, targets, valid, timings)
 
     assert valid.tolist() == [False] * 5 + [True] * 6 + [False] * 5
-    assert teacher.queries == timings["teacher_queries"] == 2
+    assert teacher.queries == timings["teacher_queries"] == 6
     assert physics.frames == timings["teacher_branch_frames"] == 6
-    np.testing.assert_array_equal(targets[5:10], np.ones((5, 43)))
-    np.testing.assert_array_equal(targets[10], np.full(43, 2.0))
+    np.testing.assert_array_equal(targets[5:11, 0], np.arange(1, 7))
+
+
+def test_balance_profile_row_reuses_the_async_image_path():
+    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+
+    config = profile.vla_experiment_config("qwenpi_v3", "profile_executed")["env"]
+    row = balance_dagger._balance_row_for_image_path(
+        config, Path("/tmp/profile-frame.png"), np.zeros(198), np.zeros(43),
+        episode=7, step=11, seed=17, split="train")
+
+    assert row["image"] == "/tmp/profile-frame.png"
+    assert row["episode_idx"] == 7
+    assert row["decision_step"] == 11
+    assert "rgb" not in row
+
+
+def test_profile_inference_uses_the_explicit_local_backbone(tmp_path):
+    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+
+    config = profile.vla_experiment_config("qwenpi_v3", "profile_suffix")
+    result = profile.policy_config(
+        config, tmp_path / "bundle", tmp_path / "env/bin/python", 8,
+        tmp_path / "Qwen3-VL-4B-Instruct")
+
+    assert result["policy"]["backbone_path"] == str(tmp_path / "Qwen3-VL-4B-Instruct")
+
+
+def test_profile_publish_records_the_selected_checkpoint_and_revision(tmp_path, monkeypatch):
+    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+
+    bundle = tmp_path / "bundle"
+    (bundle / "checkpoints").mkdir(parents=True)
+    published = {}
+    monkeypatch.setattr(
+        profile.artifacts, "publish_model",
+        lambda source, **kwargs: published.update(source=source, kwargs=kwargs) or "revision-123")
+    args = SimpleNamespace(
+        condition="latency-aware", model="qwenpi_v3", run_id="formal-profile-executed",
+        horizon=16, label_mode="profile_executed", teacher=tmp_path / "teacher.pth",
+        teacher_config=tmp_path / "teacher.yaml", teacher_revision="teacher-revision",
+        teacher_sha256="teacher-sha", output_dir=tmp_path,
+    )
+    evaluation = {"n": 64, "mean_length": 100.0, "mean_return": 80.0, "episodes": []}
+    result = {"optimizer_steps": 10000}
+    run_record = {"development_seeds": list(range(32)), "heldout_seeds": list(range(64)),
+                  "wandb_runs": {"dagger": {"id": "run-dagger"}}}
+
+    publication = profile.publish_result(args, bundle, evaluation, result, run_record)
+
+    assert published["source"] == bundle
+    assert published["kwargs"]["condition"] == "latency-aware"
+    assert json.loads((bundle / "eval_profile.json").read_text())["n"] == 64
+    assert json.loads((bundle / "provenance.json").read_text())["optimizer_steps"] == 10000
+    assert publication["revision"] == "revision-123"
+    assert json.loads((tmp_path / "publication.json").read_text()) == publication
+
+
+def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_path, monkeypatch):
+    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+
+    rows = [{"episode_idx": 7, "decision_step": step,
+             "teacher_valid_mask": [True], "executed_action_mask": [True],
+             "action_valid_mask": [True]}
+            for step in range(20)]
+    captured = {}
+    monkeypatch.setattr(profile, "_ProfileEnvPool", lambda *args, **kwargs: SimpleNamespace(
+        num_envs=2, close=lambda: None, flush=lambda: {}))
+    episodes = [{"seed": 7, "length": 20, "return": 1.0, "applied_heads": [0],
+                 "action_ready_frame_counts": {}, "worker_service_frame_counts": {}}]
+    monkeypatch.setattr(profile, "_collect_requests", lambda *args, **kwargs: (
+        episodes, rows, {"steady_seconds": 0.0, "inference_seconds": 0.0,
+                   "initial_requests_seconds": 0.0, "inference_batch_sizes": {},
+                   "generated_labels": len(rows)}))
+    def write_dataset(directory, config, train, val):
+        captured.update(train=train, val=val)
+        (directory / "metadata.json").write_text("{}")
+    monkeypatch.setattr(profile, "write_balance_dataset", write_dataset)
+    monkeypatch.setattr(profile, "write_json", lambda *args, **kwargs: None)
+    args = SimpleNamespace(
+        smoke=True, rollout_overlap=False, inference_batch_size=8, rollout_workers=16,
+        label_mode="profile_executed", teacher=tmp_path / "teacher.pth",
+        teacher_config=tmp_path / "teacher.yaml", teacher_revision="revision",
+        teacher_sha256="sha", collect_bootstrap_only=True, collection_seed=0,
+        horizon=1,
+    )
+    config = {"env": {}, "latency": {}}
+
+    profile.rollout_batch(args, config, tmp_path / "collection", bundle=None, run=None, count=20)
+
+    assert len(captured["train"]) == 18
+    assert len(captured["val"]) == 2
 
 
 def test_qwenpi_flow_loss_ignores_masked_teacher_heads(monkeypatch):
@@ -137,30 +233,39 @@ def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch
                              command[command.index("--model") + 1],
                              "--collect-bootstrap-only" in command,
                              "--bootstrap-data" in command,
-                             "--rollout-overlap" in command, kwargs["env"]["WANDB_MODE"],
+                             "--rollout-overlap" in command, "--publish" in command,
+                             kwargs["env"]["WANDB_MODE"],
                              kwargs["env"]["CUDA_VISIBLE_DEVICES"]))
 
         def poll(self):
             return 0
 
-    monkeypatch.setattr(queue.sys, "argv", ["queue", "--output", str(tmp_path), "--vla-python", "python",
-                                           "--qwen-backbone", "qwen"])
+    teacher = tmp_path / "teacher.pth"
+    teacher.write_bytes(b"h1")
+    teacher_config = tmp_path / "teacher.yaml"
+    teacher_config.write_text("training: {}\n")
+    teacher_sha256 = hashlib.sha256(teacher.read_bytes()).hexdigest()
+    monkeypatch.setattr(queue.sys, "argv", [
+        "queue", "--output", str(tmp_path / "runs"), "--vla-python", "python",
+        "--qwen-backbone", "qwen", "--teacher", str(teacher),
+        "--teacher-config", str(teacher_config), "--teacher-sha256", teacher_sha256,
+    ])
     monkeypatch.setattr(queue.subprocess, "Popen", Process)
     monkeypatch.setattr(queue, "busy_gpus", lambda: set())
     monkeypatch.setattr(queue.time, "sleep", lambda seconds: None)
     assert queue.main() == 0
     assert launched == [
-        ("zero_full", True, True, "qwenpi_v3", False, False, True, "disabled", "2,3"),
-        ("profile_suffix", True, True, "qwenpi_v3", False, False, True, "disabled", "4,5"),
-        ("profile_executed", True, True, "qwenpi_v3", False, False, True, "disabled", "6,7"),
-        ("zero_full", False, True, "qwenpi_v3", False, False, True, "online", "2,3"),
-        ("profile_executed", False, True, "qwenpi_v3", True, False, True, "online", "4,5"),
-        ("profile_suffix", False, True, "qwenpi_v3", False, True, True, "online", "4,5"),
-        ("profile_executed", False, True, "qwenpi_v3", False, True, True, "online", "6,7"),
+        ("zero_full", True, True, "qwenpi_v3", False, False, True, False, "disabled", "2,3"),
+        ("profile_executed", True, True, "qwenpi_v3", False, False, True, False, "disabled", "4,5"),
+        ("profile_suffix", True, True, "qwenpi_v3", False, False, True, False, "disabled", "6,7"),
+        ("zero_full", False, True, "qwenpi_v3", False, False, True, True, "online", "2,3"),
+        ("profile_executed", False, True, "qwenpi_v3", True, False, True, False, "online", "4,5"),
+        ("profile_executed", False, True, "qwenpi_v3", False, True, True, True, "online", "4,5"),
+        ("profile_suffix", False, True, "qwenpi_v3", False, True, True, True, "online", "6,7"),
     ]
     assert all(str(queue.ROOT / "third_party/humanoid-bench") in env["PYTHONPATH"].split(":")
                for env in environments)
-    jobs = json.loads((tmp_path / "queue.json").read_text())["jobs"]
+    jobs = json.loads((tmp_path / "runs/queue.json").read_text())["jobs"]
     assert [jobs[mode]["status"] for mode, _ in queue.JOBS] == ["completed"] * 3
 
 
@@ -196,12 +301,81 @@ def test_profile_periodic_eval_is_logged_with_its_training_run(tmp_path, monkeyp
                                     "eval/ge100": 0, "eval/ge500": 0}
 
 
+def test_profile_dagger_launch_uses_one_resumable_full_schedule(tmp_path, monkeypatch):
+    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+
+    bootstrap = tmp_path / "bootstrap"
+    (bootstrap / "lerobot").mkdir(parents=True)
+    (bootstrap / "lerobot/task_contract.json").write_text(
+        json.dumps({"robot_type": "profile_h8"})
+    )
+    deltas = [tmp_path / "dagger_01", tmp_path / "dagger_02"]
+    state = tmp_path / "training/dagger/checkpoints/steps_2_state"
+    state.mkdir(parents=True)
+    args = SimpleNamespace(
+        output_dir=tmp_path,
+        task="balance",
+        label_mode="zero_full",
+        model="qwenoft",
+        smoke=True,
+        run_id="smoke",
+        backbone=tmp_path / "backbone",
+        gradient_checkpointing=False,
+        vla_python=tmp_path / "env/bin/python",
+        port=29767,
+        wandb_runs={"dagger": {"id": "smoke-dagger"}},
+    )
+    captured = {}
+
+    def config(*_args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "trainer": {},
+            "framework": {"qwenvl": {}},
+            "datasets": {"vla_data": {
+                "custom_mixtures_path": str(tmp_path / "dagger_mixture.json"),
+            }},
+        }
+
+    class Process:
+        pass
+
+    monkeypatch.setattr(profile, "training_config", config)
+    monkeypatch.setattr(profile.subprocess, "Popen", lambda *args, **kwargs: Process())
+
+    process, control_dir, mixture_path = profile.start_dagger_training(
+        args,
+        {"rounds": 2, "round_steps": 2},
+        bootstrap,
+        deltas,
+        state,
+        True,
+    )
+
+    launch = yaml.safe_load((tmp_path / "dagger.yaml").read_text())
+    assert isinstance(process, Process)
+    assert control_dir == tmp_path / "dagger_control"
+    assert mixture_path == tmp_path / "dagger_mixture.json"
+    assert captured["steps"] == 4
+    assert captured["stop_step"] is None
+    assert captured["pretrained"] == state
+    assert captured["resume"] is True
+    assert launch["trainer"]["save_interval"] == 2
+    assert launch["trainer"]["dagger_control_dir"] == str(control_dir)
+    assert "stop_after_steps" not in launch["trainer"]
+    assert json.loads(mixture_path.read_text())["train"] == [
+        [str(bootstrap / "lerobot"), 1.0, "profile_h8"],
+        [str(deltas[0] / "lerobot"), 0.5, "profile_h8"],
+        [str(deltas[1] / "lerobot"), 1.0, "profile_h8"],
+    ]
+
+
 def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(tmp_path, monkeypatch):
-    """Bootstrap is fresh; DAgger rollout and full training state use latest."""
+    """Bootstrap stays separate while all DAgger rounds share one trainer."""
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
     output = tmp_path / "output"
-    collections, rollouts, training, wandb_calls = [], [], [], []
+    collections, rollouts, training, dagger_launches, wandb_calls = [], [], [], [], []
 
     class Run:
         url = "https://wandb.invalid/run"
@@ -224,17 +398,50 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
     def rollout(args, config, directory, *, bundle, run, count=None, seeds=None):
         rollouts.append((directory, bundle, count))
         if count is not None:
+            if directory == output / "bootstrap":
+                (directory / "lerobot").mkdir(parents=True, exist_ok=True)
+                (directory / "lerobot/task_contract.json").write_text(
+                    json.dumps({"robot_type": "profile_h8"}))
             collections.append(bundle)
             return {"seconds": 1.0, "startup_seconds": 0.1, "steady_seconds": 0.8,
                     "conversion_seconds": 0.1, "labels_per_second": 1.0,
-                    "generated_labels": count, "num_envs": 16, "inference_seconds": 0.1}
+                    "generated_labels": count, "num_envs": 16, "inference_seconds": 0.1,
+                    "n": 1, "mean_length": 1.0, "mean_return": 1.0,
+                    "ge100": 0, "ge500": 0, "episodes": [],
+                    "teacher_controlled": bundle is None, "label_contract_audit": "passed"}
         episodes = [{"seed": seed, "length": 1, "return": 1.0} for seed in seeds]
         return {"n": len(episodes), "mean_length": 1.0, "mean_return": 1.0,
-                "ge100": 0, "ge500": 0, "episodes": episodes}
+                "ge100": 0, "ge500": 0, "episodes": episodes,
+                "teacher_controlled": bundle is None, "label_contract_audit": None}
 
     def train(args, bootstrap, deltas, phase, steps, boundary, pretrained, resume):
         training.append((phase, steps, boundary, pretrained, resume))
         return output / f"bundles/{phase}_{boundary}", output / f"states/{boundary}"
+
+    class Process:
+        args = ["accelerate"]
+
+        def poll(self):
+            return None
+
+        def wait(self):
+            return 0
+
+    def start(args, budget, bootstrap, deltas, pretrained, resume):
+        dagger_launches.append((list(deltas), pretrained, resume))
+        checkpoint_dir = output / "training/dagger/checkpoints"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        for boundary in range(budget["round_steps"],
+                              budget["rounds"] * budget["round_steps"] + 1,
+                              budget["round_steps"]):
+            (checkpoint_dir / f"steps_{boundary}_state").mkdir()
+            (checkpoint_dir / f"steps_{boundary}_pytorch_model.pt").touch()
+        return Process(), output / "dagger_control", output / "dagger_mixture.json"
+
+    def bundle(_trained, _weights, destination, **_kwargs):
+        (destination / "checkpoints").mkdir(parents=True, exist_ok=True)
+        (destination / "checkpoints/model.pt").touch()
+        return destination
 
     monkeypatch.setenv("WANDB_ENTITY", "entity")
     monkeypatch.setattr(sys, "argv", ["profile", "--output", str(output),
@@ -244,6 +451,9 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
         "env": {"make_kwargs": {}}, "backend": {}, "latency": {"method": "zero"}})
     monkeypatch.setattr(profile, "rollout_batch", rollout)
     monkeypatch.setattr(profile, "train_segment", train)
+    monkeypatch.setattr(profile, "start_dagger_training", start)
+    monkeypatch.setattr(profile, "inference_bundle", bundle)
+    monkeypatch.setattr(profile, "_wait_for_round_ready", lambda *args: None)
     monkeypatch.setattr(profile, "_log_periodic_eval", lambda *args: None)
     monkeypatch.setattr(profile.wandb, "init", lambda **kwargs: wandb_calls.append(kwargs) or Run())
 
@@ -252,15 +462,23 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
     checklist = json.loads((output / "semantic_checklist.json").read_text())
     assert checklist["model_geometry"] == "qwenoft_h8"
     assert checklist["gradient_checkpointing"] is True
-    assert json.loads((output / "budget.json").read_text())["state_dim"] == 550
+    assert checklist["teacher"] == "zero50_fasttd3_h1_step_200000"
+    budget = json.loads((output / "budget.json").read_text())
+    assert budget["state_dim"] == 550
+    assert budget["teacher_query_cadence_raw_frames"] == 1
     assert collections[:3] == [None, output / "bundles/bootstrap_5000",
                                output / "bundles/dagger_01_500"]
-    assert training[:3] == [
-        ("bootstrap", 5000, 5000, None, False),
-        ("dagger_01", 5000, 500, output / "bundles/bootstrap_5000/checkpoints/model.pt", False),
-        ("dagger_02", 5000, 1000, output / "states/500", True),
-    ]
+    assert rollouts[0] == (output / "teacher_oracle", None, None)
+    assert training == [("bootstrap", 5000, 5000, None, False)]
+    assert dagger_launches == [(
+        [output / "dagger_01"],
+        output / "bundles/bootstrap_5000/checkpoints/model.pt",
+        False,
+    )]
     assert json.loads((output / "result.json").read_text())["new_optimizer_steps"] == 10000
+    assert [item[0] for item in rollouts[-2:]] == [
+        output / "heldout/bootstrap", output / "heldout/latest"]
+    assert json.loads((output / "heldout/best/episodes.json").read_text())["mean_length"] == 1.0
     assert {call["id"] for call in wandb_calls} == {
         f"{tmp_path.name}-output-bootstrap", f"{tmp_path.name}-output-dagger"}
     assert {call["name"] for call in wandb_calls} == {
@@ -270,28 +488,9 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
         "bootstrap": {"id": f"{tmp_path.name}-output-bootstrap", "url": "https://wandb.invalid/run"},
         "dagger": {"id": f"{tmp_path.name}-output-dagger", "url": "https://wandb.invalid/run"},
     }
-    pending_bundle = output / "bundles/dagger_09_4500"
-    pending_state = output / "training/dagger/checkpoints/steps_4500_state"
-    pending_state.mkdir(parents=True)
-    (pending_state.parent / "steps_4500_pytorch_model.pt").touch()
-    (pending_bundle / "checkpoints").mkdir(parents=True)
-    (pending_bundle / "checkpoints/model.pt").touch()
-    pending_collection = output / "dagger_09/episodes.json"
-    pending_collection.parent.mkdir()
-    pending_collection.write_text(json.dumps({
-        "seconds": 1.0, "startup_seconds": 0.1, "steady_seconds": 0.8,
-        "conversion_seconds": 0.1, "labels_per_second": 1.0,
-        "generated_labels": 16000, "num_envs": 16, "inference_seconds": 0.1,
-    }))
-    history_path = output / "history.json"
-    profile.write_json(history_path, json.loads(history_path.read_text())[:9])
-    rollouts.clear()
-    training.clear()
-    monkeypatch.setattr(sys, "argv", [*sys.argv, "--resume"])
-    profile.main()
-
-    assert rollouts[0] == (output / "evaluation/dagger_09_4500", pending_bundle, None)
-    assert training == [("dagger_10", 5000, 5000, pending_state, True)]
+    assert (output / "dagger_control/step_500.continue.json").is_file()
+    assert json.loads((output / "dagger_mixture.json").read_text())["train"][-1][0] == str(
+        output / "dagger_10/lerobot")
 
 
 def test_profile_bootstrap_reuse_changes_only_the_supervision_mask(tmp_path, monkeypatch):
@@ -315,6 +514,11 @@ def test_profile_bootstrap_reuse_changes_only_the_supervision_mask(tmp_path, mon
             "teacher_valid_head_counts": np.asarray(row["teacher_valid_mask"]).sum(0).tolist(),
             "executed_head_counts": np.asarray(row["executed_action_mask"]).sum(0).tolist(),
         }
+    }))
+    (source / "episodes.json").write_text(json.dumps({
+        "n": 1, "mean_length": 10.0, "mean_return": 9.0, "ge100": 0, "ge500": 0,
+        "episodes": [{"applied_heads": [1] + [0] * 15}],
+        "label_contract_audit": "passed",
     }))
     monkeypatch.setattr(profile, "convert_canonical_rollout_to_lerobot", lambda *args, **kwargs: None)
     monkeypatch.setattr(profile, "prepare_lerobot", lambda *args, **kwargs: None)
@@ -342,16 +546,20 @@ def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path
     config = {
         "framework": {"qwenvl": {}},
         "datasets": {"vla_data": {"custom_mixtures_path": str(mixture_path)}},
+        "trainer": {"save_interval": 2500},
     }
     monkeypatch.setenv("WANDB_ENTITY", "entity")
     monkeypatch.setattr(profile, "training_config", lambda *args, **kwargs: config)
     monkeypatch.setattr(profile, "environment", lambda: {})
-    monkeypatch.setattr(profile, "run_command", lambda *args, **kwargs: None)
+    launched = {}
+    monkeypatch.setattr(
+        profile, "run_command",
+        lambda *args, **kwargs: launched.update(env=kwargs["env"]))
     monkeypatch.setattr(profile, "inference_bundle", lambda trained, weights, destination, **kwargs: destination)
     args = SimpleNamespace(
         task="balance", model="qwenpi_v3", horizon=16, label_mode="profile_suffix",
         smoke=False, gradient_checkpointing=False, output_dir=tmp_path, backbone=tmp_path / "backbone",
-        vla_python="python", port=1234, run_id="run",
+        vla_python=tmp_path / "qwenpi/bin/python", port=1234, run_id="run",
         wandb_runs={"dagger": {"id": "run-dagger"}},
     )
     deltas = [tmp_path / f"round_{index}" for index in range(3)]
@@ -360,6 +568,9 @@ def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path
                           tmp_path / "state", True)
 
     assert config["framework"]["qwenvl"]["enable_gradient_checkpointing"] is False
+    assert config["wandb_name"] == "balance-profile_suffix-qwenpi_v3"
+    assert launched["env"]["CUDA_HOME"] == str(tmp_path / "qwenpi")
+    assert config["trainer"]["save_interval"] == 500
     assert config["datasets"]["vla_data"]["sequential_step_sampling"] is False
     assert json.loads(mixture_path.read_text())["train"] == [
         [str(bootstrap / "lerobot"), 1.0, "profile_h16"],
@@ -440,6 +651,7 @@ def test_profile_worker_startup_failure_propagates_and_reaps_children(tmp_path, 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "6,7")
     before = {process.pid for process in mp.active_children()}
     args = SimpleNamespace(rollout_workers=2, teacher=tmp_path / "teacher.pth",
+                           teacher_config=tmp_path / "teacher.yaml",
                            label_mode="profile_executed")
     with pytest.raises(RuntimeError, match="KeyError"):
         _ProfileEnvPool(args, {}, tmp_path, 2, collecting=False, oracle=False)

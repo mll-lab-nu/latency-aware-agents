@@ -51,6 +51,14 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
     assert data['pin_memory'] is True
     assert data['prefetch_factor'] == 2
 
+    continuous = train_task.training_config(
+        args, bootstrap=bootstrap.parent, deltas=[], backbone=tmp_path / 'backbone',
+        actor_checkpoint=None, run_id=phase, steps=2, stop_step=None,
+        pretrained=None, resume=False,
+    )
+    assert 'stop_after_steps' not in continuous['trainer']
+    assert continuous['trainer']['eval_interval'] == 2
+
 
 def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
     calls = []

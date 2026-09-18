@@ -250,7 +250,7 @@ def write_mixture(path: Path, bootstrap: Path, deltas: list[Path], robot_type: s
 
 
 def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path,
-                    actor_checkpoint: Path | None, run_id: str, steps: int, stop_step: int,
+                    actor_checkpoint: Path | None, run_id: str, steps: int, stop_step: int | None,
                     pretrained: Path | None, resume: bool) -> dict:
     contract = read_task_contract(bootstrap / 'lerobot')
     objective = None
@@ -268,6 +268,24 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
     wandb_name = f'{args.task}-{wandb_condition}-{args.model}'
     if run_id != 'bootstrap':
         wandb_name += f'-{run_id}'
+    trainer = {
+        'max_train_steps': steps,
+        'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 2500,
+        'eval_interval': steps if stop_step is None else stop_step,
+        'eval_num_batches': 1, 'logging_frequency': 1 if args.smoke else 5,
+        'learning_rate': {'base': 3e-5, 'action_model': 1e-4},
+        'lr_scheduler_type': 'cosine_with_min_lr', 'scheduler_specific_kwargs': {'min_lr': 1e-6},
+        'freeze_modules': 'backbone.vae,backbone.text_encoder' if args.model == 'wanoft' else '',
+        'freeze_vit': False, 'freeze_tied_embedding': False, 'freeze_llm_layers': [],
+        'loss_scale': {'vla': 1.0}, 'gradient_clipping': 1.0,
+        'gradient_accumulation_steps': global_batch // (args.num_gpus * args.micro_batch),
+        'pretrained_checkpoint': str(pretrained) if pretrained is not None else None,
+        'is_resume': resume, 'distributed_backend': 'deepspeed',
+        'optimizer': {'name': 'AdamW', 'betas': [0.9, 0.95], 'eps': 1e-8,
+                      'weight_decay': 1e-8, 'fused': True},
+    }
+    if stop_step is not None:
+        trainer['stop_after_steps'] = stop_step
     return {
         'run_id': run_id, 'wandb_name': wandb_name,
         'run_root_dir': str(args.output_dir / 'training'),
@@ -289,21 +307,7 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
             'image_mode': 'stitch_views' if args.task == 'mikasa' and args.model == 'wanoft' else 'single',
             'stitch_grid': [1, 2], 'num_obs_frames': 1,
         }},
-        'trainer': {
-            'max_train_steps': steps, 'stop_after_steps': stop_step,
-            'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 2500,
-            'eval_interval': stop_step, 'eval_num_batches': 1, 'logging_frequency': 1 if args.smoke else 5,
-            'learning_rate': {'base': 3e-5, 'action_model': 1e-4},
-            'lr_scheduler_type': 'cosine_with_min_lr', 'scheduler_specific_kwargs': {'min_lr': 1e-6},
-            'freeze_modules': 'backbone.vae,backbone.text_encoder' if args.model == 'wanoft' else '',
-            'freeze_vit': False, 'freeze_tied_embedding': False, 'freeze_llm_layers': [],
-            'loss_scale': {'vla': 1.0}, 'gradient_clipping': 1.0,
-            'gradient_accumulation_steps': global_batch // (args.num_gpus * args.micro_batch),
-            'pretrained_checkpoint': str(pretrained) if pretrained is not None else None,
-            'is_resume': resume, 'distributed_backend': 'deepspeed',
-            'optimizer': {'name': 'AdamW', 'betas': [0.9, 0.95], 'eps': 1e-8,
-                          'weight_decay': 1e-8, 'fused': True},
-        },
+        'trainer': trainer,
         'checkpoint': {'save_best_model': False, 'save_final_model': True,
                        'save_pt_file': True, 'save_training_state': True,
                        'local': {'keep_last_n': 2}},
