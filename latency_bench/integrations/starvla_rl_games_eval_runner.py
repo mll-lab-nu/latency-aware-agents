@@ -84,28 +84,18 @@ def _cfg_get(container: Any, key: str, default_value: Any = None) -> Any:
         return getattr(container, key, default_value)
 
 
-def _as_bool(value: Any, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
 def _starvla_latency_label_to_raw_frames(
     config: dict[str, Any],
     latency_steps: int,
     latency_prompt_map_path: str | None,
 ) -> int:
     if latency_prompt_map_path is not None:
-        prompt_map = load_latency_prompt_map(latency_prompt_map_path)
-        entry = prompt_map[str(latency_steps)]
-        if isinstance(entry, Mapping):
-            return int(entry.get("latency_raw_frames", entry.get("latency", latency_steps)))
-        return int(entry)
+        entry = load_latency_prompt_map(latency_prompt_map_path)[str(latency_steps)]
+        if "latency_raw_frames" in entry:
+            return entry["latency_raw_frames"]
+        return entry["latency"]
 
-    obs_fps = float(config["env"].get("obs_fps", config["env"]["env_fps"]))
-    return int(latency_steps) * round(float(config["env"]["env_fps"]) / obs_fps)
+    return latency_steps * round(config["env"]["env_fps"] / config["env"]["obs_fps"])
 
 
 class _EvalProgressReporter:
@@ -365,21 +355,6 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
     def _image_size(self) -> int:
         env_eval = self.cfg.rl_games.env_eval
         return int(getattr(env_eval, "image_size", 224) or 224)
-
-    def _get_latency_values(self, stage: str, task: str | None = None) -> list[int]:
-        stage_cfg = self._task_stage_cfg(task, stage)
-        if _as_bool(_cfg_get(stage_cfg, "latencies_from_prompt_map", None), default=False):
-            prompt_map_path = self._prompt_map_path(task)
-            if not prompt_map_path:
-                raise ValueError(
-                    f"rl_games.env_eval.{stage}.latencies_from_prompt_map=true, "
-                    "but no latency prompt map path was configured."
-                )
-            prompt_map = load_latency_prompt_map(prompt_map_path)
-            if not prompt_map:
-                raise ValueError(f"Latency prompt map is empty: {prompt_map_path}")
-            return sorted(int(latency) for latency in prompt_map.keys())
-        return super()._get_latency_values(stage=stage, task=task)
 
     def _eval_parallel_envs(self, stage: str, task: str | None = None) -> int:
         # Number of envs evaluated in parallel (batched policy forward). Per-stage

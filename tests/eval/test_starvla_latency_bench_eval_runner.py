@@ -103,20 +103,22 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
 
 
 @pytest.mark.parametrize(
-    ("env_name", "expected_latency_ms"),
+    ("env_name", "latency_field", "expected_latency_ms"),
     [
-        ("demon_attack", 100.0),
-        ("deadly_corridor", 6 * 1000.0 / 35.0),
+        ("demon_attack", "latency_raw_frames", 100.0),
+        ("deadly_corridor", "latency_raw_frames", 6 * 1000.0 / 35.0),
+        ("atlantis", "latency", 100.0),
     ],
 )
 def test_translation_uses_prompt_map_raw_frame_latency(
     tmp_path,
     env_name,
+    latency_field,
     expected_latency_ms,
 ):
     prompt_map_path = tmp_path / "latency_prompt_map.json"
     prompt_map_path.write_text(
-        json.dumps({"6": {"latency_raw_frames": 6, "prompt": "latency 6"}}),
+        json.dumps({"6": {latency_field: 6, "prompt": "latency 6"}}),
         encoding="utf-8",
     )
 
@@ -139,33 +141,6 @@ def test_translation_uses_prompt_map_raw_frame_latency(
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(
         expected_latency_ms
     )
-    assert cfg["policy"]["latency_prompt_key"] == 6
-
-
-def test_translation_accepts_legacy_prompt_map_latency_field(tmp_path):
-    prompt_map_path = tmp_path / "latency_prompt_map.json"
-    prompt_map_path.write_text(
-        json.dumps({"6": {"latency": 6, "prompt": "latency 6"}}),
-        encoding="utf-8",
-    )
-
-    cfg = build_latency_bench_config_for_rl_games(
-        env_name="atlantis",
-        model_cfg=_model_cfg(),
-        seed=42,
-        image_size=224,
-        num_episodes=1,
-        eval_max_steps=10,
-        latency_steps=6,
-        eval_parallel_envs=1,
-        unnorm_key=None,
-        latency_prompt_map_path=str(prompt_map_path),
-        image_transform_config=None,
-        actions=None,
-        output_dir=tmp_path,
-    )
-
-    assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(100.0)
     assert cfg["policy"]["latency_prompt_key"] == 6
 
 
