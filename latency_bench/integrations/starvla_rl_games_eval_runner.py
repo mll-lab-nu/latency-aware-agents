@@ -296,11 +296,12 @@ def build_latency_bench_config_for_rl_games(
         "checkpoint_path": str(output_dir),  # metadata only; live model is injected
         "device": "cuda",
     }
-    if env_name == "gymnasium":
+    if str(config["env"].get("name", "")) == "gymnasium":
         data_cfg = model_cfg["datasets"]["vla_data"]
         policy["task_manifest_path"] = str(
             Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
         )
+        task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
         policy["gymnasium_training_task_contract"] = task_contract
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key
