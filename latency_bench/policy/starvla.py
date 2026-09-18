@@ -1011,16 +1011,21 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "StarVLA model action_env_dim does not match the dataset manifest"
         )
-    manifest_uses_state = bool(manifest.get("uses_state", False))
-    if manifest_uses_state != ("state_space" in expected):
-        raise ValueError(
-            "StarVLA dataset uses_state does not match the Gymnasium state space"
-        )
-    if manifest_uses_state != model_cfg["datasets"]["vla_data"]["include_state"]:
-        raise ValueError(
-            "StarVLA dataset uses_state does not match the model include_state"
-        )
-    if manifest_uses_state:
+    model_uses_state = bool(model_cfg["datasets"]["vla_data"]["include_state"])
+    manifest_has_state_metadata = (
+        "uses_state" in manifest or "state_labels" in manifest
+    )
+    manifest_uses_state = bool(manifest.get("uses_state", model_uses_state))
+    if manifest_has_state_metadata:
+        if manifest_uses_state != ("state_space" in expected):
+            raise ValueError(
+                "StarVLA dataset uses_state does not match the Gymnasium state space"
+            )
+        if manifest_uses_state != model_uses_state:
+            raise ValueError(
+                "StarVLA dataset uses_state does not match the model include_state"
+            )
+    if manifest_has_state_metadata and manifest_uses_state:
         state_labels = manifest["state_labels"]
         expected_state_labels = expected["state_space"]["labels"]
         if state_labels != expected_state_labels:
