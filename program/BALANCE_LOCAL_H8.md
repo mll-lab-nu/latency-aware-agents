@@ -33,7 +33,7 @@ GPU 0 zero / GPU 1 profile 已并行从头重训，replay=**6,553,600**。旧 10
 | Batch | 初始每卡 64，global 128；OOM 缩 microbatch、增 accumulation 保持 global 128 |
 | 归一化 | action 仅统计 mask 有效元素，43D；各自 bootstrap statistics 固定用于自己的 validation 和 SFT |
 
-标签为 `issued_command_chunk [8,43]` 与必需的 `action_valid_mask [8]`（bool）。zero 每帧新规划、通常执行 head 0；temporal 遵循原 profile、capacity=1、latest_ready 和 hold-tail。
+标签为 `issued_command_chunk [8,43]` 与必需的 `action_loss_mask [8]`（bool）。zero 每帧新规划、通常执行 head 0；temporal 遵循原 profile、capacity=1、latest_ready 和 hold-tail。
 继承的 teacher 请求、startup noop、episode 尾部 padding 为无效；终止帧自身有效动作保留。全无效 anchor 丢弃。
 每个样本对有效的 43D 元素求平均 L1，再对 batch 求均值。zero 只使用 zero small model/bootstrap/stats，profile 只使用自己的；数据合同 `latency_bench_starvla_h8_v2`。
 

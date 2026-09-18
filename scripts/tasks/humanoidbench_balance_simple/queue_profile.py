@@ -1,8 +1,4 @@
-"""Run the three requested QwenPI H16 DAgger arms on H200 GPU pairs 2..7.
-
-Each recipe passes smoke unchanged. The two profile arms reuse one raw bootstrap
-collection but train their own randomly initialized models with different masks.
-"""
+"""Run the zero-latency and conditioned-profile QwenPI H16 DAgger recipes."""
 from __future__ import annotations
 
 import argparse
@@ -18,8 +14,7 @@ from scripts.starvla.train_task import environment
 
 
 ROOT = Path(__file__).resolve().parents[3]
-JOBS = (("zero_full", "2,3"), ("profile_suffix", "4,5"),
-        ("profile_executed", "6,7"))
+JOBS = (("zero_full", "2,3"), ("profile_conditioned", "4,5"))
 
 
 def reserved_gpus(gpu_xml, environments):
@@ -57,10 +52,8 @@ def main():
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     records = {mode: {"status": "queued", "pair": pair, "model": "qwenpi_v3", "horizon": 16}
                for mode, pair in JOBS}
-    source = args.output / "shared_profile_bootstrap"
-
-    def launch(mode, pair, stage, *, bootstrap_data=None, collect_only=False):
-        output = source if collect_only else args.output / f"qwenpi_v3_h16_{mode}_{stage}"
+    def launch(mode, pair, stage):
+        output = args.output / f"qwenpi_v3_h16_{mode}_{stage}"
         command = [sys.executable, "-u", "-m",
                    "scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger",
                    "--model", "qwenpi_v3", "--label-mode", mode,
@@ -71,14 +64,10 @@ def main():
                    "--rollout-overlap", "--no-gradient-checkpointing"]
         if stage == "smoke":
             command.append("--smoke")
-        if bootstrap_data is not None:
-            command.extend(("--bootstrap-data", str(bootstrap_data)))
-        if collect_only:
-            command.append("--collect-bootstrap-only")
         env = environment() | {"CUDA_VISIBLE_DEVICES": pair,
                                "MUJOCO_EGL_DEVICE_ID": pair.split(",")[0],
                                "WANDB_MODE": "disabled" if stage == "smoke" else "online"}
-        log_name = "shared_profile_bootstrap.log" if collect_only else f"{mode}_{stage}.log"
+        log_name = f"{mode}_{stage}.log"
         with (args.output / log_name).open("x") as log:
             process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,
                                        stdin=subprocess.DEVNULL, start_new_session=True)
@@ -115,22 +104,8 @@ def main():
     active = {}
     if records["zero_full"]["status"] == "smoke_passed":
         active["zero_full"] = launch("zero_full", "2,3", "formal")
-    if all(records[mode]["status"] == "smoke_passed"
-           for mode in ("profile_suffix", "profile_executed")):
-        # Execution-aligned collection guarantees every shared raw row has a usable mask.
-        collector = launch("profile_executed", "4,5", "bootstrap", collect_only=True)
-        while collector.poll() is None:
-            save_status()
-            time.sleep(30)
-        if collector.poll() == 0:
-            bootstrap = source / "bootstrap"
-            active["profile_suffix"] = launch("profile_suffix", "4,5", "formal",
-                                              bootstrap_data=bootstrap)
-            active["profile_executed"] = launch("profile_executed", "6,7", "formal",
-                                                bootstrap_data=bootstrap)
-        else:
-            records["profile_suffix"].update(status="failed", exit_code=collector.poll())
-            records["profile_executed"].update(status="failed", exit_code=collector.poll())
+    if records["profile_conditioned"]["status"] == "smoke_passed":
+        active["profile_conditioned"] = launch("profile_conditioned", "4,5", "formal")
     wait_all(active, "formal")
     for record in records.values():
         if record["status"] == "formal_passed":

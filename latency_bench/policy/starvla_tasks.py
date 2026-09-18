@@ -40,7 +40,14 @@ class TaskStarVlaPolicyRunner(PolicyRunner):
 
             # MIKASA's two simultaneous views form one Wan observation, not a video.
             images = [stitch_frames(images, grid=data_cfg["stitch_grid"], size=(width, height))]
-        return {"image": images, "state": state, "lang": self.contract["prompt"]}
+        example = {"image": images, "state": state, "lang": self.contract["prompt"]}
+        if "action_prefix" in observation.metadata:
+            example["action_prefix"] = normalize(
+                observation.metadata["action_prefix"],
+                self.contract["normalization"]["action"],
+            )
+            example["action_prefix_mask"] = observation.metadata["action_prefix_mask"]
+        return example
 
     def predict(self, observation: Observation) -> PolicyOutput:
         return self.predict_batch([observation])[0]

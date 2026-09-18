@@ -36,7 +36,10 @@ TASK_SPECS: dict[str, StarVLATaskSpec] = {
     "balance_profile_h16": StarVLATaskSpec(
         name="humanoidbench_balance_simple",
         robot_type="latency_balance_profile_h16",
-        auxiliary_shapes=(("action_valid_mask", (16,)),),
+        auxiliary_shapes=(
+            ("action_prefix_mask", (16,)),
+            ("action_loss_mask", (16,)),
+        ),
         action_horizon=16,
         state_dim=902,
         action_dim=43,
@@ -46,7 +49,10 @@ TASK_SPECS: dict[str, StarVLATaskSpec] = {
     "balance_profile_h8": StarVLATaskSpec(
         name="humanoidbench_balance_simple",
         robot_type="latency_balance_profile_h8",
-        auxiliary_shapes=(("action_valid_mask", (8,)),),
+        auxiliary_shapes=(
+            ("action_prefix_mask", (8,)),
+            ("action_loss_mask", (8,)),
+        ),
         action_horizon=8,
         state_dim=550,
         action_dim=43,
@@ -56,7 +62,7 @@ TASK_SPECS: dict[str, StarVLATaskSpec] = {
     "balance": StarVLATaskSpec(
         name="humanoidbench_balance_simple",
         robot_type="latency_balance_h8",
-        auxiliary_shapes=(("action_valid_mask", (8,)),),
+        auxiliary_shapes=(("action_loss_mask", (8,)),),
         action_horizon=8,
         state_dim=198,
         action_dim=43,
@@ -127,8 +133,9 @@ def _train_rows(dataset_dir: Path) -> list[dict[str, Any]]:
 def _normalization_from_rows(rows: list[dict[str, Any]], spec: StarVLATaskSpec) -> dict[str, dict[str, list[float]]]:
     states = np.asarray([row["observation.state"] for row in rows], dtype=np.float32)
     actions = np.asarray([row[spec.action_key] for row in rows], dtype=np.float32)
-    if "action_valid_mask" in spec.auxiliary_shape_map():
-        valid = np.asarray([row["action_valid_mask"] for row in rows], dtype=bool)
+    auxiliary = spec.auxiliary_shape_map()
+    if "action_loss_mask" in auxiliary:
+        valid = np.asarray([row["action_loss_mask"] for row in rows], dtype=bool)
         actions = actions[valid]
     return {"state": _numeric_stats(states), "action": _numeric_stats(actions.reshape(-1, spec.action_dim))}
 

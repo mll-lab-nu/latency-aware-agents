@@ -35,16 +35,29 @@ from training.gymnasium_sf.integration import GymnasiumActionLatencyWrapper
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _student_observation(image: np.ndarray, state: np.ndarray, step: int, slot: int) -> Observation:
+def _student_observation(
+    image: np.ndarray,
+    state: np.ndarray,
+    step: int,
+    slot: int,
+    action_prefix: np.ndarray | None = None,
+    action_prefix_mask: np.ndarray | None = None,
+) -> Observation:
+    metadata = {
+        ENV_RAW_RGB_FRAME_STACK_INFO_KEY: image[None],
+        "gymnasium_state": state,
+        "slot_id": slot,
+    }
+    if action_prefix is not None:
+        metadata.update(
+            action_prefix=action_prefix,
+            action_prefix_mask=action_prefix_mask,
+        )
     return Observation(
         data=image,
         env_step=step,
         sim_time_ms=step * 20.0,
-        metadata={
-            ENV_RAW_RGB_FRAME_STACK_INFO_KEY: image[None],
-            "gymnasium_state": state,
-            "slot_id": slot,
-        },
+        metadata=metadata,
     )
 
 
@@ -127,8 +140,7 @@ def _teacher_rollout(policy, envs, remaining_steps, minimum_sources):
     return chunks, masks
 
 
-def _balance_row(config, output_dir, image, state, label, episode, step, seed, split):
-    image_path = output_dir / f"images/{split}" / f"episode_{episode:06d}" / f"decision_step_{step:06d}.png"
+def _balance_row_for_image_path(config, image_path, state, label, episode, step, seed, split):
     row = teacher_dataset_row(
         env_name=config["task_name"], spec={"episode_idx": episode, "split": split, "seed": seed},
         decision_step=step, image=str(image_path), raw_action=label,
@@ -136,6 +148,13 @@ def _balance_row(config, output_dir, image, state, label, episode, step, seed, s
         env_fps=config["env_fps"], obs_fps=config["obs_fps"],
         action_spec=G1_SONIC_ACTION_SPEC, base_prompt=config["base_prompt"], state=state,
     )
+    return row
+
+
+def _balance_row(config, output_dir, image, state, label, episode, step, seed, split):
+    image_path = output_dir / f"images/{split}" / f"episode_{episode:06d}" / f"decision_step_{step:06d}.png"
+    row = _balance_row_for_image_path(
+        config, image_path, state, label, episode, step, seed, split)
     row["rgb"] = image
     return row
 
@@ -192,7 +211,7 @@ class BalanceDaggerAdapter:
                                snapshot["states"][slot], chunk[0], state.episode_ids[slot],
                                state.episode_steps[slot], state.seeds[slot], "train")
             row["issued_command_chunk"] = chunk.tolist()
-            row["action_valid_mask"] = mask.tolist()
+            row["action_loss_mask"] = mask.tolist()
             rows.append(row)
         return rows
 
@@ -387,7 +406,7 @@ def collect_balance_bootstrap(policy_config_path, teacher_config_path, teacher_c
             chunk[~mask] = 0
             if mask.any():
                 row["issued_command_chunk"] = chunk.tolist()
-                row["action_valid_mask"] = mask.tolist()
+                row["action_loss_mask"] = mask.tolist()
                 save_image_frame(row.pop("rgb"), Path(row["image"]), None)
                 labeled.append(row)
         (train if split == "train" else val).extend(labeled)

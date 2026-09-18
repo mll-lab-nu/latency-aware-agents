@@ -1,4 +1,3 @@
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -18,7 +17,7 @@ def test_balance_dagger_model_geometry_and_latency_recipes():
     from latency_bench.data.starvla_tasks import task_spec
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
-    qwenpi = profile.vla_experiment_config("qwenpi_v3", "profile_executed")
+    qwenpi = profile.vla_experiment_config("qwenpi_v3", "profile_conditioned")
     qwenoft = profile.vla_experiment_config("qwenoft", "zero_full")
     assert qwenpi["training"]["ppo"]["chunk_horizon"] == 16
     assert qwenpi["training"]["ppo"]["active_heads"] == [0, 16]
@@ -40,8 +39,67 @@ def test_balance_dagger_model_geometry_and_latency_recipes():
             task_spec("balance_profile_h8").state_dim) == (8, 550)
 
 
-def test_profile_teacher_suffix_stops_at_last_executed_head():
-    """Executed-only relabeling does no work past its replay clock."""
+def test_profile_rejects_conditioned_qwenoft(tmp_path, monkeypatch):
+    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+
+    monkeypatch.setattr(sys, "argv", [
+        "profile",
+        "--output", str(tmp_path / "output"),
+        "--vla-python", "python",
+        "--backbone", "qwen",
+        "--model", "qwenoft",
+        "--label-mode", "profile_conditioned",
+        "--gradient-checkpointing",
+    ])
+    with pytest.raises(SystemExit, match="2"):
+        profile.main()
+
+
+def test_committed_prefix_includes_hold_and_existing_chunk_actions():
+    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import (
+        VLAProfileRollout,
+    )
+
+    class Scheduler:
+        def __init__(self):
+            self._applied_events = []
+            self.value = np.zeros(43, dtype=np.float32)
+
+        def enqueue(self, event):
+            self.value = event.value
+
+        def update(self, current_step, current_time_ms):
+            assert current_time_ms == current_step * 20.0
+            return SimpleNamespace(value=self.value)
+
+    class Timeline:
+        def release_arrived(self, current_step):
+            if current_step == 11:
+                return [SimpleNamespace(value=np.full(43, 7, dtype=np.float32))], []
+            return [], []
+
+    class Latency:
+        env_step_idx = 10
+        profile_sampler = None
+        action_scheduler = Scheduler()
+        result_timeline = Timeline()
+        clock = SimpleNamespace(step_to_time_ms=lambda step: step * 20.0)
+
+        def _next_latency_sample(self, *, worker_slot):
+            assert worker_slot == 0
+            return SimpleNamespace(action_ready_raw_frames=2)
+
+    rollout = object.__new__(VLAProfileRollout)
+    rollout.latency = Latency()
+    rollout.chunk = SimpleNamespace(horizon=4)
+
+    prefix, mask, _sample = rollout.committed_prefix()
+
+    np.testing.assert_array_equal(mask, [True, True, False, False])
+    np.testing.assert_array_equal(prefix[:2, 0], [0, 7])
+
+
+def test_profile_teacher_suffix_stops_loss_mask_at_termination():
     from collections import Counter
 
     import torch
@@ -52,7 +110,7 @@ def test_profile_teacher_suffix_stops_at_last_executed_head():
 
         def step(self, action):
             self.frames += 1
-            return np.full(198, self.frames, dtype=np.float32), 0.0, False, False, {}
+            return np.full(198, self.frames, dtype=np.float32), 0.0, self.frames == 2, False, {}
 
     class Teacher:
         queries = 0
@@ -75,16 +133,16 @@ def test_profile_teacher_suffix_stops_at_last_executed_head():
 
     rollout._teacher_suffix(teacher, np.zeros(198), 100, 5, 11, targets, valid, timings)
 
-    assert valid.tolist() == [False] * 5 + [True] * 6 + [False] * 5
-    assert teacher.queries == timings["teacher_queries"] == 6
-    assert physics.frames == timings["teacher_branch_frames"] == 6
-    np.testing.assert_array_equal(targets[5:11, 0], np.arange(1, 7))
+    assert valid.tolist() == [False] * 5 + [True] * 2 + [False] * 9
+    assert teacher.queries == timings["teacher_queries"] == 2
+    assert physics.frames == timings["teacher_branch_frames"] == 2
+    np.testing.assert_array_equal(targets[5:7, 0], [1, 2])
 
 
 def test_balance_profile_row_reuses_the_async_image_path():
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
-    config = profile.vla_experiment_config("qwenpi_v3", "profile_executed")["env"]
+    config = profile.vla_experiment_config("qwenpi_v3", "profile_conditioned")["env"]
     row = balance_dagger._balance_row_for_image_path(
         config, Path("/tmp/profile-frame.png"), np.zeros(198), np.zeros(43),
         episode=7, step=11, seed=17, split="train")
@@ -98,7 +156,7 @@ def test_balance_profile_row_reuses_the_async_image_path():
 def test_profile_inference_uses_the_explicit_local_backbone(tmp_path):
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
-    config = profile.vla_experiment_config("qwenpi_v3", "profile_suffix")
+    config = profile.vla_experiment_config("qwenpi_v3", "profile_conditioned")
     result = profile.policy_config(
         config, tmp_path / "bundle", tmp_path / "env/bin/python", 8,
         tmp_path / "Qwen3-VL-4B-Instruct")
@@ -116,8 +174,8 @@ def test_profile_publish_records_the_selected_checkpoint_and_revision(tmp_path, 
         profile.artifacts, "publish_model",
         lambda source, **kwargs: published.update(source=source, kwargs=kwargs) or "revision-123")
     args = SimpleNamespace(
-        condition="latency-aware", model="qwenpi_v3", run_id="formal-profile-executed",
-        horizon=16, label_mode="profile_executed", teacher=tmp_path / "teacher.pth",
+        condition="latency-aware", model="qwenpi_v3", run_id="formal-profile-conditioned",
+        horizon=16, label_mode="profile_conditioned", teacher=tmp_path / "teacher.pth",
         teacher_config=tmp_path / "teacher.yaml", teacher_revision="teacher-revision",
         teacher_sha256="teacher-sha", output_dir=tmp_path,
     )
@@ -140,8 +198,7 @@ def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_p
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
     rows = [{"episode_idx": 7, "decision_step": step,
-             "teacher_valid_mask": [True], "executed_action_mask": [True],
-             "action_valid_mask": [True]}
+             "action_prefix_mask": [False], "action_loss_mask": [True]}
             for step in range(20)]
     captured = {}
     monkeypatch.setattr(profile, "_ProfileEnvPool", lambda *args, **kwargs: SimpleNamespace(
@@ -159,7 +216,7 @@ def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_p
     monkeypatch.setattr(profile, "write_json", lambda *args, **kwargs: None)
     args = SimpleNamespace(
         smoke=True, rollout_overlap=False, inference_batch_size=8, rollout_workers=16,
-        label_mode="profile_executed", teacher=tmp_path / "teacher.pth",
+        label_mode="profile_conditioned", teacher=tmp_path / "teacher.pth",
         teacher_config=tmp_path / "teacher.yaml", teacher_revision="revision",
         teacher_sha256="sha", collect_bootstrap_only=True, collection_seed=0,
         horizon=1,
@@ -170,38 +227,6 @@ def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_p
 
     assert len(captured["train"]) == 18
     assert len(captured["val"]) == 2
-
-
-def test_qwenpi_flow_loss_ignores_masked_teacher_heads(monkeypatch):
-    """Long-lived QwenPI contract: unlabelled chunk heads affect neither loss nor gradient."""
-    pytest.importorskip("accelerate")
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
-    import torch
-    from omegaconf import OmegaConf
-    from starVLA.model.modules.action_model.LayerwiseFM_ActionHeader import LayerwiseFlowmatchingActionHead
-
-    head = LayerwiseFlowmatchingActionHead(OmegaConf.create({"framework": {"action_model": {
-        "diffusion_model_cfg": {"num_layers": 1, "input_embedding_dim": 32,
-                                "cross_attention_dim": 32, "num_attention_heads": 1,
-                                "attention_head_dim": 32, "output_dim": 32},
-        "action_hidden_dim": 32, "hidden_size": 32, "action_dim": 3, "action_env_dim": 2,
-        "action_horizon": 4, "state_dim": 2, "num_inference_timesteps": 2,
-        "num_target_vision_tokens": 1, "add_pos_embed": False,
-        "noise_beta_alpha": 1.5, "noise_beta_beta": 1.0, "noise_s": 0.999,
-        "num_timestep_buckets": 1000,
-    }}})).eval()
-    actions = torch.randn(2, 4, 3, requires_grad=True)
-    state = torch.randn(2, 1, 2)
-    hidden = [torch.randn(2, 3, 32)]
-    mask = torch.tensor([[True, False, False, False], [False, True, True, True]])
-    torch.manual_seed(77)
-    loss = head(hidden, actions, state, action_valid_mask=mask)
-    loss.backward()
-    assert torch.count_nonzero(actions.grad[~mask]).item() == 0
-    changed = actions.detach().clone()
-    changed[~mask] = 10000
-    torch.manual_seed(77)
-    torch.testing.assert_close(head(hidden, changed, state, action_valid_mask=mask), loss)
 
 
 def test_profile_queue_reserves_controllers_between_gpu_phases():
@@ -217,7 +242,7 @@ def test_profile_queue_reserves_controllers_between_gpu_phases():
 
 
 def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch):
-    """Long-lived contract: exact GPU recipes pass smoke and share profile bootstrap rows."""
+    """The zero and single conditioned-profile recipes pass smoke before training."""
     from scripts.tasks.humanoidbench_balance_simple import queue_profile as queue
 
     launched, environments = [], []
@@ -240,15 +265,9 @@ def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch
         def poll(self):
             return 0
 
-    teacher = tmp_path / "teacher.pth"
-    teacher.write_bytes(b"h1")
-    teacher_config = tmp_path / "teacher.yaml"
-    teacher_config.write_text("training: {}\n")
-    teacher_sha256 = hashlib.sha256(teacher.read_bytes()).hexdigest()
     monkeypatch.setattr(queue.sys, "argv", [
         "queue", "--output", str(tmp_path / "runs"), "--vla-python", "python",
-        "--qwen-backbone", "qwen", "--teacher", str(teacher),
-        "--teacher-config", str(teacher_config), "--teacher-sha256", teacher_sha256,
+        "--qwen-backbone", "qwen",
     ])
     monkeypatch.setattr(queue.subprocess, "Popen", Process)
     monkeypatch.setattr(queue, "busy_gpus", lambda: set())
@@ -256,17 +275,14 @@ def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch
     assert queue.main() == 0
     assert launched == [
         ("zero_full", True, True, "qwenpi_v3", False, False, True, False, "disabled", "2,3"),
-        ("profile_executed", True, True, "qwenpi_v3", False, False, True, False, "disabled", "4,5"),
-        ("profile_suffix", True, True, "qwenpi_v3", False, False, True, False, "disabled", "6,7"),
-        ("zero_full", False, True, "qwenpi_v3", False, False, True, True, "online", "2,3"),
-        ("profile_executed", False, True, "qwenpi_v3", True, False, True, False, "online", "4,5"),
-        ("profile_executed", False, True, "qwenpi_v3", False, True, True, True, "online", "4,5"),
-        ("profile_suffix", False, True, "qwenpi_v3", False, True, True, True, "online", "6,7"),
+        ("profile_conditioned", True, True, "qwenpi_v3", False, False, True, False, "disabled", "4,5"),
+        ("zero_full", False, True, "qwenpi_v3", False, False, True, False, "online", "2,3"),
+        ("profile_conditioned", False, True, "qwenpi_v3", False, False, True, False, "online", "4,5"),
     ]
     assert all(str(queue.ROOT / "third_party/humanoid-bench") in env["PYTHONPATH"].split(":")
                for env in environments)
     jobs = json.loads((tmp_path / "runs/queue.json").read_text())["jobs"]
-    assert [jobs[mode]["status"] for mode, _ in queue.JOBS] == ["completed"] * 3
+    assert [jobs[mode]["status"] for mode, _ in queue.JOBS] == ["completed"] * 2
 
 
 def test_profile_periodic_eval_is_logged_with_its_training_run(tmp_path, monkeypatch):
@@ -317,6 +333,7 @@ def test_profile_dagger_launch_uses_one_resumable_full_schedule(tmp_path, monkey
         task="balance",
         label_mode="zero_full",
         model="qwenoft",
+        horizon=8,
         smoke=True,
         run_id="smoke",
         backbone=tmp_path / "backbone",
@@ -447,8 +464,15 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
     monkeypatch.setattr(sys, "argv", ["profile", "--output", str(output),
                         "--vla-python", "python", "--backbone", "qwen", "--model", "qwenoft",
                         "--label-mode", "zero_full", "--gradient-checkpointing"])
-    monkeypatch.setattr(profile, "vla_experiment_config", lambda model, label_mode: {
-        "env": {"make_kwargs": {}}, "backend": {}, "latency": {"method": "zero"}})
+    monkeypatch.setattr(
+        profile,
+        "vla_experiment_config",
+        lambda model, label_mode: {
+            "env": {"make_kwargs": {}},
+            "backend": {},
+            "latency": {"method": "zero"},
+        },
+    )
     monkeypatch.setattr(profile, "rollout_batch", rollout)
     monkeypatch.setattr(profile, "train_segment", train)
     monkeypatch.setattr(profile, "start_dagger_training", start)
@@ -493,48 +517,6 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
         output / "dagger_10/lerobot")
 
 
-def test_profile_bootstrap_reuse_changes_only_the_supervision_mask(tmp_path, monkeypatch):
-    """Long-lived mask-ablation contract: rows and targets are shared, only the mask differs."""
-    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
-
-    source = tmp_path / "source"
-    source.mkdir()
-    row = {
-        "issued_command_chunk": [[[float(head)] * 43 for head in range(16)]],
-        "teacher_valid_mask": [[False] * 4 + [True] * 12],
-        "executed_action_mask": [[False] * 4 + [True] * 3 + [False] * 9],
-        "action_valid_mask": [[False] * 4 + [True] * 3 + [False] * 9],
-    }
-    table = pa.table(row)
-    pq.write_table(table, source / "train.parquet")
-    pq.write_table(table, source / "val.parquet")
-    (source / "metadata.json").write_text(json.dumps({
-        "train_rows": 1, "val_rows": 1, "label_provenance": {
-            "semantics": "profile_executed",
-            "teacher_valid_head_counts": np.asarray(row["teacher_valid_mask"]).sum(0).tolist(),
-            "executed_head_counts": np.asarray(row["executed_action_mask"]).sum(0).tolist(),
-        }
-    }))
-    (source / "episodes.json").write_text(json.dumps({
-        "n": 1, "mean_length": 10.0, "mean_return": 9.0, "ge100": 0, "ge500": 0,
-        "episodes": [{"applied_heads": [1] + [0] * 15}],
-        "label_contract_audit": "passed",
-    }))
-    monkeypatch.setattr(profile, "convert_canonical_rollout_to_lerobot", lambda *args, **kwargs: None)
-    monkeypatch.setattr(profile, "prepare_lerobot", lambda *args, **kwargs: None)
-
-    outputs = {}
-    for mode in ("profile_suffix", "profile_executed"):
-        output = tmp_path / mode
-        profile.reuse_bootstrap(SimpleNamespace(label_mode=mode, horizon=16,
-                                normalization_source=None), {}, source, output)
-        outputs[mode] = pq.read_table(output / "train.parquet").to_pylist()[0]
-
-    assert outputs["profile_suffix"]["issued_command_chunk"] == outputs["profile_executed"]["issued_command_chunk"]
-    assert outputs["profile_suffix"]["action_valid_mask"] == row["teacher_valid_mask"][0]
-    assert outputs["profile_executed"]["action_valid_mask"] == row["executed_action_mask"][0]
-
-
 def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path, monkeypatch):
     """Long-lived learner contract: replay weights and memory mode are explicit in generated config."""
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
@@ -557,7 +539,7 @@ def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path
         lambda *args, **kwargs: launched.update(env=kwargs["env"]))
     monkeypatch.setattr(profile, "inference_bundle", lambda trained, weights, destination, **kwargs: destination)
     args = SimpleNamespace(
-        task="balance", model="qwenpi_v3", horizon=16, label_mode="profile_suffix",
+        task="balance", model="qwenpi_v3", horizon=16, label_mode="profile_conditioned",
         smoke=False, gradient_checkpointing=False, output_dir=tmp_path, backbone=tmp_path / "backbone",
         vla_python=tmp_path / "qwenpi/bin/python", port=1234, run_id="run",
         wandb_runs={"dagger": {"id": "run-dagger"}},
@@ -568,7 +550,7 @@ def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path
                           tmp_path / "state", True)
 
     assert config["framework"]["qwenvl"]["enable_gradient_checkpointing"] is False
-    assert config["wandb_name"] == "balance-profile_suffix-qwenpi_v3"
+    assert config["wandb_name"] == "balance-profile_conditioned-qwenpi_v3"
     assert launched["env"]["CUDA_HOME"] == str(tmp_path / "qwenpi")
     assert config["trainer"]["save_interval"] == 500
     assert config["datasets"]["vla_data"]["sequential_step_sampling"] is False
@@ -610,7 +592,7 @@ def test_profile_cohorts_keep_action_ownership_and_finish_episode_budget(tmp_pat
                     if step == seed % 3 + 1:
                         episode = {"seed": seed, "length": step}
                         rows = [{"episode_idx": seed, "decision_step": i,
-                                 "action_valid_mask": [True]} for i in range(step)] if collecting else []
+                                 "action_loss_mask": [True]} for i in range(step)] if collecting else []
                         result[slot] = ("episode", (episode, rows))
                         del self.state[slot]
                         continue
@@ -652,7 +634,7 @@ def test_profile_worker_startup_failure_propagates_and_reaps_children(tmp_path, 
     before = {process.pid for process in mp.active_children()}
     args = SimpleNamespace(rollout_workers=2, teacher=tmp_path / "teacher.pth",
                            teacher_config=tmp_path / "teacher.yaml",
-                           label_mode="profile_executed")
+                           label_mode="profile_conditioned")
     with pytest.raises(RuntimeError, match="KeyError"):
         _ProfileEnvPool(args, {}, tmp_path, 2, collecting=False, oracle=False)
     assert {process.pid for process in mp.active_children()} == before
@@ -741,7 +723,7 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     snapshot = {"images": {0: np.zeros((2, 2, 3), dtype=np.uint8)},
                 "states": {0: main.unwrapped._policy_observation().copy()}}
     row = adapter.start_records(snapshot, [0], state)[0]
-    mask = np.asarray(row["action_valid_mask"])
+    mask = np.asarray(row["action_loss_mask"])
     chunk = np.asarray(row["issued_command_chunk"])
     assert main.unwrapped.value == value
     assert main.env_step_idx == frame
@@ -759,7 +741,7 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     state.episode_steps[0] = 6
     row = adapter.start_records(snapshot, [0], state)[0]
     if delay == 0:
-        assert row["action_valid_mask"] == [True] + [False] * 7
+        assert row["action_loss_mask"] == [True] + [False] * 7
         np.testing.assert_array_equal(np.asarray(row["issued_command_chunk"])[1:], 0)
     else:
         assert row is None

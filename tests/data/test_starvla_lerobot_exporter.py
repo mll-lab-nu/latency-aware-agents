@@ -19,13 +19,50 @@ def test_load_rows_preserves_nested_values_and_order_across_batches(tmp_path):
             "decision_step": index % 1000,
             "state": [float(index), 0.5],
             "issued_command_chunk": [[float(index), float(step)] for step in range(8)],
-            "action_valid_mask": [True] * 8,
+            "action_prefix_mask": [False, False, True, True, False, False, False, False],
+            "action_loss_mask": [False, False, True, True, True, True, True, True],
         }
         for index in range(2053)
     ]
     pq.write_table(pa.Table.from_pylist(rows), tmp_path / "train.parquet", row_group_size=257)
 
     assert _load_rows(tmp_path, "train") == rows
+
+
+def test_write_episode_preserves_prefix_and_loss_masks(tmp_path):
+    from latency_bench.data.exporters.starvla_lerobot import _write_episode
+
+    row = {
+        "image_bytes": b"png",
+        "state": [0.0, 1.0],
+        "action": [0.0, 1.0],
+        "timestamp": 0.0,
+        "episode_index": 0,
+        "frame_index": 0,
+        "task_index": 0,
+        "latency_raw_frames": 2,
+        "done": True,
+        "reward": 0.0,
+        "density_weight": 1.0,
+        "issued_command_chunk": [[0.0, 1.0]] * 4,
+        "action_prefix_mask": [True, True, False, False],
+        "action_loss_mask": [False, False, True, False],
+    }
+    path = tmp_path / "episode.parquet"
+
+    _write_episode(
+        path,
+        [row],
+        action_dim=2,
+        state_dim=2,
+        include_state=True,
+        actor_observation_shape=None,
+        termination_shape=None,
+    )
+
+    written = pq.read_table(path).to_pylist()[0]
+    assert written["action_prefix_mask"] == row["action_prefix_mask"]
+    assert written["action_loss_mask"] == row["action_loss_mask"]
 
 
 def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):

@@ -10,7 +10,6 @@ import copy
 import json
 import multiprocessing as mp
 import os
-import shutil
 import subprocess
 import time
 import traceback
@@ -22,7 +21,6 @@ from types import SimpleNamespace
 
 import gymnasium as gym
 import numpy as np
-import pyarrow.parquet as pq
 import torch
 import wandb
 import yaml
@@ -49,8 +47,8 @@ from training.gymnasium_sf.integration import build_train_cfg_from_config, make_
 
 ROOT = Path(__file__).resolve().parents[3]
 INFERENCE_SEED = 941731
-MODEL_HORIZONS = {"qwenoft": 8, "qwenpi_v3": 16}
-LABEL_MODES = ("zero_full", "profile_suffix", "profile_executed")
+MODEL_HORIZONS = {"qwenoft": 8, "qwenpi_v3": 16, "qwengr00t": 16}
+LABEL_MODES = ("zero_full", "profile_conditioned")
 TEACHER_QUERY_CADENCE_RAW_FRAMES = 1
 TEACHER_REVISION = "a8210caa0e7432f208b377d678ca5f10f5f1b879"
 TEACHER_SHA256 = "f29be9c198553fc498f1977891d9299af57d4c6f11b4d1a44d355e830cc6f3c3"
@@ -142,16 +140,33 @@ class VLAProfileRollout:
                 break
         return teacher_expected
 
-    def teacher_labels(self, teacher, physical_observation, timings):
-        """Replay the committed prefix, then roll the teacher suffix."""
+    def committed_prefix(self):
+        """Copy the scheduler and return the commands committed during this request."""
         frame = self.latency.env_step_idx
-        started = time.perf_counter()
         shadow = copy.copy(self.latency)
         shadow.profile_sampler = copy.deepcopy(self.latency.profile_sampler)
         sample = shadow._next_latency_sample(worker_slot=0)
         scheduler = copy.deepcopy(self.latency.action_scheduler,
                                   {id(self.latency.action_scheduler._applied_events): []})
         timeline = copy.deepcopy(self.latency.result_timeline)
+        absolute = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
+        mask = np.zeros(self.chunk.horizon, dtype=bool)
+        prefix_length = min(sample.action_ready_raw_frames, self.chunk.horizon)
+        mask[:prefix_length] = True
+        for offset in range(prefix_length):
+            current = frame + offset
+            released, _ = timeline.release_arrived(current)
+            for event in released:
+                scheduler.enqueue(event)
+            command = scheduler.update(current, self.latency.clock.step_to_time_ms(current))
+            absolute[offset] = command.value
+        return absolute, mask, sample
+
+    def teacher_labels(self, teacher, physical_observation, timings):
+        """Replay the committed prefix, then roll the teacher suffix."""
+        frame = self.latency.env_step_idx
+        started = time.perf_counter()
+        absolute_prefix, prefix_mask, sample = self.committed_prefix()
         physics = self.prediction.unwrapped
         physics.copy_balance_state_from(self.env.unwrapped)
         timings["branch_setup_seconds"] += time.perf_counter() - started
@@ -164,21 +179,17 @@ class VLAProfileRollout:
         prefix_length = min(sample.action_ready_raw_frames, self.chunk.horizon)
         for offset in range(prefix_length):
             current = frame + offset
-            released, _ = timeline.release_arrived(current)
-            for event in released:
-                scheduler.enqueue(event)
-            command = scheduler.update(current, self.latency.clock.step_to_time_ms(current))
-            targets[offset] = self.chunk.env.reverse_action(command.value)
-            obs, reward, terminated, _, _ = physics.step(command.value)
+            targets[offset] = self.chunk.env.reverse_action(absolute_prefix[offset])
+            obs, reward, terminated, _, _ = physics.step(absolute_prefix[offset])
             done = terminated or current + 1 == 1000
             expected[current] = (obs.copy(), reward, done)
             if done:
                 timings["prefix_replay_seconds"] += time.perf_counter() - started
-                return targets, valid, expected, {}, sample
+                return targets, prefix_mask, valid, expected, {}, sample
         timings["prefix_replay_seconds"] += time.perf_counter() - started
         teacher_expected = self._teacher_suffix(
             teacher, obs, frame, prefix_length, self.chunk.horizon, targets, valid, timings)
-        return targets, valid, expected, teacher_expected, sample
+        return targets, prefix_mask, valid, expected, teacher_expected, sample
 
     def requests(self, teacher, seed, slot, directory, config, *, collect, oracle, writer, timings):
         """Yield admitted RGB/state requests; receive absolute joint chunks."""
@@ -186,59 +197,24 @@ class VLAProfileRollout:
         if self.initial_sampler is not None:
             self.latency.profile_sampler = copy.deepcopy(self.initial_sampler)
             self.latency.profile_sampler.rng.seed(derive_seed(271828, episode_idx=seed))
-        rows, records, prefix = {}, {}, {}
+        rows, prefix = {}, {}
         frames, total = 0, 0.0
         applied_heads = np.zeros(self.chunk.horizon, dtype=np.int64)
         action_ready_frames, worker_service_frames = Counter(), Counter()
         issued = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
-        deferred = collect and not oracle and self.label_mode != "zero_full"
-        active_source = None
-
-        def finish(source, stop):
-            record = records[source]
-            targets = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
-            valid = np.zeros(self.chunk.horizon, dtype=bool)
-            self._teacher_suffix(teacher, record["observation"], source, record["start"], stop,
-                                 targets, valid, timings)
-            absolute = np.stack([self.chunk.env.action(head) for head in targets])
-            row = _balance_row_for_image_path(
-                config["env"], record["image_path"], record["state"], absolute[0],
-                seed, source, seed, "train")
-            executed = np.logical_and(record["executed"], valid)
-            row.update(issued_command_chunk=absolute.tolist(),
-                       teacher_valid_mask=valid.tolist(),
-                       executed_action_mask=executed.tolist(),
-                       action_valid_mask=(executed if self.label_mode == "profile_executed"
-                                          else valid).tolist(),
-                       latency_raw_frames=record["latency_raw_frames"],
-                       latency_ms=record["latency_ms"])
-            rows[source] = (row, valid, {})
 
         while True:
-            if deferred:
-                event, head = self.latency.action_scheduler.scheduled_chunk_event(
-                    self.latency.env_step_idx,
-                    self.latency.clock.step_to_time_ms(self.latency.env_step_idx))
-                source = -1 if event is None else event.obs_env_step
-                if source in records and source != active_source:
-                    if active_source is not None and self.label_mode == "profile_executed":
-                        finish(active_source, np.flatnonzero(records[active_source]["executed"])[-1] + 1)
-                    started = time.perf_counter()
-                    self.prediction.unwrapped.copy_balance_state_from(self.env.unwrapped)
-                    timings["branch_setup_seconds"] += time.perf_counter() - started
-                    records[source]["observation"] = observation["obs"].copy()
-                    records[source]["start"] = head
-                    active_source = source
-                    if self.label_mode == "profile_suffix":
-                        finish(source, self.chunk.horizon)
             admit = self.latency.worker_capacity.can_submit()
             sample = None
             if admit:
-                if oracle or (collect and not deferred):
-                    targets, valid, expected, teacher_expected, sample = self.teacher_labels(
+                if oracle or collect:
+                    targets, prefix_mask, valid, expected, teacher_expected, sample = self.teacher_labels(
                         teacher, observation["obs"], timings)
                     if collect:
                         prefix.update(expected)
+                    absolute_prefix = np.stack([self.chunk.env.action(head) for head in targets])
+                else:
+                    absolute_prefix, prefix_mask, sample = self.committed_prefix()
                 timings["requests"] += 1
                 if oracle and not collect:
                     request = None
@@ -252,24 +228,19 @@ class VLAProfileRollout:
                         started = time.perf_counter()
                         writer.write(image, image_path)
                         timings["image_submit_seconds"] += time.perf_counter() - started
-                        if deferred:
-                            records[frames] = {
-                                "image_path": str(image_path), "state": state,
-                                "executed": np.zeros(self.chunk.horizon, dtype=bool),
-                            }
-                        else:
-                            absolute = np.stack([self.chunk.env.action(head) for head in targets])
-                            row = _balance_row_for_image_path(
-                                config["env"], image_path, state, absolute[0],
-                                seed, frames, seed, "train")
-                            suffix_mask = valid.tolist()
-                            row.update(issued_command_chunk=absolute.tolist(),
-                                       teacher_valid_mask=suffix_mask,
-                                       executed_action_mask=[False] * self.chunk.horizon,
-                                       action_valid_mask=(suffix_mask if self.label_mode != "profile_executed"
-                                                          else [False] * self.chunk.horizon))
-                            rows[frames] = (row, valid, teacher_expected)
-                    request = _student_observation(image, state, frames, slot)
+                        absolute = np.stack([self.chunk.env.action(head) for head in targets])
+                        row = _balance_row_for_image_path(
+                            config["env"], image_path, state, absolute[0],
+                            seed, frames, seed, "train")
+                        row.update(
+                            issued_command_chunk=absolute.tolist(),
+                            action_prefix_mask=prefix_mask.tolist(),
+                            action_loss_mask=valid.tolist(),
+                        )
+                        rows[frames] = (row, valid, teacher_expected)
+                    request = _student_observation(
+                        image, state, frames, slot, absolute_prefix, prefix_mask
+                    )
                 absolute = yield request
                 issued = targets if oracle else np.stack([self.chunk.env.reverse_action(head) for head in absolute])
             started = time.perf_counter()
@@ -286,9 +257,6 @@ class VLAProfileRollout:
                 if collect:
                     rows[frames][0]["latency_raw_frames"] = info["latency_raw_frames"]
                     rows[frames][0]["latency_ms"] = info["latency_ms"]
-            elif deferred and admit:
-                records[frames]["latency_raw_frames"] = info["latency_raw_frames"]
-                records[frames]["latency_ms"] = info["latency_ms"]
             if frames in prefix:
                 predicted, predicted_reward, predicted_done = prefix.pop(frames)
                 np.testing.assert_array_equal(observation["obs"], predicted)
@@ -297,26 +265,15 @@ class VLAProfileRollout:
             if source >= 0:
                 applied_heads[head] += 1
                 if collect:
-                    if deferred:
-                        records[source]["executed"][head] = True
-                        if source in rows:
-                            row, valid, _ = rows[source]
-                            row["executed_action_mask"][head] = bool(valid[head])
-                    else:
-                        row, valid, teacher_expected = rows[source]
-                        row["executed_action_mask"][head] = bool(valid[head])
-                        if self.label_mode == "profile_executed":
-                            row["action_valid_mask"][head] = bool(valid[head])
-                        if oracle and valid[head]:
-                            predicted, predicted_reward, predicted_done = teacher_expected[head]
-                            np.testing.assert_array_equal(observation["obs"], predicted)
-                            assert reward == predicted_reward and done == predicted_done
+                    row, valid, teacher_expected = rows[source]
+                    if oracle and valid[head]:
+                        predicted, predicted_reward, predicted_done = teacher_expected[head]
+                        np.testing.assert_array_equal(observation["obs"], predicted)
+                        assert reward == predicted_reward and done == predicted_done
             frames += 1
             total += reward
             if done:
-                if deferred and active_source is not None and self.label_mode == "profile_executed":
-                    finish(active_source, np.flatnonzero(records[active_source]["executed"])[-1] + 1)
-                samples = [row for row, _, _ in rows.values() if any(row["action_valid_mask"])]
+                samples = [row for row, _, _ in rows.values() if any(row["action_loss_mask"])]
                 return {"seed": seed, "length": frames, "return": total,
                         "applied_heads": applied_heads.tolist(), "valid_labels": len(samples),
                         "action_ready_frame_counts": dict(action_ready_frames),
@@ -342,11 +299,15 @@ def _audit_label_contract(rollout, teacher, directory):
     sampler_state = (rollout.latency.profile_sampler.rng.getstate()
                      if rollout.latency.profile_sampler is not None else None)
     timings = Counter()
-    _, valid, _, _, sample = rollout.teacher_labels(teacher, observation["obs"], timings)
+    _, prefix_mask, valid, _, _, sample = rollout.teacher_labels(
+        teacher, observation["obs"], timings
+    )
     if sampler_state is not None:
         assert rollout.latency.profile_sampler.rng.getstate() == sampler_state
     prefix_length = min(sample.action_ready_raw_frames, rollout.chunk.horizon)
     assert not valid[:prefix_length].any()
+    assert prefix_mask[:prefix_length].all()
+    assert not prefix_mask[prefix_length:].any()
     assert timings["teacher_queries"] == valid.sum()
     write_json(directory / "label_contract_audit.json", {
         "live_sampler_unchanged": True,
@@ -617,9 +578,8 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
         write_balance_dataset(directory, config["env"], train, val)
         metadata_path = directory / "metadata.json"
         metadata = json.loads(metadata_path.read_text())
-        teacher_valid = np.asarray([row["teacher_valid_mask"] for row in rows], dtype=np.int64)
-        executed = np.asarray([row["executed_action_mask"] for row in rows], dtype=np.int64)
-        supervised = np.asarray([row["action_valid_mask"] for row in rows], dtype=np.int64)
+        prefix_masks = np.asarray([row["action_prefix_mask"] for row in rows], dtype=np.int64)
+        loss_masks = np.asarray([row["action_loss_mask"] for row in rows], dtype=np.int64)
         metadata["label_provenance"] = {
             "semantics": args.label_mode,
             "teacher_checkpoint": str(args.teacher), "teacher_config": str(args.teacher_config),
@@ -629,15 +589,13 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
             "latency": config["latency"],
             "state": f"physical198+returned_normalized_chunk{args.horizon}x43+current_index{args.horizon}",
             "student_control": not oracle, "labels": len(rows),
-            "teacher_valid_head_counts": teacher_valid.sum(0).tolist(),
-            "executed_head_counts": executed.sum(0).tolist(),
-            "supervised_head_counts": supervised.sum(0).tolist(),
+            "prefix_head_counts": prefix_masks.sum(0).tolist(),
+            "loss_head_counts": loss_masks.sum(0).tolist(),
             "student_checkpoint": str(bundle / "checkpoints/model.pt") if bundle is not None else None,
         }
         label_counts = {
-            "teacher_valid_head_counts": teacher_valid.sum(0).tolist(),
-            "executed_head_counts": executed.sum(0).tolist(),
-            "supervised_head_counts": supervised.sum(0).tolist(),
+            "prefix_head_counts": prefix_masks.sum(0).tolist(),
+            "loss_head_counts": loss_masks.sum(0).tolist(),
         }
         write_json(metadata_path, metadata)
         if not args.collect_bootstrap_only:
@@ -667,48 +625,6 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
     return result
 
 
-def reuse_bootstrap(args, config, source, directory):
-    """Reuse identical profile targets/images while selecting this arm's requested mask."""
-    started = time.perf_counter()
-    source_result = json.loads((source / "episodes.json").read_text())
-    directory.mkdir(parents=True)
-    mask_column = {"profile_suffix": "teacher_valid_mask",
-                   "profile_executed": "executed_action_mask"}[args.label_mode]
-    for split in ("train", "val"):
-        table = pq.read_table(source / f"{split}.parquet")
-        table = table.set_column(table.schema.get_field_index("action_valid_mask"),
-                                 "action_valid_mask", table[mask_column])
-        pq.write_table(table, directory / f"{split}.parquet")
-    shutil.copyfile(source / "metadata.json", directory / "metadata.json")
-    metadata_path = directory / "metadata.json"
-    metadata = json.loads(metadata_path.read_text())
-    metadata["label_provenance"]["semantics"] = args.label_mode
-    metadata["label_provenance"]["bootstrap_source"] = str(source)
-    counts_key = {"profile_suffix": "teacher_valid_head_counts",
-                  "profile_executed": "executed_head_counts"}[args.label_mode]
-    metadata["label_provenance"]["supervised_head_counts"] = metadata["label_provenance"][counts_key]
-    write_json(metadata_path, metadata)
-    converted = directory / "converted"
-    convert_canonical_rollout_to_lerobot(directory, converted, action_carrier="native",
-                                        normalize_state=False, write_starvla_handoff=False)
-    prepare_lerobot(f"balance_profile_h{args.horizon}", converted, directory / "converted__val",
-                    directory / "lerobot", normalization_source=args.normalization_source)
-    seconds = time.perf_counter() - started
-    labels = metadata["train_rows"] + metadata["val_rows"]
-    result = {key: source_result[key] for key in (
-                  "n", "mean_length", "mean_return", "ge100", "ge500", "episodes",
-                  "label_contract_audit")}
-    result.update({"seconds": seconds, "startup_seconds": 0.0, "steady_seconds": 0.0,
-              "conversion_seconds": seconds, "labels_per_second": labels / seconds,
-              "generated_labels": labels, "num_envs": 0, "inference_seconds": 0.0,
-              "bootstrap_source": str(source), "teacher_controlled": True,
-              "teacher_valid_head_counts": metadata["label_provenance"]["teacher_valid_head_counts"],
-              "executed_head_counts": metadata["label_provenance"]["executed_head_counts"],
-              "supervised_head_counts": metadata["label_provenance"]["supervised_head_counts"]})
-    write_json(directory / "episodes.json", result)
-    return result
-
-
 def _rollout_quality_metrics(prefix, result):
     metrics = {
         f"{prefix}/{key}": result[key]
@@ -731,7 +647,7 @@ def _rollout_quality_metrics(prefix, result):
             total = sum(result[name].values())
             metrics.update({f"{prefix}/{name.removesuffix('_counts')}_{frame}_fraction": count / total
                             for frame, count in result[name].items()})
-    for name in ("teacher_valid_head_counts", "executed_head_counts", "supervised_head_counts"):
+    for name in ("prefix_head_counts", "loss_head_counts"):
         if name in result:
             metrics.update({f"{prefix}/{name.removesuffix('_counts')}_{index}": count
                             for index, count in enumerate(result[name])})
@@ -943,7 +859,6 @@ def main():
     parser.add_argument("--teacher-config", type=Path, default=TEACHER_CONFIG)
     parser.add_argument("--teacher-revision", default=TEACHER_REVISION)
     parser.add_argument("--teacher-sha256", default=TEACHER_SHA256)
-    parser.add_argument("--bootstrap-data", type=Path)
     parser.add_argument("--collect-bootstrap-only", action="store_true")
     parser.add_argument("--model", choices=MODEL_HORIZONS, default="qwenpi_v3")
     parser.add_argument("--label-mode", choices=LABEL_MODES, required=True)
@@ -956,6 +871,8 @@ def main():
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
+    if args.model == "qwenoft" and args.label_mode == "profile_conditioned":
+        parser.error("qwenoft does not support profile-conditioned action prefixes")
     args.output_dir = args.output.resolve()
     if not args.resume:
         args.output_dir.mkdir(parents=True, exist_ok=False)
@@ -976,8 +893,6 @@ def main():
         run_record = json.loads((args.output_dir / "run.json").read_text())
         history_path = args.output_dir / "history.json"
         history = json.loads(history_path.read_text()) if history_path.is_file() else []
-        bootstrap_data = (Path(run_record["bootstrap_data"])
-                          if run_record["bootstrap_data"] is not None else None)
         development = run_record["development_seeds"]
         heldout = run_record["heldout_seeds"]
         args.wandb_runs = run_record["wandb_runs"]
@@ -987,7 +902,6 @@ def main():
         config["env"]["make_kwargs"]["camera_name"] = "head_camera"
         config["backend"]["initial_model_path"] = str(args.teacher)
         write_json(args.output_dir / "environment.json", config)
-        bootstrap_data = args.bootstrap_data.resolve() if args.bootstrap_data is not None else None
         profile_path = None if args.label_mode == "zero_full" else config["latency"]["profile_path"]
         budget = {"bootstrap_labels": 512 if args.smoke else 71000,
                   "bootstrap_steps": 2 if args.smoke else 5000,
@@ -1007,8 +921,7 @@ def main():
                   "teacher_revision": args.teacher_revision,
                   "teacher_sha256": args.teacher_sha256,
                   "teacher_oracle_seeds": teacher_oracle_seeds,
-                  "profile_path": profile_path,
-                  "bootstrap_data": str(bootstrap_data) if bootstrap_data is not None else None}
+                  "profile_path": profile_path}
         write_json(args.output_dir / "budget.json", budget)
         write_json(args.output_dir / "semantic_checklist.json", {
             "bootstrap_training": ("data_source_only" if args.collect_bootstrap_only
@@ -1020,8 +933,8 @@ def main():
             "teacher_revision": args.teacher_revision,
             "teacher_sha256": args.teacher_sha256,
             "label_mode": args.label_mode,
-            "profile_prefix": "committed_actions_in_target_but_masked",
-            "profile_executed_mask": "teacher_valid_intersection_same_request_replay_clock",
+            "profile_prefix": "clean_committed_actions_conditioned_at_every_flow_step",
+            "profile_loss": "all_teacher_suffix_heads_until_termination",
             "replay": "round1_bootstrap_latest_50_50_then_bootstrap_latest_history_40_40_20",
             "dagger_optimizer": "single_continuous_optimizer_scheduler_rng_across_rounds",
             "rollout_checkpoint": "latest",
@@ -1044,7 +957,6 @@ def main():
                       "teacher_config": str(args.teacher_config),
                       "teacher_revision": args.teacher_revision,
                       "teacher_sha256": args.teacher_sha256,
-                      "bootstrap_data": str(bootstrap_data) if bootstrap_data is not None else None,
                       "bootstrap_bundle": None}
         write_json(args.output_dir / "run.json", run_record)
         write_json(args.output_dir / "history.json", history)
@@ -1079,10 +991,10 @@ def main():
             if (directory / "episodes.json").is_file():
                 collection = json.loads((directory / "episodes.json").read_text())
             else:
-                collection = (reuse_bootstrap(args, config, bootstrap_data, directory)
-                              if bootstrap_data is not None
-                              else rollout_batch(args, config, directory, bundle=None,
-                                                 run=run, count=budget["bootstrap_labels"]))
+                collection = rollout_batch(
+                    args, config, directory, bundle=None,
+                    run=run, count=budget["bootstrap_labels"]
+                )
             run.log({"round": 0, "collection/labels": budget["bootstrap_labels"],
                      **{f"collection/{key}": collection[key] for key in (
                          "seconds", "startup_seconds", "steady_seconds", "conversion_seconds",

@@ -503,10 +503,12 @@ def _write_episode(
             [row["issued_command_chunk"] for row in rows],
             type=pa.list_(pa.list_(pa.float32(), action_dim), len(rows[0]["issued_command_chunk"])),
         )
-    if rows and "action_valid_mask" in rows[0]:
-        columns["action_valid_mask"] = pa.array(
-            [row["action_valid_mask"] for row in rows], type=pa.list_(pa.bool_(), len(rows[0]["action_valid_mask"])),
-        )
+    for mask_key in ("action_prefix_mask", "action_loss_mask"):
+        if rows and mask_key in rows[0]:
+            columns[mask_key] = pa.array(
+                [row[mask_key] for row in rows],
+                type=pa.list_(pa.bool_(), len(rows[0][mask_key])),
+            )
     if rows and "action_id" in rows[0]:
         columns["action_id"] = pa.array(
             [row["action_id"] for row in rows], type=pa.int64()
@@ -764,8 +766,9 @@ def _convert_split(
                 out_row["state"] = state.tolist()
             if "issued_command_chunk" in row:
                 out_row["issued_command_chunk"] = row["issued_command_chunk"]
-            if "action_valid_mask" in row:
-                out_row["action_valid_mask"] = row["action_valid_mask"]
+            for mask_key in ("action_prefix_mask", "action_loss_mask"):
+                if mask_key in row:
+                    out_row[mask_key] = row[mask_key]
             if "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
             if "context_images" in row and row["context_images"] is not None:
@@ -813,10 +816,11 @@ def _convert_split(
             "dtype": "float32", "shape": [len(rows[0]["issued_command_chunk"]), len(action_labels)],
             "names": action_labels,
         }
-        if "action_valid_mask" in rows[0]:
-            info["features"]["action_valid_mask"] = {
-                "dtype": "bool", "shape": [len(rows[0]["action_valid_mask"])], "names": None,
-            }
+        for mask_key in ("action_prefix_mask", "action_loss_mask"):
+            if mask_key in rows[0]:
+                info["features"][mask_key] = {
+                    "dtype": "bool", "shape": [len(rows[0][mask_key])], "names": None,
+                }
         info_path.write_text(json.dumps(info, indent=2) + "\n")
     return {
         "dataset_name": output_dir.name,
@@ -1042,8 +1046,9 @@ def convert_canonical_rollout_to_lerobot(
             info_path = directory / "meta/info.json"
             info = json.loads(info_path.read_text())
             info["label_provenance"] = metadata["label_provenance"]
-            for key in ("issued_command_chunk", "action_valid_mask"):
-                info["features"][key] = train_info["features"][key]
+            for key in ("issued_command_chunk", "action_prefix_mask", "action_loss_mask"):
+                if key in train_info["features"]:
+                    info["features"][key] = train_info["features"][key]
             info_path.write_text(json.dumps(info, indent=2) + "\n")
     handoff_contract = {
         "format": (

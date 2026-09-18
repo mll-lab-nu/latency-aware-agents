@@ -38,3 +38,68 @@ def test_task_policy_normalizes_current_state_and_decodes_full_command(spec):
     del observations[0].metadata['state']
     with pytest.raises(KeyError, match='state'):
         policy.predict(observations[0])
+
+
+def test_task_policy_normalizes_and_forwards_action_prefix():
+    spec = TASK_SPECS["balance_profile_h16"]
+    captured = []
+
+    def predict_action(*, examples: list):
+        captured.extend(examples)
+        return {
+            "normalized_actions": np.zeros(
+                (len(examples), spec.action_horizon, spec.action_dim), dtype=np.float32
+            )
+        }
+
+    policy = TaskStarVlaPolicyRunner(
+        SimpleNamespace(predict_action=predict_action),
+        policy_config={"state_info_key": "state", "image_views_info_key": "views"},
+        model_config={
+            "datasets": {
+                "vla_data": {"obs_image_size": [224, 224], "image_mode": "single"}
+            }
+        },
+        contract={
+            "task": spec.name,
+            "state_dim": spec.state_dim,
+            "prompt": "task",
+            "normalization": {
+                "state": {
+                    "min": [0] * spec.state_dim,
+                    "max": [2] * spec.state_dim,
+                },
+                "action": {
+                    "min": [-2] * spec.action_dim,
+                    "max": [4] * spec.action_dim,
+                },
+            },
+        },
+    )
+    prefix = np.stack([
+        np.full(spec.action_dim, -2, dtype=np.float32),
+        np.full(spec.action_dim, 4, dtype=np.float32),
+        *[
+            np.zeros(spec.action_dim, dtype=np.float32)
+            for _ in range(spec.action_horizon - 2)
+        ],
+    ])
+    prefix_mask = np.asarray(
+        [True, True, *([False] * (spec.action_horizon - 2))]
+    )
+    observation = Observation(
+        None,
+        0,
+        0,
+        {
+            "state": np.zeros(spec.state_dim, dtype=np.float32),
+            "views": [np.zeros((8, 8, 3), dtype=np.uint8)],
+            "action_prefix": prefix,
+            "action_prefix_mask": prefix_mask,
+        },
+    )
+
+    policy.predict(observation)
+
+    np.testing.assert_array_equal(captured[0]["action_prefix"][:2, 0], [-1, 1])
+    np.testing.assert_array_equal(captured[0]["action_prefix_mask"], prefix_mask)
