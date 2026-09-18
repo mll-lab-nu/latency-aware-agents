@@ -39,20 +39,46 @@ def test_balance_dagger_model_geometry_and_latency_recipes():
             task_spec("balance_profile_h8").state_dim) == (8, 550)
 
 
-def test_profile_rejects_conditioned_qwenoft(tmp_path, monkeypatch):
+def test_profile_accepts_conditioned_qwenoft_with_explicit_profile(tmp_path):
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
-    monkeypatch.setattr(sys, "argv", [
-        "profile",
-        "--output", str(tmp_path / "output"),
-        "--vla-python", "python",
-        "--backbone", "qwen",
-        "--model", "qwenoft",
-        "--label-mode", "profile_conditioned",
-        "--gradient-checkpointing",
-    ])
-    with pytest.raises(SystemExit, match="2"):
-        profile.main()
+    profile_path = tmp_path / "profile.json"
+    config = profile.vla_experiment_config(
+        "qwenoft", "profile_conditioned", profile_path=profile_path
+    )
+
+    assert config["latency"]["profile_path"] == str(profile_path)
+    assert config["training"]["ppo"]["chunk_horizon"] == 8
+
+
+def test_formal_chain_publishes_source_and_target_with_matching_profile(tmp_path):
+    from scripts.tasks.humanoidbench_balance_simple import formal_chain_watchdog as watchdog
+
+    args = SimpleNamespace(
+        task_python=tmp_path / "task-python",
+        vla_python=tmp_path / "vla-python",
+        backbone=tmp_path / "backbone",
+        teacher=tmp_path / "teacher.pt",
+        teacher_config=tmp_path / "teacher.yaml",
+        teacher_revision="revision",
+        teacher_sha256="digest",
+        wandb_entity="entity",
+        label_mode="profile_conditioned",
+        port=29776,
+        profile_path=tmp_path / "profile.json",
+    )
+
+    source = watchdog._command(
+        args, model="qwenpi_v3", output=tmp_path / "source", resume=True
+    )
+    target = watchdog._command(
+        args, model="qwengr00t", output=tmp_path / "target", resume=False
+    )
+
+    assert "--publish" in source and "--resume" in source
+    assert "--profile-path" not in source
+    assert "--publish" in target and "--resume" not in target
+    assert target[target.index("--profile-path") + 1] == str(args.profile_path)
 
 
 def test_committed_prefix_includes_hold_and_existing_chunk_actions():
@@ -340,6 +366,8 @@ def test_profile_dagger_launch_uses_one_resumable_full_schedule(tmp_path, monkey
         gradient_checkpointing=False,
         vla_python=tmp_path / "env/bin/python",
         port=29767,
+        num_gpus=2,
+        inference_batch_size=8,
         wandb_runs={"dagger": {"id": "smoke-dagger"}},
     )
     captured = {}
@@ -355,9 +383,10 @@ def test_profile_dagger_launch_uses_one_resumable_full_schedule(tmp_path, monkey
         }
 
     class Process:
-        pass
+        pid = 123
 
     monkeypatch.setattr(profile, "training_config", config)
+    monkeypatch.setattr(profile, "_resident_socket_dir", lambda control_dir: control_dir)
     monkeypatch.setattr(profile.subprocess, "Popen", lambda *args, **kwargs: Process())
 
     process, control_dir, mixture_path = profile.start_dagger_training(
@@ -367,6 +396,7 @@ def test_profile_dagger_launch_uses_one_resumable_full_schedule(tmp_path, monkey
         deltas,
         state,
         True,
+        resume_step=500,
     )
 
     launch = yaml.safe_load((tmp_path / "dagger.yaml").read_text())
@@ -380,6 +410,7 @@ def test_profile_dagger_launch_uses_one_resumable_full_schedule(tmp_path, monkey
     assert launch["trainer"]["save_interval"] == 2
     assert launch["trainer"]["dagger_control_dir"] == str(control_dir)
     assert "stop_after_steps" not in launch["trainer"]
+    assert json.loads((control_dir / "trainer.json").read_text())["pid"] == 123
     assert json.loads(mixture_path.read_text())["train"] == [
         [str(bootstrap / "lerobot"), 1.0, "profile_h8"],
         [str(deltas[0] / "lerobot"), 0.5, "profile_h8"],
@@ -412,7 +443,10 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
         def log(self, metrics):
             pass
 
-    def rollout(args, config, directory, *, bundle, run, count=None, seeds=None):
+    def rollout(
+        args, config, directory, *, bundle, run, count=None, seeds=None,
+        resident_control_dir=None, resident_step=None,
+    ):
         rollouts.append((directory, bundle, count))
         if count is not None:
             if directory == output / "bootstrap":
@@ -444,7 +478,7 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
         def wait(self):
             return 0
 
-    def start(args, budget, bootstrap, deltas, pretrained, resume):
+    def start(args, budget, bootstrap, deltas, pretrained, resume, *, resume_step):
         dagger_launches.append((list(deltas), pretrained, resume))
         checkpoint_dir = output / "training/dagger/checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -467,7 +501,7 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
     monkeypatch.setattr(
         profile,
         "vla_experiment_config",
-        lambda model, label_mode: {
+        lambda model, label_mode, profile_path=None: {
             "env": {"make_kwargs": {}},
             "backend": {},
             "latency": {"method": "zero"},
@@ -542,6 +576,7 @@ def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path
         task="balance", model="qwenpi_v3", horizon=16, label_mode="profile_conditioned",
         smoke=False, gradient_checkpointing=False, output_dir=tmp_path, backbone=tmp_path / "backbone",
         vla_python=tmp_path / "qwenpi/bin/python", port=1234, run_id="run",
+        num_gpus=2,
         wandb_runs={"dagger": {"id": "run-dagger"}},
     )
     deltas = [tmp_path / f"round_{index}" for index in range(3)]

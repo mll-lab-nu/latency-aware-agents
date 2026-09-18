@@ -1,5 +1,6 @@
 """Task inference must use current state and return the full action chunk."""
 
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -103,3 +104,37 @@ def test_task_policy_normalizes_and_forwards_action_prefix():
 
     np.testing.assert_array_equal(captured[0]["action_prefix"][:2, 0], [-1, 1])
     np.testing.assert_array_equal(captured[0]["action_prefix_mask"], prefix_mask)
+
+
+def test_live_policy_uses_task_contract_without_loading_a_checkpoint(tmp_path):
+    from latency_bench.policy.starvla import build_live_starvla_policy
+
+    spec = TASK_SPECS["balance_profile_h8"]
+    contract = {
+        "task": spec.name,
+        "state_dim": spec.state_dim,
+        "prompt": "balance",
+        "normalization": {
+            "state": {"min": [0] * spec.state_dim, "max": [2] * spec.state_dim},
+            "action": {"min": [-1] * spec.action_dim, "max": [1] * spec.action_dim},
+        },
+    }
+    contract_path = tmp_path / "task_contract.json"
+    contract_path.write_text(json.dumps(contract))
+    framework = SimpleNamespace()
+
+    policy = build_live_starvla_policy(
+        framework=framework,
+        model_cfg={"datasets": {"vla_data": {
+            "obs_image_size": [224, 224], "image_mode": "single"
+        }}},
+        config={"policy": {
+            "task_contract_path": str(contract_path),
+            "state_info_key": "state",
+            "image_views_info_key": "views",
+        }},
+        action_resolver=None,
+    )
+
+    assert isinstance(policy, TaskStarVlaPolicyRunner)
+    assert policy.framework is framework

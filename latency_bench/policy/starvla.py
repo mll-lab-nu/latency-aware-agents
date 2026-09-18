@@ -1151,8 +1151,8 @@ def build_live_starvla_policy(
     framework: Any,
     model_cfg: dict[str, Any],
     config: dict[str, Any],
-    action_resolver: ActionResolver,
-) -> StarVlaPolicyRunner:
+    action_resolver: ActionResolver | None = None,
+) -> PolicyRunner:
     """Build a StarVLA policy around a *live* in-memory framework (no reload).
 
     Mirrors ``build_starvla_policy`` but swaps the ckpt-loading
@@ -1162,6 +1162,19 @@ def build_live_starvla_policy(
     from disk.
     """
     policy_cfg = config["policy"]
+    if "task_contract_path" in policy_cfg:
+        from latency_bench.policy.starvla_tasks import TaskStarVlaPolicyRunner
+
+        contract = json.loads(
+            Path(policy_cfg["task_contract_path"]).read_text(encoding="utf-8")
+        )
+        return TaskStarVlaPolicyRunner(
+            framework,
+            policy_config=policy_cfg,
+            model_config=model_cfg,
+            contract=contract,
+        )
+
     unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]

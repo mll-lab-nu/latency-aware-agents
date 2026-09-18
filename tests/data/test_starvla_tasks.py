@@ -243,6 +243,7 @@ def test_dagger_mixture_refresh_opens_only_new_sources_and_updates_weights(tmp_p
     dataset._refresh_data_root = Path("/")
     dataset._refresh_mixture_name = "train"
     dataset._refresh_mixture_path = mixture_path
+    dataset._refresh_contract = {"robot_type": "robot", "video_keys": []}
     dataset._refresh_source_cache = {}
     dataset._shared_mixture_generation = torch.zeros(
         (), dtype=torch.int64, device="cpu"
@@ -259,8 +260,10 @@ def test_dagger_mixture_refresh_opens_only_new_sources_and_updates_weights(tmp_p
     mixture_path.write_text(json.dumps({"train": [
         ["bootstrap", 1.0, "robot"], ["delta_1", 1.0, "robot"],
     ]}))
+    latency_bench_tasks.ROBOT_TYPE_CONFIG_MAP.pop("robot", None)
     dataset.refresh_custom_mixture()
     assert dataset._shared_mixture_generation.item() == 1
+    assert "robot" in latency_bench_tasks.ROBOT_TYPE_CONFIG_MAP
     delta_1_source = dataset.datasets[1]
     mixture_path.write_text(json.dumps({"train": [
         ["bootstrap", 1.0, "robot"], ["delta_1", 0.5, "robot"],

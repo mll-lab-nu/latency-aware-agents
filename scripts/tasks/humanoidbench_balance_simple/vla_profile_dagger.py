@@ -13,6 +13,7 @@ import os
 import subprocess
 import time
 import traceback
+import uuid
 from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -30,6 +31,7 @@ from latency_bench.core.config import load_config
 from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.integrations.starvla_resident_dagger import ResidentInferencePool
 from scripts.starvla.balance_dagger import (
     _balance_row_for_image_path,
     _student_observation,
@@ -66,7 +68,45 @@ def _write_json_atomic(path: Path, value) -> None:
     temporary.replace(path)
 
 
-def vla_experiment_config(model, label_mode):
+class _AttachedTrainerProcess:
+    """Observe a still-running Accelerate launcher after its controller restarted."""
+
+    def __init__(self, pid, command):
+        self.pid = pid
+        self.args = command
+
+    def poll(self):
+        command_path = Path(f"/proc/{self.pid}/cmdline")
+        if not command_path.is_file():
+            return 0
+        live_command = command_path.read_bytes().replace(b"\0", b" ").decode()
+        return None if str(self.args[-1]) in live_command else 0
+
+    def wait(self):
+        while self.poll() is None:
+            time.sleep(1.0)
+        return 0
+
+
+def _attached_trainer(control_dir):
+    process_path = control_dir / "trainer.json"
+    if not process_path.is_file():
+        return None
+    process = json.loads(process_path.read_text(encoding="utf-8"))
+    attached = _AttachedTrainerProcess(process["pid"], process["command"])
+    return attached if attached.poll() is None else None
+
+
+def _resident_socket_dir(control_dir):
+    longest_path = control_dir / "step_5000.rank_0.sock"
+    if len(os.fsencode(longest_path)) < 100:
+        return control_dir
+    alias = Path("/tmp") / f"lb-dagger-{uuid.uuid4().hex[:12]}"
+    alias.symlink_to(control_dir.resolve(), target_is_directory=True)
+    return alias
+
+
+def vla_experiment_config(model, label_mode, *, profile_path=None):
     """Use the requested zero/profile deployment condition and model horizon."""
     config = load_config(ROOT / "configs/examples/gymnasium/g1_sonic_balance_simple/ppo_train.yaml")
     horizon = MODEL_HORIZONS[model]
@@ -76,9 +116,12 @@ def vla_experiment_config(model, label_mode):
         config["latency"] = {
             "method": "temporal",
             "profile_path": str(
-                ROOT / "results/profiling/downloads/profiles" / model
+                profile_path
+                if profile_path is not None
+                else ROOT / "results/profiling/downloads/profiles" / model
                 / "1x-rtx3090/g1_sonic_balance_simple"
-                / "instance_3a0d42681a03715c/profile.json"),
+                / "instance_3a0d42681a03715c/profile.json"
+            ),
             "profile_worker_slot": 0,
             "seed": 271828,
             "add_latency_info": True,
@@ -537,8 +580,19 @@ def _collect_requests(envs, pool, *, count, seeds, seed_start, cohort_size, run)
     return episodes, rows[:count] if collecting else rows, metrics
 
 
-def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=None):
-    """Collect/evaluate with private CPU branches and one inference worker per GPU."""
+def rollout_batch(
+    args,
+    config,
+    directory,
+    *,
+    bundle,
+    run,
+    count=None,
+    seeds=None,
+    resident_control_dir=None,
+    resident_step=None,
+):
+    """Collect/evaluate with private CPU branches and rank-owned GPU inference."""
     started = time.perf_counter()
     directory.mkdir(parents=True, exist_ok=True)
     collecting, oracle = count is not None, bundle is None
@@ -551,10 +605,24 @@ def rollout_batch(args, config, directory, *, bundle, run, count=None, seeds=Non
         cleanup.callback(envs.close)
         pool = None
         if not oracle:
-            pool = ProcessInferencePool(config=policy_config(
-                                            config, bundle, args.vla_python,
-                                            args.inference_batch_size, args.backbone),
-                                        inference_devices=["cuda:0", "cuda:1"])
+            if resident_control_dir is not None:
+                resident_config = json.loads(
+                    (resident_control_dir / "resident_policy.json").read_text(encoding="utf-8")
+                )
+                pool = ResidentInferencePool(
+                    socket_dir=Path(resident_config["socket_dir"]),
+                    step=resident_step,
+                    worker_count=args.num_gpus,
+                    batch_size=args.inference_batch_size,
+                )
+            else:
+                pool = ProcessInferencePool(
+                    config=policy_config(
+                        config, bundle, args.vla_python,
+                        args.inference_batch_size, args.backbone,
+                    ),
+                    inference_devices=[f"cuda:{index}" for index in range(args.num_gpus)],
+                )
             cleanup.callback(pool.close)
         startup_seconds = time.perf_counter() - started
         episodes, rows, metrics = _collect_requests(
@@ -764,7 +832,8 @@ def _training_launch(
                            "WANDB_MODE": "disabled" if args.smoke else "online",
                            "WANDB_RUN_ID": args.wandb_runs[training_phase]["id"], "WANDB_RESUME": "allow"}
     command = [args.vla_python, "-m", "accelerate.commands.launch", "--config_file",
-               STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml", "--num_processes", 2,
+               STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml", "--num_processes",
+               args.num_gpus,
                "--main_process_port", args.port, STARVLA / "starVLA/training/train_starvla.py",
                "--config_yaml", path]
     return command, env, mixture_path, args.output_dir / f"{stem}.log"
@@ -784,9 +853,26 @@ def train_segment(args, bootstrap, deltas, phase, steps, boundary, pretrained, r
     return bundle, state
 
 
-def start_dagger_training(args, budget, bootstrap, deltas, pretrained, resume):
+def start_dagger_training(
+    args, budget, bootstrap, deltas, pretrained, resume, *, resume_step
+):
     """Start the single long-lived DAgger trainer and return its control paths."""
     control_dir = args.output_dir / "dagger_control"
+    control_dir.mkdir(parents=True, exist_ok=True)
+    socket_dir = _resident_socket_dir(control_dir)
+    _write_json_atomic(control_dir / "resident_policy.json", {
+        "socket_dir": str(socket_dir),
+        "policy": {
+            "task_contract_path": str(bootstrap / "lerobot/task_contract.json"),
+            "state_info_key": "gymnasium_state",
+            "image_views_info_key": ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
+        },
+    })
+    if resume_step:
+        (control_dir / f"step_{resume_step}.ready").unlink(missing_ok=True)
+        for rank in range(args.num_gpus):
+            (control_dir / f"step_{resume_step}.rank_{rank}.ready").unlink(missing_ok=True)
+            (control_dir / f"step_{resume_step}.rank_{rank}.sock").unlink(missing_ok=True)
     command, env, mixture_path, log = _training_launch(
         args,
         bootstrap,
@@ -811,6 +897,10 @@ def start_dagger_training(args, budget, bootstrap, deltas, pretrained, resume):
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
         )
+    _write_json_atomic(control_dir / "trainer.json", {
+        "pid": process.pid,
+        "command": [str(part) for part in command],
+    })
     return process, control_dir, mixture_path
 
 
@@ -830,6 +920,17 @@ def _complete_checkpoint_steps(checkpoint_dir, total_steps):
         if state.is_dir() and weights.is_file() and step <= total_steps:
             steps.append(step)
     return sorted(steps)
+
+
+def _completed_rollout(directory):
+    episodes_path = directory / "episodes.json"
+    if episodes_path.is_file():
+        return json.loads(episodes_path.read_text())
+    if directory.exists():
+        directory.rename(directory.with_name(
+            f"{directory.name}.interrupted-{int(time.time())}"
+        ))
+    return None
 
 
 def _dagger_continue_metrics(round_number, optimizer_steps, evaluation, best_score, collection):
@@ -859,20 +960,23 @@ def main():
     parser.add_argument("--teacher-config", type=Path, default=TEACHER_CONFIG)
     parser.add_argument("--teacher-revision", default=TEACHER_REVISION)
     parser.add_argument("--teacher-sha256", default=TEACHER_SHA256)
+    parser.add_argument("--wandb-entity", default="saberrr-zju")
+    parser.add_argument("--profile-path", type=Path)
     parser.add_argument("--collect-bootstrap-only", action="store_true")
     parser.add_argument("--model", choices=MODEL_HORIZONS, default="qwenpi_v3")
     parser.add_argument("--label-mode", choices=LABEL_MODES, required=True)
     parser.add_argument("--gradient-checkpointing", action=argparse.BooleanOptionalAction, required=True)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--port", type=int, default=29767)
+    parser.add_argument("--num-gpus", type=int, default=2)
+    parser.add_argument("--micro-batch", type=int, default=64)
     parser.add_argument("--rollout-workers", type=int, default=16)
     parser.add_argument("--inference-batch-size", type=int, default=8)
     parser.add_argument("--rollout-overlap", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
-    if args.model == "qwenoft" and args.label_mode == "profile_conditioned":
-        parser.error("qwenoft does not support profile-conditioned action prefixes")
+    os.environ["WANDB_ENTITY"] = args.wandb_entity
     args.output_dir = args.output.resolve()
     if not args.resume:
         args.output_dir.mkdir(parents=True, exist_ok=False)
@@ -881,7 +985,7 @@ def main():
     args.task = "balance"
     args.condition = "zero-latency" if args.label_mode == "zero_full" else "latency-aware"
     args.horizon = MODEL_HORIZONS[args.model]
-    args.num_gpus, args.micro_batch, args.num_workers, args.prefetch_factor = 2, 64, 16, 3
+    args.num_workers, args.prefetch_factor = 16, 3
     args.persistent_workers, args.pin_memory = True, True
     args.normalization_source = None
     torch.set_num_threads(1)
@@ -897,7 +1001,9 @@ def main():
         heldout = run_record["heldout_seeds"]
         args.wandb_runs = run_record["wandb_runs"]
     else:
-        config = vla_experiment_config(args.model, args.label_mode)
+        config = vla_experiment_config(
+            args.model, args.label_mode, profile_path=args.profile_path
+        )
         config["env"]["make_kwargs"]["render_mode"] = "rgb_array"
         config["env"]["make_kwargs"]["camera_name"] = "head_camera"
         config["backend"]["initial_model_path"] = str(args.teacher)
@@ -907,8 +1013,9 @@ def main():
                   "bootstrap_steps": 2 if args.smoke else 5000,
                   "round_labels": 512 if args.smoke else 16000,
                   "round_steps": 2 if args.smoke else 500,
-                  "rounds": 2 if args.smoke else 10, "micro_batch": 64,
+                  "rounds": 2 if args.smoke else 10, "micro_batch": args.micro_batch,
                   "global_batch": 128, "gradient_checkpointing": args.gradient_checkpointing,
+                  "num_gpus": args.num_gpus,
                   "workers_per_rank": 16, "prefetch": 3,
                   "inference_seed": INFERENCE_SEED, "profile_is_deployment_proxy": True,
                   "rollout_workers": args.rollout_workers,
@@ -1054,7 +1161,9 @@ def main():
     current_step = checkpoint_steps[-1] if checkpoint_steps else 0
     robot_type = json.loads((bootstrap / "lerobot/task_contract.json").read_text())["robot_type"]
 
-    def record_dagger_boundary(boundary, *, log_wandb):
+    def record_dagger_boundary(
+        boundary, *, log_wandb, resident_control_dir=None
+    ):
         nonlocal best_bundle, best_score, best_stage, optimizer_steps
         round_number = boundary // budget["round_steps"]
         if round_number in completed:
@@ -1067,10 +1176,14 @@ def main():
             inference_bundle(args.output_dir / "training/dagger", weights, latest_bundle,
                              bootstrap=bootstrap, backbone=BACKBONES["qwen"])
         evaluation_dir = args.output_dir / f"evaluation/{phase}_{boundary}"
-        evaluation = (json.loads((evaluation_dir / "episodes.json").read_text())
-                      if (evaluation_dir / "episodes.json").is_file()
-                      else rollout_batch(args, config, evaluation_dir, bundle=latest_bundle,
-                                         run=None, seeds=development))
+        evaluation = _completed_rollout(evaluation_dir)
+        if evaluation is None:
+            evaluation = rollout_batch(
+                args, config, evaluation_dir, bundle=latest_bundle,
+                run=None, seeds=development,
+                resident_control_dir=resident_control_dir,
+                resident_step=boundary,
+            )
         optimizer_steps = budget["bootstrap_steps"] + boundary
         if evaluation["mean_length"] > best_score:
             best_bundle, best_score, best_stage = latest_bundle, evaluation["mean_length"], "dagger"
@@ -1087,35 +1200,89 @@ def main():
             _log_periodic_eval(args, "dagger", boundary, optimizer_steps, evaluation, best_score)
         return latest_bundle, evaluation
 
-    if current_step:
-        latest, _evaluation = record_dagger_boundary(current_step, log_wandb=True)
-    else:
-        latest = bootstrap_best
-    if current_step < total_dagger_steps:
-        next_round = current_step // budget["round_steps"] + 1
-        next_directory = args.output_dir / f"dagger_{next_round:02d}"
-        args.collection_seed = 4100001 + next_round * 100000
-        with _wandb_stage_run(args, "dagger", budget) as run:
-            run.define_metric("eval/*", step_metric="optimizer_steps")
-            for key, value in _rollout_quality_metrics("teacher_oracle", teacher_oracle).items():
-                run.summary[key] = value
-            if (next_directory / "episodes.json").is_file():
-                collection = json.loads((next_directory / "episodes.json").read_text())
-            else:
-                collection = rollout_batch(
-                    args, config, next_directory, bundle=latest, run=run,
-                    count=budget["round_labels"])
-            run.log({"round": next_round, "optimizer_steps": budget["bootstrap_steps"] + current_step,
-                     **_rollout_quality_metrics("collection", collection)})
-            args.wandb_runs["dagger"]["url"] = run.url
-            write_json(args.output_dir / "run.json", run_record)
+    def collect_dagger_round(round_number, bundle, *, run, resident_control_dir=None, step=None):
+        directory = args.output_dir / f"dagger_{round_number:02d}"
+        args.collection_seed = 4100001 + round_number * 100000
+        collection = _completed_rollout(directory)
+        if collection is not None:
+            return directory, collection
+        collection = rollout_batch(
+            args, config, directory, bundle=bundle, run=run,
+            count=budget["round_labels"], resident_control_dir=resident_control_dir,
+            resident_step=step,
+        )
+        return directory, collection
 
-        deltas = [args.output_dir / f"dagger_{round_number:02d}"
-                  for round_number in range(1, next_round + 1)]
-        pretrained = (dagger_checkpoint_dir / f"steps_{current_step}_state"
-                      if current_step else bootstrap_best / "checkpoints/model.pt")
-        process, control_dir, mixture_path = start_dagger_training(
-            args, budget, bootstrap, deltas, pretrained, current_step > 0)
+    if current_step < total_dagger_steps:
+        if current_step == 0:
+            latest = bootstrap_best
+            next_round = 1
+            with _wandb_stage_run(args, "dagger", budget) as run:
+                run.define_metric("eval/*", step_metric="optimizer_steps")
+                for key, value in _rollout_quality_metrics("teacher_oracle", teacher_oracle).items():
+                    run.summary[key] = value
+                next_directory, collection = collect_dagger_round(
+                    next_round, latest, run=run
+                )
+                run.log({"round": next_round,
+                         "optimizer_steps": budget["bootstrap_steps"],
+                         **_rollout_quality_metrics("collection", collection)})
+                args.wandb_runs["dagger"]["url"] = run.url
+                write_json(args.output_dir / "run.json", run_record)
+            deltas = [next_directory]
+            pretrained = bootstrap_best / "checkpoints/model.pt"
+        else:
+            latest = (
+                Path(completed[current_step // budget["round_steps"]]["bundle"])
+                if current_step // budget["round_steps"] in completed
+                else None
+            )
+            deltas = [
+                args.output_dir / f"dagger_{round_number:02d}"
+                for round_number in range(1, current_step // budget["round_steps"] + 1)
+            ]
+            restored_continue = (
+                args.output_dir / "dagger_control"
+                / f"step_{current_step}.continue.json"
+            )
+            if restored_continue.is_file():
+                deltas.append(
+                    args.output_dir
+                    / f"dagger_{current_step // budget['round_steps'] + 1:02d}"
+                )
+            pretrained = dagger_checkpoint_dir / f"steps_{current_step}_state"
+
+        control_dir = args.output_dir / "dagger_control"
+        process = _attached_trainer(control_dir)
+        if process is None:
+            process, control_dir, mixture_path = start_dagger_training(
+                args, budget, bootstrap, deltas, pretrained, current_step > 0,
+                resume_step=current_step,
+            )
+        else:
+            mixture_path = args.output_dir / "dagger_mixture.json"
+
+        if current_step:
+            continue_path = control_dir / f"step_{current_step}.continue.json"
+            if not continue_path.is_file():
+                _wait_for_round_ready(process, control_dir / f"step_{current_step}.ready")
+                latest, evaluation = record_dagger_boundary(
+                    current_step, log_wandb=True, resident_control_dir=control_dir
+                )
+                next_round = current_step // budget["round_steps"] + 1
+                next_directory, collection = collect_dagger_round(
+                    next_round, latest, run=None,
+                    resident_control_dir=control_dir, step=current_step,
+                )
+                deltas.append(next_directory)
+                _write_training_mixture(bootstrap, deltas, robot_type, mixture_path)
+                optimizer_steps = budget["bootstrap_steps"] + current_step
+                _write_json_atomic(
+                    continue_path,
+                    {"metrics": _dagger_continue_metrics(
+                        next_round, optimizer_steps, evaluation, best_score, collection)},
+                )
+
         for boundary in range(current_step + budget["round_steps"],
                               total_dagger_steps + 1, budget["round_steps"]):
             if boundary < total_dagger_steps:
@@ -1125,16 +1292,17 @@ def main():
                 if return_code:
                     raise subprocess.CalledProcessError(return_code, process.args)
             latest, evaluation = record_dagger_boundary(
-                boundary, log_wandb=boundary == total_dagger_steps)
+                boundary,
+                log_wandb=boundary == total_dagger_steps,
+                resident_control_dir=control_dir if boundary < total_dagger_steps else None,
+            )
             if boundary == total_dagger_steps:
                 continue
             next_round = boundary // budget["round_steps"] + 1
-            next_directory = args.output_dir / f"dagger_{next_round:02d}"
-            args.collection_seed = 4100001 + next_round * 100000
-            collection = (json.loads((next_directory / "episodes.json").read_text())
-                          if (next_directory / "episodes.json").is_file()
-                          else rollout_batch(args, config, next_directory, bundle=latest,
-                                             run=None, count=budget["round_labels"]))
+            next_directory, collection = collect_dagger_round(
+                next_round, latest, run=None,
+                resident_control_dir=control_dir, step=boundary,
+            )
             deltas.append(next_directory)
             _write_training_mixture(bootstrap, deltas, robot_type, mixture_path)
             optimizer_steps = budget["bootstrap_steps"] + boundary
@@ -1146,12 +1314,16 @@ def main():
     else:
         latest = Path(completed[budget["rounds"]]["bundle"])
         optimizer_steps = completed[budget["rounds"]]["optimizer_steps"]
+
     results, evaluated = {}, {}
     for name, bundle in (("bootstrap", bootstrap_best), ("best", best_bundle), ("latest", latest)):
         directory = args.output_dir / f"heldout/{name}"
         if bundle not in evaluated:
-            evaluated[bundle] = rollout_batch(
-                args, config, directory, bundle=bundle, run=None, seeds=heldout)
+            evaluated[bundle] = _completed_rollout(directory)
+            if evaluated[bundle] is None:
+                evaluated[bundle] = rollout_batch(
+                    args, config, directory, bundle=bundle, run=None, seeds=heldout
+                )
         else:
             directory.mkdir(parents=True, exist_ok=True)
             write_json(directory / "episodes.json", evaluated[bundle])
