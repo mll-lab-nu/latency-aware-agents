@@ -142,6 +142,33 @@ def test_translation_uses_prompt_map_raw_frame_latency(
     assert cfg["policy"]["latency_prompt_key"] == 6
 
 
+def test_translation_accepts_legacy_prompt_map_latency_field(tmp_path):
+    prompt_map_path = tmp_path / "latency_prompt_map.json"
+    prompt_map_path.write_text(
+        json.dumps({"6": {"latency": 6, "prompt": "latency 6"}}),
+        encoding="utf-8",
+    )
+
+    cfg = build_latency_bench_config_for_rl_games(
+        env_name="atlantis",
+        model_cfg=_model_cfg(),
+        seed=42,
+        image_size=224,
+        num_episodes=1,
+        eval_max_steps=10,
+        latency_steps=6,
+        eval_parallel_envs=1,
+        unnorm_key=None,
+        latency_prompt_map_path=str(prompt_map_path),
+        image_transform_config=None,
+        actions=None,
+        output_dir=tmp_path,
+    )
+
+    assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(100.0)
+    assert cfg["policy"]["latency_prompt_key"] == 6
+
+
 def test_translation_zero_latency_uses_zero_type(tmp_path):
     cfg = build_latency_bench_config_for_rl_games(
         env_name="flappy",
