@@ -10,9 +10,17 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from training.common.utils import seed_everything
 from latency_bench.core.types import EpisodeMetrics, ExecutorMode
-from latency_bench.eval.config import _episode_seed, _eval_episodes, _eval_max_steps
+from latency_bench.eval.config import (
+    _episode_seed,
+    _eval_episodes,
+    _eval_max_steps,
+    _evaluation_seed,
+    resolve_evaluation_config,
+)
 from latency_bench.eval.reporting import _write_non_sweep_summary
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import BatchedExecutor
@@ -35,6 +43,8 @@ def run_from_config(
     env_backend: Any | None = None,
     inference_devices: list[str] | None = None,
 ) -> list[EpisodeMetrics]:
+    eval_max_steps = _eval_max_steps(config)
+    resolve_evaluation_config(config)
     if (
         policy is None
         and env is None
@@ -48,8 +58,7 @@ def run_from_config(
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
     logging_cfg = config["logging"]
-    seed = int(experiment_cfg.get("seed", 0))
-    eval_max_steps = _eval_max_steps(config)
+    seed = _evaluation_seed(config)
     configured_num_episodes = _eval_episodes(config)
     selected_episode_ids = list(range(configured_num_episodes)) if episode_ids is None else list(episode_ids)
     seed_everything(seed)
@@ -67,6 +76,11 @@ def run_from_config(
     metrics = []
     warmup_metadata_by_episode: dict[int, dict[str, Any]] = {}
     try:
+        output_dir = Path(logging_cfg["output_dir"])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "resolved_config.yaml").write_text(
+            yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
+        )
         if isinstance(executor, BatchedExecutor):
             warmup_metadata = executor.run_warmup()
             run_episodes_kwargs: dict[str, Any] = {
@@ -148,7 +162,7 @@ def _record_stratified_replay_videos(
     video_cfg = config["logging"]["video"]
     if not video_cfg["enabled"]:
         return
-    if not config["logging"].get("save_step_records", False):
+    if not config["logging"]["save_step_records"]:
         # Replay reads steps.jsonl, which is only written when save_step_records is on.
         # Without it (e.g. factor-sweep evals) skip video instead of crashing on a missing file.
         return

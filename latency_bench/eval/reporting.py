@@ -14,8 +14,8 @@ import wandb
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval.config import (
     _eval_episodes,
-    _eval_latency_values,
-    _infer_latency_steps,
+    _evaluation_seed,
+    _latency_steps_from_config,
 )
 from latency_bench.latency.config import latency_type_from_config
 from latency_bench.logging.summary import build_queue_eval_summary, write_queue_eval_summary
@@ -52,16 +52,16 @@ def _write_non_sweep_summary(
         config["logging"]["output_dir"],
         metrics,
         experiment_name=str(config["experiment"].get("name", "latency_bench")),
-        seed=int(config["experiment"].get("seed", 0)),
+        seed=_evaluation_seed(config),
         latency=latency_label,
     )
 
 
 def _summary_latency_label(config: dict[str, Any]) -> int | str | None:
-    executor_mode = str(config.get("executor", {}).get("mode", "")).strip().lower()
+    executor_mode = config["executor"]["mode"].strip().lower()
     if executor_mode == "realtime":
         return "measured"
-    latency_steps = _infer_latency_steps(config)
+    latency_steps = _latency_steps_from_config(config)
     if latency_steps is not None:
         return latency_steps
 
@@ -73,8 +73,8 @@ def _summary_payloads_for_printing(
     metrics: list[EpisodeMetrics],
 ) -> list[dict[str, Any]]:
     experiment_name = str(config["experiment"].get("name", "latency_bench"))
-    seed = int(config["experiment"].get("seed", 0))
-    eval_latency_values = _eval_latency_values(config)
+    seed = _evaluation_seed(config)
+    eval_latency_values = config["evaluation"]["eval_latency_values"]
     if eval_latency_values is None:
         latency_label = _summary_latency_label(config)
         if latency_label is None:

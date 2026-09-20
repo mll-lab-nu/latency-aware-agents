@@ -1,5 +1,9 @@
 # Latency Execution Refactor Plan
 
+> Archived implementation snapshot from 2026-05-08. Status and TODOs below
+> describe that audit, not the current runtime. See [core infrastructure](../../infra.md)
+> and the [semantic contract](../../latency_execution_semantics_en.md) for current guidance.
+
 **Status:** Phases 1-3 implemented; Phase 4/5/6 remain planned
 **Date:** 2026-05-08
 **Scope:** Proposed implementation phases for aligning code with the stable latency execution semantics.

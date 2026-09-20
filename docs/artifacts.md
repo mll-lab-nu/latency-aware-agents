@@ -87,3 +87,53 @@ normalization. Model provenance references the exact shared and delta revisions.
 Teacher checkpoint downloads for all four tasks use the model repository's
 default branch in the H1 pipeline, including the Parkour and HAIC teachers.
 Published artifacts record the resolved publication revision where applicable.
+
+## Prepare a backbone for evaluation
+
+Select the exact model repository and revision from the checkpoint's recorded
+provenance or its explicit `backbone` metadata. A directory named after a model
+is not evidence of its identity. Prepare the model before starting inference:
+
+```bash
+hf download MODEL_REPO_ID --revision MODEL_COMMIT
+```
+
+The command prints the prepared snapshot directory in the Hugging Face cache.
+Use that absolute path as `policy.backbone_path`, or supply an already prepared
+local directory. Downloads do not need to live inside `third_party/starVLA`.
+Cross-device profiling prepares the explicit `backbone.repo_id` from the resolved
+model configuration before starting workers and passes any recorded `revision`
+and `allow_patterns` to the download. A prepared `backbone_path` in a profile
+spec takes precedence. The task training launchers already prepare their configured Qwen or Wan
+backbone before training and evaluation; they use the standard Hugging Face
+cache and record its resolved snapshot revision. Their current default-branch selection remains part of the task recipe;
+for reproduction, select the recorded revision explicitly.
+
+Create a local evaluation overlay rather than changing historical source
+configs. Replace every uppercase path below with an absolute path to the exact
+artifact for the selected experiment:
+
+```yaml
+__base__: /ABSOLUTE/CHECKOUT/configs/examples/gymnasium/inverted_pendulum/starvla_eval.yaml
+policy:
+  checkpoint_path: /ABSOLUTE/ARTIFACT/checkpoints/steps_2000_pytorch_model.pt
+  model_config_path: /ABSOLUTE/ARTIFACT/config.full.yaml
+  task_manifest_path: /ABSOLUTE/DATASET/manifest.json
+  latency_prompt_map_path: /ABSOLUTE/DATASET/latency_prompt_map.json
+  backbone_path: /ABSOLUTE/HF_CACHE/snapshots/MODEL_COMMIT
+logging:
+  output_dir: /ABSOLUTE/RESULTS/inverted_pendulum_eval
+```
+
+Run it in the installed benchmark environment:
+
+```bash
+python -m latency_bench.run --config /ABSOLUTE/PATH/local_eval.yaml
+```
+
+The overlay changes artifact locations only. Preserve the base recipe's model,
+manifest, checkpoint step, normalization, latency, seed and FPS. The task StarVLA
+adapter requires a prepared backbone path. A generic StarVLA model that needs no
+external override can continue using its checkpoint's model configuration.
+Historical configs under `configs/examples/.../source_contract/` and named
+experiment snapshots retain their original paths as provenance.

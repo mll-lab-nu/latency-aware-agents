@@ -4,7 +4,6 @@ from pathlib import Path
 
 from latency_bench.core.types import Action
 from latency_bench.executors.paused import PausedLatencyExecutor
-from latency_bench.latency.samplers import FixedSampler
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from latency_bench.utils.io import load_jsonl_records
@@ -12,7 +11,6 @@ from executor_mode_helpers import SequencePolicyRunner, make_dummy_parts
 
 
 def _executor(
-    latency_ms: float,
     actions: list[Action],
     max_steps: int = 5,
     logger: TrajectoryLogger | None = None,
@@ -23,16 +21,15 @@ def _executor(
         env=env,
         policy=SequencePolicyRunner(actions, sleep_s=sleep_s),
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=FixedSampler(latency_ms, clock=clock),
         action_scheduler=action_scheduler,
         clock=clock,
         logger=logger,
     )
 
 
-def test_paused_fixed_latency_action_applies_same_frame():
-    _, clock, noop_action, jump_action, _ = make_dummy_parts()
-    executor = _executor(clock.frame_ms * 2, [jump_action], max_steps=3)
+def test_paused_action_applies_same_frame():
+    _, _, noop_action, jump_action, _ = make_dummy_parts()
+    executor = _executor([jump_action], max_steps=3)
 
     executor.run_episode(episode_id=0, eval_max_steps=3)
 
@@ -42,9 +39,8 @@ def test_paused_fixed_latency_action_applies_same_frame():
 
 def test_paused_slow_policy_does_not_change_trajectory():
     actions = [Action("first"), Action("second"), Action("third")]
-    _, clock, _, _, _ = make_dummy_parts()
-    fast_executor = _executor(clock.frame_ms * 2, actions, max_steps=4, sleep_s=0.0)
-    slow_executor = _executor(clock.frame_ms * 2, actions, max_steps=4, sleep_s=0.01)
+    fast_executor = _executor(actions, max_steps=4, sleep_s=0.0)
+    slow_executor = _executor(actions, max_steps=4, sleep_s=0.01)
 
     fast_executor.run_episode(episode_id=0, eval_max_steps=4)
     slow_executor.run_episode(episode_id=1, eval_max_steps=4)
@@ -54,16 +50,15 @@ def test_paused_slow_policy_does_not_change_trajectory():
     ]
 
 
-def test_paused_logs_configured_latency_without_delaying_action(tmp_path: Path):
-    _, clock, _, jump_action, _ = make_dummy_parts()
-    fixed_latency_ms = clock.frame_ms * 2
+def test_paused_logs_zero_latency(tmp_path: Path):
+    _, _, _, jump_action, _ = make_dummy_parts()
     logger = TrajectoryLogger(
         tmp_path,
         save_step_records=True,
         save_action_records=True,
         save_latency_records=True,
     )
-    executor = _executor(fixed_latency_ms, [jump_action], max_steps=2, logger=logger)
+    executor = _executor([jump_action], max_steps=2, logger=logger)
 
     metrics = executor.run_episode(episode_id=0, eval_max_steps=2)
 

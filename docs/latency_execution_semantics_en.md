@@ -2,7 +2,7 @@
 
 **Status:** Draft v0.1  
 **Scope:** This document is the stable semantic contract for the latency-sensitive benchmark.  
-**Important:** This document should not contain implementation TODOs, bug lists, temporary workarounds, or current-code status. Those belong in `latency_execution_todo.md`.
+**Important:** This document should not contain implementation TODOs, bug lists, temporary workarounds, or current-code status. Keep implementation findings in dated audit records under `audits/`; the historical tracker is archived under `audits/archive/`.
 
 ---
 
@@ -727,4 +727,4 @@ This document does not include:
 5. open questions;
 6. temporary workarounds.
 
-Those belong in `latency_execution_todo.md`.
+Keep implementation findings in dated audit records under `audits/`; the historical tracker is archived under `audits/archive/`.

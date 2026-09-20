@@ -37,19 +37,17 @@ from latency_bench.executors.realtime.messages import (
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool
 from latency_bench.executors.realtime.timing import monotonic_ms
-from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
     apply_latency_raw_fields,
     apply_latency_record_raw_fields,
     compute_episode_metrics,
     episode_raw_fact_metadata,
-    profile_metadata_from_source,
+    PROFILE_METADATA_KEYS,
 )
 from latency_bench.logging.records import build_step_record
 from latency_bench.logging.realtime_pipeline import PipelineProfile, REALTIME_PROFILE_METADATA_KEY
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.policy.action_prefix import with_action_prefix
-from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
 from latency_bench.scheduler.result_coordinator import ResultCoordinator
@@ -91,18 +89,18 @@ class _EpisodeAccumulators:
 
 @dataclass(frozen=True)
 class RealtimeRuntime:
+    """Environment and scheduling dependencies for wall-clock execution."""
     env: EnvAdapter
     decision_scheduler: DecisionScheduler
-    latency_source: LatencySampler
     action_scheduler: ActionScheduler
     clock: EnvClock
 
 
 class RealtimeLatencyExecutor(EpisodeExecutor):
+    """Coordinate environment stepping with asynchronous worker inference."""
     def __init__(
         self,
         runtime: RealtimeRuntime,
-        policy: PolicyRunner | None,
         logger: TrajectoryLogger | None = None,
         time_fn: Callable[[], float] = time.perf_counter,
         sleep_fn: Callable[[float], None] = time.sleep,
@@ -116,7 +114,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         action_prefix=None,
     ):
         self._install_runtime(runtime)
-        self.policy = policy
+        self._profile_metadata = {key: None for key in PROFILE_METADATA_KEYS}
         self.logger = logger
         self.time_fn = time_fn
         self.sleep_fn = sleep_fn
@@ -256,7 +254,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
     def _install_runtime(self, runtime: RealtimeRuntime) -> None:
         self.env = runtime.env
         self.decision_scheduler = runtime.decision_scheduler
-        self.latency_source = runtime.latency_source
         self.action_scheduler = runtime.action_scheduler
         self.clock = runtime.clock
         self.inference_pool = None
@@ -818,7 +815,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         apply_latency_record_raw_fields(
             record=latency_record,
             latency_type="measured",
-            profile_metadata=profile_metadata_from_source(self.latency_source),
+            profile_metadata=self._profile_metadata,
         )
         event_metadata = dict(completion.policy_output.metadata)
         event_metadata["frame_ms"] = self.clock.frame_ms
@@ -841,7 +838,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             event=event,
             latency_type="measured",
             frame_ms=self.clock.frame_ms,
-            profile_metadata=profile_metadata_from_source(self.latency_source),
+            profile_metadata=self._profile_metadata,
         )
         event.dropped = bool(dropped)
         profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)

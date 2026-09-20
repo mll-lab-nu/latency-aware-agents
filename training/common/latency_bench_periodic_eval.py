@@ -15,6 +15,7 @@ from latency_bench.eval.reporting import _summary_payloads_for_printing
 from latency_bench.eval.suites import has_eval_suites
 from latency_bench.logging.wandb_eval import eval_scalar_payload
 from latency_bench.eval.sweeps import run_eval_suites_from_config
+from latency_bench.utils.paths import REPO_ROOT
 from training.common.checkpoints import (
     CheckpointEvalLease,
     acquire_checkpoint_eval_lease,
@@ -28,7 +29,6 @@ from training.common.checkpoints import (
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 BASE_CONFIGS = {
     "flappy": REPO_ROOT / "configs" / "base" / "flappy.yaml",
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",

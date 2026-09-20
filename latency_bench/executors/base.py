@@ -1,7 +1,7 @@
 """Common executor interface.
 
 Executors split into two families that share the same lifecycle contract
-(an environment handle, an optional trajectory logger, and ``close()``):
+(an optional trajectory logger and ``close()``):
 
 - :class:`EpisodeExecutor` runs one episode at a time via ``run_episode``.
 - :class:`BatchedExecutor` runs many episodes concurrently via ``run_episodes``.
@@ -21,19 +21,25 @@ if TYPE_CHECKING:
 
 class Executor(ABC):
     """Base for all latency executors."""
-    env: Any
     logger: TrajectoryLogger | None
 
     def run_warmup(self, *, artifact_dir: str | Path | None = None) -> dict[str, Any]:
         """Warm up before evaluation; returns metadata merged into episode metrics."""
         return {}
 
+    @abstractmethod
     def close(self) -> None:
-        self.env.close()
+        """Release resources owned by this executor."""
+        ...
 
 
 class EpisodeExecutor(Executor):
     """Executors that run a single episode per call."""
+    env: Any
+
+    def close(self) -> None:
+        self.env.close()
+
     @abstractmethod
     def run_episode(
         self,

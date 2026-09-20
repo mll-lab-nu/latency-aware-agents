@@ -17,11 +17,12 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval.config import (
     _apply_eval_latency,
-    _eval_latency_values,
+    _evaluation_seed,
     _is_sample_factory_policy,
+    _latency_steps_from_config,
     _latency_steps_to_ms,
     _selected_episode_count,
-    _train_latency_steps,
+    resolve_evaluation_config,
 )
 from latency_bench.eval.reporting import (
     _log_corrected_eval_summaries_to_wandb,
@@ -104,7 +105,8 @@ def run_eval_sweep_from_config(
         run_eval_suites_from_config(config, progress=progress, episode_ids=episode_ids, policy=policy)
         return []
 
-    eval_latency_values = _eval_latency_values(config)
+    resolve_evaluation_config(config)
+    eval_latency_values = config["evaluation"]["eval_latency_values"]
     if eval_latency_values is None:
         if not progress:
             return run_from_config(
@@ -139,9 +141,9 @@ def run_eval_sweep_from_config(
         return metrics
 
     base_output_dir = Path(config["logging"]["output_dir"])
-    train_latency_steps = _train_latency_steps(config)
+    train_latency_steps = _latency_steps_from_config(config)
     experiment_name = str(config["experiment"].get("name", "latency_bench"))
-    seed = int(config["experiment"].get("seed", 0))
+    seed = _evaluation_seed(config)
     all_metrics: list[EpisodeMetrics] = []
     num_sweeps = len(eval_latency_values)
     num_episodes = _selected_episode_count(config, episode_ids)
@@ -191,11 +193,12 @@ def run_eval_suites_from_config(
     policy: Any | None = None,
 ) -> list[dict[str, Any]]:
     suites = parse_eval_suites(config)
+    resolve_evaluation_config(config)
     policy = _reuse_checkpoint_policy(config, policy)
     base_output_dir = Path(config["logging"]["output_dir"])
-    train_latency_steps = _train_latency_steps(config)
+    train_latency_steps = _latency_steps_from_config(config)
     experiment_name = str(config["experiment"].get("name", "latency_bench"))
-    seed = int(config["experiment"].get("seed", 0))
+    seed = _evaluation_seed(config)
     num_episodes = _selected_episode_count(config, episode_ids)
     num_sweeps = sum(len(suite.fixed_latency_values or [suite.latency_label]) for suite in suites)
     if progress:
@@ -286,7 +289,7 @@ def _reuse_checkpoint_policy(
     executor_cfg = config["executor"]
     if executor_cfg["mode"] == "realtime" or (
         executor_cfg["mode"] == "simulated"
-        and executor_cfg.get("simulated_inference_pool")
+        and executor_cfg["simulated_inference_pool"]
     ):
         return None
 
@@ -328,7 +331,7 @@ def _run_retained_eval_checkpoints_from_config(
     for marker in _retained_eval_checkpoint_markers(config):
         train_env_steps = int(marker["train_env_steps"])
         checkpoint_config = deepcopy(config)
-        checkpoint_config.setdefault("policy", {})["checkpoint_path"] = str(marker["checkpoint_path"])
+        checkpoint_config["policy"]["checkpoint_path"] = str(marker["checkpoint_path"])
         checkpoint_config["logging"]["output_dir"] = str(
             base_output_dir / "eval_corrected_replay" / f"step_{train_env_steps}"
         )

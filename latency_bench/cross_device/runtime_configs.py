@@ -122,6 +122,8 @@ def _base_config(spec: dict[str, Any], output_dir: Path) -> dict[str, Any]:
             else None
         ),
     )
+    if "backbone_path" in spec:
+        config["policy"]["backbone_path"] = spec["backbone_path"]
     if "runtime_checkpoint_path" in spec:
         config["env"]["runtime_checkpoint_path"] = spec["runtime_checkpoint_path"]
     if spec["simulation_gpu"] is not None:

@@ -104,17 +104,6 @@ class _PendingPolicyObservation:
     worker_slot: int
 
 
-class _BatchedEnvCollection:
-    def __init__(self, envs: Sequence[EnvAdapter], close_fn: Callable[[], None]):
-        self.envs = list(envs)
-        self._close_fn = close_fn
-        self.noop_action = self.envs[0].noop_action if self.envs else None
-        self.env_fps = self.envs[0].env_fps if self.envs else 0.0
-
-    def close(self) -> None:
-        self._close_fn()
-
-
 class BatchedSimulatedLatencyExecutor(BatchedExecutor):
     """Run multiple simulated episodes concurrently with independent slot state.
 
@@ -126,8 +115,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
     def __init__(
         self,
         *,
-        envs: Sequence[EnvAdapter] | None = None,
-        env_backend: EnvStepBackend | None = None,
+        env_backend: EnvStepBackend,
         policy: PolicyRunner,
         decision_scheduler: DecisionScheduler,
         latency_sources: Sequence[LatencySampler],
@@ -143,7 +131,6 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot_count = env_backend.num_slots
         self.env_backend = env_backend
         self.envs = list(env_backend.slot_handles)
-        self.env = _BatchedEnvCollection(self.envs, close_fn=self.env_backend.close)
         self.policy = policy
         self.decision_scheduler = decision_scheduler
         self.clock = clock

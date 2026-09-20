@@ -33,10 +33,8 @@ from latency_bench.executors.realtime.messages import (
 )
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool, attach_observation_arrays
-from latency_bench.latency.samplers import ZeroSampler
 from latency_bench.logging.realtime_pipeline import PipelineProfile
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.policy.base import ConstantPolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
@@ -683,13 +681,11 @@ def _executor(
     runtime = RealtimeRuntime(
         env=env,
         decision_scheduler=ObservationCadenceDecisionScheduler(clock),
-        latency_source=ZeroSampler(clock=clock),
         action_scheduler=action_scheduler,
         clock=clock,
     )
     return RealtimeLatencyExecutor(
         runtime=runtime,
-        policy=ConstantPolicyRunner(Action("unused")),
         logger=logger,
         time_fn=fake_clock.time,
         sleep_fn=fake_clock.sleep,

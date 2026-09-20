@@ -9,6 +9,8 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
+from latency_bench.utils.paths import REPO_ROOT
+
 SONIC_ASSETS_REPO_ID = "latency-sensitive-bench/g1-sonic-assets"
 SONIC_ASSETS_REVISION = "7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d"
 
@@ -27,7 +29,7 @@ def prepare_g1_sonic_assets(cache_dir: Path) -> Path:
     )
     asset_root = snapshot / "sonic_g1"
     truck_source = (
-        Path(__file__).resolve().parents[2]
+        REPO_ROOT
         / "third_party/humanoid-bench/humanoid_bench/assets/tasks/truck.xml"
     )
     truck_target = asset_root / "tasks/truck.xml"

@@ -491,7 +491,7 @@ def test_build_env_adapter_passes_explicit_gpu_render_args_when_enabled(monkeypa
         def close(self):
             return None
 
-    monkeypatch.setattr(factory_module, "FlappyBirdEnvAdapter", FakeFlappyAdapter)
+    monkeypatch.setattr("latency_bench.envs.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
     config = _flappy_config()
     config["policy"] = {"type": "flappy_sf"}
     config["env"].update(
@@ -532,7 +532,7 @@ def test_flappy_starvla_env_exports_raw_rgb_frames(monkeypatch):
         def close(self):
             return None
 
-    monkeypatch.setattr(factory_module, "FlappyBirdEnvAdapter", FakeFlappyAdapter)
+    monkeypatch.setattr("latency_bench.envs.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
     config = _flappy_config()
     config["policy"] = {"type": "starvla"}
     noop = Action(value=0, name="noop", is_noop=True)
@@ -553,7 +553,7 @@ def test_build_executor_maps_flappy_policy_actions(tmp_path):
         assert executor.policy.action.is_oneshot
         assert executor.action_scheduler.noop_action.value == 0
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path):

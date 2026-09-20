@@ -1,0 +1,98 @@
+# Core infrastructure
+
+This source release keeps benchmark code, experiment entrypoints, and pinned
+third-party sources in one checkout. Installation and simulator setup live in
+[QUICK_START](QUICK_START.md); task commands live in the
+[standard pipeline](standard_pipeline.md) and its linked cookbooks.
+
+## Responsibilities
+
+| Area | Owns |
+| --- | --- |
+| `latency_bench/core`, `scheduler` | Raw-frame time, action lifecycle, ordering and hold semantics |
+| `latency_bench/executors` | Paused, simulated, batched and realtime execution; worker and environment cleanup |
+| `latency_bench/latency` | Delay sampling, measurement, profile construction and replay |
+| `latency_bench/eval`, `logging` | Episode orchestration, trace output and aggregate metrics |
+| `latency_bench/envs`, `policy`, `integrations` | Simulator, model and training-framework boundaries |
+| `latency_bench/data`, `training`, `scripts` | Dataset conversion, training recipes and user entrypoints |
+| `latency_bench/cross_device` | Deployment identity, profile artifacts and cross-device orchestration |
+
+The [English](latency_execution_semantics_en.md) and
+[Chinese](latency_execution_semantics_zh.md) contracts define experiment timing.
+Changes to code organization must preserve observation cadence, delay rounding,
+per-episode seeds, submission/ready/application frames, FIFO/latest-ready
+ordering, chunk handling, hold behavior and timeout/late-result handling.
+
+Single-environment, batched and realtime loops have distinct scheduling and
+resource contracts. Shared memory, worker pools, GPU batching, render-equivalence
+conditions and streaming metrics are intentional performance mechanisms. Keep
+measurement boundaries and synchronization points stable when refactoring.
+Optional simulator/model imports remain lazy where they isolate environments.
+
+## Configuration and artifacts
+
+YAML `__base__` paths are relative to the containing YAML file. Base files are
+merged in order and the current file wins; CLI overrides are applied afterwards.
+The evaluation boundary expands explicit filesystem inputs relative to the caller's
+working directory and passes absolute paths downstream. Bundled runtime resources
+use the shared source-checkout anchor in `latency_bench.utils.paths`. Each evaluation
+output directory records `resolved_config.yaml` after defaults and action-prefix
+preparation, before episodes run. An omitted experiment seed stays omitted:
+policy/suite randomness and the evaluation episode seed have distinct contracts.
+Pass external checkpoint, manifest, backbone and output paths explicitly. See
+[artifact preparation](artifacts.md#prepare-a-backbone-for-evaluation) for a
+portable overlay without editing an archived experiment recipe.
+
+Public task commands own artifact preparation before evaluation starts. Policy
+inference consumes prepared local inputs. The task StarVLA adapter requires
+`policy.backbone_path`; generic StarVLA adapters use that field to override the
+checkpoint's stored model configuration when needed. Choose the original model
+identity and revision from the artifact provenance, never from a local basename.
+
+## Training-framework boundaries
+
+The Sample Factory source version is fixed by the repository's submodule commit.
+Compatibility code in `training/common` has active training consumers:
+
+- `sf_gpu_sampling_compat.py` adapts batched rollout advancement for GPU tensor
+  environments, installed by the Flappy and Demon Attack integrations.
+- `sf_episode_extra_stats_compat.py` preserves Flappy episode statistics through
+  batched sampling; `sf_raw_reward_stats_compat.py` preserves Demon Attack's raw
+  reward reporting independently of learning reward scaling.
+- `checkpoints.py` owns atomic checkpoint writes and retained evaluation inputs;
+  training and periodic evaluation depend on these lifetimes.
+
+These are explicit upstream integration boundaries. Updating the pinned framework
+requires the corresponding training, statistics and checkpoint tests, followed by
+real training and performance checks. A local code cleanup alone does not justify
+removing a patch or changing its installation order.
+
+## Validation and remaining release gates
+
+See the [cleanup verification record](audits/infra_release_cleanup.md) for executed
+checks, baseline failures and the remaining release gates.
+
+Use the owning suites under `tests/` and the existing infrastructure acceleration
+benchmark. Compare fixed checkpoints, resolved configs, episode IDs, seeds,
+latency inputs and FPS. Deterministic cases should preserve actions, application
+frames, termination, returns and metrics; use established numerical tolerances.
+Exercise resource cleanup as well as successful runs.
+
+On the same hardware, compare warmed-up alternating baseline/refactor runs for
+throughput, CPU/GPU work, memory and realtime deadlines. A median regression over
+5% requires investigation; it is not an accepted performance budget. Simulator,
+GPU and training checks that were not executed remain unverified.
+
+Streaming batched metrics and trace extraction currently differ for certain
+`score`/`game_score`, raw-return alias and missing-final-value inputs. Their
+interpretation is intentionally unchanged by infrastructure cleanup. A temporary
+probe confirmed, for example, that simultaneous `game_score=1` and `score=2`
+produce trace score 1 and streaming score 2; a missing final score also differs. Any fix
+must separately identify affected experiments and report the semantic change.
+
+For release acceptance, exercise a fresh checkout with pinned submodules and
+explicit external artifacts, including evaluation from outside the checkout.
+[Archived audits](audits/archive/README.md) are dated implementation evidence,
+not a current checklist. Verified task results and decisions belong in
+[`program/PROGRESS.md`](../program/PROGRESS.md); operational history belongs in
+`program/logs/` and raw evidence in `outputs/`.

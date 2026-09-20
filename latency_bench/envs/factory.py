@@ -14,20 +14,6 @@ EnvAdapterBuilder = Callable[[dict[str, Any], Action], EnvAdapter]
 _ENV_ADAPTER_BUILDERS: dict[str, EnvAdapterBuilder] = {}
 
 
-def _flappy_env_adapter_type() -> type[EnvAdapter]:
-    if "FlappyBirdEnvAdapter" not in globals():
-        from latency_bench.envs.flappy import FlappyBirdEnvAdapter as adapter_type
-
-        globals()["FlappyBirdEnvAdapter"] = adapter_type
-    return globals()["FlappyBirdEnvAdapter"]
-
-
-def __getattr__(name: str) -> Any:
-    if name == "FlappyBirdEnvAdapter":
-        return _flappy_env_adapter_type()
-    raise AttributeError(name)
-
-
 def register_env_adapter(name: str) -> Callable[[EnvAdapterBuilder], EnvAdapterBuilder]:
     normalized_name = _normalize_env_name(name)
 
@@ -153,7 +139,9 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
     obs_resize = env_cfg.get("obs_resize")
     if obs_resize is not None:
         obs_resize = tuple(int(value) for value in obs_resize)
-    return _flappy_env_adapter_type()(
+    from latency_bench.envs.flappy import FlappyBirdEnvAdapter
+
+    return FlappyBirdEnvAdapter(
         gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),
         env_fps=float(env_cfg["env_fps"]),
         noop_action=noop_action,

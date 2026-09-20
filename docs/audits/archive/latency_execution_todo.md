@@ -1,5 +1,9 @@
 # Latency Execution TODO / Audit
 
+> Archived implementation snapshot from 2026-05-08. Status and TODOs below
+> describe that audit, not the current runtime. See [core infrastructure](../../infra.md)
+> and the [semantic contract](../../latency_execution_semantics_en.md) for current guidance.
+
 **Status:** Dynamic working document
 **Last audit:** 2026-05-08
 **Scope:** This file tracks current implementation gaps, audit evidence, refactor phases, open questions, and moving TODOs.
