@@ -969,8 +969,9 @@ def _validate_gymnasium_starvla_contract(
     manifest = json.loads(
         Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
     )
+    manifest_task = manifest.get("gymnasium_task")
     expected = policy_cfg.get(
-        "gymnasium_training_task_contract", manifest["gymnasium_task"]
+        "gymnasium_training_task_contract", manifest_task or eval_contract
     )
     comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
     if _canonical_gymnasium_contract_namespace(
@@ -979,22 +980,30 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA training contract or dataset manifest"
         )
-    if manifest["integration_name"] != "gymnasium":
+    if manifest.get("integration_name", "gymnasium") != "gymnasium":
         raise ValueError("StarVLA task manifest is not a Gymnasium handoff")
-    if _canonical_gymnasium_contract_namespace(
-        manifest["gymnasium_task"]
-    ) != _canonical_gymnasium_contract_namespace(expected):
-        raise ValueError(
-            "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
-        )
-    if _canonical_gymnasium_contract_namespace(
-        model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]
-    ) != _canonical_gymnasium_contract_namespace(expected):
-        raise ValueError(
-            "Evaluation Gymnasium task contract does not match the StarVLA model config"
-        )
+    if manifest_task is not None:
+        if _canonical_gymnasium_contract_namespace(
+            manifest_task
+        ) != _canonical_gymnasium_contract_namespace(expected):
+            raise ValueError(
+                "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
+            )
+    model_contract = model_cfg["datasets"]["vla_data"].get("gymnasium_task_contract")
+    if model_contract is not None:
+        if _canonical_gymnasium_contract_namespace(
+            model_contract
+        ) != _canonical_gymnasium_contract_namespace(expected):
+            raise ValueError(
+                "Evaluation Gymnasium task contract does not match the StarVLA model config"
+            )
     action_space = gymnasium_action_space_contract(env_cfg)
-    if manifest["active_action_dim"] != len(action_space["labels"]):
+    action_layout = str(policy_cfg.get("action_layout", "") or "").strip().lower()
+    is_asterix_factorized = (
+        str(env_cfg.get("task_name", "")) == "asterix"
+        and action_layout in {"factorized_6", "factorized6", "asterix_factorized_6", "asterix_factorized6"}
+    )
+    if not is_asterix_factorized and manifest["active_action_dim"] != len(action_space["labels"]):
         raise ValueError(
             "StarVLA dataset active_action_dim does not match its Gymnasium action catalog"
         )
@@ -1005,16 +1014,21 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "StarVLA model action_env_dim does not match the dataset manifest"
         )
-    manifest_uses_state = manifest["uses_state"]
-    if manifest_uses_state != ("state_space" in expected):
-        raise ValueError(
-            "StarVLA dataset uses_state does not match the Gymnasium state space"
-        )
-    if manifest_uses_state != model_cfg["datasets"]["vla_data"]["include_state"]:
-        raise ValueError(
-            "StarVLA dataset uses_state does not match the model include_state"
-        )
-    if manifest_uses_state:
+    model_uses_state = bool(model_cfg["datasets"]["vla_data"]["include_state"])
+    manifest_has_state_metadata = (
+        "uses_state" in manifest or "state_labels" in manifest
+    )
+    manifest_uses_state = bool(manifest.get("uses_state", model_uses_state))
+    if manifest_has_state_metadata:
+        if manifest_uses_state != ("state_space" in expected):
+            raise ValueError(
+                "StarVLA dataset uses_state does not match the Gymnasium state space"
+            )
+        if manifest_uses_state != model_uses_state:
+            raise ValueError(
+                "StarVLA dataset uses_state does not match the model include_state"
+            )
+    if manifest_has_state_metadata and manifest_uses_state:
         state_labels = manifest["state_labels"]
         expected_state_labels = expected["state_space"]["labels"]
         if state_labels != expected_state_labels:
@@ -1103,9 +1117,15 @@ def build_starvla_policy(
             wrapper_kwargs["backbone_path"] = backbone_path
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
+        decode_env_name = (
+            semantic_env_name
+            if action_space["type"] != "box"
+            else integration_env_name
+        )
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
         if action_space["type"] == "box":
             wrapper_kwargs["rl_games_gymnasium_action_space_type"] = "box"
+        wrapper_kwargs["rl_games_env_name"] = decode_env_name
     wrapper = wrapper_cls(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
@@ -1132,7 +1152,7 @@ def build_starvla_policy(
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=model_cfg,
         state_normalization=(
-            task_manifest["state_normalization"]
+            task_manifest.get("state_normalization")
             if integration_env_name == "gymnasium"
             else None
         ),
@@ -1211,9 +1231,15 @@ def build_live_starvla_policy(
     )
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
+        decode_env_name = (
+            semantic_env_name
+            if action_space["type"] != "box"
+            else integration_env_name
+        )
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
         if action_space["type"] == "box":
             wrapper_kwargs["gymnasium_action_space_type"] = "box"
+        wrapper_kwargs["env_name"] = decode_env_name
     wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
     latency_prompt_map = (
         load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
@@ -1240,7 +1266,7 @@ def build_live_starvla_policy(
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=normalized_model_cfg if integration_env_name == "gymnasium" else None,
         state_normalization=(
-            task_manifest["state_normalization"]
+            task_manifest.get("state_normalization")
             if integration_env_name == "gymnasium"
             else None
         ),

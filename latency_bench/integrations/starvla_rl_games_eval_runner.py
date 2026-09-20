@@ -38,6 +38,7 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
 from latency_bench.eval.config import _apply_eval_latency
 from latency_bench.eval.driver import run_from_config
+from latency_bench.envs.gymnasium_task import gymnasium_task_contract
 from latency_bench.policy.starvla import (
     apply_starvla_model_input_config,
     build_live_starvla_policy,
@@ -90,7 +91,15 @@ def _starvla_latency_label_to_raw_frames(
     latency_prompt_map_path: str | None,
 ) -> int:
     if latency_prompt_map_path is not None:
-        entry = load_latency_prompt_map(latency_prompt_map_path)[str(latency_steps)]
+        prompt_map = load_latency_prompt_map(latency_prompt_map_path)
+        key = str(latency_steps)
+        if key not in prompt_map:
+            available = ", ".join(sorted(prompt_map.keys(), key=lambda x: int(x))[:20])
+            raise KeyError(
+                f"Latency prompt key {key!r} not found in {latency_prompt_map_path}. "
+                f"Available keys include: {available}"
+            )
+        entry = prompt_map[key]
         if "latency_raw_frames" in entry:
             return entry["latency_raw_frames"]
         return entry["latency"]
@@ -296,11 +305,15 @@ def build_latency_bench_config_for_rl_games(
         "checkpoint_path": str(output_dir),  # metadata only; live model is injected
         "device": "cuda",
     }
-    if env_name == "gymnasium":
+    if str(config["env"].get("name", "")) == "gymnasium":
         data_cfg = model_cfg["datasets"]["vla_data"]
-        policy["task_manifest_path"] = str(
-            Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
-        )
+        task_manifest_path = Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
+        policy["task_manifest_path"] = str(task_manifest_path)
+        if "gymnasium_task_contract" in data_cfg:
+            task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
+        else:
+            task_manifest = json.loads(task_manifest_path.read_text(encoding="utf-8"))
+            task_contract = task_manifest.get("gymnasium_task", gymnasium_task_contract(config["env"]))
         policy["gymnasium_training_task_contract"] = task_contract
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key
@@ -451,6 +464,21 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         )
         mode = str(mode or "").strip().lower()
         return None if mode in {"", "default", "none", "raw"} else mode
+
+    def _get_latency_values(self, stage: str, task: str | None = None) -> list[int]:
+        stage_cfg = self._task_stage_cfg(task, stage)
+        if bool(_cfg_get(stage_cfg, "latencies_from_prompt_map", False)):
+            prompt_map_path = self._prompt_map_path(task)
+            if not prompt_map_path:
+                raise ValueError(
+                    f"rl_games.env_eval.{stage}.latencies_from_prompt_map=true "
+                    "but no latency prompt map path was configured"
+                )
+            prompt_map = load_latency_prompt_map(prompt_map_path)
+            if not prompt_map:
+                raise ValueError(f"Latency prompt map is empty: {prompt_map_path}")
+            return sorted(int(key) for key in prompt_map.keys())
+        return super()._get_latency_values(stage=stage, task=task)
 
     def _model_cfg_from_training_cfg(self) -> dict[str, Any]:
         from omegaconf import OmegaConf
