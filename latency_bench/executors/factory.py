@@ -42,6 +42,7 @@ from latency_bench.scheduler.decision import (
     ObservationCadenceDecisionScheduler,
 )
 from latency_bench.scheduler.factory import build_action_scheduler
+from latency_bench.policy.action_prefix import prepare_action_prefix
 
 
 def build_executor(
@@ -52,6 +53,7 @@ def build_executor(
     env_backend: EnvStepBackend | None = None,
     inference_devices: list[str] | None = None,
 ) -> Executor:
+    prepare_action_prefix(config)
     executor_cfg = config["executor"]
     if inference_devices is None and "inference_devices" in executor_cfg:
         inference_devices = executor_cfg["inference_devices"]
@@ -240,6 +242,7 @@ def _build_single_simulated_executor(
         episode_latency_source_factory=episode_latency_source_factory,
         simulated_worker_capacity=_simulated_worker_capacity(config),
         inference_pool=inference_pool,
+        action_prefix=config["policy"]["action_prefix"],
     )
 
 
@@ -325,6 +328,7 @@ def _build_batched_simulated_executor(
             simulated_worker_capacity=_simulated_worker_capacity(config),
             profile_pipeline=config["logging"].get("simulated_pipeline_profile", False),
             inference_pool=inference_pool,
+            action_prefix=config["policy"]["action_prefix"],
         )
     except Exception:
         if inference_pool is not None:
@@ -351,6 +355,7 @@ def _build_paused_executor(
         action_scheduler=c.action_scheduler,
         clock=c.clock,
         logger=c.logger,
+        action_prefix=config["policy"]["action_prefix"],
     )
 
 
@@ -387,6 +392,7 @@ def _build_realtime_executor(
         use_env_process=env is None,
         video_output_dir=video_output_dir,
         video_fps=runtime.clock.env_fps,
+        action_prefix=config["policy"]["action_prefix"],
     )
 
 

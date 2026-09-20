@@ -32,6 +32,7 @@ from latency_bench.logging.metrics import (
 )
 from latency_bench.logging.records import build_step_record
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.policy.action_prefix import with_action_prefix
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
@@ -79,6 +80,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         episode_latency_source_factory: Callable[[int], LatencySampler] | None = None,
         simulated_worker_capacity: int | None = None,
         inference_pool=None,
+        action_prefix=None,
     ):
         self.env = env
         self.policy = policy
@@ -92,6 +94,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         self.episode_latency_source_factory = episode_latency_source_factory
         self.simulated_worker_capacity = simulated_worker_capacity
         self.inference_pool = inference_pool
+        self.action_prefix = action_prefix
         self._next_obs_id = 0
         self._next_action_id = 0
 
@@ -226,6 +229,9 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     }
                     latency_sample = self.latency_source.sample(latency_context)
                     latency_ms = latency_sample.latency_ms
+                    observation = with_action_prefix(
+                        observation, self.action_scheduler, self.action_prefix
+                    )
                     policy_metadata = dict(observation.metadata)
                     policy_metadata.update(
                         {

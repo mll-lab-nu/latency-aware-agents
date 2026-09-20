@@ -1287,3 +1287,20 @@ def test_subproc_backend_multidiscrete_action_path(tmp_path: Path):
     assert [metric.episode_id for metric in metrics] == [0, 1]
     step = json.loads((tmp_path / "steps.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert step["active_action"]["value"] == [1, 2]
+
+
+def test_fixed_prefix_is_isolated_between_environment_slots(tmp_path):
+    """Long-lived batched request contract: each prefix uses its own controller."""
+    policy = MetadataCapturePolicy()
+    executor, _ = _executor(tmp_path, policy=policy, env_max_steps=1)
+    executor.action_prefix = {"mode": "profile_mean", "frames": 2, "action_horizon": 4, "action_dim": 1}
+    for index, slot in enumerate(executor.slots):
+        slot.action_scheduler.noop_action = Action([10.0 + index])
+    try:
+        executor.run_episodes(episode_ids=[0, 1], seeds=[1, 2], eval_max_steps=1)
+        metadata = policy.batches[0]
+        for item in metadata:
+            np.testing.assert_array_equal(item["action_prefix"][:2, 0], 10 + item["slot_id"])
+            np.testing.assert_array_equal(item["action_prefix_mask"], [True, True, False, False])
+    finally:
+        executor.close()

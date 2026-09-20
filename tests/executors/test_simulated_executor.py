@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
@@ -380,26 +381,37 @@ def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
     assert [call["raw_frame"] for call in latency_source.calls] == [0, 6]
 
 
-def test_policy_observation_does_not_leak_sampled_latency():
+@pytest.mark.parametrize("delay", [1, 3, 5])
+@pytest.mark.parametrize("prefix_mode", ["none", "profile_mean"])
+def test_policy_observation_does_not_leak_sampled_latency(delay, prefix_mode):
     # Realtime execution cannot know an action's latency before inference runs,
     # so simulated replay must not reveal it either: leaking the sampled value
     # changed the StarVLA prompt per step and skewed sim-vs-real returns.
-    policy = CapturingPolicyRunner(Action("jump"))
+    policy = CapturingPolicyRunner(Action([1.0]))
     executor, _, _, _ = _executor(
-        RawFrameLatencySource([3]),
+        RawFrameLatencySource([delay]),
         policy=policy,
-        max_steps=4,
+        max_steps=6,
         decision_scheduler=SelectedRawFrameDecisionScheduler({0}),
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=4)
+    executor.action_scheduler.noop_action = Action([7.0])
+    executor.action_prefix = {"mode": prefix_mode, "frames": 3, "action_horizon": 8, "action_dim": 1}
+    executor.run_episode(episode_id=0, eval_max_steps=6)
 
     assert policy.observations[0].metadata["obs_id"] == 0
     assert "latency_ms" not in policy.observations[0].metadata
     assert "latency_raw_frames" not in policy.observations[0].metadata
+    metadata = policy.observations[0].metadata
+    if prefix_mode == "none":
+        assert "action_prefix" not in metadata
+        assert "action_prefix_mask" not in metadata
+    else:
+        np.testing.assert_array_equal(metadata["action_prefix"][:3, 0], [7, 7, 7])
+        np.testing.assert_array_equal(metadata["action_prefix_mask"], np.arange(8) < 3)
     event = executor.action_scheduler.get_applied_events()[0]
     assert event.latency.obs_id == policy.observations[0].metadata["obs_id"]
-    assert event.latency_raw_frames == 3
+    assert event.latency_raw_frames == delay
 
 
 def test_single_simulated_executor_adds_slot_id_to_policy_observation_and_latency_context():

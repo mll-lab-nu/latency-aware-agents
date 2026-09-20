@@ -733,11 +733,16 @@ def test_starvla_wanoft_uses_explicit_full_model_config(
     assert output.metadata["input_frame_count"] == 5
 
 
-def test_prepare_task_starvla_config_exposes_gymnasium_state(tmp_path: Path):
+@pytest.mark.parametrize("horizon", [None, 8, 16])
+def test_prepare_task_starvla_config_exposes_gymnasium_state(tmp_path: Path, horizon):
     from latency_bench.policy import starvla
 
     contract = tmp_path / "task_contract.json"
-    contract.write_text(json.dumps({"state_labels": ["position", "velocity"]}))
+    contract.write_text(json.dumps({
+        "state_labels": ["position", "velocity"],
+        "robot_type": "task_robot" if horizon is None else f"latency_balance_profile_h{horizon}",
+        "action_horizon": horizon,
+    }))
     config = _config(tmp_path)
     config["env"].update({"name": "gymnasium", "frame_stack": 4})
     config["policy"]["task_contract_path"] = str(contract)
@@ -748,6 +753,9 @@ def test_prepare_task_starvla_config_exposes_gymnasium_state(tmp_path: Path):
     assert config["env"]["state_space"] == {
         "labels": ["position", "velocity"]
     }
+    assert config["env"]["name"] == ("gymnasium" if horizon is None else "balance_profile")
+    if horizon is not None:
+        assert config["env"]["action_context_horizon"] == horizon
 
 
 def test_prepare_starvla_checkpoint_input_config_uses_explicit_full_model_config(

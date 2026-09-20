@@ -252,3 +252,44 @@ native 验证：
 - submodule 改动（HAIC 12 文件、Isaaclab_Parkour 11 文件）需要分别 review/commit，**必须整树
   提交**（staged index 是旧迭代：只有 worktree 状态是自洽的），之后主仓库才能更新 gitlink；
   不能只提交 dirty gitlink。
+
+
+## 固定 profile 均值 prefix
+
+四任务共用策略请求合同，适用于单环境/批量 simulated、realtime 本地/环境子进程，
+以及 Balance 的 DAgger 学生推理、development、held-out 和独立评估。
+
+- `policy.action_prefix.mode: none`：不传显式 prefix；baseline 既有 state/action context 保留。
+- `profile_mean` 必须提供独立的 `policy.action_prefix.profile_path`。
+  配置入口从原始 `summary.mean_ms` 计算 `K=ceil(mean_ms*env_fps/1000)`，要求 `0≤K<H`。
+  保存解析后的 mean_ms、env_fps、frames、action_horizon、action_dim 和 profile_path；
+  同一运行及其恢复使用这份冻结配置，不因采样延迟或实时预热重新选择 K。
+- 实际 simulated d 仍由 `latency` 配置采样；realtime d 为实际完成耗时。
+  参考 profile 不替代实际延迟来源。K=0 使用全 false mask；K≥H 不截断、不自动扩展模型。
+- prefix 只根据观测帧时控制器已收到的动作投影，复用 scheduler 的 startup/hold/ordering。
+  不访问未返回 timeline；到达时仍按 observation timestamp 跳过过期 head，不额外等待 K。
+- realtime 在环境侧固定输入，prefix 在共享内存模板建立前加入；父进程仅转发。
+  预热与正式请求输入结构一致，episode 开始重置调度状态。
+- Balance 增广 state 的公共环境适配保留旧 chunk 与当前位置；模拟训练 rollout 继续复用
+  原来的任务包装。MuJoCo EGL 在初始化前设置；其他任务保持原渲染器。
+
+统一独立入口：`python -m scripts.starvla.evaluate --task TASK --bundle BUNDLE
+--environment ENV_CONFIG --output NEW_DIRECTORY --prefix-mode none
+--vla-python VLA_PYTHON --backbone BACKBONE`。
+conditioned 使用 `--prefix-mode profile_mean --prefix-profile PROFILE`。
+通用任务由 `--task-python` 指定原生任务环境 Python；默认是当前 Python。
+原生配置决定 executor 模式；realtime 的 `latency.method=measured`、单环境设置沿用已有合同。
+Balance 的固定均值补评测 seeds/FPS/指标参见 [BALANCE_CAUSAL_EVAL](BALANCE_CAUSAL_EVAL.md)。
+
+新 Balance 训练显式指定 `--horizon 8` 或 `--horizon 16`。conditioned teacher 私有分支先
+回放与学生请求相同的 K 个动作，再生成 suffix；prefix 不计入 loss，终止后不提供监督。
+真实随机 d 仅影响在线轨迹及执行后的日志，不进入学生输入或决定标签 mask。
+这条标签分支是反事实监督，不要求与真实执行轨迹逐帧相等。
+
+旧数据、checkpoint 与实验结果保持原样。旧模型可在新输出目录重评；旧 run 不原地恢复
+为新协议，也不复用旧 evaluation/history 做新 best 比较。新 run 的 environment.json 与
+数据 label_provenance、导出的 task_contract 与 rollout 结果均保存 action_prefix 合同；
+checkpoint bundle 沿用同一 task_contract，恢复沿用原配置。此次迁移本身不表示重训、
+正式评测或发布完成。
+
+实现验证：[固定 K 公共合同回归记录](../outputs/tasks/humanoidbench_balance_simple/fixed_k_unification_20260920/README.md)。

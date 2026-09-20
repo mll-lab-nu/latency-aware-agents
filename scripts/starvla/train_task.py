@@ -400,7 +400,7 @@ def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
     if args.task in ('parkour', 'haic'):
         config['env']['runtime_checkpoint_path'] = str(teacher)
     config['policy'] = {
-        'type': 'starvla', 'checkpoint_path': str(bundle / 'checkpoints/model.pt'),
+        'type': 'starvla', 'action_prefix': {'mode': 'none'}, 'checkpoint_path': str(bundle / 'checkpoints/model.pt'),
         'model_config_path': str(bundle / 'config.yaml'), 'task_contract_path': str(bundle / 'task_contract.json'),
         'worker_python_executable': str(args.vla_python), 'device': args.inference_device,
         'state_info_key': settings['state_info_key'],
@@ -426,14 +426,8 @@ def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
     return config
 
 
-def evaluate(args, bundle: Path, teacher: Path, *, label: str,
-             wandb_checkpoint: tuple[str, int] | None = None) -> Path:
-    """Run native eval and optionally log its checkpoint metrics to the training run."""
-    output_dir = args.output_dir / 'evals' / label
-    output_dir.mkdir(parents=True, exist_ok=True)
-    config_path = output_dir / 'eval_config.yaml'
-    config = eval_config(args, bundle, teacher, output_dir, eval_episodes=args.eval_episodes)
-    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+def evaluation_command(args, config_path):
+    """Launch the task's native environment with the shared evaluation driver."""
     if args.task == 'balance':
         command = [args.task_python, '-m', 'latency_bench.run', '--config', config_path]
     elif args.task == 'mikasa':
@@ -444,6 +438,18 @@ def evaluate(args, bundle: Path, teacher: Path, *, label: str,
     else:
         command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py', 'latency-eval',
                    '--headless', '--eval-config', config_path]
+    return command
+
+
+def evaluate(args, bundle: Path, teacher: Path, *, label: str,
+             wandb_checkpoint: tuple[str, int] | None = None) -> Path:
+    """Run native eval and optionally log its checkpoint metrics to the training run."""
+    output_dir = args.output_dir / 'evals' / label
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config_path = output_dir / 'eval_config.yaml'
+    config = eval_config(args, bundle, teacher, output_dir, eval_episodes=args.eval_episodes)
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    command = evaluation_command(args, config_path)
     run_command(command, output_dir / 'stdout.log')
     if wandb_checkpoint is not None and not args.smoke:
         run_id, step = wandb_checkpoint

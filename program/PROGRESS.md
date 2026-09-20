@@ -1,6 +1,6 @@
 # Benchmark 核心进展
 
-最后核查：**2026-09-17**。本文只记录四个主任务的已核验结果、关键决策、当前缺口和下一步；清理前的完整时间线见
+最后核查：**2026-09-20**。本文只记录四个主任务的已核验结果、关键决策、当前缺口和下一步；清理前的完整时间线见
 [历史快照](logs/PROGRESS-pre-cleanup-2026-09-17.md)，运行手册和专题记录见 [program 索引](README.md)。
 
 固定公共版本：
@@ -169,16 +169,38 @@ temporal 项使用 latency seed `271828`。WanOFT 为 10Hz，其余为 20Hz。
 
 - Profile BC 在 64 fresh paired streams 上将 mean length 从 69.125 提升到 111.156，paired gain +42.031、95% interval `[32.296, 52.391]`；但仍有 24/64 在 100 frames 前结束，`>=500` 为 0。[report](../outputs/tasks/humanoidbench_balance_simple/profile_bc/formal_s1_20260916T1330Z/REPORT.md)
 - 旧 QwenOFT profile DAgger 每轮错误地从长期不变的 `best` model 重启，不能作为连续 5k DAgger 结果；修正版要求 `latest` 驱动采集并连续恢复 optimizer/scheduler/RNG。
-- 修正版 QwenOFT run 只到 DAgger step 1,500，best development mean length 70.781；没有 final held-out evaluation，故不作 acceptance。
-- 最近一次已记录的正式矩阵为 QwenOFT H8 zero 与 QwenPI H16 zero/profile-suffix/profile-executed 四臂；截至 2026-09-17 09:50 仅确认启动和早期 checkpoint，训练、终点评测、acceptance、publication 均未完成。旧 running 信息不证明其当前仍在运行。
-- **第二台 H200 launch audit（2026-09-17 13:10:52 UTC）**：主机 `h200-8-asia-test-1`，实验根目录 `/mnt/local/balance-zero-extra-20260917T1055Z`；root revision `f25fd8b7f932560833c771ca23d3cffd7e14df01`、humanoid-bench `bfb63711ebe41bc0965287353b657f9bc52699da`、starVLA `d9e060588c4303b927a518948380647dcec4aca7`。无头 MuJoCo 根因已由最小单环境渲染确认并以 launch 环境 `MUJOCO_GL=egl` 修复，不需要显式 `PYOPENGL_PLATFORM`；旧失败证据保留在 `logs/qwengr00t-chain.log`、`logs/wanoft-chain.log`。
-- **Smoke 完成**：QwenGR00T H16 `zero_full`（micro-batch 64、gradient checkpointing off）和 WanOFT H40 `zero_full`（micro-batch 16、gradient checkpointing on）均完成 6 optimizer steps。共同 held-out protocol 均为 n=2：QwenGR00T bootstrap/best/latest mean length `19.5/19.5/18.0`、mean return `12.296/12.296/11.417`；WanOFT 为 `38.5/38.5/16.5`、mean return `5.463/5.463/8.890`，两者 `>=100` 与 `>=500` 均为 0。WanOFT micro-batch 64、32 的可复现 OOM 分别保留在 `logs/wanoft-chain-egl.log`、`logs/wanoft-chain-mb32.log`；micro-batch 16 的完整 smoke 通过，生成 YAML 已核对 loader workers 16/rank、prefetch 3、save interval 500、`keep_last_n: 2` 和 checkpointing 设置。
-- **正式 launch 已验证，训练未完成**：chain PID `56221`/formal controller PID `65648` 在 GPU 4–5 运行 QwenGR00T；chain PID `62034`/formal controller PID `74006` 在 GPU 6–7 运行 WanOFT。两臂均为 fresh bootstrap、71k labels/5k updates 后接 10×(16k labels/500 updates)、rollout overlap、16 rollout workers、inference batch 8、global batch 128；QwenGR00T micro-batch 64/accumulation 1，WanOFT micro-batch 16/accumulation 4。审计时两者仍在 formal bootstrap 数据采集（QwenGR00T 46,702 labels，WanOFT 1,799 labels），formal optimizer step 均为 0、尚无 formal checkpoint；成功链日志 `logs/qwengr00t-chain-egl.log`、`logs/wanoft-chain-mb16.log` 无 traceback/OOM。
-- **状态分离与下一步**：launch/smoke 已完成；formal training、终点共同-seed evaluation、acceptance 和 publication 均未完成。继续监控 5k bootstrap checkpoint 与 10 个 500-step DAgger 边界，完成后核验 final held-out 指标和 `publication.json`，再分别记录 training/evaluation/acceptance/publication 结果；当前 smoke 数值不得作为质量 acceptance。
+- **QwenOFT H8 训练与发布完成**：`zero_full` 与 `profile_conditioned` 均完成 5k bootstrap + 5k DAgger optimizer updates，best/latest 均为各自 `bundles/dagger_10_5000`。`zero_full` 在 zero-latency、共同 held-out seeds 820001--820064 下为 mean length `297.8125`、mean return `275.56409`、`>=100` `64/64`、`>=500` `4/64`。发布 revision 分别为 `24cc874d59bec339bcf40046764e52fa26334dc8` 和 `04bf16cfef9a469354256ed179db4fe548be03d3`。
+- **QwenPI H16 训练与发布完成**：`zero_full` 与 `profile_conditioned` 均完成 5k bootstrap + 5k DAgger optimizer updates，best/latest 都是各自 `bundles/dagger_10_5000`。`zero_full` 在 zero-latency、共同 held-out seeds 820001--820064 下为 mean length `351.59375`、mean return `328.60200`、`>=100` `64/64`、`>=500` `7/64`。发布 revision 分别为 `72747b40b4289766a624b7cf004ab93cf48e5668` 和 `01bf53c4d69a845ef76bcd595b606fc66a4c6398`。
+- **QwenGR00T H16 训练与发布完成**：`zero_full` 与 `profile_conditioned` 均完成 5k bootstrap + 5k DAgger optimizer updates，best/latest 均为各自 `bundles/dagger_10_5000`。`zero_full` 在 zero-latency、共同 held-out seeds 820001--820064 下为 mean length `287.609375`、mean return `267.52374`、`>=100` `64/64`、`>=500` `3/64`。发布 revision 分别为 `19f71fe13865a7d8a8bae95e3d4939822d6ad1c0` 和 `891220398157a663aaf3233e42145c077a327acc`。
+
+### 固定均值 prefix 的因果评测（2026-09-20）
+
+三模型两臂均复用上面的 `bundles/dagger_10_5000` 与既有发布 revision，未重新训练。
+**六组正式评测及协议核验完成**，各 64 episodes；50/50Hz、capacity 1、1000-frame cap，
+各自 RTX 3090 temporal profile（instance `3a0d42681a03715c`）、profile seed 271828、
+inference seed 941731、共同 held-out seeds 820001–820064。Baseline 不传显式 prefix；
+conditioned 使用 `K=ceil(profile mean_ms/20)`，OFT/PI/GR00T 为 2/5/4，
+不读取本次未来延迟。QwenOFT 不消费显式 prefix，其原有 action-context 输入保持不变。
+
+| 模型 | Baseline length ± SD | Conditioned length ± SD | Baseline / conditioned return | >=100（baseline / conditioned） | Paired length gain [95% CI] |
+|---|---:|---:|---:|---:|---:|
+| QwenOFT H8 | 63.29688 ± 12.23555 | 133.35938 ± 34.77039 | 50.74563 / 114.62513 | 1/64 / 51/64 | +70.06250 [61.20312, 79.01562] |
+| QwenPI H16 | 57.03125 ± 7.63006 | 86.21875 ± 30.93515 | 46.84542 / 72.31230 | 0/64 / 24/64 | +29.18750 [22.03125, 36.54727] |
+| QwenGR00T H16 | 56.81250 ± 13.75667 | 104.03125 ± 31.15935 | 45.34041 / 90.42080 | 0/64 / 37/64 | +47.21875 [39.32812, 54.98438] |
+
+六组 `>=500` 均为 0/64，chunk underflow 均为 0。10,000 次 seed-paired bootstrap
+（seed 42）下三组 length/return gain 区间均为正；这仅是这些 checkpoint 的相对优势，
+不代表跨 training seeds 结论或新增性能达标判定。本轮不重新发布模型。
+旧 oracle-delay / 强制 prefix baseline 比较已被本协议替代，原始结果保留用于审计。
+GR00T 取消 baseline 强制 prefix 后 mean length 提升 12.21875，95% CI
+[8.546875, 16.078125]；两个 flow conditioned 改用固定 K 后的 length 变化区间均跨 0。
+QwenOFT 两臂的逐 seed return/length 与旧结果完全一致。
+[主证据与完整指标](../outputs/tasks/humanoidbench_balance_simple/causal_profile_eval_20260920/REPORT.md)；
+[评测合同与复现入口](BALANCE_CAUSAL_EVAL.md)。
 
 ## 下一决策
 
-- **Balance**：先核验四臂矩阵的终点产物和共同 seed 评测；结果齐全前不接受旧 DAgger 中间值。另补 D/E 组合及单独消融。
+- **Balance**：固定均值 prefix / no-prefix 六组因果评测完成，以新协议比较为准；已决定新训练数据与所有学生推理统一使用 profile 均值固定 K；公共合同迁移及相关测试已验证（[证据](../outputs/tasks/humanoidbench_balance_simple/fixed_k_unification_20260920/README.md)），尚未重训；下一步决定是否按新标签合同重训。D/E 消融仍是独立待办。
 - **MIKASA**：评审 WanOFT 21% profile recovery 是否可接受；为 QwenOFT/QwenPI/QwenGR00T 补齐 canonical bundle/发布状态，保持 10Hz 与 20Hz 分开报告。
 - **Parkour**：补 WanOFT H1/profile/latency-small；在新的质量声明前先定义 acceptance threshold。
 - **HAIC**：核验其余三模型、RTX 3090 profiles、latency-small 终点和正式 latency-aware VLA；不以 smoke 代替质量结果。

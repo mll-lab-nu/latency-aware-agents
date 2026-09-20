@@ -1648,7 +1648,7 @@ def test_realtime_stress_warmup_does_not_run_episodes(monkeypatch, tmp_path):
     monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 1)
     monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 2)
 
-    action = Action("jump")
+    action = Action([9.0])
     pool = ScriptedInferencePool(
         [
             CompletionScript(action, ready_time_ms=0.0, worker_id=0, device="cuda:0"),
@@ -1662,6 +1662,22 @@ def test_realtime_stress_warmup_does_not_run_episodes(monkeypatch, tmp_path):
         config={"logging": {"output_dir": str(tmp_path)}},
     )
 
+    executor.action_scheduler.noop_action = Action([7.0])
+    executor.action_prefix = {"mode": "profile_mean", "frames": 2, "action_horizon": 4, "action_dim": 1}
+    snapshots = []
+    original_submit = pool.submit
+
+    def capture(task):
+        attached = attach_observation_arrays(task.observation)
+        try:
+            snapshots.append(attached.observation.metadata["action_prefix"].copy())
+        finally:
+            attached.close()
+        return original_submit(task)
+
+    monkeypatch.setattr(pool, "submit", capture)
+    run_episode = executor.run_episode
+
     def fail_run_episode(*, episode_id, seed, eval_max_steps):
         del episode_id, seed, eval_max_steps
         raise AssertionError("stress warmup must not run realtime episodes")
@@ -1672,6 +1688,15 @@ def test_realtime_stress_warmup_does_not_run_episodes(monkeypatch, tmp_path):
 
     assert summary["warmup_mode"] == "stress_policy"
     assert summary["warmup_samples"] == 2
+
+    assert len(snapshots) == 2
+    for prefix in snapshots:
+        np.testing.assert_array_equal(prefix[:, 0], [7, 7, 0, 0])
+    executor.run_episode = run_episode
+    executor.run_episode(episode_id=0, seed=1, eval_max_steps=1)
+    first = pool.submitted[0].observation
+    assert first.env_step == 0
+    np.testing.assert_array_equal(first.metadata["action_prefix"][:, 0], [7, 7, 0, 0])
 
 
 def test_gc_paused_until_episode_end_restores_state_and_collects():
@@ -1788,3 +1813,63 @@ def test_batch_inference_routes_slots_stably_and_restores_input_order():
     del pool.config["executor"]["inference_batch_size"]
     with pytest.raises(KeyError, match="inference_batch_size"):
         pool.predict_batch(observations)
+
+
+@pytest.mark.parametrize("ready_time_ms", [10.0, 100.0])
+def test_realtime_prefix_is_frozen_before_completion(ready_time_ms):
+    """Long-lived realtime request contract: measured completion cannot select K."""
+    pool = ScriptedInferencePool([
+        CompletionScript(Action([9.0]), ready_time_ms=ready_time_ms, worker_id=0, device="cuda:0")
+    ], num_workers=1)
+    executor = _executor(pool=pool, max_steps=1)
+    executor.action_scheduler.noop_action = Action([7.0])
+    executor.action_prefix = {"mode": "profile_mean", "frames": 2, "action_horizon": 4, "action_dim": 1}
+    executor.run_episode(episode_id=0, seed=1, eval_max_steps=1)
+    metadata = pool.submitted[0].observation.metadata
+    np.testing.assert_array_equal(metadata["action_prefix"][:, 0], [7, 7, 0, 0])
+    np.testing.assert_array_equal(metadata["action_prefix_mask"], [True, True, False, False])
+
+
+def test_environment_worker_freezes_prefix_before_shared_memory(monkeypatch):
+    """Long-lived env-process boundary: the first transmitted observation includes K."""
+    from latency_bench.executors.realtime.env_worker import _env_loop_worker
+    from latency_bench.envs import factory as env_factory
+
+    class Connection:
+        closed = False
+        snapshot = None
+
+        def poll(self):
+            return self.closed
+
+        def recv(self):
+            return "close", {}
+
+        def send(self, message):
+            tag, payload = message
+            if tag == "error":
+                pytest.fail(payload["traceback"] if isinstance(payload, dict) else payload)
+            if tag == "observation":
+                attached = attach_observation_arrays(payload["task"].observation)
+                try:
+                    self.snapshot = attached.observation.metadata["action_prefix"].copy()
+                    self.mask = attached.observation.metadata["action_prefix_mask"].copy()
+                finally:
+                    attached.close()
+            if tag == "episode_done":
+                self.closed = True
+
+    env = DummyEnvAdapter(env_fps=50, max_steps=1, noop_action=Action([7.0]))
+    monkeypatch.setattr(env_factory, "build_env_adapter", lambda *args: env)
+    config = {
+        "env": {"env_fps": 50, "obs_fps": 50, "noop_action": [7.0],
+                "action_space": {"type": "box", "low": [0.0], "high": [10.0]}},
+        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
+        "policy": {"action_prefix": {"mode": "profile_mean", "frames": 2, "action_horizon": 4, "action_dim": 1}},
+        "logging": {},
+    }
+    connection = Connection()
+    _env_loop_worker(connection, config, 0, 1, 1, None, None)
+    np.testing.assert_array_equal(connection.snapshot[:, 0], [7, 7, 0, 0])
+    np.testing.assert_array_equal(connection.mask, [True, True, False, False])
+    assert env.closed

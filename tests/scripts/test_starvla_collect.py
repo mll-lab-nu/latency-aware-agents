@@ -12,20 +12,22 @@ import yaml
 from scripts.starvla import balance_dagger, collect
 
 
-def test_balance_dagger_model_geometry_and_latency_recipes():
+def test_balance_dagger_model_geometry_and_latency_recipes(tmp_path):
     """Long-lived experiment contract: QwenPI is H16/profile; QwenOFT baseline is H8/zero."""
     from latency_bench.data.starvla_tasks import task_spec
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
-    qwenpi = profile.vla_experiment_config("qwenpi_v3", "profile_conditioned")
-    qwenoft = profile.vla_experiment_config("qwenoft", "zero_full")
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(json.dumps({"summary": {"mean_ms": 99.176261}}))
+    qwenpi = profile.vla_experiment_config("qwenpi_v3", "profile_conditioned", horizon=16, profile_path=profile_path)
+    qwenoft = profile.vla_experiment_config("qwenoft", "zero_full", horizon=8)
     assert qwenpi["training"]["ppo"]["chunk_horizon"] == 16
     assert qwenpi["training"]["ppo"]["active_heads"] == [0, 16]
     assert qwenpi["latency"]["method"] == "temporal"
     assert qwenpi["latency"]["profile_worker_slot"] == 0
     assert qwenpi["latency"]["add_latency_info"] is True
-    assert "/qwenpi_v3/" in qwenpi["latency"]["profile_path"]
-    assert "/results/profiling/downloads/profiles/" in qwenpi["latency"]["profile_path"]
+    assert qwenpi["policy"]["action_prefix"]["frames"] == 5
+    assert qwenoft["policy"]["action_prefix"] == {"mode": "none"}
     assert qwenoft["training"]["ppo"]["chunk_horizon"] == 8
     assert qwenoft["training"]["ppo"]["active_heads"] == [0, 8]
     assert qwenoft["latency"]["method"] == "zero"
@@ -43,8 +45,9 @@ def test_profile_accepts_conditioned_qwenoft_with_explicit_profile(tmp_path):
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
     profile_path = tmp_path / "profile.json"
+    profile_path.write_text(json.dumps({"summary": {"mean_ms": 37.880780}}))
     config = profile.vla_experiment_config(
-        "qwenoft", "profile_conditioned", profile_path=profile_path
+        "qwenoft", "profile_conditioned", horizon=8, profile_path=profile_path
     )
 
     assert config["latency"]["profile_path"] == str(profile_path)
@@ -79,50 +82,6 @@ def test_formal_chain_publishes_source_and_target_with_matching_profile(tmp_path
     assert "--profile-path" not in source
     assert "--publish" in target and "--resume" not in target
     assert target[target.index("--profile-path") + 1] == str(args.profile_path)
-
-
-def test_committed_prefix_includes_hold_and_existing_chunk_actions():
-    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import (
-        VLAProfileRollout,
-    )
-
-    class Scheduler:
-        def __init__(self):
-            self._applied_events = []
-            self.value = np.zeros(43, dtype=np.float32)
-
-        def enqueue(self, event):
-            self.value = event.value
-
-        def update(self, current_step, current_time_ms):
-            assert current_time_ms == current_step * 20.0
-            return SimpleNamespace(value=self.value)
-
-    class Timeline:
-        def release_arrived(self, current_step):
-            if current_step == 11:
-                return [SimpleNamespace(value=np.full(43, 7, dtype=np.float32))], []
-            return [], []
-
-    class Latency:
-        env_step_idx = 10
-        profile_sampler = None
-        action_scheduler = Scheduler()
-        result_timeline = Timeline()
-        clock = SimpleNamespace(step_to_time_ms=lambda step: step * 20.0)
-
-        def _next_latency_sample(self, *, worker_slot):
-            assert worker_slot == 0
-            return SimpleNamespace(action_ready_raw_frames=2)
-
-    rollout = object.__new__(VLAProfileRollout)
-    rollout.latency = Latency()
-    rollout.chunk = SimpleNamespace(horizon=4)
-
-    prefix, mask, _sample = rollout.committed_prefix()
-
-    np.testing.assert_array_equal(mask, [True, True, False, False])
-    np.testing.assert_array_equal(prefix[:2, 0], [0, 7])
 
 
 def test_profile_teacher_suffix_stops_loss_mask_at_termination():
@@ -165,10 +124,10 @@ def test_profile_teacher_suffix_stops_loss_mask_at_termination():
     np.testing.assert_array_equal(targets[5:7, 0], [1, 2])
 
 
-def test_balance_profile_row_reuses_the_async_image_path():
+def test_balance_profile_row_reuses_the_async_image_path(tmp_path):
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
-    config = profile.vla_experiment_config("qwenpi_v3", "profile_conditioned")["env"]
+    config = profile.vla_experiment_config("qwenpi_v3", "zero_full", horizon=16)["env"]
     row = balance_dagger._balance_row_for_image_path(
         config, Path("/tmp/profile-frame.png"), np.zeros(198), np.zeros(43),
         episode=7, step=11, seed=17, split="train")
@@ -182,7 +141,7 @@ def test_balance_profile_row_reuses_the_async_image_path():
 def test_profile_inference_uses_the_explicit_local_backbone(tmp_path):
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
-    config = profile.vla_experiment_config("qwenpi_v3", "profile_conditioned")
+    config = profile.vla_experiment_config("qwenpi_v3", "zero_full", horizon=16)
     result = profile.policy_config(
         config, tmp_path / "bundle", tmp_path / "env/bin/python", 8,
         tmp_path / "Qwen3-VL-4B-Instruct")
@@ -247,7 +206,7 @@ def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_p
         teacher_sha256="sha", collect_bootstrap_only=True, collection_seed=0,
         horizon=1,
     )
-    config = {"env": {}, "latency": {}}
+    config = {"env": {}, "latency": {}, "policy": {"action_prefix": {"mode": "none"}}}
 
     profile.rollout_batch(args, config, tmp_path / "collection", bundle=None, run=None, count=20)
 
@@ -459,11 +418,11 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
                     "generated_labels": count, "num_envs": 16, "inference_seconds": 0.1,
                     "n": 1, "mean_length": 1.0, "mean_return": 1.0,
                     "ge100": 0, "ge500": 0, "episodes": [],
-                    "teacher_controlled": bundle is None, "label_contract_audit": "passed"}
+                    "teacher_controlled": bundle is None}
         episodes = [{"seed": seed, "length": 1, "return": 1.0} for seed in seeds]
         return {"n": len(episodes), "mean_length": 1.0, "mean_return": 1.0,
                 "ge100": 0, "ge500": 0, "episodes": episodes,
-                "teacher_controlled": bundle is None, "label_contract_audit": None}
+                "teacher_controlled": bundle is None}
 
     def train(args, bootstrap, deltas, phase, steps, boundary, pretrained, resume):
         training.append((phase, steps, boundary, pretrained, resume))
@@ -496,14 +455,15 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
 
     monkeypatch.setenv("WANDB_ENTITY", "entity")
     monkeypatch.setattr(sys, "argv", ["profile", "--output", str(output),
-                        "--vla-python", "python", "--backbone", "qwen", "--model", "qwenoft",
+                        "--vla-python", "python", "--backbone", "qwen", "--model", "qwenoft", "--horizon", "8",
                         "--label-mode", "zero_full", "--gradient-checkpointing"])
     monkeypatch.setattr(
         profile,
         "vla_experiment_config",
-        lambda model, label_mode, profile_path=None: {
+        lambda model, label_mode, horizon, profile_path=None: {
             "env": {"make_kwargs": {}},
             "backend": {},
+            "policy": {"action_prefix": {"mode": "none"}},
             "latency": {"method": "zero"},
         },
     )
@@ -917,3 +877,134 @@ def test_mikasa_contract_writes_loader_modality_metadata(tmp_path):
     assert modality["state"]["proprio"]["original_key"] == "observation.state"
     assert modality["action"]["target"]["original_key"] == "action"
     assert list(modality["video"]) == ["top", "wrist"]
+
+
+@pytest.mark.parametrize("frames", [None, 3])
+def test_eval_request_does_not_read_future_latency_or_results(frames):
+    from collections import Counter
+    from latency_bench.core.clock import EnvClock
+    from latency_bench.core.types import Action, OrderingPolicy
+    from latency_bench.scheduler.action_queue import ActionScheduler
+    from latency_bench.scheduler.persistence import HoldPolicy
+    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import VLAProfileRollout
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Evaluation read a future outcome")
+
+    requests = []
+    for hidden_future in [2, 6]:
+        rollout = object.__new__(VLAProfileRollout)
+        rollout.initial_sampler = None
+        rollout.action_prefix = ({"mode": "none"} if frames is None else
+                                 {"mode": "profile_mean", "frames": frames, "action_horizon": 8, "action_dim": 43})
+        rollout.chunk = SimpleNamespace(horizon=8)
+        rollout.latency = SimpleNamespace(
+            env_step_idx=0,
+            profile_sampler=hidden_future,
+            result_timeline=SimpleNamespace(release_arrived=forbidden),
+            _next_latency_sample=forbidden,
+            worker_capacity=SimpleNamespace(can_submit=lambda: True),
+            action_scheduler=ActionScheduler(
+                EnvClock(env_fps=50, obs_fps=50), Action(np.ones(43)),
+                HoldPolicy(), OrderingPolicy.LATEST_READY, hold_last_chunk_action=True,
+            ),
+        )
+        observation = {"obs": np.zeros(198), "scheduled_chunk": np.zeros((8, 43)),
+                       "scheduled_index": np.zeros(8)}
+        rollout.env = SimpleNamespace(
+            reset=lambda seed: (observation, {}),
+            unwrapped=SimpleNamespace(render=lambda: np.zeros((8, 8, 3), dtype=np.uint8)),
+        )
+        generator = rollout.requests(None, 1, 0, None, {"policy": {"action_prefix": rollout.action_prefix}},
+                                     collect=False, oracle=False, writer=None, timings=Counter())
+        requests.append(next(generator))
+        generator.close()
+    for key in requests[0].metadata:
+        np.testing.assert_array_equal(requests[0].metadata[key], requests[1].metadata[key])
+    if frames is None:
+        assert "action_prefix" not in requests[0].metadata
+        assert "action_prefix_mask" not in requests[0].metadata
+    else:
+        np.testing.assert_array_equal(requests[0].metadata["action_prefix"][:frames], 1)
+        assert requests[0].metadata["action_prefix_mask"].sum() == frames
+
+
+@pytest.mark.parametrize("actual_delay", [1, 5])
+def test_fixed_k_collection_aligns_student_teacher_and_export(tmp_path, monkeypatch, actual_delay):
+    """Long-lived collection contract: fixed inputs/labels, sampled execution delay."""
+    from collections import Counter
+    import torch
+    from latency_bench.core.clock import EnvClock
+    from latency_bench.core.types import Action, OrderingPolicy
+    from latency_bench.scheduler.action_queue import ActionScheduler
+    from latency_bench.scheduler.persistence import HoldPolicy
+    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+
+    class Physics:
+        steps = 0
+
+        def copy_balance_state_from(self, source):
+            self.steps = 0
+
+        def step(self, action):
+            self.steps += 1
+            return np.zeros(198), 0.0, self.steps == 5, False, {}
+
+    class Teacher:
+        def empirical_obs_normalizer(self, physical, update_stats):
+            return physical
+
+        def actor(self, physical):
+            return torch.full((1, 43), 0.5)
+
+    rollout = object.__new__(profile.VLAProfileRollout)
+    rollout.initial_sampler = None
+    rollout.action_prefix = {"mode": "profile_mean", "frames": 3, "action_horizon": 8, "action_dim": 43}
+    rollout.chunk = SimpleNamespace(
+        horizon=8, native_action_space=SimpleNamespace(low=-np.ones(43), high=np.ones(43)),
+        env=SimpleNamespace(action=lambda value: value, reverse_action=lambda value: value),
+    )
+    rollout.latency = SimpleNamespace(
+        env_step_idx=0, worker_capacity=SimpleNamespace(can_submit=lambda: True),
+        action_scheduler=ActionScheduler(EnvClock(env_fps=50, obs_fps=50), Action(np.ones(43)),
+                                         HoldPolicy(), OrderingPolicy.LATEST_READY),
+    )
+    observation = {"obs": np.zeros(198), "scheduled_chunk": np.zeros((8, 43)),
+                   "scheduled_index": np.zeros(8), "replay_clock": np.array([[0, 0, -1, -1]])}
+    rollout.env = SimpleNamespace(
+        reset=lambda seed: (observation, {}),
+        unwrapped=SimpleNamespace(render=lambda: np.zeros((8, 8, 3), dtype=np.uint8)),
+        step=lambda action: (observation, 0.0, True, False, {
+            "command_admitted": True, "latency_raw_frames": actual_delay,
+            "worker_service_raw_frames": actual_delay, "latency_ms": actual_delay * 20,
+        }),
+    )
+    rollout.prediction = SimpleNamespace(unwrapped=Physics())
+    monkeypatch.setattr(profile, "_balance_row_for_image_path", lambda *args: {})
+    generator = rollout.requests(Teacher(), 1, 0, tmp_path, {"env": {}}, collect=True,
+                                 oracle=False, writer=SimpleNamespace(write=lambda *args: None),
+                                 timings=Counter())
+    request = next(generator)
+    with pytest.raises(StopIteration) as done:
+        generator.send(np.zeros((8, 43)))
+    episode, rows = done.value.value
+    row = rows[0]
+    np.testing.assert_array_equal(request.metadata["action_prefix"][:3], np.ones((3, 43)))
+    np.testing.assert_array_equal(row["action_prefix_mask"], request.metadata["action_prefix_mask"])
+    np.testing.assert_array_equal(np.asarray(row["issued_command_chunk"])[:3], request.metadata["action_prefix"][:3])
+    assert row["action_loss_mask"] == [False, False, False, True, True, False, False, False]
+    assert row["latency_raw_frames"] == actual_delay
+    assert episode["request_audit"][0]["prefix_frames"] == 3
+
+
+def test_legacy_training_run_cannot_reuse_cached_evaluations(tmp_path, monkeypatch):
+    """Long-lived migration contract: old data/history cannot enter a fixed-K run."""
+    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+
+    (tmp_path / "environment.json").write_text(json.dumps({"policy": {}}))
+    monkeypatch.setattr(sys, "argv", [
+        "profile", "--output", str(tmp_path), "--vla-python", "python", "--backbone", "qwen",
+        "--horizon", "16", "--label-mode", "profile_conditioned", "--resume", "--no-gradient-checkpointing",
+    ])
+    with pytest.raises(ValueError, match="Resume requires a fixed-K run"):
+        profile.main()

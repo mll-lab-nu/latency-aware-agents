@@ -36,6 +36,8 @@ scheduler:
   hold_last_chunk_action: true
 
 policy:
+  action_prefix:
+    mode: none
   type: starvla
   checkpoint_path: unused
   model_config_path: unused

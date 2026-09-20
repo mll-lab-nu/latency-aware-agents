@@ -27,6 +27,7 @@ from latency_bench.logging.metrics import (
 )
 from latency_bench.logging.records import build_step_record
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.policy.action_prefix import with_action_prefix
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
@@ -137,6 +138,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         simulated_worker_capacity: int | None = None,
         profile_pipeline: bool = False,
         inference_pool=None,
+        action_prefix=None,
     ):
         slot_count = env_backend.num_slots
         self.env_backend = env_backend
@@ -148,6 +150,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         self.logger = logger
         self.profile_pipeline = bool(profile_pipeline)
         self.inference_pool = inference_pool
+        self.action_prefix = action_prefix
         self._pipeline_profile_rows: list[dict[str, float]] = []
         self.simulated_worker_capacity = simulated_worker_capacity
         self._collect_step_records = bool(logger is not None and logger.save_step_records)
@@ -368,6 +371,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot: _SlotState,
         observation: Observation,
     ) -> Observation:
+        observation = with_action_prefix(observation, slot.action_scheduler, self.action_prefix)
         metadata = dict(observation.metadata)
         metadata["slot_id"] = slot.slot_id
         metadata["episode_id"] = int(slot.episode_id)

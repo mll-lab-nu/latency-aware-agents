@@ -48,6 +48,7 @@ from latency_bench.logging.metrics import (
 from latency_bench.logging.records import build_step_record
 from latency_bench.logging.realtime_pipeline import PipelineProfile, REALTIME_PROFILE_METADATA_KEY
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.policy.action_prefix import with_action_prefix
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
@@ -112,6 +113,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         video_recorder: Any | None = None,
         video_output_dir: str | None = None,
         video_fps: float | None = None,
+        action_prefix=None,
     ):
         self._install_runtime(runtime)
         self.policy = policy
@@ -120,6 +122,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         self.sleep_fn = sleep_fn
         self.inference_pool = inference_pool
         self.config = config
+        self.action_prefix = action_prefix
         self._profile_pipeline = bool((config or {}).get("logging", {}).get("realtime_pipeline_profile", False))
         self.inference_devices = list(inference_devices or [])
         self.use_env_process = bool(use_env_process)
@@ -163,9 +166,11 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         profiles = []
         sample_target = realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES
         submitted_count = 0
+        self.action_scheduler.reset()
         self.env.reset(seed=None)
         template_observation = self._with_episode_metadata(
-            self.env.observe(), episode_id=-1, episode_seed=0
+            with_action_prefix(self.env.observe(), self.action_scheduler, self.action_prefix),
+            episode_id=-1, episode_seed=0
         )
         observation_pool = ObservationSlotPool.from_observation(
             template_observation,
@@ -175,7 +180,9 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             while len(latency_records) < sample_target:
                 while pool.idle_worker_count and submitted_count < sample_target:
                     observe_start_ms = monotonic_ms()
-                    observation = self.env.observe()
+                    observation = with_action_prefix(
+                        self.env.observe(), self.action_scheduler, self.action_prefix
+                    )
                     observation = self._with_episode_metadata(
                         observation,
                         episode_id=-1,
@@ -859,7 +866,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
     ) -> RealtimeObservationTask:
         observe_start_ms = monotonic_ms()
         observation = self._with_episode_metadata(
-            self.env.observe(),
+            with_action_prefix(self.env.observe(), self.action_scheduler, self.action_prefix),
             episode_id=episode_id,
             episode_seed=episode_seed,
         )

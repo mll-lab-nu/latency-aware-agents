@@ -13,6 +13,7 @@ from latency_bench.logging.metrics import (
 )
 from latency_bench.logging.records import build_step_record
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.policy.action_prefix import with_action_prefix
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
@@ -30,8 +31,10 @@ class PausedLatencyExecutor(EpisodeExecutor):
         logger: TrajectoryLogger | None = None,
         video_recorder=None,
         video_episode_metadata: dict[int, dict] | None = None,
+        action_prefix=None,
     ):
         self.env = env
+        self.action_prefix = action_prefix
         self.policy = policy
         self.decision_scheduler = decision_scheduler
         self.latency_source = latency_source
@@ -78,7 +81,9 @@ class PausedLatencyExecutor(EpisodeExecutor):
         while env_step < eval_max_steps:
             current_time_ms = self.clock.step_to_time_ms(env_step)
             if self.decision_scheduler.should_observe(env_step, current_time_ms):
-                observation = self.env.observe()
+                observation = with_action_prefix(
+                    self.env.observe(), self.action_scheduler, self.action_prefix
+                )
                 policy_output = self.policy.predict(observation)
                 obs_id = self._next_obs_id
                 self._next_obs_id += 1
@@ -98,6 +103,7 @@ class PausedLatencyExecutor(EpisodeExecutor):
                 event = ActionEvent(
                     action_id=self._next_action_id,
                     action=policy_output.action,
+                    action_chunk=policy_output.action_chunk,
                     obs_env_step=observation.env_step,
                     ready_time_ms=ready_time_ms,
                     ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),

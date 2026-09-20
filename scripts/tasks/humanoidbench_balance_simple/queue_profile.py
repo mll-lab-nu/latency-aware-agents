@@ -56,7 +56,7 @@ def main():
         output = args.output / f"qwenpi_v3_h16_{mode}_{stage}"
         command = [sys.executable, "-u", "-m",
                    "scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger",
-                   "--model", "qwenpi_v3", "--label-mode", mode,
+                   "--model", "qwenpi_v3", "--horizon", "16", "--label-mode", mode,
                    "--output", str(output), "--vla-python", args.vla_python,
                    "--backbone", args.qwen_backbone,
                    "--port", str(29772 + [pair for _, pair in JOBS].index(pair)),

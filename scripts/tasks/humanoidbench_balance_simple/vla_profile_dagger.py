@@ -20,6 +20,9 @@ from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 
+os.environ["MUJOCO_GL"] = "egl"
+os.environ["PYOPENGL_PLATFORM"] = "egl"
+
 import gymnasium as gym
 import numpy as np
 import torch
@@ -38,6 +41,8 @@ from scripts.starvla.balance_dagger import (
     write_balance_dataset,
 )
 from scripts.starvla import artifacts
+from latency_bench.policy.action_prefix import action_prefix_arrays, resolve_action_prefix
+from latency_bench.data.starvla_tasks import task_spec
 from scripts.starvla.prepare_dataset import prepare_lerobot
 from scripts.starvla.train_task import BACKBONES, STARVLA, environment, inference_bundle, run_command, training_config
 from latency_bench.data.rollout_image_io import RolloutImageWriter
@@ -49,7 +54,7 @@ from training.gymnasium_sf.integration import build_train_cfg_from_config, make_
 
 ROOT = Path(__file__).resolve().parents[3]
 INFERENCE_SEED = 941731
-MODEL_HORIZONS = {"qwenoft": 8, "qwenpi_v3": 16, "qwengr00t": 16}
+MODELS = ("qwenoft", "qwenpi_v3", "qwengr00t")
 LABEL_MODES = ("zero_full", "profile_conditioned")
 TEACHER_QUERY_CADENCE_RAW_FRAMES = 1
 TEACHER_REVISION = "a8210caa0e7432f208b377d678ca5f10f5f1b879"
@@ -106,10 +111,10 @@ def _resident_socket_dir(control_dir):
     return alias
 
 
-def vla_experiment_config(model, label_mode, *, profile_path=None):
+def vla_experiment_config(model, label_mode, *, horizon, profile_path=None):
     """Use the requested zero/profile deployment condition and model horizon."""
     config = load_config(ROOT / "configs/examples/gymnasium/g1_sonic_balance_simple/ppo_train.yaml")
-    horizon = MODEL_HORIZONS[model]
+    spec = task_spec(f"balance_profile_h{horizon}")
     if label_mode == "zero_full":
         config["latency"] = {"method": "zero", "seed": 271828, "add_latency_info": True}
     else:
@@ -128,6 +133,12 @@ def vla_experiment_config(model, label_mode, *, profile_path=None):
         }
     config["training"]["ppo"]["chunk_horizon"] = horizon
     config["training"]["ppo"]["active_heads"] = [0, horizon]
+    settings = ({"mode": "none"} if label_mode == "zero_full" else
+                {"mode": "profile_mean", "profile_path": config["latency"]["profile_path"]})
+    config["policy"]["action_prefix"] = resolve_action_prefix(
+        settings, env_fps=config["env"]["env_fps"],
+        action_horizon=spec.action_horizon, action_dim=spec.action_dim,
+    )
     return config
 
 
@@ -140,7 +151,7 @@ def causal_state(observation):
 class VLAProfileRollout:
     """Expose admitted visual requests and the selected H8/H16 supervision mask."""
 
-    def __init__(self, config, label_mode):
+    def __init__(self, config):
         self.cfg = build_train_cfg_from_config(config)
         self.cfg.episode_metrics_path = ""
         self.env = make_gymnasium_sf_env(
@@ -152,7 +163,7 @@ class VLAProfileRollout:
                   "render_mode": None}
         self.prediction = gym.make(config["env"]["env_id"], **kwargs)
         self.prediction.reset(seed=1)
-        self.label_mode = label_mode
+        self.action_prefix = config["policy"]["action_prefix"]
 
     def close(self):
         self.prediction.close()
@@ -161,7 +172,6 @@ class VLAProfileRollout:
     def _teacher_suffix(self, teacher, observation, frame, start, stop, targets, valid, timings):
         """Roll the H1 teacher from the private branch with one query per frame."""
         physics = self.prediction.unwrapped
-        teacher_expected = {}
         for head in range(start, stop):
             started = time.perf_counter()
             physical = torch.as_tensor(observation, dtype=torch.float32)[None]
@@ -174,65 +184,38 @@ class VLAProfileRollout:
             raw = scale_box_action(targets[head], self.chunk.native_action_space.low,
                                    self.chunk.native_action_space.high)
             started = time.perf_counter()
-            observation, reward, terminated, _, _ = physics.step(self.chunk.env.action(raw))
+            observation, _, terminated, truncated, _ = physics.step(self.chunk.env.action(raw))
             timings["branch_step_seconds"] += time.perf_counter() - started
             timings["teacher_branch_frames"] += 1
-            done = terminated or frame + head + 1 == 1000
-            teacher_expected[head] = (observation.copy(), reward, done)
+            done = terminated or truncated or frame + head + 1 == 1000
             if done:
                 break
-        return teacher_expected
 
-    def committed_prefix(self):
-        """Copy the scheduler and return the commands committed during this request."""
-        frame = self.latency.env_step_idx
-        shadow = copy.copy(self.latency)
-        shadow.profile_sampler = copy.deepcopy(self.latency.profile_sampler)
-        sample = shadow._next_latency_sample(worker_slot=0)
-        scheduler = copy.deepcopy(self.latency.action_scheduler,
-                                  {id(self.latency.action_scheduler._applied_events): []})
-        timeline = copy.deepcopy(self.latency.result_timeline)
-        absolute = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
-        mask = np.zeros(self.chunk.horizon, dtype=bool)
-        prefix_length = min(sample.action_ready_raw_frames, self.chunk.horizon)
-        mask[:prefix_length] = True
-        for offset in range(prefix_length):
-            current = frame + offset
-            released, _ = timeline.release_arrived(current)
-            for event in released:
-                scheduler.enqueue(event)
-            command = scheduler.update(current, self.latency.clock.step_to_time_ms(current))
-            absolute[offset] = command.value
-        return absolute, mask, sample
-
-    def teacher_labels(self, teacher, physical_observation, timings):
-        """Replay the committed prefix, then roll the teacher suffix."""
+    def teacher_labels(self, teacher, physical_observation, timings, absolute_prefix, prefix_mask):
+        """Replay the student's fixed prefix, then label its counterfactual suffix."""
         frame = self.latency.env_step_idx
         started = time.perf_counter()
-        absolute_prefix, prefix_mask, sample = self.committed_prefix()
         physics = self.prediction.unwrapped
         physics.copy_balance_state_from(self.env.unwrapped)
         timings["branch_setup_seconds"] += time.perf_counter() - started
         targets = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
         valid = np.zeros(self.chunk.horizon, dtype=bool)
-        expected = {}
+        mask = np.zeros(self.chunk.horizon, dtype=bool) if prefix_mask is None else prefix_mask
+        prefix_length = mask.sum().item()
         obs = physical_observation
-
         started = time.perf_counter()
-        prefix_length = min(sample.action_ready_raw_frames, self.chunk.horizon)
         for offset in range(prefix_length):
-            current = frame + offset
             targets[offset] = self.chunk.env.reverse_action(absolute_prefix[offset])
-            obs, reward, terminated, _, _ = physics.step(absolute_prefix[offset])
-            done = terminated or current + 1 == 1000
-            expected[current] = (obs.copy(), reward, done)
-            if done:
+        for offset in range(prefix_length):
+            obs, _, terminated, truncated, _ = physics.step(absolute_prefix[offset])
+            timings["prefix_replay_frames"] += 1
+            if terminated or truncated or frame + offset + 1 == 1000:
                 timings["prefix_replay_seconds"] += time.perf_counter() - started
-                return targets, prefix_mask, valid, expected, {}, sample
+                return targets, mask, valid
         timings["prefix_replay_seconds"] += time.perf_counter() - started
-        teacher_expected = self._teacher_suffix(
+        self._teacher_suffix(
             teacher, obs, frame, prefix_length, self.chunk.horizon, targets, valid, timings)
-        return targets, prefix_mask, valid, expected, teacher_expected, sample
+        return targets, mask, valid
 
     def requests(self, teacher, seed, slot, directory, config, *, collect, oracle, writer, timings):
         """Yield admitted RGB/state requests; receive absolute joint chunks."""
@@ -240,24 +223,22 @@ class VLAProfileRollout:
         if self.initial_sampler is not None:
             self.latency.profile_sampler = copy.deepcopy(self.initial_sampler)
             self.latency.profile_sampler.rng.seed(derive_seed(271828, episode_idx=seed))
-        rows, prefix = {}, {}
+        rows = {}
         frames, total = 0, 0.0
         applied_heads = np.zeros(self.chunk.horizon, dtype=np.int64)
         action_ready_frames, worker_service_frames = Counter(), Counter()
+        request_audit = []
         issued = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
 
         while True:
             admit = self.latency.worker_capacity.can_submit()
-            sample = None
             if admit:
+                absolute_prefix, prefix_mask = action_prefix_arrays(
+                    self.latency.action_scheduler, self.latency.env_step_idx, self.action_prefix
+                )
                 if oracle or collect:
-                    targets, prefix_mask, valid, expected, teacher_expected, sample = self.teacher_labels(
-                        teacher, observation["obs"], timings)
-                    if collect:
-                        prefix.update(expected)
-                    absolute_prefix = np.stack([self.chunk.env.action(head) for head in targets])
-                else:
-                    absolute_prefix, prefix_mask, sample = self.committed_prefix()
+                    targets, label_prefix_mask, valid = self.teacher_labels(
+                        teacher, observation["obs"], timings, absolute_prefix, prefix_mask)
                 timings["requests"] += 1
                 if oracle and not collect:
                     request = None
@@ -277,10 +258,10 @@ class VLAProfileRollout:
                             seed, frames, seed, "train")
                         row.update(
                             issued_command_chunk=absolute.tolist(),
-                            action_prefix_mask=prefix_mask.tolist(),
+                            action_prefix_mask=label_prefix_mask.tolist(),
                             action_loss_mask=valid.tolist(),
                         )
-                        rows[frames] = (row, valid, teacher_expected)
+                        rows[frames] = row
                     request = _student_observation(
                         image, state, frames, slot, absolute_prefix, prefix_mask
                     )
@@ -294,33 +275,28 @@ class VLAProfileRollout:
             if admit:
                 action_ready_frames[info["latency_raw_frames"]] += 1
                 worker_service_frames[info["worker_service_raw_frames"]] += 1
-            if sample is not None:
-                assert (sample.action_ready_raw_frames, sample.worker_service_raw_frames) == (
-                    info["latency_raw_frames"], info["worker_service_raw_frames"])
+                request_audit.append({
+                        "obs_frame": frames,
+                        "prefix_frames": None if prefix_mask is None else prefix_mask.sum().item(),
+                        "actual_delay_frames": info["latency_raw_frames"],
+                    })
                 if collect:
-                    rows[frames][0]["latency_raw_frames"] = info["latency_raw_frames"]
-                    rows[frames][0]["latency_ms"] = info["latency_ms"]
-            if frames in prefix:
-                predicted, predicted_reward, predicted_done = prefix.pop(frames)
-                np.testing.assert_array_equal(observation["obs"], predicted)
-                assert reward == predicted_reward and done == predicted_done
+                    rows[frames]["latency_raw_frames"] = info["latency_raw_frames"]
+                    rows[frames]["latency_ms"] = info["latency_ms"]
             source, head = observation["replay_clock"][0, 2:4]
             if source >= 0:
                 applied_heads[head] += 1
-                if collect:
-                    row, valid, teacher_expected = rows[source]
-                    if oracle and valid[head]:
-                        predicted, predicted_reward, predicted_done = teacher_expected[head]
-                        np.testing.assert_array_equal(observation["obs"], predicted)
-                        assert reward == predicted_reward and done == predicted_done
             frames += 1
             total += reward
             if done:
-                samples = [row for row, _, _ in rows.values() if any(row["action_loss_mask"])]
+                samples = [row for row in rows.values() if any(row["action_loss_mask"])]
                 return {"seed": seed, "length": frames, "return": total,
                         "applied_heads": applied_heads.tolist(), "valid_labels": len(samples),
                         "action_ready_frame_counts": dict(action_ready_frames),
-                        "worker_service_frame_counts": dict(worker_service_frames)}, samples
+                        "worker_service_frame_counts": dict(worker_service_frames),
+                        "underflow_count": self.latency.action_scheduler.underflow_count,
+                        "underflow_frames": self.latency.action_scheduler.underflow_frames,
+                        "request_audit": request_audit}, samples
 
 
 def policy_config(config, bundle, vla_python, batch_size, backbone):
@@ -329,6 +305,7 @@ def policy_config(config, bundle, vla_python, batch_size, backbone):
     result["executor"]["inference_batch_size"] = batch_size
     result["policy"] = {
         "type": "starvla", "checkpoint_path": str(bundle / "checkpoints/model.pt"),
+        "action_prefix": config["policy"]["action_prefix"],
         "task_contract_path": str(bundle / "task_contract.json"),
         "backbone_path": str(backbone),
         "state_info_key": "gymnasium_state", "image_views_info_key": ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
@@ -337,32 +314,8 @@ def policy_config(config, bundle, vla_python, batch_size, backbone):
     return result
 
 
-def _audit_label_contract(rollout, teacher, directory):
-    observation, _ = rollout.env.reset(seed=700001)
-    sampler_state = (rollout.latency.profile_sampler.rng.getstate()
-                     if rollout.latency.profile_sampler is not None else None)
-    timings = Counter()
-    _, prefix_mask, valid, _, _, sample = rollout.teacher_labels(
-        teacher, observation["obs"], timings
-    )
-    if sampler_state is not None:
-        assert rollout.latency.profile_sampler.rng.getstate() == sampler_state
-    prefix_length = min(sample.action_ready_raw_frames, rollout.chunk.horizon)
-    assert not valid[:prefix_length].any()
-    assert prefix_mask[:prefix_length].all()
-    assert not prefix_mask[prefix_length:].any()
-    assert timings["teacher_queries"] == valid.sum()
-    write_json(directory / "label_contract_audit.json", {
-        "live_sampler_unchanged": True,
-        "prefix_masked": True,
-        "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
-        "horizon": rollout.chunk.horizon,
-        "teacher_queries": timings["teacher_queries"],
-    })
-
-
 def _rollout_worker(connection, config, directory, teacher_path, teacher_config_path, slots,
-                    render_device, collecting, oracle, label_mode):
+                    render_device, collecting, oracle):
     """Own each assigned simulator, its private teacher branch and bounded image I/O."""
     os.environ["MUJOCO_EGL_DEVICE_ID"] = render_device
     torch.set_num_threads(1)
@@ -370,7 +323,7 @@ def _rollout_worker(connection, config, directory, teacher_path, teacher_config_
         with ExitStack() as cleanup:
             envs = {}
             for slot in slots:
-                envs[slot] = VLAProfileRollout(config, label_mode)
+                envs[slot] = VLAProfileRollout(config)
                 cleanup.callback(envs[slot].close)
             writer = RolloutImageWriter(max_workers=1, row_buffer_size=8, export_image_size=None)
             cleanup.callback(writer.close)
@@ -384,8 +337,6 @@ def _rollout_worker(connection, config, directory, teacher_path, teacher_config_
                     first.env.observation_space, teacher_actions, teacher_cfg).eval()
                 teacher.load_state_dict(torch.load(teacher_path, map_location="cpu", weights_only=False)["model"])
                 teacher.requires_grad_(False)
-                if collecting and 0 in slots:
-                    _audit_label_contract(first, teacher, directory)
             generators = {}
             connection.send(("ready", None))
             while True:
@@ -435,7 +386,7 @@ class _ProfileEnvPool:
                 process = context.Process(target=_rollout_worker, args=(
                     child, config, directory, args.teacher, args.teacher_config,
                     list(range(worker, num_envs, workers)), devices[worker % len(devices)],
-                    collecting, oracle, args.label_mode),
+                    collecting, oracle),
                     name=f"profile-rollout-{worker}")
                 process.start()
                 child.close()
@@ -650,6 +601,7 @@ def rollout_batch(
         loss_masks = np.asarray([row["action_loss_mask"] for row in rows], dtype=np.int64)
         metadata["label_provenance"] = {
             "semantics": args.label_mode,
+            "action_prefix": config["policy"]["action_prefix"],
             "teacher_checkpoint": str(args.teacher), "teacher_config": str(args.teacher_config),
             "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
             "teacher_revision": args.teacher_revision,
@@ -672,6 +624,10 @@ def rollout_batch(
                                                 normalize_state=False, write_starvla_handoff=False)
             prepare_lerobot(f"balance_profile_h{args.horizon}", converted, directory / "converted__val",
                             directory / "lerobot", normalization_source=args.normalization_source)
+            contract_path = directory / "lerobot/task_contract.json"
+            contract = json.loads(contract_path.read_text())
+            contract["action_prefix"] = config["policy"]["action_prefix"]
+            write_json(contract_path, contract)
     finished = time.perf_counter()
     applied_head_counts = np.asarray([episode["applied_heads"] for episode in episodes]).sum(0).tolist()
     action_ready_frame_counts, worker_service_frame_counts = Counter(), Counter()
@@ -683,7 +639,9 @@ def rollout_batch(
               "conversion_seconds": finished - conversion_started,
               "worker_timings_sum": dict(worker_timings), "labels": len(rows),
               "labels_per_second": len(rows) / (finished - started),
-              "inference_seed": INFERENCE_SEED, "label_contract_audit": "passed" if collecting else None,
+              "inference_seed": INFERENCE_SEED,
+              "action_prefix": config["policy"]["action_prefix"],
+              "render_backend": os.environ["MUJOCO_GL"],
               "rollout_workers": min(args.rollout_workers, num_envs), "num_envs": num_envs,
               "inference_batch_size": args.inference_batch_size, "overlap": num_envs > cohort_size,
               "teacher_controlled": oracle, "applied_head_counts": applied_head_counts,
@@ -722,9 +680,7 @@ def _rollout_quality_metrics(prefix, result):
     if "worker_timings_sum" in result:
         metrics.update({f"{prefix}/timing/{name}": value
                         for name, value in result["worker_timings_sum"].items()})
-    if result["label_contract_audit"] is not None:
-        metrics[f"{prefix}/label_contract_audit_passed"] = int(
-            result["label_contract_audit"] == "passed")
+
     return metrics
 
 
@@ -963,7 +919,8 @@ def main():
     parser.add_argument("--wandb-entity", default="saberrr-zju")
     parser.add_argument("--profile-path", type=Path)
     parser.add_argument("--collect-bootstrap-only", action="store_true")
-    parser.add_argument("--model", choices=MODEL_HORIZONS, default="qwenpi_v3")
+    parser.add_argument("--model", choices=MODELS, default="qwenpi_v3")
+    parser.add_argument("--horizon", type=int, choices=(8, 16), required=True)
     parser.add_argument("--label-mode", choices=LABEL_MODES, required=True)
     parser.add_argument("--gradient-checkpointing", action=argparse.BooleanOptionalAction, required=True)
     parser.add_argument("--smoke", action="store_true")
@@ -984,7 +941,6 @@ def main():
     os.environ["WANDB_RUN_GROUP"] = args.run_id
     args.task = "balance"
     args.condition = "zero-latency" if args.label_mode == "zero_full" else "latency-aware"
-    args.horizon = MODEL_HORIZONS[args.model]
     args.num_workers, args.prefetch_factor = 16, 3
     args.persistent_workers, args.pin_memory = True, True
     args.normalization_source = None
@@ -993,7 +949,13 @@ def main():
     teacher_oracle_seeds = list(range(800001, 800003 if args.smoke else 800033))
     if args.resume:
         config = json.loads((args.output_dir / "environment.json").read_text())
+        # Saved prefix configuration identifies the new data/selection protocol.
+        if "action_prefix" not in config["policy"]:
+            raise ValueError("Resume requires a fixed-K run; evaluate legacy bundles in a new output directory")
+        args.horizon = config["training"]["ppo"]["chunk_horizon"]
         budget = json.loads((args.output_dir / "budget.json").read_text())
+        args.model, args.label_mode = budget["model"], budget["label_mode"]
+        args.condition = "zero-latency" if args.label_mode == "zero_full" else "latency-aware"
         run_record = json.loads((args.output_dir / "run.json").read_text())
         history_path = args.output_dir / "history.json"
         history = json.loads(history_path.read_text()) if history_path.is_file() else []
@@ -1002,7 +964,7 @@ def main():
         args.wandb_runs = run_record["wandb_runs"]
     else:
         config = vla_experiment_config(
-            args.model, args.label_mode, profile_path=args.profile_path
+            args.model, args.label_mode, horizon=args.horizon, profile_path=args.profile_path
         )
         config["env"]["make_kwargs"]["render_mode"] = "rgb_array"
         config["env"]["make_kwargs"]["camera_name"] = "head_camera"
@@ -1040,7 +1002,7 @@ def main():
             "teacher_revision": args.teacher_revision,
             "teacher_sha256": args.teacher_sha256,
             "label_mode": args.label_mode,
-            "profile_prefix": "clean_committed_actions_conditioned_at_every_flow_step",
+            "action_prefix": config["policy"]["action_prefix"],
             "profile_loss": "all_teacher_suffix_heads_until_termination",
             "replay": "round1_bootstrap_latest_50_50_then_bootstrap_latest_history_40_40_20",
             "dagger_optimizer": "single_continuous_optimizer_scheduler_rng_across_rounds",

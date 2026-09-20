@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
+from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 
@@ -110,6 +112,28 @@ def _build_gymnasium_env(config: dict[str, Any], noop_action: Action) -> EnvAdap
         frame_stack=env_cfg["frame_stack"],
         export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
         include_state="state_space" in env_cfg,
+    )
+
+
+@register_env_adapter("balance_profile")
+def _build_balance_profile_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
+    os.environ["MUJOCO_GL"] = "egl"
+    os.environ["PYOPENGL_PLATFORM"] = "egl"
+    from latency_bench.envs.gymnasium import BalanceProfileEnvAdapter
+
+    env = config["env"]
+    method = config["latency"]["method"]
+    context_frames = None
+    if method == "zero":
+        context_frames = 0
+    elif method == "fixed":
+        context_frames = EnvClock(env_fps=env["env_fps"], obs_fps=env["obs_fps"]).latency_ms_to_raw_frames(
+            config["latency"]["fixed_latency_ms"])
+    return BalanceProfileEnvAdapter(
+        env_id=env["env_id"], registration_imports=env["registration_imports"],
+        make_kwargs=env["make_kwargs"], env_fps=env["env_fps"], noop_action=noop_action,
+        frame_stack=env["frame_stack"], export_env_raw_rgb_frames=True, include_state=True,
+        action_horizon=env["action_context_horizon"], context_frames=context_frames,
     )
 
 

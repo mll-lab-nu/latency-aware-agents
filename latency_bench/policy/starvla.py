@@ -774,6 +774,9 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
                 Path(policy_cfg["task_contract_path"]).read_text(encoding="utf-8")
             )
             config["env"]["state_space"] = {"labels": contract["state_labels"]}
+            if contract["robot_type"] in ("latency_balance_profile_h8", "latency_balance_profile_h16"):
+                config["env"]["name"] = "balance_profile"
+                config["env"]["action_context_horizon"] = contract["action_horizon"]
         config["env"]["frame_stack"] = 1
         return
     if "model_config_path" in policy_cfg:

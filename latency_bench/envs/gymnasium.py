@@ -9,6 +9,7 @@ import numpy as np
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.raw_rgb import RawRgbFrameStackBuffer
+from latency_bench.envs.humanoidbench_sonic_contract import POLICY_INDEX_FOR_MUJOCO
 
 
 class GymnasiumEnvAdapter(EnvAdapter):
@@ -131,3 +132,26 @@ class GymnasiumEnvAdapter(EnvAdapter):
 
     def close(self) -> None:
         self.gym_env.close()
+
+
+class BalanceProfileEnvAdapter(GymnasiumEnvAdapter):
+    """Expose Balance physics plus the transform for its returned-action state."""
+
+    def __init__(self, *, action_horizon, context_frames, **kwargs):
+        self.action_horizon = action_horizon
+        self.context_frames = context_frames
+        kwargs["make_kwargs"] = {**kwargs["make_kwargs"], "control_mode": "direct_absolute_position"}
+        super().__init__(**kwargs)
+        self.noop_action = Action(self.gym_env.unwrapped.g1_absolute_request_from_raw_action(
+            self.noop_action.value))
+
+    def _metadata(self, info):
+        metadata = super()._metadata(info)
+        ranges = self.gym_env.unwrapped._joint_ranges
+        metadata["returned_action_context"] = {
+            "state_key": "gymnasium_state", "horizon": self.action_horizon,
+            "frames": self.context_frames,
+            "order": np.concatenate((POLICY_INDEX_FOR_MUJOCO, np.arange(29, 43))),
+            "low": ranges[:, 0], "high": ranges[:, 1],
+        }
+        return metadata

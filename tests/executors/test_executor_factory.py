@@ -21,6 +21,47 @@ from latency_bench.latency.burst_profile import (
 from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.core.clock import EnvClock
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
+from latency_bench.policy.action_prefix import prepare_action_prefix
+
+
+@pytest.mark.parametrize("mean_ms,fps,expected", [
+    (37.880780, 50, 2), (99.176261, 50, 5), (60.013398, 50, 4),
+    (60.013398, 20, 2), (0, 50, 0),
+])
+def test_task_prefix_configuration_freezes_profile_mean(tmp_path, mean_ms, fps, expected):
+    """Long-lived factory contract: K comes from unrounded profile time and env FPS."""
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"summary": {"mean_ms": mean_ms}}))
+    contract = tmp_path / "task_contract.json"
+    contract.write_text(json.dumps({"action_horizon": 8, "action_dim": 1}))
+    config = {"env": {"env_fps": fps}, "policy": {
+        "task_contract_path": str(contract),
+        "action_prefix": {"mode": "profile_mean", "profile_path": str(profile)},
+    }}
+    resolved = prepare_action_prefix(config)
+    assert resolved["frames"] == expected
+    assert resolved["mean_ms"] == mean_ms
+    profile.unlink()
+    assert prepare_action_prefix(config) == resolved
+
+
+def test_task_prefix_configuration_requires_a_suffix_and_explicit_mode(tmp_path):
+    """Long-lived config boundary: no empty suffix or implicit baseline selection."""
+    contract = tmp_path / "task_contract.json"
+    contract.write_text(json.dumps({"action_horizon": 1, "action_dim": 1}))
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"summary": {"mean_ms": 20.0}}))
+    config = {"env": {"env_fps": 50}, "policy": {
+        "task_contract_path": str(contract),
+        "action_prefix": {"mode": "profile_mean", "profile_path": str(profile)},
+    }}
+    with pytest.raises(ValueError, match="K=1, H=1"):
+        prepare_action_prefix(config)
+    config["policy"]["action_prefix"] = {"mode": "none"}
+    assert prepare_action_prefix(config) == {"mode": "none"}
+    del config["policy"]["action_prefix"]
+    with pytest.raises(KeyError, match="action_prefix"):
+        prepare_action_prefix(config)
 
 
 @register_env_adapter("normalized_noop_test")

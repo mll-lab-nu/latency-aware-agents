@@ -297,3 +297,55 @@ def test_balance_teacher_and_bootstrap_use_their_own_condition(tmp_path, monkeyp
     assert teacher == tmp_path / "checkpoint.pth"
     dataset = train_task.dataset_reference("balance", tmp_path / condition, condition=condition)
     assert dataset["path"] == f"{condition}/humanoidbench-balance-simple/teacher-rollouts-h8-state-v2"
+
+
+@pytest.mark.parametrize('task', ['balance', 'mikasa', 'parkour', 'haic'])
+def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_path, monkeypatch, task):
+    """Long-lived evaluation contract: CLI emits complete task inputs and fixed K."""
+    import sys
+    import yaml
+    from scripts.starvla import evaluate
+    from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
+
+    bundle = tmp_path / 'bundle'
+    bundle.mkdir()
+    (bundle / 'task_contract.json').write_text(json.dumps({
+        'robot_type': 'latency_balance_profile_h8' if task == 'balance' else task,
+        'action_horizon': 8, 'action_dim': 43, 'state_labels': ['state'],
+    }))
+    profile = tmp_path / 'profile.json'
+    profile.write_text(json.dumps({'summary': {'mean_ms': 40.001}}))
+    source = tmp_path / 'environment.json'
+    source.write_text(json.dumps({
+        'experiment': {'seed': 1}, 'env': {'name': 'gymnasium', 'env_fps': 50},
+        'executor': {'mode': 'realtime'}, 'policy': {'type': 'random'},
+        'evaluation': {}, 'logging': {},
+    }))
+    output = tmp_path / 'eval'
+    monkeypatch.setattr(sys, 'argv', [
+        'evaluate', '--task', task, '--bundle', str(bundle), '--environment', str(source),
+        '--output', str(output), '--prefix-mode', 'profile_mean', '--prefix-profile', str(profile),
+        '--vla-python', 'vla-python', '--task-python', 'task-python', '--backbone', 'backbone',
+        '--episodes', '2', '--seed-start', '810001',
+    ])
+    calls = []
+    monkeypatch.setattr(evaluate, 'run_command', lambda command, *args, **kwargs: calls.append(command))
+    evaluate.main()
+    config = yaml.safe_load((output / 'eval_config.yaml').read_text())
+    assert config['policy']['action_prefix']['frames'] == 3
+    assert config['policy']['action_prefix']['mean_ms'] == 40.001
+    assert config['policy']['state_info_key'] == train_task.TASK_SETTINGS[task]['state_info_key']
+    assert config['policy']['image_views_info_key'] == (
+        'mikasa_image_views' if task == 'mikasa' else 'env_raw_rgb_frame_stack')
+    assert config['policy']['device'] == 'cuda:0'
+    assert config['experiment']['seed'] == 810001
+    assert config['evaluation']['eval_episodes'] == 2
+    command = ' '.join(map(str, calls[0]))
+    assert {'balance': 'latency_bench.run', 'mikasa': 'scripts/mikasa/evaluate.py',
+            'parkour': 'parkour_vla.py', 'haic': 'haic_vla.py'}[task] in command
+    if task == 'balance':
+        prepare_starvla_checkpoint_input_config(config)
+        assert config['env']['name'] == 'balance_profile'
+        assert config['env']['action_context_horizon'] == 8
+    with pytest.raises(FileExistsError):
+        evaluate.main()

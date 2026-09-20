@@ -19,6 +19,7 @@ from latency_bench.logging.records import build_step_record
 from latency_bench.logging.realtime_pipeline import PipelineProfile
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.factory import build_action_scheduler
+from latency_bench.policy.action_prefix import with_action_prefix
 
 
 # Number of shared-memory slots pre-allocated per episode. In-flight observations
@@ -127,6 +128,7 @@ def _env_loop_worker(
         episode_start_s = time.perf_counter()
         next_obs_id = 0
         applied_event_count = 0
+        action_prefix = config["policy"]["action_prefix"]
         observation_pool: ObservationSlotPool | None = None
 
         def release_shared_observation(obs_id: int) -> None:
@@ -168,7 +170,9 @@ def _env_loop_worker(
 
             if decision_scheduler.should_observe(env_step, scheduled_time_ms):
                 observe_start_ms = monotonic_ms()
-                observation = env.observe()
+                observation = with_action_prefix(
+                    env.observe(), action_scheduler, action_prefix
+                )
                 observe_end_ms = monotonic_ms()
                 obs_id = next_obs_id
                 next_obs_id += 1

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionEvent, OrderingPolicy
 from latency_bench.scheduler.persistence import ActionPersistencePolicy
@@ -57,6 +59,16 @@ class ActionScheduler:
         self._chunk_age_raw_frames = 0
         self._chunk_seen = False
         self.persistence_policy.reset()
+
+    def project_actions(self, start_frame: int, count: int) -> list[Action]:
+        """Project received actions with the live scheduling rules, without mutation.
+
+        Completed history is not part of the controller state needed for projection.
+        Unreturned results live outside this scheduler and are never consulted.
+        """
+        projected = deepcopy(self, {id(self._applied_events): []})
+        return [projected.update(frame, self.clock.step_to_time_ms(frame))
+                for frame in range(start_frame, start_frame + count)]
 
     def enqueue(self, event: ActionEvent) -> None:
         self._pending_events.append(event)

@@ -109,6 +109,8 @@ def run_from_config(
             if "checkpoint_kind" in policy_cfg:
                 episode_metrics.metadata["checkpoint_kind"] = str(policy_cfg["checkpoint_kind"])
             episode_metrics.metadata["output_dir"] = str(logging_cfg["output_dir"])
+            if "action_prefix" in policy_cfg:
+                episode_metrics.metadata["action_prefix"] = policy_cfg["action_prefix"]
             if extra_metadata:
                 episode_metrics.metadata.update(extra_metadata)
         if executor.logger is not None:
