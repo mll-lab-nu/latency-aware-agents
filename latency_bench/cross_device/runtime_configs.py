@@ -162,6 +162,7 @@ def _patch_realtime(
     }
     config["evaluation"]["eval_parallel_envs"] = 1
     config["evaluation"]["eval_latency_values"] = None
+    config["evaluation"].pop("eval_suites", None)
     config["logging"]["realtime_pipeline_profile"] = True
     _enable_records(config)
 

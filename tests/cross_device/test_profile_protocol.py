@@ -237,6 +237,28 @@ def test_measure_config_resolves_task_contract_for_model_bundle(
         assert config["policy"]["state_info_key"] == "haic_state"
 
 
+def test_measure_config_strips_eval_suites_for_realtime_demon_attack(tmp_path):
+    spec = load_profile_spec("configs/profiles.yaml", "openvla", "demon_attack")
+    spec["checkpoint_path"] = str(tmp_path / "bundle/checkpoints/model.safetensors")
+    spec["model_config_path"] = str(tmp_path / "bundle/config.full.yaml")
+
+    config = measure_config(
+        spec,
+        {
+            "gpu_class": "1x-rtx3090",
+            "instance_id": "instance_abc",
+            "gpus": [{}],
+        },
+        tmp_path,
+        {"selected_env_fps": 60, "selected_obs_fps": 15},
+    )
+
+    assert config["executor"]["mode"] == "realtime"
+    assert config["latency"]["method"] == "measured"
+    assert config["evaluation"]["eval_latency_values"] is None
+    assert "eval_suites" not in config["evaluation"]
+
+
 def test_fixed_workload_cadence_skips_policy_calibration(tmp_path, monkeypatch):
     spec = load_profile_spec(
         "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
