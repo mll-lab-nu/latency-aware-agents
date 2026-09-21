@@ -56,19 +56,28 @@ def _make_raw_env(
     )
 
 
-def _make_ppo_env():
+def _make_ppo_env(num_envs: int = 1, simulator_device: str = "gpu"):
     from baselines.ppo.ppo_memtasks import FlattenRGBDObservationWrapper
     from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
     from mikasa_robo_suite.vla.dataset_collectors.get_mikasa_robo_datasets import (
         env_info,
     )
 
-    env = _make_raw_env("state")
+    env = _make_raw_env(
+        "state",
+        num_envs=num_envs,
+        simulator_device=simulator_device,
+    )
     wrappers, _ = env_info(ENV_ID)
     for wrapper, kwargs in wrappers:
         env = wrapper(env, **kwargs)
     env = FlattenRGBDObservationWrapper(env, rgb=False, depth=False, state=True)
-    return ManiSkillVectorEnv(env, 1, ignore_terminations=True, record_metrics=True)
+    return ManiSkillVectorEnv(
+        env,
+        num_envs,
+        ignore_terminations=True,
+        record_metrics=True,
+    )
 
 
 def _make_vla_env(num_envs: int = 1, simulator_device: str = "gpu"):
