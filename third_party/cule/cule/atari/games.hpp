@@ -7,3 +7,5 @@
 #include <cule/atari/games/detail/utils.hpp>
 
 #include <cule/atari/games/demonattack.hpp>
+#include <cule/atari/games/asterix.hpp>
+#include <cule/atari/games/atlantis.hpp>

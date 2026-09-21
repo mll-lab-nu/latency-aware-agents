@@ -18,6 +18,8 @@ namespace games
 static std::map<std::string, GAME_TYPE> rom_game_map =
 {
     { "f0e0addc07971561ab80d9abe1b8d333", GAME_DEMON_ATTACK },
+    { "89a68746eff7f266bbf08de2483abe55", GAME_ASTERIX },
+    { "9ad36e699ef6f45d9eb6c4cf90475c9f", GAME_ATLANTIS },
 };
 
 const std::array<std::string,_ROM_ATTR_MAX> rom_attr_names =
@@ -73,6 +75,8 @@ const std::array<std::string,_ROM_ATTR_MAX> default_attr =
 static std::map<GAME_TYPE, std::array<std::string,_ROM_ATTR_MAX>> rom_attr_data =
 {
     { GAME_DEMON_ATTACK, {{"", "", "Demon Attack", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" }}},
+    { GAME_ASTERIX, {{"Atari", "CX2696", "Asterix (1988) (Atari) (Prototype) (NTSC)", "", "Extremely Rare", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" }}},
+    { GAME_ATLANTIS, {{"Imagic", "", "Atlantis", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" }}},
 };
 
 } // end namespace games

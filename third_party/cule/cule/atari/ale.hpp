@@ -15,6 +15,8 @@ case GAME_##ID_NAME:                            \
 switch(game_id)                                                \
 {                                                              \
     ALE_CASE(DEMON_ATTACK, demonattack, FUNC)                  \
+    ALE_CASE(ASTERIX, asterix, FUNC)                            \
+    ALE_CASE(ATLANTIS, atlantis, FUNC)                          \
 }
 
 #define SET_TERMINAL(NAME) NAME::setTerminal(s);

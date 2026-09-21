@@ -18,6 +18,7 @@ case NAME:                                                             \
 switch(cart.type())                                                    \
 {                                                                      \
     ROM_CASE(ROM_4K, FUNC, __VA_ARGS__)                                \
+    ROM_CASE(ROM_F8, FUNC, __VA_ARGS__)                                \
     default:                                                           \
         CULE_ASSERT(false, "Invalid rom type " << cart.type_name()); \
 }

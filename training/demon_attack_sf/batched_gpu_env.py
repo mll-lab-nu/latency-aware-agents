@@ -22,7 +22,10 @@ from training.demon_attack_sf.gpu_core import CudaDemonAttackCore
 
 
 class DemonAttackBatchedGpuEnv(gym.Env):
+    """Expose the shared CuLE CUDA core through Sample Factory's batched env API."""
+
     is_multiagent = True
+    core_cls = CudaDemonAttackCore
 
     def __init__(
         self,
@@ -43,7 +46,6 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         self._env_raw_rgb_frames: list[deque[np.ndarray]] = [
             deque(maxlen=int(self.frame_stack)) for _ in range(self.num_agents)
         ]
-        self.action_space = Discrete(6)
         self.observation_space = GymDict(
             {
                 "obs": Box(
@@ -54,7 +56,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
                 )
             }
         )
-        self.core = CudaDemonAttackCore(
+        self.core = self.core_cls(
             batch_size=self.num_agents,
             device=self.device,
             noop_max=cfg.noop_max,
@@ -62,6 +64,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             obs_stride=self.clock.obs_stride_raw_frames,
             frame_stack=self.frame_stack,
         )
+        self.action_space = Discrete(len(self.core.minimal_action_values))
         sub_seeds = [self._sub_seed(agent_idx) for agent_idx in range(self.num_agents)]
         latency_seeds = [
             sample_factory_latency_seed_from_flat_config(
@@ -569,7 +572,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         return {}
 
     def _reset_frame_numbers(self, indices: Sequence[int] | np.ndarray | None = None) -> None:
-        base_frames = self.core.cache_index.detach().cpu().numpy().astype(np.int64) + 3
+        base_frames = self.core.reset_raw_frame_counts.detach().cpu().numpy().astype(np.int64)
         if indices is None:
             self._frame_numbers[:] = base_frames
         else:

@@ -23,7 +23,15 @@ namespace detail
 {
 ROM_FORMAT detect_type(const int32_t size)
 {
-    return size == 4096 ? ROM_4K : ROM_NOT_SUPPORTED;
+    if(size == 4096)
+    {
+        return ROM_4K;
+    }
+    if(size == 8192)
+    {
+        return ROM_F8;
+    }
+    return ROM_NOT_SUPPORTED;
 }
 } // end namespace detail
 
@@ -165,7 +173,7 @@ uint8_t const* rom::data() const
 
 bool rom::is_supported() const
 {
-    return type() == ROM_4K;
+    return type() == ROM_4K || type() == ROM_F8;
 }
 
 bool rom::is_ntsc() const
@@ -201,7 +209,7 @@ std::string rom::value_or_default(const games::ROM_ATTR attr) const
 
 bool rom::has_banks() const
 {
-    return false;
+    return type() == ROM_F8;
 }
 
 void rom::set_game_id()
@@ -229,6 +237,7 @@ const char* rom::names[_ROM_MAX];
 static void initStrings()
 {
     rom::names[ROM_4K]="4K";
+    rom::names[ROM_F8]="F8";
     rom::names[ROM_NOT_SUPPORTED]="NOT SUPPORTED";
 }
 

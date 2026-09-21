@@ -12,6 +12,8 @@ namespace games
 enum GAME_TYPE : uint8_t
 {
     GAME_DEMON_ATTACK,
+    GAME_ASTERIX,
+    GAME_ATLANTIS,
 };
 
 enum ROM_ATTR
