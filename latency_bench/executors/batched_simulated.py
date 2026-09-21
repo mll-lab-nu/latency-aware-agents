@@ -227,10 +227,16 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
                 slot.worker_capacity.release_ready(slot.env_step)
+                self._deliver_arrived_results(slot, raw_frame=slot.env_step)
                 observation_submitted = False
                 observation_dropped = False
                 if self.decision_scheduler.should_observe(slot.env_step, current_time_ms):
-                    if slot.worker_capacity.can_submit():
+                    prefix_request_pending = (
+                        self.action_prefix is not None
+                        and self.action_prefix["mode"] != "none"
+                        and slot.result_timeline.pending_observation_count > 0
+                    )
+                    if slot.worker_capacity.can_submit() and not prefix_request_pending:
                         observation_slots.append(slot)
                         observation_submitted = True
                     else:

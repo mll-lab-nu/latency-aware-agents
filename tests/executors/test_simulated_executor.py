@@ -74,6 +74,25 @@ class WorkerServiceStructuredLatencySource(LatencySampler):
         )
 
 
+class DivergentReadyAndWorkerLatencySource(LatencySampler):
+    latency_type = "profile_sample"
+
+    def __init__(self, *, action_ready_frames: int, worker_service_frames: int):
+        self.action_ready_frames = action_ready_frames
+        self.worker_service_frames = worker_service_frames
+        self.calls: list[dict] = []
+
+    def sample(self, context=None) -> LatencySample:
+        self.calls.append(dict(context or {}))
+        return LatencySample(
+            latency_ms=self.action_ready_frames * 50.0,
+            latency_raw_frames=self.action_ready_frames,
+            action_ready_raw_frames=self.action_ready_frames,
+            worker_service_raw_frames=self.worker_service_frames,
+            worker_service_ms=self.worker_service_frames * 50.0,
+        )
+
+
 class SelectedRawFrameDecisionScheduler(DecisionScheduler):
     def __init__(self, raw_frames: set[int]):
         self.raw_frames = set(raw_frames)
@@ -452,6 +471,41 @@ def test_simulated_worker_capacity_drops_observations_when_worker_is_busy():
     assert metrics.metadata["dropped_observation_count"] == 2
     assert metrics.metadata["simulated_worker_capacity"] == 1
     assert metrics.metadata["inference_worker_count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("action_ready_frames", "worker_service_frames", "expected_submissions"),
+    [
+        (0, 0, [0, 1, 2, 3, 4, 5]),
+        (2, 3, [0, 3]),
+        (3, 3, [0, 3]),
+        (4, 2, [0, 4]),
+    ],
+)
+def test_prefix_requests_wait_for_both_worker_and_previous_result(
+    action_ready_frames, worker_service_frames, expected_submissions
+):
+    latency_source = DivergentReadyAndWorkerLatencySource(
+        action_ready_frames=action_ready_frames,
+        worker_service_frames=worker_service_frames,
+    )
+    executor, _, _, _ = _executor(
+        latency_source,
+        policy=ConstantPolicyRunner(Action([1.0])),
+        max_steps=6,
+        simulated_worker_capacity=1,
+    )
+    executor.action_scheduler.noop_action = Action([0.0], is_noop=True)
+    executor.action_prefix = {
+        "mode": "profile_p95",
+        "frames": 3,
+        "action_horizon": 8,
+        "action_dim": 1,
+    }
+
+    executor.run_episode(episode_id=0, eval_max_steps=6)
+
+    assert [call["raw_frame"] for call in latency_source.calls] == expected_submissions
 
 
 def test_simulated_worker_capacity_uses_worker_service_frames_and_passes_drop_state():

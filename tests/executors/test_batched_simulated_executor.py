@@ -68,6 +68,23 @@ class RawFrameLatencySource(LatencySampler):
         return LatencySample.from_latency_ms(raw * self.clock.frame_ms, clock=self.clock, latency_raw_frames=raw)
 
 
+class DivergentReadyAndWorkerLatencySource(LatencySampler):
+    def __init__(self, *, action_ready_frames: int, worker_service_frames: int):
+        self.action_ready_frames = action_ready_frames
+        self.worker_service_frames = worker_service_frames
+        self.calls: list[dict] = []
+
+    def sample(self, context=None) -> LatencySample:
+        self.calls.append(dict(context or {}))
+        return LatencySample(
+            latency_ms=self.action_ready_frames * _CLOCK.frame_ms,
+            latency_raw_frames=self.action_ready_frames,
+            action_ready_raw_frames=self.action_ready_frames,
+            worker_service_raw_frames=self.worker_service_frames,
+            worker_service_ms=self.worker_service_frames * _CLOCK.frame_ms,
+        )
+
+
 class TupleActionPolicy(PolicyRunner):
     def predict(self, observation: Observation) -> PolicyOutput:
         raise AssertionError("batched executor must call predict_batch")
@@ -1304,3 +1321,42 @@ def test_fixed_prefix_is_isolated_between_environment_slots(tmp_path):
             np.testing.assert_array_equal(item["action_prefix_mask"], [True, True, False, False])
     finally:
         executor.close()
+
+
+@pytest.mark.parametrize(
+    ("action_ready_frames", "worker_service_frames", "expected_submissions"),
+    [
+        (0, 0, [0, 1, 2, 3, 4, 5]),
+        (2, 3, [0, 3]),
+        (3, 3, [0, 3]),
+        (4, 2, [0, 4]),
+    ],
+)
+def test_batched_prefix_requests_wait_for_worker_and_previous_result(
+    tmp_path, action_ready_frames, worker_service_frames, expected_submissions
+):
+    latency_source = DivergentReadyAndWorkerLatencySource(
+        action_ready_frames=action_ready_frames,
+        worker_service_frames=worker_service_frames,
+    )
+    executor, _ = _executor(
+        tmp_path,
+        num_slots=1,
+        env_max_steps=6,
+        policy=ConstantPolicyRunner(Action([1.0])),
+        latency_sources=[latency_source],
+        simulated_worker_capacity=1,
+    )
+    executor.slots[0].action_scheduler.noop_action = Action([0.0], is_noop=True)
+    executor.action_prefix = {
+        "mode": "profile_p95",
+        "frames": 3,
+        "action_horizon": 8,
+        "action_dim": 1,
+    }
+    try:
+        executor.run_episodes(episode_ids=[0], seeds=[1], eval_max_steps=6)
+    finally:
+        executor.close()
+
+    assert [call["raw_frame"] for call in latency_source.calls] == expected_submissions
