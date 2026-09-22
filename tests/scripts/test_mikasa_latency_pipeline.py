@@ -10,6 +10,20 @@ from scripts.tasks.mikasa_intercept_grab_fast import run_latency_pipeline
 from scripts.tasks.mikasa_intercept_grab_fast import run_profile_policy
 
 
+def test_matched_profile_evals_hold_last_chunk_action():
+    for config_path in (
+        "configs/training/latency/mikasa_qwenoft_rtx3090_eval.yaml",
+        "configs/training/latency/mikasa_qwenpi_v3_rtx3090_eval.yaml",
+        "configs/training/latency/mikasa_qwengr00t_rtx3090_eval.yaml",
+    ):
+        config = load_config(config_path)
+        assert config["scheduler"] == {
+            "ordering_policy": "latest_ready",
+            "hold_policy": "hold",
+            "hold_last_chunk_action": True,
+        }
+
+
 def test_profile_policy_launcher_materializes_pinned_profile_and_checkpoint(tmp_path, monkeypatch):
     """Long-lived native launch contract: pinned data and the chosen checkpoint."""
     config = load_config("configs/training/latency/mikasa_qwenoft_rtx3090_eval.yaml")
