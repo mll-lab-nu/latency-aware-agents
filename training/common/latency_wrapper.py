@@ -470,23 +470,24 @@ class ActionLatencyWrapper(gym.Wrapper):
             }
         if saw_raw_reward:
             info["raw_reward"] = float(total_raw_reward)
+        info["command_admitted"] = not observation_dropped
+        info["observation_dropped"] = observation_dropped
+        info["worker_id"] = -1 if worker_id is None else worker_id
+        info["worker_service_ms"] = 0.0 if latency_sample is None else latency_sample.worker_service_ms
+        info["worker_service_raw_frames"] = (
+            0 if latency_sample is None else latency_sample.worker_service_raw_frames
+        )
+        info["ready_raw_frame"] = -1 if scheduled_ready_raw_frame is None else scheduled_ready_raw_frame
         if self.add_latency_info:
             info.update(self._latency_info(scheduled_delay))
             info["issued_action"] = clone_action(action)
             info["queued_action"] = clone_action(action)
-            info["command_admitted"] = not observation_dropped
-            info["observation_dropped"] = observation_dropped
             info["in_flight_count"] = (
                 self.worker_capacity.in_flight_count if self.worker_capacity is not None else 0
             )
             info["idle_worker_count"] = (
                 self.worker_capacity.idle_worker_count if self.worker_capacity is not None else None
             )
-            info["worker_id"] = worker_id
-            if latency_sample is not None:
-                info["worker_service_ms"] = latency_sample.worker_service_ms
-                info["worker_service_raw_frames"] = latency_sample.worker_service_raw_frames
-                info["ready_raw_frame"] = scheduled_ready_raw_frame
             info["raw_frames_advanced"] = int(raw_frames_advanced)
             info["obs_stride_raw_frames"] = int(self.clock.obs_stride_raw_frames)
             info["applied_source_raw_frame"] = applied_source_raw_frame
@@ -549,6 +550,8 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.full_game_raw_return = 0.0
         self.full_game_length = 0
         self.full_game_raw_frames = 0
+        self.submitted_observation_count = 0
+        self.dropped_observation_count = 0
         self._has_chunk_trace = (
             isinstance(env.observation_space, gym.spaces.Dict) and "replay_length" in env.observation_space.spaces
         )
@@ -564,6 +567,8 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         self.full_game_raw_return = 0.0
         self.full_game_length = 0
         self.full_game_raw_frames = 0
+        self.submitted_observation_count = 0
+        self.dropped_observation_count = 0
         self.issued_action_counts.clear()
         self.issued_action_runs.clear()
         self._last_issued_action_label = None
@@ -633,6 +638,10 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         obs, reward, terminated, truncated, info = self.env.step(action)
         reward_value = float(reward)
         info = dict(info or {})
+        if info["command_admitted"]:
+            self.submitted_observation_count += 1
+        else:
+            self.dropped_observation_count += 1
         raw_reward = float(info.get("raw_reward", reward_value))
         self.full_game_return += raw_reward
         self.full_game_raw_return += raw_reward
@@ -677,6 +686,12 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                     latency_raw_frames = None
             if latency_raw_frames is not None:
                 extra_stats["episode/latency_raw_frames"] = int(latency_raw_frames)
+            total_observations = self.submitted_observation_count + self.dropped_observation_count
+            extra_stats["episode/submitted_observation_count"] = int(self.submitted_observation_count)
+            extra_stats["episode/dropped_observation_count"] = int(self.dropped_observation_count)
+            extra_stats["episode/observation_drop_ratio"] = (
+                float(self.dropped_observation_count) / float(total_observations)
+            )
 
             info["episode_extra_stats"] = extra_stats
             info["episodic_raw_return"] = float(self.full_game_raw_return)
@@ -699,6 +714,8 @@ class EpisodeMetricsWrapper(gym.Wrapper):
                 "time_limit_truncated": time_limit_truncated,
                 "timeout": bool(truncated or time_limit_truncated),
                 "done_reason": done_reason,
+                "submitted_observation_count": int(self.submitted_observation_count),
+                "dropped_observation_count": int(self.dropped_observation_count),
             }
             if info.get("score") is not None:
                 event["score"] = float(info["score"])

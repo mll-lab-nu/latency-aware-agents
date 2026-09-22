@@ -49,12 +49,18 @@ SPEC_ONLY_KEYS = {
 TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
     "experiment",
     "backend",
+    "executor",
     "env",
     "latency",
     "scheduler",
     "training",
     "evaluation",
     "logging",
+)
+
+EXECUTOR_KEYS = (
+    "mode",
+    "simulated_worker_capacity",
 )
 
 LATENCY_KEYS = (
@@ -317,9 +323,26 @@ def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDis
     )
 
 
-def _matched_eval_suites(setting: dict[str, Any]) -> dict[str, list[list[Any]]]:
+def _matched_eval_suites(
+    setting: dict[str, Any],
+    *,
+    latency_label: str,
+    seed: int,
+) -> dict[str, list[Any]]:
     if "eval_suites" in setting:
         return deepcopy(setting["eval_suites"])
+
+    kind = setting["kind"]
+    if kind in {"iid", "temporal"}:
+        return {
+            kind: [
+                {
+                    "name": latency_label,
+                    "profile_path": setting["profile_path"],
+                    "seed": int(seed),
+                }
+            ]
+        }
 
     def fixed_suite() -> dict[str, list[list[Any]]]:
         return {
@@ -342,17 +365,12 @@ def _matched_eval_suites(setting: dict[str, Any]) -> dict[str, list[list[Any]]]:
             "uniform": [[setting["min"], setting["max"]]],
         }
 
-    def profile_suite() -> dict[str, list[list[Any]]]:
-        return {"fixed": [], "normal": [], "uniform": []}
-
     builders = {
         "fixed": fixed_suite,
         "normal": normal_suite,
         "uniform": uniform_suite,
-        "iid": profile_suite,
-        "temporal": profile_suite,
     }
-    return builders[setting["kind"]]()
+    return builders[kind]()
 
 
 def _run_axis_fragment(
@@ -552,6 +570,13 @@ def _prune_sample_factory_config(config: dict[str, Any]) -> dict[str, Any]:
         if key in experiment_cfg
     }
 
+    executor_cfg = pruned["executor"]
+    pruned["executor"] = {
+        key: deepcopy(executor_cfg[key])
+        for key in EXECUTOR_KEYS
+        if key in executor_cfg
+    }
+
     env_cfg = pruned["env"]
     env_keys = ENV_KEYS_BY_NAME[str(env_cfg["name"]).strip().lower()]
     pruned["env"] = {
@@ -620,7 +645,11 @@ def _build_full_train_config(
     config.setdefault("env", {})["frame_stack"] = int(frame_stack)
     config["env"]["obs_fps"] = obs_fps
     _apply_latency_setting(config, latency_setting, int(seed))
-    config.setdefault("evaluation", {})["eval_suites"] = _matched_eval_suites(latency_setting)
+    config.setdefault("evaluation", {})["eval_suites"] = _matched_eval_suites(
+        latency_setting,
+        latency_label=latency_label,
+        seed=seed,
+    )
     config.setdefault("logging", {})["output_dir"] = str(
         _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, observation_stride, seed)
     )
@@ -683,6 +712,7 @@ def _build_latency_bench_eval_config(
     checkpoint_kind: str = "latest",
 ) -> dict[str, Any]:
     config = merge_dicts(base_config, full_train_config)
+    config["evaluation"]["eval_suites"] = deepcopy(full_train_config["evaluation"]["eval_suites"])
     env_name = _env_name(config)
     config["backend"]["run_mode"] = "eval"
     if env_name in ("asterix", "atlantis"):

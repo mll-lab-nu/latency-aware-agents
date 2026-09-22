@@ -11,7 +11,7 @@ from gymnasium.spaces import Box, Dict as GymDict, Discrete
 from latency_bench.core.clock import EnvClock
 from training.common.latency_config import (
     build_iid_profile_sampler,
-    profile_sampler_max_latency_raw_frames,
+    profile_sampler_max_latency_raw_frames_for_workers,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
@@ -87,9 +87,10 @@ class DemonAttackBatchedGpuEnv(gym.Env):
                 )
                 for agent_idx in range(self.num_agents)
             ]
-            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames(
+            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames_for_workers(
                 profile_samplers[0],
-                worker_slot=latency_params.profile_worker_slot,
+                profile_worker_slot=latency_params.profile_worker_slot,
+                simulated_worker_capacity=latency_params.simulated_worker_capacity,
                 env_fps=self.clock.env_fps,
             )
         self.latency = CudaLatencyScheduler(
@@ -108,6 +109,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             latency_samplers=profile_samplers,
             profile_worker_slot=latency_params.profile_worker_slot,
             profile_max_latency_raw_frames=profile_max_latency_raw_frames,
+            simulated_worker_capacity=latency_params.simulated_worker_capacity,
             device=self.device,
         )
         self.metrics = BatchedEpisodeMetrics(
@@ -270,6 +272,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             scores=scores,
             active_mask=self._active_mask_cpu,
             latency_raw_frames=latency_raw_frames,
+            command_admitted=result.command_admitted,
             lives=lives,
         )
         done_mask = np.logical_or(terminated, truncated)
@@ -519,6 +522,10 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             "queued_action": int(decision.queued_actions_gpu[agent_idx].item()),
             "ready_raw_frame": int(decision.ready_raw_frames_gpu[agent_idx].item()),
             "raw_frames_advanced": int(decision.raw_frames_advanced_gpu[agent_idx].item()),
+            "command_admitted": bool(decision.command_admitted[agent_idx]),
+            "observation_dropped": bool(decision.observation_dropped[agent_idx]),
+            "worker_id": int(decision.worker_ids[agent_idx]),
+            "worker_service_raw_frames": int(decision.worker_service_raw_frames[agent_idx]),
         }
         if self.latency.latency_distribution_spec is not None:
             info["latency_distribution"] = self.latency.latency_distribution_spec.to_dict()

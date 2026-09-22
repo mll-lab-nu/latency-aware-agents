@@ -73,6 +73,7 @@ def test_metrics_no_done_hot_path_emits_no_dicts():
         scores=np.zeros(4, dtype=np.int64),
         active_mask=np.ones(4, dtype=np.bool_),
         latency_raw_frames=np.zeros(4, dtype=np.int64),
+        command_admitted=np.ones(4, dtype=np.bool_),
         timeout_mask=np.zeros(4, dtype=np.bool_),
     )
 

@@ -186,6 +186,7 @@ def test_deadly_corridor_env_factory_installs_guard(monkeypatch):
         min_latency_ms=None,
         max_latency_ms=None,
         latency_seed=None,
+        simulated_worker_capacity=None,
         seed=0,
         add_latency_info=False,
         hold_policy="hold",

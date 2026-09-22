@@ -269,7 +269,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
 
         self.expected_obs_shape = _shape_from_observation_space(reference_env.observation_space)
         try:
-            checkpoint = sf_runtime.load_sample_factory_policy_state_dict(
+            checkpoint, resolved_checkpoint_path = sf_runtime.load_sample_factory_policy_state_dict(
                 cfg,
                 self.actor_critic,
                 self.device,
@@ -280,6 +280,8 @@ class SampleFactoryPolicyRunner(PolicyRunner):
                 f"{policy_type} checkpoint/model shape mismatch. Check env.obs_resize/env.obs_mode "
                 "and use a checkpoint trained with the same observation shape."
             ) from exc
+        self.checkpoint_path = str(resolved_checkpoint_path)
+        config["policy"]["checkpoint_path"] = self.checkpoint_path
         self.checkpoint_global_step = int(checkpoint.get("train_step", checkpoint.get("env_steps", 0)))
         self.rnn_size = int(get_rnn_size(cfg))
         self.rnn_states = torch.zeros([1, self.rnn_size], dtype=torch.float32, device=self.device)
@@ -373,6 +375,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
     def _policy_output(self, raw_value: Any) -> PolicyOutput:
         metadata = {
             "policy_type": self.policy_type,
+            "checkpoint_path": self.checkpoint_path,
             "checkpoint_global_step": self.checkpoint_global_step,
         }
         if self.cfg.algo == "FAST_TD3" and self.policy_type == "gymnasium_sf":

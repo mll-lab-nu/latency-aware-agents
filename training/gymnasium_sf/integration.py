@@ -38,6 +38,7 @@ from training.common.episode_metrics import (
 )
 from training.common.latency_bench_periodic_eval import run_sample_factory_training
 from training.common.latency_config import (
+    add_sample_factory_latency_args,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
@@ -433,18 +434,7 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
         default=False,
     )
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
-    parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
-    parser.add_argument("--fixed-latency-ms", dest="fixed_latency_ms", type=float)
-    parser.add_argument("--mean-latency-ms", dest="mean_latency_ms", type=float)
-    parser.add_argument("--std-latency-ms", dest="std_latency_ms", type=float)
-    parser.add_argument("--min-latency-ms", dest="min_latency_ms", type=float)
-    parser.add_argument("--max-latency-ms", dest="max_latency_ms", type=float)
-    parser.add_argument("--latency-seed", dest="latency_seed", type=int)
-    parser.add_argument("--latency-profile-path", dest="latency_profile_path", type=str)
-    parser.add_argument("--latency-profile-worker-slot", dest="latency_profile_worker_slot", type=int)
-    parser.add_argument("--simulated-worker-capacity", dest="simulated_worker_capacity", type=int)
-    parser.add_argument("--add-latency-info", type=str2bool, default=False)
-    parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
+    add_sample_factory_latency_args(parser)
     parser.add_argument("--hold-last-chunk-action", type=str2bool, default=False)
     parser.add_argument(
         "--hold-policy",

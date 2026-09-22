@@ -64,6 +64,7 @@ class AtariEnv : public cule::atari::wrapper
                          const int64_t queue_capacity,
                          const int64_t* actions,
                          const bool* active,
+                         const bool* admitted,
                          int64_t* env_step_idx,
                          int64_t* decision_step_idx,
                          int64_t* next_action_id,

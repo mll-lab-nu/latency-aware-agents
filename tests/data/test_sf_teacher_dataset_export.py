@@ -255,7 +255,7 @@ def test_profile_latency_override_preserves_sampler_method(method):
     from latency_bench.data.sf_teacher_runtime import _apply_latency_to_flat_cfg
     from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
-    cfg = SimpleNamespace()
+    cfg = SimpleNamespace(simulated_worker_capacity=None)
     _apply_latency_to_flat_cfg(
         cfg,
         {"method": method, "profile_path": "profile.json", "profile_worker_slot": 0, "seed": 0},

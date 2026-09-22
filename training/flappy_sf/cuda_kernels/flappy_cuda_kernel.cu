@@ -582,6 +582,7 @@ __global__ void flappy_latency_core_decision_kernel(
     double* __restrict__ lower_pipe_xy,
     const int64_t* __restrict__ actions,
     const bool* __restrict__ active,
+    const bool* __restrict__ admitted,
     int64_t* __restrict__ env_step_idx,
     int64_t* __restrict__ decision_step_idx,
     int64_t* __restrict__ next_action_id,
@@ -642,32 +643,39 @@ __global__ void flappy_latency_core_decision_kernel(
     int64_t raw_frames_advanced = 0;
 
     if (active[env]) {
-        const int64_t latency = use_profile_latency != 0
-            ? profile_latency_raw_frames[env]
-            : latency_distribution_type == 3
-            ? current_latency_raw_frames[env]
-            : sample_latency_raw_frames(
-                fixed_latency_raw_frames,
-                latency_distribution_type,
-                latency_distribution_mean,
-                latency_distribution_std,
-                latency_distribution_min,
-                latency_distribution_max,
-                latency_rng_state,
-                env);
-        const int64_t ready_raw_frame = env_step_idx[env] + latency;
-        current_latency_raw_frames[env] = latency;
-        decision_latency_raw_frames[env] = latency;
-        decision_ready_raw_frames[env] = ready_raw_frame;
-        decision_queued_actions[env] = actions[env];
-
         const int64_t base = static_cast<int64_t>(env) * queue_capacity;
-        const int64_t tail = (pending_head[env] + pending_count[env]) % queue_capacity;
-        pending_actions[base + tail] = actions[env];
-        pending_ready_raw_frames[base + tail] = ready_raw_frame;
-        pending_action_ids[base + tail] = next_action_id[env];
-        pending_count[env] += 1;
-        next_action_id[env] += 1;
+        if (admitted[env]) {
+            const int64_t latency = use_profile_latency != 0
+                ? profile_latency_raw_frames[env]
+                : latency_distribution_type == 3
+                ? current_latency_raw_frames[env]
+                : sample_latency_raw_frames(
+                    fixed_latency_raw_frames,
+                    latency_distribution_type,
+                    latency_distribution_mean,
+                    latency_distribution_std,
+                    latency_distribution_min,
+                    latency_distribution_max,
+                    latency_rng_state,
+                    env);
+            const int64_t ready_raw_frame = env_step_idx[env] + latency;
+            current_latency_raw_frames[env] = latency;
+            decision_latency_raw_frames[env] = latency;
+            decision_ready_raw_frames[env] = ready_raw_frame;
+            decision_queued_actions[env] = actions[env];
+
+            const int64_t tail = (pending_head[env] + pending_count[env]) % queue_capacity;
+            pending_actions[base + tail] = actions[env];
+            pending_ready_raw_frames[base + tail] = ready_raw_frame;
+            pending_action_ids[base + tail] = next_action_id[env];
+            pending_count[env] += 1;
+            next_action_id[env] += 1;
+        } else {
+            current_latency_raw_frames[env] = 0;
+            decision_latency_raw_frames[env] = 0;
+            decision_ready_raw_frames[env] = -1;
+            decision_queued_actions[env] = 0;
+        }
 
         bool still_active = true;
         for (int64_t raw_step = 0; raw_step < obs_stride_raw_frames && still_active; ++raw_step) {
@@ -1230,6 +1238,7 @@ void flappy_latency_core_decision_cuda(
     torch::Tensor lower_pipe_xy,
     torch::Tensor actions,
     torch::Tensor active,
+    torch::Tensor admitted,
     torch::Tensor env_step_idx,
     torch::Tensor decision_step_idx,
     torch::Tensor next_action_id,
@@ -1289,6 +1298,7 @@ void flappy_latency_core_decision_cuda(
         lower_pipe_xy.data_ptr<double>(),
         actions.data_ptr<int64_t>(),
         active.data_ptr<bool>(),
+        admitted.data_ptr<bool>(),
         env_step_idx.data_ptr<int64_t>(),
         decision_step_idx.data_ptr<int64_t>(),
         next_action_id.data_ptr<int64_t>(),

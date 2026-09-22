@@ -31,6 +31,7 @@ from training.common.latency_wrapper import (
     RewardTraceWrapper,
 )
 from training.common.latency_config import (
+    add_sample_factory_latency_args,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
@@ -173,6 +174,8 @@ def make_demon_attack_sf_env(
         sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
         profile_path=latency_params.profile_path,
         profile_worker_slot=latency_params.profile_worker_slot,
+        profile_method=latency_params.profile_method,
+        simulated_worker_capacity=latency_params.simulated_worker_capacity,
         seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=cfg.add_latency_info,
@@ -264,17 +267,7 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--gpu-env-batch-size", dest="gpu_env_batch_size", type=int, default=1)
     parser.add_argument("--export-env-raw-rgb-frames", dest="export_env_raw_rgb_frames", type=str2bool, default=False)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
-    parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
-    parser.add_argument("--fixed-latency-ms", dest="fixed_latency_ms", type=float)
-    parser.add_argument("--mean-latency-ms", dest="mean_latency_ms", type=float)
-    parser.add_argument("--std-latency-ms", dest="std_latency_ms", type=float)
-    parser.add_argument("--min-latency-ms", dest="min_latency_ms", type=float)
-    parser.add_argument("--max-latency-ms", dest="max_latency_ms", type=float)
-    parser.add_argument("--latency-seed", dest="latency_seed", type=int)
-    parser.add_argument("--latency-profile-path", dest="latency_profile_path", type=str)
-    parser.add_argument("--latency-profile-worker-slot", dest="latency_profile_worker_slot", type=int)
-    parser.add_argument("--add-latency-info", type=str2bool, default=False)
-    parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
+    add_sample_factory_latency_args(parser)
     parser.add_argument(
         "--hold-policy",
         dest="hold_policy",

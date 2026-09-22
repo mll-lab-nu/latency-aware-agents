@@ -45,7 +45,7 @@ def test_iid_latency_setting_preserves_profile_training_config():
     }
 
 
-def test_flappy_qwen_profile_spec_emits_three_temporal_10fps_25m_best_eval_jobs(tmp_path):
+def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tmp_path):
     generated_root = tmp_path / "configs"
     output_root = tmp_path / "outputs"
     train_dir = tmp_path / "checkpoints"
@@ -53,7 +53,7 @@ def test_flappy_qwen_profile_spec_emits_three_temporal_10fps_25m_best_eval_jobs(
     generate_sweep_configs(
         [
             "--spec",
-            "configs/experiments/flappy/small_policy_qwen_profiles_10fps_25m.yaml",
+            "configs/experiments/flappy/small_policy_qwen_profiles_10fps_25m_capacity1_seed42.yaml",
             "--generated-root",
             str(generated_root),
             "--output-root",
@@ -68,9 +68,9 @@ def test_flappy_qwen_profile_spec_emits_three_temporal_10fps_25m_best_eval_jobs(
     rows = _read_manifest(generated_root / "manifest.tsv")
     assert len(rows) == 3
     assert {row["latency_label"] for row in rows} == {
-        "qwenoft_rtx3090_temporal_25m",
-        "qwengr00t_rtx3090_temporal_25m",
-        "qwenpi_v3_rtx3090_temporal_25m",
+        "qwenoft_rtx3090_temporal_25m_capacity1",
+        "qwengr00t_rtx3090_temporal_25m_capacity1",
+        "qwenpi_v3_rtx3090_temporal_25m_capacity1",
     }
     assert {row["seed"] for row in rows} == {"42"}
     assert {row["frame_stack"] for row in rows} == {"4"}
@@ -85,10 +85,21 @@ def test_flappy_qwen_profile_spec_emits_three_temporal_10fps_25m_best_eval_jobs(
         assert train_cfg["env"]["obs_fps"] == 10
         assert train_cfg["training"]["train_for_env_steps"] == 25_000_000
         assert train_cfg["logging"]["wandb_project"] == "starvla_tasks"
+        assert train_cfg["executor"]["simulated_worker_capacity"] == 1
         assert train_cfg["latency"]["method"] == "temporal"
         assert train_cfg["latency"]["profile_worker_slot"] == 0
+        assert eval_cfg["evaluation"]["eval_suites"] == {
+            "temporal": [
+                {
+                    "name": row["latency_label"],
+                    "profile_path": train_cfg["latency"]["profile_path"],
+                    "seed": 42,
+                }
+            ]
+        }
         assert eval_cfg["policy"]["checkpoint_kind"] == "best"
         assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "best"]
+        assert eval_cfg["executor"]["simulated_worker_capacity"] == 1
         assert eval_cfg["evaluation"]["eval_episodes"] == 100
         assert eval_cfg["evaluation"]["eval_max_steps"] == 18_000
 

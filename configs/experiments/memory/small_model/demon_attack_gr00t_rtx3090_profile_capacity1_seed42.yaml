@@ -1,0 +1,45 @@
+__base__: ../../../base/demon_attack.yaml
+experiment_family: memory_small_model_capacity1
+generated_root: configs/train/memory/small_model/demon_attack/gr00t_rtx3090_profile_capacity1_seed42
+train_dir: results/checkpoints/memory/small_model/demon_attack_capacity1_seed42
+output_root: outputs/memory/small_model/demon_attack/gr00t_rtx3090_profile_capacity1_seed42
+device: cuda
+restart_behavior: resume
+
+env:
+  env_fps: 60
+
+executor:
+  simulated_worker_capacity: 1
+
+seeds:
+  - 42
+
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 1
+  eval_max_steps: 14400
+
+training:
+  train_for_env_steps: 25000000
+
+logging:
+  wandb_project: starvla_tasks
+  wandb_job_type: demon_attack_profiled_small_capacity1
+
+latency_settings:
+  gr00t_rtx3090_iid_capacity1:
+    kind: iid
+    profile_path: results/profiling/profiles/gr00t/1x-rtx3090/demon_attack/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+    eval_suites:
+      fixed: []
+      normal: []
+      uniform: []
+
+sweeps:
+  frame_stack:
+    frame_stack:
+      - 4
+    obs_fps:
+      - 15

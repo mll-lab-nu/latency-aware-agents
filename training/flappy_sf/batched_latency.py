@@ -16,8 +16,8 @@ from latency_bench.core.latency_distribution import (
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from training.common.latency_config import build_latency_info
 from training.common.latency_config import (
-    build_iid_profile_sampler,
-    profile_sampler_max_latency_raw_frames,
+    build_profile_sampler,
+    profile_sampler_max_latency_raw_frames_for_workers,
 )
 from training.common.utils import batch_indices, seed_values
 
@@ -30,6 +30,10 @@ class BatchedLatencyDecisionResult:
     ready_raw_frames: np.ndarray
     raw_frames_advanced: np.ndarray
     pending_counts: np.ndarray
+    command_admitted: np.ndarray
+    observation_dropped: np.ndarray
+    worker_ids: np.ndarray
+    worker_service_raw_frames: np.ndarray
 
 
 class BatchedFlappyLatencyScheduler:
@@ -45,6 +49,8 @@ class BatchedFlappyLatencyScheduler:
         latency_distribution_spec: LatencyDistributionSpec | None,
         profile_path: str | None = None,
         profile_worker_slot: int | None = None,
+        profile_method: str | None = None,
+        simulated_worker_capacity: int | None = None,
         sample_distribution_per_episode: bool = False,
         seeds: Sequence[int],
         env_reset_seed_bases: Sequence[int],
@@ -56,6 +62,7 @@ class BatchedFlappyLatencyScheduler:
         self.latency_distribution_spec = latency_distribution_spec
         self.profile_path = profile_path
         self.profile_worker_slot = profile_worker_slot
+        self.profile_method = profile_method
         self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
@@ -81,8 +88,9 @@ class BatchedFlappyLatencyScheduler:
         self.env_reset_seed_bases = np.asarray([int(seed) for seed in env_reset_seed_bases], dtype=np.int64)
         self.add_latency_info = bool(add_latency_info)
         self.profile_samplers = [
-            build_iid_profile_sampler(
+            build_profile_sampler(
                 profile_path,
+                method=profile_method,
                 seed=int(seed),
                 env_fps=self.clock.env_fps,
                 obs_fps=self.clock.obs_fps,
@@ -90,9 +98,10 @@ class BatchedFlappyLatencyScheduler:
             for seed in self.base_latency_seeds
         ] if profile_path is not None else [None for _ in range(self.batch_size)]
         if profile_path is not None:
-            self.max_frame_latency = profile_sampler_max_latency_raw_frames(
+            self.max_frame_latency = profile_sampler_max_latency_raw_frames_for_workers(
                 self.profile_samplers[0],
-                worker_slot=profile_worker_slot,
+                profile_worker_slot=profile_worker_slot,
+                simulated_worker_capacity=simulated_worker_capacity,
                 env_fps=self.clock.env_fps,
             )
 
@@ -108,10 +117,21 @@ class BatchedFlappyLatencyScheduler:
         self.pending_action_ids = np.zeros((self.batch_size, queue_capacity), dtype=np.int64)
         self.pending_head = np.zeros(self.batch_size, dtype=np.int64)
         self.pending_count = np.zeros(self.batch_size, dtype=np.int64)
+        self.worker_busy_until = (
+            None
+            if simulated_worker_capacity is None
+            else np.zeros((self.batch_size, simulated_worker_capacity), dtype=np.int64)
+        )
+        self.submitted_observations = np.zeros(self.batch_size, dtype=np.int64)
+        self.dropped_observations = np.zeros(self.batch_size, dtype=np.int64)
         self.latency_distribution_samplers = [None for _ in range(self.batch_size)]
         self._decision_latency_raw_frames = np.zeros(self.batch_size, dtype=np.int64)
         self._decision_ready_raw_frames = np.zeros(self.batch_size, dtype=np.int64)
         self._decision_queued_actions = np.zeros(self.batch_size, dtype=np.int64)
+        self._decision_admitted = np.zeros(self.batch_size, dtype=np.bool_)
+        self._decision_dropped = np.zeros(self.batch_size, dtype=np.bool_)
+        self._decision_worker_ids = np.full(self.batch_size, -1, dtype=np.int64)
+        self._decision_worker_service_raw_frames = np.zeros(self.batch_size, dtype=np.int64)
 
     def reset(
         self,
@@ -130,6 +150,10 @@ class BatchedFlappyLatencyScheduler:
             self.env_step_idx[agent_idx] = 0
             self.decision_step_idx[agent_idx] = 0
             self.next_action_id[agent_idx] = 0
+            if self.worker_busy_until is not None:
+                self.worker_busy_until[agent_idx] = 0
+            self.submitted_observations[agent_idx] = 0
+            self.dropped_observations[agent_idx] = 0
             self._reset_latency_distribution_sampler(agent_idx)
             if self.latency_distribution_spec is None:
                 self.current_latency_raw_frames[agent_idx] = self.fixed_latency_raw_frames
@@ -148,24 +172,49 @@ class BatchedFlappyLatencyScheduler:
     def begin_decision(self, actions: Sequence[int] | np.ndarray, active_mask: Sequence[bool] | np.ndarray) -> None:
         action_arr = np.asarray(actions, dtype=np.int64).reshape(-1)
         active = np.asarray(active_mask, dtype=np.bool_).reshape(-1)
-        active_indices = np.flatnonzero(active)
-        latency_raw_frames = np.full(self.batch_size, int(self.fixed_latency_raw_frames), dtype=np.int64)
-        if self.latency_distribution_spec is not None or self.profile_path is not None:
-            for agent_idx in active_indices:
-                latency_raw_frames[agent_idx] = self._next_latency_raw_frames(int(agent_idx))
+        admitted = active.copy()
+        worker_ids = np.full(self.batch_size, -1, dtype=np.int64)
+        if self.worker_busy_until is not None:
+            idle = self.worker_busy_until <= self.env_step_idx[:, None]
+            admitted &= idle.any(axis=1)
+            worker_ids[admitted] = idle[admitted].argmax(axis=1)
+        dropped = active & ~admitted
+        admitted_indices = np.flatnonzero(admitted)
+        latency_raw_frames = np.zeros(self.batch_size, dtype=np.int64)
+        worker_service_raw_frames = np.zeros(self.batch_size, dtype=np.int64)
+        for agent_idx in admitted_indices:
+            latency, worker_service = self._next_latency_sample(
+                int(agent_idx),
+                int(worker_ids[agent_idx]),
+            )
+            latency_raw_frames[agent_idx] = latency
+            worker_service_raw_frames[agent_idx] = worker_service
         self.current_latency_raw_frames[active] = latency_raw_frames[active]
         ready_raw_frames = self.env_step_idx + latency_raw_frames
-        self._decision_latency_raw_frames[active] = latency_raw_frames[active]
-        self._decision_ready_raw_frames[active] = ready_raw_frames[active]
-        self._decision_queued_actions[active] = action_arr[active]
+        self._decision_latency_raw_frames.fill(0)
+        self._decision_ready_raw_frames.fill(-1)
+        self._decision_queued_actions.fill(0)
+        self._decision_admitted[:] = admitted
+        self._decision_dropped[:] = dropped
+        self._decision_worker_ids[:] = worker_ids
+        self._decision_worker_service_raw_frames[:] = worker_service_raw_frames
+        self._decision_latency_raw_frames[admitted] = latency_raw_frames[admitted]
+        self._decision_ready_raw_frames[admitted] = ready_raw_frames[admitted]
+        self._decision_queued_actions[admitted] = action_arr[admitted]
 
         tail = (self.pending_head + self.pending_count) % self.pending_actions.shape[1]
-        self.pending_actions[active_indices, tail[active_indices]] = action_arr[active_indices]
-        self.pending_ready_raw_frames[active_indices, tail[active_indices]] = ready_raw_frames[active_indices]
-        self.pending_action_ids[active_indices, tail[active_indices]] = self.next_action_id[active_indices]
-        self.pending_count[active] += 1
-        self.next_action_id[active] += 1
-        if self.max_pending_actions is not None and np.any(self.pending_count[active] > self.max_pending_actions):
+        self.pending_actions[admitted_indices, tail[admitted_indices]] = action_arr[admitted_indices]
+        self.pending_ready_raw_frames[admitted_indices, tail[admitted_indices]] = ready_raw_frames[admitted_indices]
+        self.pending_action_ids[admitted_indices, tail[admitted_indices]] = self.next_action_id[admitted_indices]
+        self.pending_count[admitted] += 1
+        self.next_action_id[admitted] += 1
+        self.submitted_observations[admitted] += 1
+        self.dropped_observations[dropped] += 1
+        if self.worker_busy_until is not None:
+            self.worker_busy_until[admitted_indices, worker_ids[admitted_indices]] = (
+                self.env_step_idx[admitted] + worker_service_raw_frames[admitted]
+            )
+        if self.max_pending_actions is not None and np.any(self.pending_count[admitted] > self.max_pending_actions):
             raise RuntimeError(
                 "pending action queue exceeded latency.max_pending_actions="
                 f"{self.max_pending_actions}"
@@ -200,6 +249,10 @@ class BatchedFlappyLatencyScheduler:
             ready_raw_frames=self._decision_ready_raw_frames.copy(),
             raw_frames_advanced=advanced.copy(),
             pending_counts=self.pending_count.copy(),
+            command_admitted=self._decision_admitted.copy(),
+            observation_dropped=self._decision_dropped.copy(),
+            worker_ids=self._decision_worker_ids.copy(),
+            worker_service_raw_frames=self._decision_worker_service_raw_frames.copy(),
         )
         self.decision_step_idx[active] += 1
         return result
@@ -224,6 +277,10 @@ class BatchedFlappyLatencyScheduler:
         info["ready_raw_frame"] = int(decision.ready_raw_frames[agent_idx])
         info["raw_frames_advanced"] = int(decision.raw_frames_advanced[agent_idx])
         info["obs_stride_raw_frames"] = int(self.clock.obs_stride_raw_frames)
+        info["command_admitted"] = bool(decision.command_admitted[agent_idx])
+        info["observation_dropped"] = bool(decision.observation_dropped[agent_idx])
+        info["worker_id"] = int(decision.worker_ids[agent_idx])
+        info["worker_service_raw_frames"] = int(decision.worker_service_raw_frames[agent_idx])
         return info
 
     def _select_ready_actions(self, active: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -271,22 +328,25 @@ class BatchedFlappyLatencyScheduler:
         self.pending_count[selected] = keep_counts[selected]
         return selected, actions
 
-    def _next_latency_raw_frames(self, agent_idx: int) -> int:
+    def _next_latency_sample(self, agent_idx: int, worker_id: int) -> tuple[int, int]:
         if self.profile_samplers[agent_idx] is not None:
             sample = self.profile_samplers[agent_idx].sample(
                 {
                     "episode_id": int(self.episode_idx[agent_idx]),
-                    "worker_slot": self.profile_worker_slot,
+                    "worker_slot": self.profile_worker_slot if worker_id < 0 else worker_id,
                 }
             )
-            return int(sample.action_ready_raw_frames)
+            return int(sample.action_ready_raw_frames), int(sample.worker_service_raw_frames)
         if self.latency_distribution_spec is not None:
             if self.sample_distribution_per_episode:
-                return self.current_latency_raw_frames[agent_idx]
+                latency = int(self.current_latency_raw_frames[agent_idx])
+                return latency, latency
             if self.latency_distribution_samplers[agent_idx] is None:
                 self._reset_latency_distribution_sampler(agent_idx)
-            return int(self.latency_distribution_samplers[agent_idx].sample_frame())
-        return int(self.fixed_latency_raw_frames)
+            latency = int(self.latency_distribution_samplers[agent_idx].sample_frame())
+            return latency, latency
+        latency = int(self.fixed_latency_raw_frames)
+        return latency, latency
 
     def _reset_latency_distribution_sampler(self, agent_idx: int) -> None:
         if self.latency_distribution_spec is None:

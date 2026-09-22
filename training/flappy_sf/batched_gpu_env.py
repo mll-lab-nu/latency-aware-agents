@@ -20,7 +20,7 @@ from latency_bench.envs.flappy import (
 )
 from training.common.latency_config import (
     build_profile_sampler,
-    profile_sampler_max_latency_raw_frames,
+    profile_sampler_max_latency_raw_frames_for_workers,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
@@ -140,9 +140,10 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 )
                 for agent_idx in range(self.num_agents)
             ]
-            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames(
+            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames_for_workers(
                 profile_samplers[0],
-                worker_slot=latency_params.profile_worker_slot,
+                profile_worker_slot=latency_params.profile_worker_slot,
+                simulated_worker_capacity=latency_params.simulated_worker_capacity,
                 env_fps=self.clock.env_fps,
             )
         max_pending_actions = getattr(self.cfg, "max_pending_actions", None)
@@ -156,6 +157,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             "seeds": latency_seeds,
             "env_reset_seed_bases": [seed + 104729 for seed in sub_seeds],
             "add_latency_info": bool(getattr(self.cfg, "add_latency_info", False)),
+            "simulated_worker_capacity": latency_params.simulated_worker_capacity,
         }
         if isinstance(self.core, CudaFlappyBirdCore):
             self.latency = CudaLatencyScheduler(
@@ -174,6 +176,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 latency_distribution_spec=latency_params.latency_distribution_spec,
                 profile_path=latency_params.profile_path,
                 profile_worker_slot=latency_params.profile_worker_slot,
+                profile_method=latency_params.profile_method,
                 sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
                 max_pending_actions=max_pending_actions,
             )
@@ -367,6 +370,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                         scores=latest_scores,
                         active_mask=active,
                         latency_raw_frames=latency_raw_frames,
+                        command_admitted=fused_result.command_admitted,
                         timeout_mask=timeout_mask,
                     )
                 done_mask = active & np.logical_or(terminated, truncated)
@@ -453,6 +457,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                         scores=latest_scores,
                         active_mask=active,
                         latency_raw_frames=latency_raw_frames,
+                        command_admitted=latency_result.command_admitted,
                         timeout_mask=timeout_mask,
                     )
 

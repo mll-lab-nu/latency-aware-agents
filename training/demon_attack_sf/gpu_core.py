@@ -136,6 +136,10 @@ class _CudaAtariDecisionResult:
     env_step_indices: np.ndarray
     decision_step_indices: np.ndarray
     timeout_mask: np.ndarray
+    command_admitted: np.ndarray
+    observation_dropped: np.ndarray
+    worker_ids: np.ndarray
+    worker_service_raw_frames: np.ndarray
     rewards_gpu: torch.Tensor
     rewards_clipped_gpu: torch.Tensor
     terminated_gpu: torch.Tensor
@@ -160,6 +164,10 @@ class _CudaAtariDecisionGpuResult:
     timeout_mask_gpu: torch.Tensor
     scores_gpu: torch.Tensor
     lives_gpu: torch.Tensor
+    command_admitted: np.ndarray
+    observation_dropped: np.ndarray
+    worker_ids: np.ndarray
+    worker_service_raw_frames: np.ndarray
 
 
 class CudaAtariCore:
@@ -418,6 +426,10 @@ class CudaAtariCore:
             env_step_indices=packed[:, _DECISION_ENV_STEP_IDX].astype(np.int64),
             decision_step_indices=packed[:, _DECISION_DECISION_STEP_IDX].astype(np.int64),
             timeout_mask=packed[:, _DECISION_TIMEOUT].astype(np.bool_),
+            command_admitted=gpu_result.command_admitted,
+            observation_dropped=gpu_result.observation_dropped,
+            worker_ids=gpu_result.worker_ids,
+            worker_service_raw_frames=gpu_result.worker_service_raw_frames,
             rewards_gpu=gpu_result.rewards_gpu,
             rewards_clipped_gpu=gpu_result.rewards_clipped_gpu,
             terminated_gpu=gpu_result.terminated_gpu,
@@ -436,7 +448,9 @@ class CudaAtariCore:
         action_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device).reshape(-1).contiguous()
         active_t = torch.as_tensor(active_mask, dtype=torch.bool, device=self.device).reshape(-1).contiguous()
         episode_steps = episode_step_idx.view(-1)
-        latency._sample_profile_latencies(active_t)
+        issue_frames = latency.env_step_idx.clone()
+        admitted, worker_ids = latency._prepare_admission(active_t)
+        profile_service = latency._sample_profile_latencies(admitted, worker_ids)
         self.env.step_decision(
             bool(self.terminal_on_life_loss),
             int(latency.clock.obs_stride_raw_frames),
@@ -455,6 +469,7 @@ class CudaAtariCore:
             int(latency.queue_capacity),
             action_t.data_ptr(),
             active_t.data_ptr(),
+            admitted.data_ptr(),
             latency.env_step_idx.data_ptr(),
             latency.decision_step_idx.data_ptr(),
             latency.next_action_id.data_ptr(),
@@ -490,7 +505,14 @@ class CudaAtariCore:
             self._scores.data_ptr(),
             self._obs84_multi.data_ptr(),
         )
+        latency._record_admitted_service(admitted, worker_ids, issue_frames, profile_service)
         decision_obs = self._obs84_multi.permute(1, 0, 2, 3).contiguous()
+        command_admitted = latency._decision_admitted.detach().cpu().numpy().copy()
+        observation_dropped = latency._decision_dropped.detach().cpu().numpy().copy()
+        worker_ids_cpu = latency._decision_worker_ids.detach().cpu().numpy().copy()
+        worker_service_raw_frames = (
+            latency._decision_worker_service_raw_frames.detach().cpu().numpy().copy()
+        )
         return _CudaAtariDecisionGpuResult(
             observations=decision_obs,
             rewards_gpu=self._decision_rewards,
@@ -508,6 +530,10 @@ class CudaAtariCore:
             timeout_mask_gpu=self._decision_timeout,
             scores_gpu=self._scores,
             lives_gpu=self._lives,
+            command_admitted=command_admitted,
+            observation_dropped=observation_dropped,
+            worker_ids=worker_ids_cpu,
+            worker_service_raw_frames=worker_service_raw_frames,
         )
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:

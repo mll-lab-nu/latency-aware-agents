@@ -369,6 +369,7 @@ def test_demon_attack_env_factory_installs_worker_compat(monkeypatch):
             min_latency_ms=None,
             max_latency_ms=None,
             latency_seed=None,
+            simulated_worker_capacity=None,
             add_latency_info=False,
             hold_policy="hold",
             ordering_policy="latest_ready",
