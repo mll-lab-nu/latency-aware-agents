@@ -19,7 +19,7 @@ from latency_bench.envs.flappy import (
     FlappyTorchObservationPipeline,
 )
 from training.common.latency_config import (
-    build_iid_profile_sampler,
+    build_profile_sampler,
     profile_sampler_max_latency_raw_frames,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
@@ -131,8 +131,9 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         profile_max_latency_raw_frames = None
         if latency_params.profile_path is not None:
             profile_samplers = [
-                build_iid_profile_sampler(
+                build_profile_sampler(
                     latency_params.profile_path,
+                    method=latency_params.profile_method,
                     seed=latency_seeds[agent_idx],
                     env_fps=self.clock.env_fps,
                     obs_fps=self.clock.obs_fps,

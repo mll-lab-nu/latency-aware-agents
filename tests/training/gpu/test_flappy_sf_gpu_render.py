@@ -690,6 +690,47 @@ def test_flappy_gpu_distribution_uses_cuda_latency_scheduler():
         env.close()
 
 
+def test_flappy_gpu_profile_uses_configured_temporal_sampler(monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    samplers = [SimpleNamespace(), SimpleNamespace()]
+    calls = []
+
+    def build_profile_sampler(profile_path, *, method, seed, env_fps, obs_fps):
+        calls.append((profile_path, method, seed, env_fps, obs_fps))
+        return samplers[len(calls) - 1]
+
+    monkeypatch.setattr(
+        "training.flappy_sf.batched_gpu_env.build_profile_sampler",
+        build_profile_sampler,
+    )
+    monkeypatch.setattr(
+        "training.flappy_sf.batched_gpu_env.profile_sampler_max_latency_raw_frames",
+        lambda sampler, *, worker_slot, env_fps: 3,
+    )
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(
+            simulator="gpu",
+            gpu_render_device="cuda",
+            gpu_render_batch_size=2,
+            latency_type="profile_sample",
+            latency_profile_path="profile.json",
+            latency_profile_worker_slot=0,
+        ),
+        env_config=_env_config(),
+    )
+    try:
+        assert [call[1] for call in calls] == ["temporal", "temporal"]
+        assert env.latency.latency_samplers == samplers
+    finally:
+        env.close()
+
+
 def test_flappy_gpu_latency_info_uses_fused_decision_path(monkeypatch):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
