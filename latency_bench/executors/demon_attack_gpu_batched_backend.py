@@ -14,28 +14,28 @@ from latency_bench.executors.gpu_batched_env_step_backend import (
     uses_starvla_policy,
 )
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
+from training.asterix_sf.gpu_core import CudaAsterixCore
+from training.atlantis_sf.gpu_core import CudaAtlantisCore
 from training.demon_attack_sf.gpu_core import CudaDemonAttackCore
 
 
-class DemonAttackGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
-    """Batch Demon Attack CUDA stepping behind latency_bench's simulated scheduler.
-
-    latency_bench owns observation cadence, latency sampling, and action
-    persistence. This backend only advances active raw frames and exposes the
-    same policy observation contract as DemonAttackEnvAdapter.
-    """
-    backend_name = "demon_attack_gpu_batched"
+class _AtariGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
+    core_cls: type
+    action_count: int
 
     def __init__(self, *, config: dict[str, Any], noop_action: Action, num_slots: int):
         env_cfg = config["env"]
-        if env_cfg["reset_mode"] != "fire":
-            raise ValueError("demon_attack_gpu_batched currently supports reset_mode='fire'")
-        super().__init__(config=config, noop_action=noop_action, num_slots=num_slots, action_space=gym.spaces.Discrete(6))
+        super().__init__(
+            config=config,
+            noop_action=noop_action,
+            num_slots=num_slots,
+            action_space=gym.spaces.Discrete(self.action_count),
+        )
         self.frame_stack = env_cfg["frame_stack"]
         self.clip_reward = env_cfg["clip_reward"]
         self.export_env_raw_rgb_frames = bool(env_cfg.get("export_env_raw_rgb_frames", False)) or uses_starvla_policy(config)
         self.device = _resolve_device(env_cfg["gpu_env_device"])
-        self.core = CudaDemonAttackCore(
+        self.core = self.core_cls(
             batch_size=self._num_slots,
             device=self.device,
             noop_max=env_cfg["noop_max"],
@@ -155,6 +155,40 @@ class DemonAttackGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
             slot_id = int(slot_id)
             if not bool(done_mask[slot_id]):
                 self._raw_rgb_frames[slot_id].append(frames[slot_id])
+
+
+class DemonAttackGpuBatchedEnvStepBackend(_AtariGpuBatchedEnvStepBackend):
+    """Batch Demon Attack CUDA stepping behind latency_bench's simulated scheduler.
+
+    latency_bench owns observation cadence, latency sampling, and action
+    persistence. This backend only advances active raw frames and exposes the
+    same policy observation contract as DemonAttackEnvAdapter.
+    """
+    backend_name = "demon_attack_gpu_batched"
+    core_cls = CudaDemonAttackCore
+    action_count = 6
+
+    def __init__(self, *, config: dict[str, Any], noop_action: Action, num_slots: int):
+        env_cfg = config["env"]
+        if env_cfg["reset_mode"] != "fire":
+            raise ValueError("demon_attack_gpu_batched currently supports reset_mode='fire'")
+        super().__init__(config=config, noop_action=noop_action, num_slots=num_slots)
+
+
+class AtlantisGpuBatchedEnvStepBackend(_AtariGpuBatchedEnvStepBackend):
+    """Batch Atlantis CUDA stepping behind latency_bench's simulated scheduler."""
+
+    backend_name = "atlantis_gpu_batched"
+    core_cls = CudaAtlantisCore
+    action_count = 4
+
+
+class AsterixGpuBatchedEnvStepBackend(_AtariGpuBatchedEnvStepBackend):
+    """Batch Asterix CUDA stepping behind latency_bench's simulated scheduler."""
+
+    backend_name = "asterix_gpu_batched"
+    core_cls = CudaAsterixCore
+    action_count = 9
 
 
 def _resolve_device(device: str) -> torch.device:

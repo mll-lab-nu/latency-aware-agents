@@ -109,6 +109,19 @@ def test_parse_fixed_eval_suite_supports_explicit_latency_list(tmp_path: Path):
     assert suites[0].fixed_latency_values == [0, 1, 2, 3, 4]
 
 
+def test_empty_eval_suite_mapping_uses_single_run(tmp_path: Path):
+    from latency_bench.eval.suites import has_eval_suites
+
+    config = _suite_config(tmp_path)
+    config["evaluation"]["eval_suites"] = {
+        "fixed": [],
+        "normal": [],
+        "uniform": [],
+    }
+
+    assert not has_eval_suites(config)
+
+
 @pytest.mark.parametrize("method", ["iid", "temporal"])
 def test_parse_profile_eval_suites_uses_explicit_name_and_profile_provenance(tmp_path: Path, method):
     from latency_bench.eval.suites import parse_eval_suites

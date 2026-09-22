@@ -615,15 +615,22 @@ def test_latency_bench_env_backend_defaults_to_auto_for_parallel_defend_the_line
     assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
 
 
-def test_latency_bench_env_backend_accepts_explicit_demon_attack_gpu_batched(tmp_path):
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "demon_attack_gpu_batched",
+        "atlantis_gpu_batched",
+        "asterix_gpu_batched",
+    ],
+)
+def test_latency_bench_env_backend_accepts_explicit_atari_gpu_batched(tmp_path, backend):
     from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
-    config["evaluation"]["latency_bench_env_backend"] = "demon_attack_gpu_batched"
-    config["env"]["name"] = "demon_attack"
+    config["evaluation"]["latency_bench_env_backend"] = backend
 
-    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "demon_attack_gpu_batched"
+    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == backend
 
 
 def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_backend(tmp_path):

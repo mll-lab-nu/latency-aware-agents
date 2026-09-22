@@ -51,11 +51,25 @@ def _build_demon_attack_gpu_batched_backend(*, config: dict[str, Any], noop_acti
     return DemonAttackGpuBatchedEnvStepBackend(config=config, noop_action=noop_action, num_slots=num_slots)
 
 
+def _build_atlantis_gpu_batched_backend(*, config: dict[str, Any], noop_action: Action, num_slots: int) -> EnvStepBackend:
+    from latency_bench.executors.demon_attack_gpu_batched_backend import AtlantisGpuBatchedEnvStepBackend
+
+    return AtlantisGpuBatchedEnvStepBackend(config=config, noop_action=noop_action, num_slots=num_slots)
+
+
+def _build_asterix_gpu_batched_backend(*, config: dict[str, Any], noop_action: Action, num_slots: int) -> EnvStepBackend:
+    from latency_bench.executors.demon_attack_gpu_batched_backend import AsterixGpuBatchedEnvStepBackend
+
+    return AsterixGpuBatchedEnvStepBackend(config=config, noop_action=noop_action, num_slots=num_slots)
+
+
 _BACKEND_FACTORIES: dict[str, Callable[..., EnvStepBackend]] = {
     "serial": _build_serial_backend,
     "subproc": _build_subproc_backend,
     "flappy_gpu_batched": _build_flappy_gpu_batched_backend,
     "demon_attack_gpu_batched": _build_demon_attack_gpu_batched_backend,
+    "atlantis_gpu_batched": _build_atlantis_gpu_batched_backend,
+    "asterix_gpu_batched": _build_asterix_gpu_batched_backend,
 }
 
 LATENCY_BENCH_ENV_BACKENDS = frozenset(_BACKEND_FACTORIES) | {"auto"}
