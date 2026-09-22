@@ -174,6 +174,59 @@ class DemonAttackGpuBatchedEnvStepBackend(_AtariGpuBatchedEnvStepBackend):
             raise ValueError("demon_attack_gpu_batched currently supports reset_mode='fire'")
         super().__init__(config=config, noop_action=noop_action, num_slots=num_slots)
 
+    def _step_cores(self, slot_ids: list[int], *, actions: np.ndarray, active_mask: np.ndarray) -> Any:
+        step_state = super()._step_cores(slot_ids, actions=actions, active_mask=active_mask)
+        _rewards, terminated, truncated, _scores, lives = step_state
+        life_loss_mask = terminated & ~truncated & (lives > 0)
+        life_loss_indices = np.flatnonzero(life_loss_mask)
+        reset_infos: dict[int, dict[str, Any]] = {}
+        if life_loss_indices.size:
+            reset_observations = self.core.soft_reset_life_loss_batch(indices=life_loss_indices)
+            index_t = torch.as_tensor(life_loss_indices, dtype=torch.int64, device=self.device)
+            self._stack[index_t] = reset_observations[index_t].repeat(1, self.frame_stack, 1, 1)
+            reset_scores = self.core.score.detach().cpu().numpy()
+            reset_lives = self.core.lives.detach().cpu().numpy()
+            for slot_id in life_loss_indices:
+                slot_id = int(slot_id)
+                reset_infos[slot_id] = {
+                    "score": int(reset_scores[slot_id]),
+                    "ale.lives": int(reset_lives[slot_id]),
+                    "lives": int(reset_lives[slot_id]),
+                }
+            if self.export_env_raw_rgb_frames:
+                frames = self.core.native_rgb_frames().detach().cpu().numpy()
+                for slot_id in life_loss_indices:
+                    slot_id = int(slot_id)
+                    self._raw_rgb_frames[slot_id].reset(frames[slot_id])
+        return step_state, life_loss_mask, reset_infos
+
+    def _slot_step_outcome(self, state: Any, slot_id: int) -> SlotStepOutcome:
+        step_state, life_loss_mask, reset_infos = state
+        outcome = super()._slot_step_outcome(step_state, slot_id)
+        if not bool(life_loss_mask[slot_id]):
+            return outcome
+
+        terminal_env_step = int(self._env_steps[slot_id])
+        self._env_steps[slot_id] = 0
+        reset_info = self._info(slot_id, reset_infos[slot_id])
+        self._last_infos[slot_id] = reset_info
+        return SlotStepOutcome(
+            reward=outcome.reward,
+            done=False,
+            truncated=False,
+            info=outcome.info,
+            extra_info={
+                "env_step": terminal_env_step,
+                "sim_time_ms": terminal_env_step * self._frame_ms,
+                "soft_reset": True,
+                "ignored_life_loss_terminal": True,
+                "original_terminated": True,
+                "original_truncated": False,
+                TRUE_EPISODE_END_INFO_KEY: False,
+                "reset_info": dict(reset_info),
+            },
+        )
+
 
 class AtlantisGpuBatchedEnvStepBackend(_AtariGpuBatchedEnvStepBackend):
     """Batch Atlantis CUDA stepping behind latency_bench's simulated scheduler."""

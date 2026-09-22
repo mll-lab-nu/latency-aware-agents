@@ -31,6 +31,115 @@ def test_cule_core_and_latency_backend_are_byte_identical():
                 assert core_value == backend_value
 
 
+def test_cule_life_loss_soft_reset_matches_ale_and_continues_the_episode():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    pytest.importorskip("cv2")
+
+    from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
+    from latency_bench.envs.demon_attack import DemonAttackEnvAdapter
+    from latency_bench.executors.demon_attack_gpu_batched_backend import (
+        DemonAttackGpuBatchedEnvStepBackend,
+    )
+
+    noop = Action(value=0, name="NOOP", is_noop=True)
+    cpu = DemonAttackEnvAdapter(
+        env_fps=60.0,
+        noop_action=noop,
+        screen_size=84,
+        noop_max=1,
+        reset_mode="fire",
+        terminal_on_life_loss=True,
+        clip_reward=False,
+        continue_life_loss_terminal=True,
+        frame_stack=FRAME_STACK,
+        export_env_raw_rgb_frames=True,
+    )
+    backend = DemonAttackGpuBatchedEnvStepBackend(
+        config={
+            "env": {
+                "name": "demon_attack",
+                "env_fps": 60.0,
+                "obs_fps": 15.0,
+                "noop_max": 1,
+                "reset_mode": "fire",
+                "terminal_on_life_loss": True,
+                "clip_reward": False,
+                "frame_stack": FRAME_STACK,
+                "gpu_env_device": "cuda",
+                "max_episode_steps": 25000,
+            },
+            "policy": {"type": "starvla"},
+        },
+        noop_action=noop,
+        num_slots=1,
+    )
+    actions = np.random.default_rng(2026).integers(
+        0,
+        6,
+        size=4000,
+        dtype=np.int64,
+    ).tolist()
+    cpu_return = 0.0
+    cule_return = 0.0
+    soft_reset_count = 0
+    compare_next_transition = False
+    true_episode_end_count = 0
+
+    try:
+        cpu.reset(seed=SEED)
+        backend.reset_slot(0, episode_id=0, seed=SEED)
+        for action_value in actions:
+            action = Action(value=action_value, name=str(action_value), is_noop=action_value == 0)
+            cpu_result = cpu.step(action)
+            cule_result = backend.step_slots({0: action})[0].result
+            cpu_return += cpu_result.reward
+            cule_return += cule_result.reward
+
+            assert cule_result.reward == cpu_result.reward
+            assert cule_result.done == cpu_result.done
+            assert cule_result.truncated == cpu_result.truncated
+            assert cule_result.info["lives"] == cpu_result.info["lives"]
+            assert cule_result.info[TRUE_EPISODE_END_INFO_KEY] == cpu_result.info[TRUE_EPISODE_END_INFO_KEY]
+            assert ("soft_reset" in cule_result.info) == ("soft_reset" in cpu_result.info)
+
+            cpu_observation = cpu.observe()
+            cule_observation = backend.observe_slots([0])[0]
+            is_soft_reset = "soft_reset" in cpu_result.info
+            if is_soft_reset or compare_next_transition:
+                assert cule_observation.env_step == cpu_observation.env_step
+                assert cule_observation.sim_time_ms == cpu_observation.sim_time_ms
+                assert np.array_equal(cpu_observation.data, cule_observation.data)
+                assert np.array_equal(
+                    cpu_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY],
+                    cule_observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY],
+                )
+            compare_next_transition = is_soft_reset
+
+            if is_soft_reset:
+                soft_reset_count += 1
+                assert cpu_result.done is False
+                assert cule_result.done is False
+                assert np.array_equal(
+                    cpu.gym_env.unwrapped.ale.getRAM(),
+                    backend.core.ram[0].detach().cpu().numpy(),
+                )
+
+            if cpu_result.done or cpu_result.truncated:
+                true_episode_end_count += 1
+                assert cpu_result.info["lives"] == 0
+                assert cpu_result.info[TRUE_EPISODE_END_INFO_KEY] is True
+                break
+    finally:
+        cpu.close()
+        backend.close()
+
+    assert soft_reset_count > 0
+    assert true_episode_end_count == 1
+    assert cule_return == cpu_return
+
+
 def test_cule_reset_matches_latency_cpu_ram_but_not_reset_frame_or_obs_yet():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():

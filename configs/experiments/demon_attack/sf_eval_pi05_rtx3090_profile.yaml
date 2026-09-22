@@ -1,0 +1,16 @@
+__base__: sf_eval_zero_latency.yaml
+
+experiment:
+  name: demon_attack_sf_pi05_rtx3090_profile
+
+executor:
+  simulated_worker_capacity: 1
+
+latency:
+  method: iid
+  profile_path: results/profiling/profiles/pi05/1x-rtx3090/demon_attack/instance_a5037b165aa0cedc/profile.json
+  profile_worker_slot: 0
+  seed: 42
+
+logging:
+  output_dir: outputs/demon_attack_sf_eval_pi05_rtx3090_profile

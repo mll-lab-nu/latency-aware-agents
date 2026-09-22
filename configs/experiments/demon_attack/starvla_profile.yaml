@@ -39,7 +39,7 @@ latency:
 evaluation:
   eval_episodes: 10
   eval_parallel_envs: 1
-  eval_max_steps: 3600
+  eval_max_steps: 14400
   eval_deterministic: true
   eval_raw_reward: true
   eval_latency_values: null

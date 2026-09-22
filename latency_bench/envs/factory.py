@@ -169,12 +169,13 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
     env_cfg = config["env"]
     eval_raw_reward = bool(config.get("evaluation", {}).get("eval_raw_reward", False))
     is_latency_bench_eval = str(config.get("backend", {}).get("run_mode", "")).lower() == "eval"
-    terminal_on_life_loss = bool(env_cfg.get("terminal_on_life_loss", False))
-    clip_reward = bool(env_cfg.get("clip_reward", True))
+    terminal_on_life_loss = env_cfg["terminal_on_life_loss"]
+    clip_reward = env_cfg["clip_reward"]
     if is_latency_bench_eval and eval_raw_reward:
-        terminal_on_life_loss = True
         clip_reward = False
-    continue_life_loss_terminal = bool(is_latency_bench_eval and eval_raw_reward)
+    continue_life_loss_terminal = (
+        terminal_on_life_loss and is_latency_bench_eval and eval_raw_reward
+    )
     return DemonAttackEnvAdapter(
         env_id=env_cfg.get("env_id", env_cfg.get("gym_id", "ALE/DemonAttack-v5")),
         env_fps=float(env_cfg["env_fps"]),
