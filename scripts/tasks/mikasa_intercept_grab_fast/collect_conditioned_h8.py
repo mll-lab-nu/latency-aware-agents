@@ -29,6 +29,7 @@ from scripts.mikasa.evaluate import (
     _PpoPolicy,
     _make_ppo_env,
     _make_vla_env,
+    _reset_seeded_slots,
 )
 
 
@@ -247,8 +248,8 @@ def collect(args: argparse.Namespace) -> dict:
                 else "validation"
             )
             seeds = list(range(attempted_seed, attempted_seed + args.num_envs))
-            rgb_observation, _ = rgb_env.reset(seed=seeds)
-            branch_env.reset(seed=seeds)
+            rgb_observation = _reset_seeded_slots(rgb_env, seeds)
+            _reset_seeded_slots(branch_env, seeds)
             for scheduler, timeline, capacity in zip(
                 schedulers,
                 timelines,

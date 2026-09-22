@@ -22,6 +22,10 @@ from latency_bench.executors.gpu_batched_env_step_backend import (  # noqa: E402
     GpuBatchedEnvStepBackendBase,
     SlotStepOutcome,
 )
+from mikasa_robo_suite.seed_reset import (  # noqa: E402
+    reset_seeded_slot as _reset_seeded_slot,
+    reset_seeded_slots as _reset_seeded_slots,
+)
 
 
 ENV_ID = "InterceptGrabFast-VLA-v0"
@@ -142,10 +146,10 @@ class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
     def _reset_slot_observation(self, slot_id: int, *, seed: int | None) -> Observation:
         if seed is not None:
             self._episode_seeds[slot_id] = int(seed)
-        env_idx = torch.tensor([slot_id], device=self.env.unwrapped.device)
-        self._observation, _ = self.env.reset(
-            seed=self._episode_seeds,
-            options={"env_idx": env_idx},
+        self._observation, _ = _reset_seeded_slot(
+            self.env,
+            slot_id=slot_id,
+            seed=self._episode_seeds[slot_id],
         )
         self._env_steps[slot_id] = 0
         self._success[slot_id] = False

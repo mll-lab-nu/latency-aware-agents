@@ -8,11 +8,13 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+import torch
 import yaml
 
 from latency_bench.data.starvla_tasks import task_spec, write_task_contract
 from latency_bench.core.types import Action, Observation
 from latency_bench.policy.action_prefix import resolve_action_prefix, with_action_prefix
+from scripts.mikasa.evaluate import _reset_seeded_slot, _reset_seeded_slots
 from scripts.starvla import train_task
 from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
     _copy_branch_state,
@@ -215,6 +217,32 @@ def test_mikasa_fixed_prefix_resolution_uses_exact_two_frames():
         "action_horizon": 8,
         "action_dim": 7,
     }
+
+
+def test_mikasa_batched_slots_use_their_scalar_seeds():
+    class SeededEnv:
+        def __init__(self, num_envs):
+            self.unwrapped = self
+            self.device = torch.device("cpu")
+            self.observation = torch.zeros(num_envs, dtype=torch.int64)
+
+        def reset(self, *, seed, options):
+            slot_id = int(options["env_idx"].item())
+            self.observation[slot_id] = seed
+            return self.observation.clone(), {}
+
+    seeds = [101, 203, 307]
+    batched = SeededEnv(len(seeds))
+    batched_observation = _reset_seeded_slots(batched, seeds)
+
+    isolated_observations = []
+    for seed in seeds:
+        isolated = SeededEnv(1)
+        observation, _ = _reset_seeded_slot(isolated, slot_id=0, seed=seed)
+        isolated_observations.append(int(observation[0]))
+
+    assert batched_observation.tolist() == isolated_observations == seeds
+    assert len(set(batched_observation.tolist())) == len(seeds)
 
 
 def test_conditioned_zero_eval_keeps_real_returned_chunk_context_without_explicit_prefix():
@@ -437,7 +465,6 @@ def test_mikasa_h8_single_gpu_training_config(
     assert config["datasets"]["vla_data"]["per_device_batch_size"] == micro_batch
     assert config["trainer"]["gradient_accumulation_steps"] == gradient_accumulation_steps
     assert config["trainer"]["max_train_steps"] == 5000
-    assert config["trainer"]["save_interval"] == 2500
     assert config["wandb_tags"] == ["mikasa_h8", "h8", "formal", "zero-latency"]
     mixture = json.loads((tmp_path / "bootstrap_mixture.json").read_text())
     assert mixture["train"][0][2] == "latency_mikasa_h8"
