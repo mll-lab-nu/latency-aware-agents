@@ -24,6 +24,8 @@ from latency_bench.integrations.sample_factory.actions import scale_box_action
 from latency_bench.scheduler.action_queue import ActionScheduler, chunk_context_window
 from latency_bench.envs.humanoidbench_sonic_contract import POLICY_INDEX_FOR_MUJOCO
 from latency_bench.scheduler.factory import build_persistence_policy
+from training.asterix_sf.batched_gpu_env import AsterixBatchedGpuEnv
+from training.atlantis_sf.batched_gpu_env import AtlantisBatchedGpuEnv
 from training.common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,
@@ -32,6 +34,7 @@ from training.common.config_adapter import (
 from training.common.episode_metrics import (
     start_episode_metrics_aggregator,
     stop_episode_metrics_aggregator,
+    unlink_stale_episode_metrics_file,
 )
 from training.common.latency_bench_periodic_eval import run_sample_factory_training
 from training.common.latency_config import (
@@ -49,6 +52,12 @@ from training.common.sample_factory_config import (
     SampleFactoryConfigParser,
     force_sample_factory_raw_frame_step_cfg,
 )
+from training.common.sf_gpu_sampling_compat import (
+    ensure_sample_factory_gpu_sampling_compat_installed,
+)
+from training.common.sf_raw_reward_stats_compat import (
+    ensure_sample_factory_raw_reward_console_stats_installed,
+)
 from training.common.utils import env_instance_seed, seed_everything, str2bool
 from training.common.wandb_compat import patch_sample_factory_wandb
 from sample_factory.algo.mc_ppo.env import EpisodeEnv
@@ -57,6 +66,10 @@ from sample_factory.algo.mc_ppo.env import EpisodeEnv
 SF_ENV_NAME = "latency_gymnasium"
 _ENVS_REGISTERED = False
 _SAMPLE_FACTORY_PROBE_ENV_CONFIG = SimpleNamespace(worker_index=0, vector_index=0, env_id=0)
+_GPU_ATARI_ENVS = {
+    "asterix": AsterixBatchedGpuEnv,
+    "atlantis": AtlantisBatchedGpuEnv,
+}
 
 
 def _sample_factory_env_config(env_config: Any) -> Any:
@@ -263,6 +276,16 @@ def make_gymnasium_sf_env(
     del render_mode
     force_sample_factory_raw_frame_step_cfg(cfg)
     env_config = _sample_factory_env_config(env_config)
+    if cfg.simulator == "gpu":
+        ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
+        ensure_sample_factory_gpu_sampling_compat_installed(env_name=SF_ENV_NAME)
+        env_type = _GPU_ATARI_ENVS[cfg.gym_task_name]
+        return env_type(
+            cfg=cfg,
+            env_config=env_config,
+            gpu_env_device=cfg.gpu_env_device,
+            gpu_env_batch_size=cfg.gpu_env_batch_size,
+        )
     for module_name in json.loads(cfg.gym_registration_imports_json):
         import_module(module_name)
 
@@ -396,6 +419,13 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env-fps", dest="env_fps", type=float, required=True)
     parser.add_argument("--obs-fps", dest="obs_fps", type=float, required=True)
     parser.add_argument("--frame-stack", dest="frame_stack", type=int, required=True)
+    parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu", "gpu"])
+    parser.add_argument("--gpu-env-device", dest="gpu_env_device", type=str, default="auto")
+    parser.add_argument("--gpu-env-batch-size", dest="gpu_env_batch_size", type=int, default=1)
+    parser.add_argument("--noop_max", type=int)
+    parser.add_argument("--terminal_on_life_loss", type=str2bool)
+    parser.add_argument("--clip_reward", type=str2bool)
+    parser.add_argument("--max_episode_steps", type=int)
     parser.add_argument(
         "--export-env-raw-rgb-frames",
         dest="export_env_raw_rgb_frames",
@@ -489,6 +519,19 @@ def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
     append_cli_arg(args, "--frame-stack", env_cfg["frame_stack"])
+    if "simulator" in env_cfg:
+        append_cli_arg(args, "--simulator", env_cfg["simulator"])
+    if "simulator" in env_cfg and env_cfg["simulator"] == "gpu":
+        make_kwargs = env_cfg["make_kwargs"]
+        append_cli_arg(args, "--gpu-env-device", env_cfg["gpu_env_device"])
+        append_cli_arg(args, "--noop_max", make_kwargs["noop_max"])
+        append_cli_arg(args, "--terminal_on_life_loss", env_cfg["terminal_on_life_loss"])
+        append_cli_arg(args, "--clip_reward", env_cfg["clip_reward"])
+        append_cli_arg(
+            args,
+            "--max_episode_steps",
+            make_kwargs["base_make_kwargs"]["max_num_frames_per_episode"],
+        )
     append_cli_arg(args, "--hold-policy", scheduler_cfg["hold_policy"])
     append_cli_arg(args, "--ordering-policy", scheduler_cfg["ordering_policy"])
     if "hold_last_chunk_action" in scheduler_cfg:
@@ -555,7 +598,11 @@ def run_from_config(config: dict[str, Any]) -> int:
     metrics_stop_event = None
     metrics_thread = None
     if cfg.mode == "train":
-        metrics_stop_event, metrics_thread = start_episode_metrics_aggregator(cfg)
+        if cfg.simulator == "gpu":
+            if cfg.episode_metrics_path:
+                unlink_stale_episode_metrics_file(cfg.episode_metrics_path, cfg.restart_behavior)
+        else:
+            metrics_stop_event, metrics_thread = start_episode_metrics_aggregator(cfg)
 
     status = ExperimentStatus.SUCCESS
     try:

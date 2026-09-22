@@ -6,6 +6,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
+import training.gymnasium_sf.integration as gymnasium_integration
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import OrderingPolicy
 from latency_bench.core.config import load_config
@@ -279,6 +280,121 @@ def test_sample_factory_config_round_trips_complete_task_contract():
         assert env.observation_space["obs"].shape == (2,)
     finally:
         env.close()
+
+
+@pytest.mark.parametrize(
+    ("config_path", "task_name"),
+    [
+        ("configs/experiments/atlantis/sf_zero_latency.yaml", "atlantis"),
+        ("configs/experiments/asterix/sf_zero_latency.yaml", "asterix"),
+    ],
+)
+def test_atari_gpu_training_config_uses_one_native_batched_env(config_path, task_name):
+    config = load_config(config_path)
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
+
+    assert cfg.gym_task_name == task_name
+    assert cfg.simulator == "gpu"
+    assert cfg.num_workers == 1
+    assert cfg.num_envs_per_worker == 1
+    assert cfg.gpu_env_batch_size == 2048
+    assert cfg.batched_sampling is True
+    assert cfg.env_gpu_observations is True
+    assert cfg.env_gpu_actions is True
+    assert cfg.rollout == 32
+    assert cfg.recurrence == 32
+    assert cfg.batch_size == 1024
+    assert cfg.num_epochs == 2
+    assert cfg.num_batches_per_epoch == 8
+    assert cfg.learning_rate == pytest.approx(0.000303)
+    assert cfg.lr_schedule == "constant"
+    assert cfg.nonlinearity == "elu"
+    assert cfg.exploration_loss_coeff == pytest.approx(0.003)
+    assert cfg.max_grad_norm == 0.0
+    assert cfg.adam_eps == pytest.approx(1e-6)
+    assert cfg.obs_scale == 1.0
+    assert cfg.terminal_on_life_loss is False
+    assert cfg.clip_reward is False
+    assert cfg.max_episode_steps == 108000
+
+
+def test_atari_gpu_training_factory_uses_native_env_without_cpu_fallback(monkeypatch):
+    config = load_config("configs/experiments/asterix/sf_zero_latency.yaml")
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
+    captured = {}
+
+    class NativeGpuEnv:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setitem(gymnasium_integration._GPU_ATARI_ENVS, "asterix", NativeGpuEnv)
+    monkeypatch.setattr(
+        gymnasium_integration.gym,
+        "make",
+        lambda *args, **kwargs: pytest.fail("GPU training must not construct a CPU Gymnasium env"),
+    )
+
+    env_config = SimpleNamespace(worker_index=0, vector_index=0, env_id=0)
+    env = make_gymnasium_sf_env(cfg.env, cfg, env_config)
+
+    assert isinstance(env, NativeGpuEnv)
+    assert captured == {
+        "cfg": cfg,
+        "env_config": env_config,
+        "gpu_env_device": "auto",
+        "gpu_env_batch_size": 2048,
+    }
+
+
+def test_unsupported_gymnasium_gpu_task_fails_instead_of_using_cpu(monkeypatch):
+    config = load_config("configs/experiments/asterix/sf_zero_latency.yaml")
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
+    cfg.gym_task_name = "unsupported"
+    monkeypatch.setattr(
+        gymnasium_integration.gym,
+        "make",
+        lambda *args, **kwargs: pytest.fail("unsupported GPU tasks must not fall back to CPU"),
+    )
+
+    with pytest.raises(KeyError, match="unsupported"):
+        make_gymnasium_sf_env(
+            cfg.env,
+            cfg,
+            SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        )
+
+
+@pytest.mark.parametrize(
+    "config_path",
+    [
+        "configs/experiments/atlantis/sf_eval_zero_latency.yaml",
+        "configs/experiments/asterix/sf_eval_zero_latency.yaml",
+    ],
+)
+def test_atari_formal_eval_keeps_cpu_simulator(config_path):
+    config = load_config(config_path)
+
+    assert config["env"]["simulator"] == "cpu"
+
+
+@pytest.mark.parametrize(
+    ("config_path", "backend"),
+    [
+        (
+            "configs/experiments/atlantis/sf_eval_gpu_zero_latency.yaml",
+            "atlantis_gpu_batched",
+        ),
+        (
+            "configs/experiments/asterix/sf_eval_gpu_zero_latency.yaml",
+            "asterix_gpu_batched",
+        ),
+    ],
+)
+def test_atari_learning_check_eval_uses_gpu_backend(config_path, backend):
+    config = load_config(config_path)
+
+    assert config["env"]["simulator"] == "gpu"
+    assert config["evaluation"]["latency_bench_env_backend"] == backend
 
 
 def test_gymnasium_sf_policy_decodes_catalog_ids_with_action_order():

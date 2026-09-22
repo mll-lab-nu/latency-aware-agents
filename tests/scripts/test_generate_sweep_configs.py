@@ -450,15 +450,18 @@ def test_asterix_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
     assert {row["env"] for row in rows} == {"asterix"}
     assert {row["latency_kind"] for row in rows} == {"fixed"}
     assert {row["latency_fixed_frames"] for row in rows} == {"0"}
-    assert {row["frame_stack"] for row in rows} == {"1"}
+    assert {row["frame_stack"] for row in rows} == {"4"}
     assert {row["obs_fps"] for row in rows} == {"15"}
 
     train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
+    resolved_train_cfg = load_config(rows[0]["train_config"])
     eval_cfg = load_config(rows[0]["eval_config"])
 
-    assert train_cfg["experiment"]["name"].startswith("asterix_frame_stack_fixed_l0_fs1_seed")
+    assert train_cfg["experiment"]["name"].startswith("asterix_frame_stack_fixed_l0_fs4_seed")
     assert train_cfg["env"]["name"] == "gymnasium"
     assert train_cfg["env"]["task_name"] == "asterix"
+    assert resolved_train_cfg["env"]["simulator"] == "cpu"
+    assert eval_cfg["env"]["simulator"] == "cpu"
     assert train_cfg["latency"] == {
         "method": "fixed",
         "fixed_latency_ms": 0.0,
@@ -495,15 +498,18 @@ def test_atlantis_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
     assert {row["env"] for row in rows} == {"atlantis"}
     assert {row["latency_kind"] for row in rows} == {"fixed"}
     assert {row["latency_fixed_frames"] for row in rows} == {"0"}
-    assert {row["frame_stack"] for row in rows} == {"1"}
+    assert {row["frame_stack"] for row in rows} == {"4"}
     assert {row["obs_fps"] for row in rows} == {"15"}
 
     train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
+    resolved_train_cfg = load_config(rows[0]["train_config"])
     eval_cfg = load_config(rows[0]["eval_config"])
 
-    assert train_cfg["experiment"]["name"].startswith("atlantis_frame_stack_fixed_l0_fs1_seed")
+    assert train_cfg["experiment"]["name"].startswith("atlantis_frame_stack_fixed_l0_fs4_seed")
     assert train_cfg["env"]["name"] == "gymnasium"
     assert train_cfg["env"]["task_name"] == "atlantis"
+    assert resolved_train_cfg["env"]["simulator"] == "cpu"
+    assert eval_cfg["env"]["simulator"] == "cpu"
     assert train_cfg["latency"] == {
         "method": "fixed",
         "fixed_latency_ms": 0.0,

@@ -7,9 +7,25 @@ experiment:
 backend:
   run_mode: train
 
+env:
+  frame_stack: 4
+  simulator: gpu
+  gpu_env_device: auto
+
 latency:
   method: zero
   add_latency_info: false
+
+training:
+  num_workers: 1
+  num_envs_per_worker: 2048
+  worker_num_splits: 1
+  batch_size: 1024
+  rollout: 32
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  max_policy_lag: 300
 
 logging:
   output_dir: outputs/atlantis_sf_zero_latency

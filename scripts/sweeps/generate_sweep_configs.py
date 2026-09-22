@@ -173,6 +173,10 @@ ENV_KEYS_BY_NAME = {
         "env_fps",
         "obs_fps",
         "frame_stack",
+        "simulator",
+        "gpu_env_device",
+        "terminal_on_life_loss",
+        "clip_reward",
         "noop_action",
         "action_map",
         "action_order",
@@ -681,6 +685,8 @@ def _build_latency_bench_eval_config(
     config = merge_dicts(base_config, full_train_config)
     env_name = _env_name(config)
     config["backend"]["run_mode"] = "eval"
+    if env_name in ("asterix", "atlantis"):
+        config["env"]["simulator"] = "cpu"
     _drop_eval_time_limit_fields(config)
     _align_demon_attack_raw_eval_config(config, env_name)
     config["policy"] = merge_dicts(

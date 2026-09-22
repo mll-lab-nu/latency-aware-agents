@@ -9,6 +9,7 @@ backend:
 
 env:
   frame_stack: 4
+  simulator: cpu
 
 latency:
   method: zero

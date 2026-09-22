@@ -9,6 +9,9 @@ backend:
   train_dir: results/sample_factory
   restart_behavior: resume
   run_mode: train
+  extra_args:
+    - --encoder_conv_architecture
+    - convnet_simple
 
 executor:
   mode: simulated
@@ -34,6 +37,9 @@ env:
   env_fps: 60
   obs_fps: 15
   frame_stack: 1
+  simulator: cpu
+  terminal_on_life_loss: false
+  clip_reward: false
   noop_action: noop
   action_map:
     noop: 0
@@ -75,12 +81,20 @@ training:
   num_batches_per_epoch: 8
   max_policy_lag: 300
   learning_rate: 0.000303
+  lr_schedule: constant
+  nonlinearity: elu
   gamma: 0.99
   gae_lambda: 0.95
   ppo_clip_ratio: 0.1
   ppo_clip_value: 0.2
+  exploration_loss: entropy
+  exploration_loss_coeff: 0.003
   value_loss_coeff: 0.5
   max_grad_norm: 0.0
+  adam_eps: 0.000001
+  obs_scale: 1.0
+  adaptive_stddev: false
+  with_vtrace: false
   async_rl: true
   use_rnn: false
   normalize_input: true

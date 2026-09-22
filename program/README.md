@@ -29,6 +29,7 @@
 | [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 四任务 evaluator、固定均值 prefix、sampler/worker 与 seed/reset 合同 | 保留合同记录；实现验证与正式训练分别记录 |
 | [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 四任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
 | [logs/starvla-resident-dagger-migration-2026-09-19](logs/starvla-resident-dagger-migration-2026-09-19.md) | StarVLA DAgger 常驻训练权重推理、smoke 验证与正式迁移 | 运行记录；未经核验的正式结果不写入 PROGRESS |
+| [logs/atari-gpu-training-gate-2026-09-22](logs/atari-gpu-training-gate-2026-09-22.md) | Atlantis/Asterix CuLE 接入、2048/4096 H100 吞吐与 100 局 GPU/CPU 兼容评测 | 2048 候选通过吞吐与兼容门；三 seed 同帧数质量 A/B 尚未完成 |
 | [parkour/OPTIMIZE](parkour/OPTIMIZE.md) | CPU 调度收益、预算对齐及已回退的 PhysX/cache 实验 | 保留性能记录；训练吞吐与 VLA inference latency profile 分开解释 |
 
 ## 研究资料
