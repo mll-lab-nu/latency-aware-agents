@@ -129,7 +129,12 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
         terminal_infos = self._terminal_infos(step_result, slot_ids)
         done_mask = active_mask & np.logical_or(step_result.terminated, step_result.truncated)
         self._auto_reset_done_slots(done_mask, terminal_infos)
-        if self._updates_raw_rgb_on_step:
+        if self._returns_torch_chw_observations:
+            raw_rgb = self._render_raw_rgb()
+            if self._updates_raw_rgb_on_step:
+                self._update_env_raw_rgb_frames(raw_rgb, done_mask=done_mask, active_mask=active_mask)
+            self.pipeline.step(raw_rgb, dones=done_mask, active_mask=active_mask)
+        elif self._updates_raw_rgb_on_step:
             self._render_raw_rgb_for_step_metadata(done_mask=done_mask, active_mask=active_mask)
         self.gpu_render_profiler.observe_step()
         return step_result, terminal_infos
@@ -168,6 +173,8 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
         return self._policy_observation_frames(obs)
 
     def _render_observation_frames_for_observe(self, slot_ids: Sequence[int]) -> list[np.ndarray]:
+        if self._returns_torch_chw_observations:
+            return self._policy_observation_frames(self.pipeline.current())
         with self.gpu_render_profiler.time("observe_obs_total_s"):
             raw_rgb = self._render_raw_rgb_for_observe(slot_ids)
             active_mask = np.zeros(self._num_slots, dtype=np.bool_)

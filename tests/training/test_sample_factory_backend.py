@@ -263,6 +263,26 @@ def test_flappy_sf_cli_maps_explicit_env_max_episode_steps():
     assert args[args.index("--max_episode_steps") + 1] == "1800"
 
 
+def test_flappy_linear_lr_resume_uses_checkpoint_optimizer_step():
+    from sample_factory.algo.learning.learner import get_lr_scheduler
+    from sample_factory.utils.attr_dict import AttrDict
+
+    cfg = AttrDict(
+        lr_schedule="linear_decay",
+        train_for_env_steps=25_000_000,
+        batch_size=4096,
+        num_epochs=8,
+        learning_rate=2.5e-4,
+    )
+    updates = cfg.train_for_env_steps // cfg.batch_size * cfg.num_epochs
+    saved_step = 19_584
+    saved_lr = cfg.learning_rate * (1 - saved_step / updates)
+
+    assert get_lr_scheduler(cfg, saved_step).update(saved_lr, []) == pytest.approx(
+        cfg.learning_rate * (1 - (saved_step + 1) / updates)
+    )
+
+
 def test_flappy_sf_cli_maps_env_rates_and_scheduler_policies():
     from training.flappy_sf.integration import build_cli_args_from_config
 

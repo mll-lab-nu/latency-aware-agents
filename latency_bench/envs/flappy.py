@@ -140,6 +140,10 @@ class FlappyTorchObservationPipeline:
         self._stack.copy_(frame_obs.repeat(1, self.observation_config.stack_frames, 1, 1))
         return self._stack
 
+    def current(self) -> torch.Tensor:
+        """Return the frame stack after the latest raw environment frame."""
+        return self._stack
+
     def step(
         self,
         raw_rgb_batch: torch.Tensor,
@@ -312,7 +316,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self._last_frame = frame
         if not self.use_gpu_render:
             self._last_raw_frame = self._rgb_hwc_frame(raw_frame)
-        if not self.use_gpu_render:
+        if not self.use_gpu_render or self.policy_observation_layout == "chw":
             self._reset_frame_stack(frame)
         if self.export_env_raw_rgb_frames:
             self._raw_rgb_frames.reset(raw_frame)
@@ -341,7 +345,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self._last_frame = frame
         if not self.use_gpu_render:
             self._last_raw_frame = self._rgb_hwc_frame(raw_frame)
-        if not self.use_gpu_render:
+        if not self.use_gpu_render or self.policy_observation_layout == "chw":
             self._append_observed_frame(frame)
         if self.export_env_raw_rgb_frames and not bool(terminated_bool or truncated_bool):
             self._raw_rgb_frames.append(raw_frame)
@@ -372,7 +376,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             self._last_frame = self._render_rgb_frame()
 
         metadata = self._observation_metadata(numeric_obs=self._last_numeric_obs, info=self._last_info)
-        if self.use_gpu_render:
+        if self.use_gpu_render and self.policy_observation_layout != "chw":
             self._append_observed_frame(self._last_frame)
         return Observation(
             data=self._policy_frame_stack(),

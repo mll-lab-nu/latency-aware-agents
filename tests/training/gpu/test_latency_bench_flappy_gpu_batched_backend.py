@@ -369,6 +369,28 @@ def test_flappy_gpu_batched_backend_does_not_materialize_policy_observation_duri
         batched.close()
 
 
+def test_flappy_sf_frame_stack_advances_through_dropped_observation_frames(tmp_path):
+    torch = pytest.importorskip("torch")
+    from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+    config = _config(str(tmp_path), num_episodes=1)
+    config["policy"]["type"] = "flappy_sf"
+    batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
+    try:
+        batched.reset_slot(0, episode_id=0, seed=123)
+        frames = [batched.observe_slots([0])[0].data[-3:].clone()]
+        for _ in range(3):
+            batched.step_slots({0: _noop()})
+            frames.append(batched.pipeline.current()[0, -3:].clone())
+
+        observation = batched.observe_slots([0])[0].data
+        for index, frame in enumerate(frames):
+            torch.testing.assert_close(observation[index * 3 : (index + 1) * 3], frame)
+        assert any(not torch.equal(frame, frames[0]) for frame in frames[1:])
+    finally:
+        batched.close()
+
+
 def _metrics_contract(metrics: list[Any]) -> list[tuple[Any, ...]]:
     return [
         (
