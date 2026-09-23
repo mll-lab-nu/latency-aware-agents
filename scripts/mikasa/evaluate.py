@@ -204,15 +204,24 @@ class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
                 np.asarray(rgb[slot_id, :, :, 3:6], dtype=np.uint8),
             ]
         )
+        metadata = {
+            MIKASA_IMAGE_VIEWS_INFO_KEY: views,
+            MIKASA_STATE_INFO_KEY: self._observation["proprio"][slot_id].detach().cpu().numpy(),
+            "slot_id": slot_id,
+        }
+        if "returned_action_context" in self.config["env"]:
+            context = self.config["env"]["returned_action_context"]
+            metadata["returned_action_context"] = {
+                **context,
+                "order": np.asarray(context["order"]),
+                "low": np.asarray(context["low"], dtype=np.float32),
+                "high": np.asarray(context["high"], dtype=np.float32),
+            }
         return Observation(
             data=None,
             env_step=int(self._env_steps[slot_id]),
             sim_time_ms=float(self._env_steps[slot_id]) * self._frame_ms,
-            metadata={
-                MIKASA_IMAGE_VIEWS_INFO_KEY: views,
-                MIKASA_STATE_INFO_KEY: self._observation["proprio"][slot_id].detach().cpu().numpy(),
-                "slot_id": slot_id,
-            },
+            metadata=metadata,
         )
 
     def close(self) -> None:

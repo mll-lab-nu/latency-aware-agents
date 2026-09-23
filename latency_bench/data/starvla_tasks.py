@@ -89,6 +89,26 @@ TASK_SPECS: dict[str, StarVLATaskSpec] = {
         fps=20.0,
         video_keys=("video.top", "video.wrist"),
     ),
+    "mikasa_h8": StarVLATaskSpec(
+        name="mikasa_intercept_grab_fast",
+        robot_type="latency_mikasa_h8",
+        state_dim=7,
+        action_dim=7,
+        fps=20.0,
+        video_keys=("video.top", "video.wrist"),
+        auxiliary_shapes=(("action_loss_mask", (8,)),),
+        action_horizon=8,
+    ),
+    "mikasa_conditioned_h8": StarVLATaskSpec(
+        name="mikasa_intercept_grab_fast",
+        robot_type="latency_mikasa_conditioned_h8",
+        state_dim=71,
+        action_dim=7,
+        fps=20.0,
+        video_keys=("video.top", "video.wrist"),
+        auxiliary_shapes=(("action_prefix_mask", (8,)), ("action_loss_mask", (8,))),
+        action_horizon=8,
+    ),
     "haic": StarVLATaskSpec(
         name="haic_pull_cart",
         robot_type="latency_haic_h1",
@@ -189,7 +209,12 @@ def write_task_contract(
         if normalization_source is None
         else _normalization_source_contract(normalization_source)["normalization"]
     )
-    version = 3 if spec.robot_type in ("latency_balance_profile_h8", "latency_balance_profile_h16") else (2 if spec.name == TASK_SPECS["balance"].name else 1)
+    version = (
+        3 if spec.robot_type in ("latency_balance_profile_h8", "latency_balance_profile_h16")
+        else 2 if spec.name == TASK_SPECS["balance"].name
+        or spec.robot_type == "latency_mikasa_conditioned_h8"
+        else 1
+    )
     contract: dict[str, Any] = {
         "format": f"latency_bench_starvla_h{spec.action_horizon}_v{version}",
         "task": spec.name,
