@@ -9,8 +9,6 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-import wandb
-
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval.config import (
     _eval_episodes,
@@ -113,17 +111,22 @@ def _metric_eval_latency_steps(metric: EpisodeMetrics) -> int | None:
     return int(value)
 
 
-def _log_corrected_eval_summaries_to_wandb(config: dict[str, Any], summaries: list[dict[str, Any]]) -> None:
+def _log_corrected_eval_summaries_to_wandb(
+    config: dict[str, Any], summaries: list[dict[str, Any]], *, prefix: str = "eval_corrected",
+) -> None:
     logging_cfg = config.get("logging", {})
     run_id = logging_cfg.get("wandb_name")
     project = logging_cfg.get("wandb_project")
     if not run_id or not project or not summaries:
         return
 
+    import wandb
+
     init_kwargs = {
         "project": project,
         "entity": logging_cfg.get("wandb_user", logging_cfg.get("wandb_entity")),
         "id": str(run_id),
+        "name": str(logging_cfg.get("wandb_display_name", run_id)),
         "resume": "allow",
         "group": logging_cfg.get("wandb_group"),
         "job_type": logging_cfg.get("wandb_job_type"),
@@ -131,19 +134,25 @@ def _log_corrected_eval_summaries_to_wandb(config: dict[str, Any], summaries: li
     }
     wandb.init(**init_kwargs)
     wandb.define_metric("global_step")
-    wandb.define_metric("eval_corrected/global_steps")
-    wandb.define_metric("eval_corrected/*", step_metric="global_step")
-    payload = eval_scalar_payload(
-        summaries,
-        env_steps=_corrected_eval_global_step(config, summaries),
-        prefix="eval_corrected",
-    )
+    wandb.define_metric(f"{prefix}/global_steps")
+    wandb.define_metric(f"{prefix}/*", step_metric="global_step")
+    payload = _corrected_eval_scalar_payload(config, summaries, prefix=prefix)
     wandb.log(payload)
     if wandb.run is not None:
         for key, value in payload.items():
-            if key.startswith("eval_corrected/") and key != "eval_corrected/global_steps":
+            if key.startswith(f"{prefix}/") and key != f"{prefix}/global_steps":
                 wandb.run.summary[key] = value
         wandb.run.finish()
+
+
+def _corrected_eval_scalar_payload(
+    config: dict[str, Any], summaries: list[dict[str, Any]], *, prefix: str = "eval_corrected",
+) -> dict[str, float]:
+    return eval_scalar_payload(
+        summaries,
+        env_steps=_corrected_eval_global_step(config, summaries),
+        prefix=prefix,
+    )
 
 
 def _corrected_eval_global_step(config: dict[str, Any], summaries: list[dict[str, Any]]) -> int:

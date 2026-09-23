@@ -227,6 +227,22 @@ def test_temporal_method_builds_hidden_regime_sampler(tmp_path: Path):
     assert sampler.profile_metadata["gpu_class"] == "1x-test_gpu"
 
 
+def test_temporal_rollout_reset_seed_reproduces_the_same_latency_trace(tmp_path: Path):
+    from training.common.latency_config import temporal_profile_sampler_for_reset
+
+    profile = _write_latency_profile(tmp_path)
+    sampler = _profile_sampler(profile, seed=3)
+    for _ in range(12):
+        sampler.sample({"episode_id": 0, "worker_slot": 0})
+
+    first = temporal_profile_sampler_for_reset(sampler, 98)
+    second = temporal_profile_sampler_for_reset(sampler, 98)
+    context = {"episode_id": 7, "worker_slot": 0}
+    assert [first.sample(context) for _ in range(40)] == [
+        second.sample(context) for _ in range(40)
+    ]
+
+
 def test_temporal_rejects_stale_burst_model_type(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     model = json.loads((profile_dir / "latency_burst_model.json").read_text(encoding="utf-8"))

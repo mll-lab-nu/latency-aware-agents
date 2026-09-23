@@ -869,6 +869,36 @@ def test_starvla_wanoft_rejects_incomplete_decision_history(
         )
 
 
+@pytest.mark.parametrize("state_dim", [24, 88, 120])
+@pytest.mark.parametrize("reset", [False, True])
+def test_starvla_decision_history_uses_transport_and_requires_it(monkeypatch, tmp_path: Path, state_dim, reset):
+    from latency_bench.policy import starvla
+
+    FakePolicyServerWrapper.instances.clear()
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla, "_load_starvla_model_config", lambda _path: {
+        "datasets": {"vla_data": {"include_state": True}},
+        "framework": {"action_model": {"state_dim": state_dim}},
+    })
+    config = _config(tmp_path)
+    config["policy"].update({
+        "model_config_path": str(tmp_path / "config.full.yaml"),
+        "state_source": "transport",
+        "state_normalization": {"min": [0.0] * state_dim, "max": [1.0] * state_dim},
+    })
+    policy = build_policy(config, ActionResolver(config["env"]))
+    metadata = {"env_raw_rgb_frame_stack": np.zeros((1, 4, 4, 3), dtype=np.uint8)}
+    state = np.zeros(state_dim, dtype=np.float32)
+    if not reset:
+        state[1::3] = 1.0
+    policy.predict(Observation(data={"transport": state}, env_step=1, sim_time_ms=0.0, metadata=metadata))
+    example = FakePolicyServerWrapper.instances[0].calls[0]["examples"][0]
+    np.testing.assert_array_equal(example["state"], state.reshape(1, state_dim))
+
+    with pytest.raises(KeyError, match="transport"):
+        policy.predict(Observation(data={}, env_step=1, sim_time_ms=0.0, metadata=metadata))
+
+
 @pytest.mark.parametrize(
     ("env_fps", "obs_fps", "expected_frame_stack"),
     [

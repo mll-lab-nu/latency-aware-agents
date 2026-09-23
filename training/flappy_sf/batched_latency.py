@@ -18,6 +18,7 @@ from training.common.latency_config import build_latency_info
 from training.common.latency_config import (
     build_profile_sampler,
     profile_sampler_max_latency_raw_frames_for_workers,
+    temporal_profile_sampler_for_reset,
 )
 from training.common.utils import batch_indices, seed_values
 
@@ -56,6 +57,7 @@ class BatchedFlappyLatencyScheduler:
         env_reset_seed_bases: Sequence[int],
         add_latency_info: bool,
         max_pending_actions: int | None = None,
+        profile_seed_by_reset: bool = False,
     ) -> None:
         self.batch_size = int(batch_size)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
@@ -63,6 +65,7 @@ class BatchedFlappyLatencyScheduler:
         self.profile_path = profile_path
         self.profile_worker_slot = profile_worker_slot
         self.profile_method = profile_method
+        self.profile_seed_by_reset = profile_seed_by_reset
         self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
@@ -164,6 +167,10 @@ class BatchedFlappyLatencyScheduler:
             seed = seed_values[offset]
             if seed is None:
                 seed = int(self.env_reset_seed_bases[agent_idx] + self.episode_idx[agent_idx])
+            elif self.profile_seed_by_reset:
+                self.profile_samplers[agent_idx] = temporal_profile_sampler_for_reset(
+                    self.profile_samplers[agent_idx], int(seed)
+                )
             reset_seeds.append(int(seed))
             infos.append(self._latency_info(agent_idx, int(self.current_latency_raw_frames[agent_idx])))
             self.episode_idx[agent_idx] += 1

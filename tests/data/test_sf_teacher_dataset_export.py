@@ -457,6 +457,21 @@ def test_batch_observations_concatenates_single_agent_batched_mapping_observatio
     assert batch["obs"][1].tolist() == observations[1]["obs"][0].tolist()
 
 
+def test_batch_observations_preserves_decision_history_batch_axis():
+    from latency_bench.data.sf_teacher_drivers import batch_observations
+
+    observations = [
+        {"obs": np.zeros((1, 4, 2, 2), dtype=np.uint8),
+         "transport": np.full((1, 24), slot, dtype=np.float32)}
+        for slot in range(2)
+    ]
+
+    batch = batch_observations(observations)
+
+    assert batch["transport"].shape == (2, 24)
+    assert batch["transport"][:, 0].tolist() == [0.0, 1.0]
+
+
 def test_serial_rollout_driver_continues_life_loss_with_seedless_reset(monkeypatch):
     sf_teacher_drivers = _load_sf_teacher_drivers_for_direct_test(monkeypatch)
 
@@ -481,6 +496,32 @@ def test_serial_rollout_driver_continues_life_loss_with_seedless_reset(monkeypat
     assert env.reset_seeds == [None]
     assert obs["obs"].tolist() == [1]
     assert info == {"reset_seed": None}
+
+
+def test_serial_teacher_replay_starts_each_seed_in_a_fresh_environment(monkeypatch):
+    sf_teacher_drivers = _load_sf_teacher_drivers_for_direct_test(monkeypatch)
+
+    class StatefulEnv:
+        action_space = object()
+
+        def __init__(self):
+            self.resets = 0
+
+        def reset(self, seed=None):
+            self.resets += 1
+            return {"obs": np.asarray([seed, self.resets])}, [{}]
+
+        def close(self):
+            return None
+
+    driver = sf_teacher_drivers.SerialTeacherRolloutDriver(
+        [StatefulEnv()], recreate_env=lambda _slot: StatefulEnv()
+    )
+
+    driver.reset_slots({0: 42})
+    observation, _ = driver.reset_slots({0: 43})[0]
+
+    assert observation["obs"].tolist() == [43, 1]
 
 
 def test_batched_rollout_driver_continues_life_loss_from_last_step_result(monkeypatch):
@@ -873,6 +914,7 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
             "episode_raw_return": 1.5,
             "seed": 100,
             "split": "train",
+            "termination_reason": "terminated",
         }
     ]
     assert state["runtime_metadata"] == {
@@ -1230,8 +1272,10 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
     assert np.asarray(image)[0, 0].tolist() == [40, 41, 42]
 
 
-def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, tmp_path):
+@pytest.mark.parametrize("export_history", [False, True])
+def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, tmp_path, export_history):
     import torch
+    from gymnasium.spaces import Discrete
     from PIL import Image
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -1253,6 +1297,7 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
+            assert set(normalized_obs) == {"obs"}
             batch_size = int(normalized_obs["obs"].shape[0])
             return {
                 "actions": torch.full((batch_size, 1), 1, dtype=torch.int64),
@@ -1260,9 +1305,10 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
             }
 
     class FakeEnv:
-        action_space = object()
+        action_space = Discrete(2)
 
         def reset(self, seed=None):
+            self.steps = 0
             obs = {"obs": np.zeros((1, 12, 2, 2), dtype=np.uint8)}
             raw_stack = np.stack(
                 [
@@ -1276,14 +1322,15 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
             return obs, [{"env_raw_rgb_frame_stack": raw_stack}]
 
         def step(self, action):
+            self.steps += 1
             obs = {"obs": np.ones((1, 12, 2, 2), dtype=np.uint8)}
             next_stack = np.stack([np.full((6, 5, 3), 50 + idx, dtype=np.uint8) for idx in range(4)], axis=0)
             return (
                 obs,
                 np.asarray([1.5], dtype=np.float32),
-                np.asarray([True], dtype=np.bool_),
+                np.asarray([self.steps == 2], dtype=np.bool_),
                 np.asarray([False], dtype=np.bool_),
-                [{"latency_raw_frames": 2, "latency_ms": 66.0, "env_raw_rgb_frame_stack": next_stack}],
+                [{"latency_raw_frames": 0, "latency_ms": 0.0, "env_raw_rgb_frame_stack": next_stack}],
             )
 
         def close(self):
@@ -1299,7 +1346,7 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
                 env_fps=30.0,
                 obs_fps=15.0,
                 seed=0,
-                use_gpu_render=False,
+                use_gpu_render=False, latency_type="fixed", fixed_latency_ms=0.0,
             ),
         ),
     )
@@ -1324,10 +1371,10 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
     monkeypatch.setattr(exporter, "tqdm", FakeProgress)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
-        _rollout_descriptor("flappy"),
+        _rollout_descriptor("flappy") | ({"export_zero_action_history": 8} if export_history else {}),
         output_dir=output_dir,
         max_episodes=1,
-        max_steps_per_episode=1,
+        max_steps_per_episode=4,
         val_fraction=0.0,
         split_seed=0,
         num_envs=1,
@@ -1347,6 +1394,12 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
     assert "context_images" not in train_rows[0]
     assert image.size == (5, 6)
     assert np.asarray(image)[0, 0].tolist() == [40, 41, 42]
+
+    if export_history:
+        assert metadata["action_history_decisions"] == 8
+        assert train_rows[0]["state"] == [0.] * 24
+        assert train_rows[1]["state"] == [0.] * 21 + [1., 1., 1.]
+        assert train_rows[0]["prompt"] == _rollout_descriptor("flappy")["base_prompt"]
 
 
 def test_write_filtered_episode_images_preserves_empty_filtered_episode(tmp_path):
@@ -1696,8 +1749,10 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
     assert fake_env.step_actions == [[0, 1, 2], [0, 1, 2]]
 
 
-def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_losses(monkeypatch, tmp_path):
+@pytest.mark.parametrize("export_history", [False, True])
+def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_losses(monkeypatch, tmp_path, export_history):
     torch = pytest.importorskip("torch")
+    from gymnasium.spaces import Discrete
     from latency_bench.data import sf_teacher_rollout as exporter
 
     class FakeProgress:
@@ -1730,7 +1785,7 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
     class ScriptedDemonEnv:
         reset_seeds: list[int | None] = []
         step_actions: list[object] = []
-        action_space = object()
+        action_space = Discrete(6)
 
         transitions = [
             {"reward": 10.0, "raw_reward": 1000.0, "lives": 2, "true_end": False},
@@ -1756,8 +1811,8 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
             self.step_actions.append(action)
             transition = self.transitions[self.life_idx]
             info = {
-                "latency_raw_frames": 2,
-                "latency_ms": 66.0,
+                "latency_raw_frames": 0,
+                "latency_ms": 0.0,
                 "raw_reward": transition["raw_reward"],
                 "lives": transition["lives"],
                 "is_true_episode_end": transition["true_end"],
@@ -1780,7 +1835,7 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
         obs_fps=15.0,
         seed=100,
         simulator="cpu",
-        use_gpu_render=False,
+        use_gpu_render=False, latency_type="fixed", fixed_latency_ms=0.0,
     )
 
     def fake_runtime(module, cfg, config, num_envs):
@@ -1805,7 +1860,7 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
 
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
-        _rollout_descriptor("demon_attack"),
+        _rollout_descriptor("demon_attack") | ({"export_zero_action_history": 8} if export_history else {}),
         output_dir=output_dir,
         max_episodes=1,
         max_steps_per_episode=12,
@@ -1822,8 +1877,8 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
     state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
 
     assert ScriptedDemonEnv.reset_seeds == [100, None, None, 100, None, None]
-    assert [row["decision_step"] for row in train_rows] == [2]
-    assert train_rows[0]["raw_reward"] == 30.0
+    assert [row["decision_step"] for row in train_rows] == [0, 1, 2]
+    assert [row["raw_reward"] for row in train_rows] == [10.0, 20.0, 30.0]
     assert state["accepted_specs"] == [
         {
             "attempt_idx": 0,
@@ -1833,9 +1888,13 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
             "episode_raw_return": 8000.0,
             "seed": 100,
             "split": "train",
+            "termination_reason": "terminated",
         }
     ]
     assert all(rnn_input == [[0.0]] for rnn_input in FakeActorCritic.rnn_inputs)
+
+    if export_history:
+        assert all(row["state"] == [0.] * 88 for row in train_rows)
 
 
 def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, tmp_path):

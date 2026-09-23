@@ -181,6 +181,7 @@ def make_demon_attack_sf_env(
         add_latency_info=cfg.add_latency_info,
         max_pending_actions=cfg.max_pending_actions,
         action_history_decisions=getattr(cfg, "action_history_decisions", None),
+        profile_seed_by_reset=bool(getattr(cfg, "rollout_profile_seed_by_reset", False)),
     )
     env = EpisodeMetricsWrapper(
         env,

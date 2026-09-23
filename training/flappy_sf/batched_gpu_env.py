@@ -166,6 +166,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             "seeds": latency_seeds,
             "env_reset_seed_bases": [seed + 104729 for seed in sub_seeds],
             "add_latency_info": bool(getattr(self.cfg, "add_latency_info", False)),
+            "profile_seed_by_reset": bool(getattr(self.cfg, "rollout_profile_seed_by_reset", False)),
             "simulated_worker_capacity": latency_params.simulated_worker_capacity,
         }
         if isinstance(self.core, CudaFlappyBirdCore):

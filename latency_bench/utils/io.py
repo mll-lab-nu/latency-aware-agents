@@ -43,6 +43,14 @@ def write_json(path: str | Path, obj: Any) -> None:
         f.write("\n")
 
 
+def write_json_atomic(path: str | Path, obj: Any) -> None:
+    """Replace a complete JSON record for queue and artifact-marker readers."""
+    path = Path(path)
+    temporary = path.with_suffix(".tmp")
+    write_json(temporary, obj)
+    temporary.replace(path)
+
+
 def write_jsonl(path: str | Path, records: Any) -> None:
     _write_jsonl_records(path, records, mode="w")
 

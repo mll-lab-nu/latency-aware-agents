@@ -190,6 +190,7 @@ def make_latency_doom_env_from_spec(
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
         max_pending_actions=getattr(cfg, "max_pending_actions", None),
         action_history_decisions=getattr(cfg, "action_history_decisions", None),
+        profile_seed_by_reset=bool(getattr(cfg, "rollout_profile_seed_by_reset", False)),
     )
     env = EpisodeMetricsWrapper(
         env,

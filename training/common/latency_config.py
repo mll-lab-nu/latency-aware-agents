@@ -178,6 +178,16 @@ def build_profile_sampler(
     )
 
 
+def temporal_profile_sampler_for_reset(sampler: HiddenRegimeSampler, seed: int) -> HiddenRegimeSampler:
+    """Start an independent temporal stream for one explicitly seeded rollout."""
+    return HiddenRegimeSampler(
+        sampler.model,
+        {"worker_slots": sampler.distributions},
+        clock=sampler.clock,
+        seed=seed,
+    )
+
+
 def build_iid_profile_sampler(
     profile_path: str,
     *,

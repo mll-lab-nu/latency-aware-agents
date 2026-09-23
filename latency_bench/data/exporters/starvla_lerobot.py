@@ -33,6 +33,11 @@ _ROBOT_TYPES_BY_ENV = {
     "demon_attack": "rl_games_demon_attack",
     "deadly_corridor": "rl_games_deadly_corridor",
 }
+_HISTORY_STATE_DIMS = {"flappy": 24, "demon_attack": 88, "deadly_corridor": 120}
+_DEADLY_MULTIBINARY_LABELS = [
+    "MOVE_FORWARD", "MOVE_BACKWARD", "MOVE_LEFT", "MOVE_RIGHT",
+    "TURN_LEFT", "TURN_RIGHT", "ATTACK",
+]
 
 
 def write_starvla_modality(
@@ -436,6 +441,103 @@ def _convert_legacy_export(
     (output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2),
         encoding="utf-8",
+    )
+    return manifest
+
+
+def _convert_history_game_export(
+    raw_export_dir: Path,
+    output_dir: Path,
+    *,
+    metadata: dict[str, Any],
+    force: bool,
+) -> dict[str, Any]:
+    """Convert decision-v1 game rollouts with their real pre-decision state."""
+    env_name = metadata["env_name"]
+    state_dim = _HISTORY_STATE_DIMS[env_name]
+    action_labels = (
+        _DEADLY_MULTIBINARY_LABELS
+        if env_name == "deadly_corridor" else list(metadata["action_labels"])
+    )
+    state_labels = [f"decision_history_{index}" for index in range(state_dim)]
+    train_rows = _load_rows(raw_export_dir, "train")
+    val_rows = _load_rows(raw_export_dir, "val")
+    for row in [*train_rows, *val_rows]:
+        if len(row["state"]) != state_dim:
+            raise ValueError(f"{env_name} decision history has {len(row['state'])} values, expected {state_dim}")
+        if env_name == "deadly_corridor":
+            action_id = row["action_id"]
+            turn, move, strafe, attack = (
+                action_id // 18, (action_id // 6) % 3, (action_id // 2) % 3, action_id % 2
+            )
+            row["action"] = [
+                float(move == 1), float(move == 2), float(strafe == 1),
+                float(strafe == 2), float(turn == 1), float(turn == 2),
+                float(attack == 1),
+            ]
+    first_row = (train_rows or val_rows)[0]
+    with Image.open(io.BytesIO(_png_bytes(first_row["image"]))) as image:
+        image_shape = (image.height, image.width, 3)
+    val_output_dir = output_dir.with_name(f"{output_dir.name}__val")
+    if output_dir.exists() and force:
+        shutil.rmtree(output_dir)
+    if val_output_dir.exists() and force:
+        shutil.rmtree(val_output_dir)
+    common = {
+        "env_name": env_name,
+        "integration_name": env_name,
+        "action_labels": action_labels,
+        "active_action_dim": len(action_labels),
+        "state_dim": state_dim,
+        "state_labels": state_labels,
+        "context_image_count": None,
+        "image_shape": image_shape,
+        "fps": metadata["obs_fps"],
+        "reward_field": metadata["reward_field"],
+        "state_normalization": None,
+        "include_state": True,
+        "density_weighting": False,
+    }
+    train_manifest = _convert_split(train_rows, output_dir, **common)
+    val_manifest = _convert_split(val_rows, val_output_dir, **common)
+    for directory in (output_dir, val_output_dir):
+        modality_path = directory / "meta/modality.json"
+        modality = json.loads(modality_path.read_text())
+        modality["annotation"] = {
+            "human.action.task_description": {"original_key": "task_index"}
+        }
+        modality_path.write_text(json.dumps(modality, indent=2) + "\n")
+    prompt_map_path, mixture_path = _write_starvla_handoff_files(
+        output_dir, val_output_dir, env_name=env_name,
+        integration_name=env_name, rows=[*train_rows, *val_rows],
+    )
+    contract = {
+        "format": "starvla_lerobot_v2_decision_v1",
+        "source": str(raw_export_dir),
+        "robot_type": _ROBOT_TYPES_BY_ENV[env_name],
+        "action_layout": "multibinary_7" if env_name == "deadly_corridor" else metadata["action_layout"],
+        "source_action_layout": metadata["action_layout"],
+        "action_labels": action_labels,
+        "action_dim": len(action_labels),
+        "active_action_dim": len(action_labels),
+        "state_source": "decision_v1",
+        "state_dim": state_dim,
+        "state_labels": state_labels,
+        "state_normalization": {"min": [0.0] * state_dim, "max": [1.0] * state_dim},
+        "action_history_decisions": metadata["action_history_decisions"],
+        "rows_unit": metadata["rows_unit"],
+        "obs_fps": metadata["obs_fps"],
+        "obs_stride_raw_frames": metadata["obs_stride_raw_frames"],
+        "latency_prompt_map_path": str(prompt_map_path),
+        "custom_mixtures_path": str(mixture_path),
+    }
+    manifest = {**train_manifest, **contract,
+                "validation_dataset_name": val_output_dir.name,
+                "validation_episodes": val_manifest["episodes"],
+                "validation_frames": val_manifest["frames"]}
+    (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (val_output_dir / "manifest.json").write_text(
+        json.dumps({**val_manifest, **contract, "training_dataset_name": output_dir.name}, indent=2) + "\n"
     )
     return manifest
 
@@ -864,6 +966,10 @@ def convert_canonical_rollout_to_lerobot(
     integration_name = (
         metadata["integration_name"] if "integration_name" in metadata else env_name
     )
+    if metadata.get("action_history_decisions") == 8 and env_name in _HISTORY_STATE_DIMS:
+        return _convert_history_game_export(
+            raw_export_dir, output_dir, metadata=metadata, force=force
+        )
     if integration_name not in {"gymnasium", "isaaclab_parkour"}:
         return _convert_legacy_export(
             raw_export_dir,

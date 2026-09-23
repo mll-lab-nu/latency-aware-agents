@@ -29,6 +29,7 @@ from training.common.latency_config import (
     build_profile_sampler,
     build_latency_info,
     profile_sampler_max_latency_raw_frames,
+    temporal_profile_sampler_for_reset,
 )
 from training.common.episode_metrics import append_episode_metrics_event
 
@@ -88,6 +89,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         hold_last_chunk_action: bool = False,
         release_results_at_observation_boundary: bool = False,
         action_history_decisions: int | None = None,
+        profile_seed_by_reset: bool = False,
     ):
         super().__init__(env)
         self.decision_action_history = (
@@ -111,6 +113,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         self.profile_path = profile_path
         self.profile_worker_slot = profile_worker_slot
         self.profile_method = profile_method
+        self.profile_seed_by_reset = profile_seed_by_reset
         self.latency_distribution_label = (
             None if self.latency_distribution_spec is None else latency_distribution_label(self.latency_distribution_spec)
         )
@@ -232,6 +235,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         )
 
     def reset(self, **kwargs):
+        explicit_seed = kwargs.get("seed")
         if self.decision_action_history is not None:
             self.decision_action_history.reset()
         self.episode_idx += 1
@@ -251,6 +255,10 @@ class ActionLatencyWrapper(gym.Wrapper):
         if self.profile_sampler_factory is not None:
             episode_seed = reset_kwargs["seed"] if reset_kwargs.get("seed") is not None else self.episode_idx
             self.profile_sampler = self.profile_sampler_factory(episode_seed)
+        elif self.profile_seed_by_reset and explicit_seed is not None:
+            self.profile_sampler = temporal_profile_sampler_for_reset(
+                self.profile_sampler, int(explicit_seed)
+            )
         self._reset_latency_distribution_sampler()
         if self.latency_distribution_spec is None:
             self.current_latency_raw_frames = int(self.fixed_latency_raw_frames)

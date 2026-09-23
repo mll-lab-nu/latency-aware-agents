@@ -627,7 +627,7 @@ logging:
         define_metric=lambda *args, **kwargs: defined_metrics.append((args, kwargs)),
         log=lambda payload: log_calls.append(payload),
     )
-    monkeypatch.setattr(reporting, "wandb", fake_wandb)
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
     monkeypatch.setattr(eval_sweeps, "run_eval_suites_from_config", fake_run_eval_suites_from_config)
 
     latency_run.main(["--config", str(config_path)])
@@ -785,7 +785,7 @@ logging:
         define_metric=lambda *args, **kwargs: None,
         log=lambda payload: log_calls.append(payload),
     )
-    monkeypatch.setattr(reporting, "wandb", fake_wandb)
+    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
     monkeypatch.setattr(eval_sweeps, "run_eval_suites_from_config", fake_run_eval_suites_from_config)
 
     latency_run.main(["--config", str(config_path)])

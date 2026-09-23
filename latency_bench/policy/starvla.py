@@ -94,6 +94,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         observation_stride_raw_frames: int,
         model_cfg: Mapping[str, Any] | None = None,
         state_normalization: Mapping[str, Any] | None = None,
+        state_source: str | None = None,
         image_views_info_key: str | None = None,
         action_output_type: str | None = None,
     ) -> None:
@@ -123,6 +124,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._include_state = _include_state_from_model_cfg(model_cfg)
         self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
         self._state_normalization = dict(state_normalization or {})
+        self._state_source = state_source
         self._image_views_info_key = image_views_info_key
         self._action_output_type = action_output_type
         vla_data = (model_cfg.get("datasets", {}) or {}).get("vla_data", {}) or {}
@@ -276,7 +278,10 @@ class StarVlaPolicyRunner(PolicyRunner):
         elif "slot_id" in observation.metadata:
             example["slot_id"] = observation.metadata["slot_id"]
         if self._include_state:
-            if self._state_normalization:
+            if self._state_source == "transport":
+                state = np.asarray(observation.data["transport"], dtype=np.float32)
+                example["state"] = state.reshape(1, self._state_dim)
+            elif self._state_normalization:
                 state = np.asarray(
                     observation.metadata["gymnasium_state"], dtype=np.float32
                 )
@@ -448,7 +453,7 @@ def decode_starvla_action(
     prediction = decode_rl_games_actions(
         normalized_actions=np.asarray(vector),
         env_name=str(env_name),
-        deadly_action_layout=deadly_layout,
+        deadly_action_layout=(deadly_layout.removeprefix("deadly_corridor_") if deadly_layout is not None else None),
         asterix_action_layout=asterix_layout,
     )
     action, metadata = action_from_starvla_payload(
@@ -1033,7 +1038,7 @@ def _starvla_runner_kwargs(
     else:
         semantic_env_name = env_cfg["name"]
         action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
-        state_normalization = None
+        state_normalization = policy_cfg["state_normalization"] if "state_normalization" in policy_cfg else None
     return dict(
         unnorm_key=policy_cfg.get("unnorm_key"),
         env_name=semantic_env_name,
@@ -1052,6 +1057,7 @@ def _starvla_runner_kwargs(
         observation_stride_raw_frames=_observation_stride_raw_frames(config),
         model_cfg=model_cfg,
         state_normalization=state_normalization,
+        state_source=policy_cfg["state_source"] if "state_source" in policy_cfg else None,
     )
 
 
@@ -1100,15 +1106,10 @@ def build_starvla_policy(
         wrapper_kwargs["backbone_path"] = policy_cfg["backbone_path"]
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
-        decode_env_name = (
-            runner_kwargs["env_name"]
-            if action_space["type"] != "box"
-            else integration_env_name
-        )
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
         if action_space["type"] == "box":
             wrapper_kwargs["rl_games_gymnasium_action_space_type"] = "box"
-        wrapper_kwargs["rl_games_env_name"] = decode_env_name
+        wrapper_kwargs["rl_games_env_name"] = integration_env_name
     wrapper = wrapper_cls(**wrapper_kwargs)
     return StarVlaPolicyRunner(
         wrapper=wrapper,
@@ -1181,15 +1182,10 @@ def build_live_starvla_policy(
     )
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
-        decode_env_name = (
-            runner_kwargs["env_name"]
-            if action_space["type"] != "box"
-            else integration_env_name
-        )
         wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
         if action_space["type"] == "box":
             wrapper_kwargs["gymnasium_action_space_type"] = "box"
-        wrapper_kwargs["env_name"] = decode_env_name
+        wrapper_kwargs["env_name"] = integration_env_name
     wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
     return StarVlaPolicyRunner(
         wrapper=wrapper,

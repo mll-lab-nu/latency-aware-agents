@@ -122,6 +122,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             profile_worker_slot=latency_params.profile_worker_slot,
             profile_max_latency_raw_frames=profile_max_latency_raw_frames,
             simulated_worker_capacity=latency_params.simulated_worker_capacity,
+            profile_seed_by_reset=bool(getattr(self.cfg, "rollout_profile_seed_by_reset", False)),
             device=self.device,
         )
         self.metrics = BatchedEpisodeMetrics(

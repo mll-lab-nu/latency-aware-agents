@@ -28,6 +28,8 @@
 | [BALANCE_CAUSAL_EVAL](BALANCE_CAUSAL_EVAL.md) | 现有 Balance 模型补评测协议、历史结果与统一入口用法 | 因果评测协议；正式结果见 PROGRESS 与实验报告 |
 | [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 四任务 evaluator、固定均值 prefix、sampler/worker 与 seed/reset 合同 | 保留合同记录；实现验证与正式训练分别记录 |
 | [ARTIFACT_HANDOFF](ARTIFACT_HANDOFF.md) | Flappy/Demon/Deadly/Atlantis/Asterix 的 5 类历史资产、统一 100 局评测与中央 HF 路径 | 活跃交接；只有正式评测与远端回读通过后才在 PROGRESS 标记发布 |
+| [DECISION_HISTORY_VLA_H8](DECISION_HISTORY_VLA_H8.md) | Flappy/Demon/Deadly 九路 scratch VLA 的二值 H8 输入、Demon PI LR 选优后跨游戏复用、双卡训练与正式评测合同 | hist8 v2 活跃运行手册；训练、评测、性能验收分别记录 |
+| [logs/decision-history-vla-v2-2026-09-23](logs/decision-history-vla-v2-2026-09-23.md) | history01 修复、断点验收、九路重训、PI 选优和旧权重纠正评测 | PI 底座已选 `3e-6`；每 rank 16 workers，九路训练与评测队列进行中 |
 | [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 四任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
 | [logs/starvla-resident-dagger-migration-2026-09-19](logs/starvla-resident-dagger-migration-2026-09-19.md) | StarVLA DAgger 常驻训练权重推理、smoke 验证与正式迁移 | 运行记录；未经核验的正式结果不写入 PROGRESS |
 | [logs/mikasa-h8-dagger-2026-09-23](logs/mikasa-h8-dagger-2026-09-23.md) | 六路 conditioned H8 从 SFT step-5000 接续 DAgger 的配置、smoke 与运行状态 | 运行记录；十轮与终评核验后更新 PROGRESS |

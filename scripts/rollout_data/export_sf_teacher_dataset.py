@@ -72,6 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--deterministic", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--export-image-size", type=str, default="")
     parser.add_argument("--image-writer-workers", type=int, default=0)
+    parser.add_argument("--export-zero-action-history", type=int, default=None,
+                        help="Export causal action history for a fixed-zero-latency teacher without changing its inputs.")
     parser.add_argument("--row-buffer-size", type=int, default=8192)
     parser.add_argument(
         "--context-window",
@@ -163,6 +165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         deterministic=bool(args.deterministic),
         export_image_size=_parse_image_size(str(args.export_image_size)),
         image_writer_workers=int(args.image_writer_workers),
+        export_zero_action_history=args.export_zero_action_history,
         row_buffer_size=int(args.row_buffer_size),
         push_to_hub=bool(args.push_to_hub),
         hf_repo_id=str(args.hf_repo_id),

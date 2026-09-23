@@ -116,6 +116,7 @@ def export_sample_factory_teacher_dataset(
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
     image_transform_config: GhostTrailConfig | None = None,
+    export_zero_action_history: int | None = None,
 ) -> dict[str, Any]:
     """Collect and write a canonical Sample Factory teacher dataset.
 
@@ -148,6 +149,8 @@ def export_sample_factory_teacher_dataset(
             current ``image``; values above 1 add historical ``context_images``.
         image_transform_config: Optional image transform applied during replay
             before row filtering.
+        export_zero_action_history: Student history depth for a zero-latency teacher
+            whose own observation input does not contain history.
 
     Returns:
         Final metadata written to ``metadata.json``.
@@ -159,6 +162,8 @@ def export_sample_factory_teacher_dataset(
         gym_camera_name=gym_camera_name,
         gym_make_kwargs_override=gym_make_kwargs_override,
     )
+    if export_zero_action_history is not None:
+        config["export_zero_action_history"] = export_zero_action_history
     if env_name:
         if config["integration_name"] == "gymnasium":
             raise ValueError(
@@ -216,6 +221,8 @@ def export_sample_factory_teacher_dataset(
         "prompt_source": (
             "sample_factory_checkpoint:gym_base_prompt"
             if config["integration_name"] == "gymnasium"
+            else "sample_factory_checkpoint:base_prompt"
+            if "action_history_decisions" in rollout_metadata
             else "latency_bench.data.prompts"
         ),
         "base_prompt": config["base_prompt"],
@@ -242,9 +249,14 @@ def export_sample_factory_teacher_dataset(
         "total_episodes": split_stats["total_episodes"],
         "image_resolution": shard_image_metadata["image_resolution"],
     }
+    if "action_history_decisions" in rollout_metadata:
+        metadata["action_history_decisions"] = rollout_metadata["action_history_decisions"]
+    if "profile_seed_by_reset" in rollout_metadata:
+        metadata["profile_seed_by_reset"] = rollout_metadata["profile_seed_by_reset"]
     if config["integration_name"] == "gymnasium":
         metadata["integration_name"] = "gymnasium"
-    if action_spec.layout != ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1:
+    if (action_spec.layout != ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
+            and "action_history_decisions" not in rollout_metadata):
         metadata["prompt_timing_suffix"] = TIMING_SUFFIX
     if episode_acceptance is not None:
         metadata["episode_acceptance"] = dict(episode_acceptance)

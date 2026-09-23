@@ -130,6 +130,45 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
     assert not (tmp_path / "lerobot__val" / "manifest.json").exists()
 
 
+def test_deadly_history_export_preserves_state_and_decodes_multibinary_action(tmp_path):
+    from latency_bench.data.action_layouts import action_spec_for_env
+    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+    from latency_bench.data.hf_parquet import write_parquet_splits
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 9)
+    raw_export = tmp_path / "raw"
+    row = {
+        "image": str(image_path), "env_name": "deadly_corridor",
+        "episode_idx": 0, "decision_step": 0, "split": "train", "seed": 42,
+        "prompt": "Choose an action.", "latency_raw_frames": 3,
+        "latency_ms": 85.7, "raw_reward": 0.0,
+        "action_id": 2 * 18 + 1 * 6 + 2 * 2 + 1,
+        "action_text": "TURN_RIGHT + MOVE_FORWARD + MOVE_RIGHT + ATTACK",
+        "state": [0.0] * 119 + [1.0],
+    }
+    write_parquet_splits(raw_export, [row], [], action_spec=action_spec_for_env("deadly_corridor"))
+    (raw_export / "metadata.json").write_text(json.dumps({
+        "env_name": "deadly_corridor", "action_layout": "deadly_corridor_joint_54",
+        "action_labels": list(action_spec_for_env("deadly_corridor").labels),
+        "reward_field": "raw_reward", "rows_unit": "decision_step",
+        "obs_fps": 8.75, "obs_stride_raw_frames": 4,
+        "action_history_decisions": 8,
+    }))
+
+    manifest = convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")
+    converted = pq.read_table(tmp_path / "lerobot/data/chunk-000/episode_000000.parquet").to_pylist()[0]
+
+    assert converted["observation.state"] == row["state"]
+    assert converted["action"] == [1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0]
+    assert manifest["action_layout"] == "multibinary_7"
+    assert manifest["state_normalization"] == {"min": [0.0] * 120, "max": [1.0] * 120}
+    modality = json.loads((tmp_path / "lerobot/meta/modality.json").read_text())
+    assert modality["annotation"] == {
+        "human.action.task_description": {"original_key": "task_index"}
+    }
+
+
 @pytest.mark.parametrize("obs_fps", [15.0, 8.75])
 def test_starvla_lerobot_exporter_preserves_decision_rows_at_obs_cadence(tmp_path, obs_fps):
     from latency_bench.data.action_layouts import action_spec_for_env

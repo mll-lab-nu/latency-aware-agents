@@ -31,6 +31,7 @@ def teacher_dataset_row(
     image_transform: str = "raw_rgb",
     action_spec: ActionSpec | None = None,
     base_prompt: str | None = None,
+    prompt_override: str | None = None,
     state: Any | None = None,
 ) -> dict[str, Any]:
     """Build one canonical rollout row from a teacher decision.
@@ -60,7 +61,9 @@ def teacher_dataset_row(
         action_spec if action_spec is not None else action_spec_for_env(env_name)
     )
     prompt = (
-        base_prompt
+        prompt_override
+        if prompt_override is not None
+        else base_prompt
         if resolved_action_spec.layout == ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
         else render_teacher_prompt(
             env_name,

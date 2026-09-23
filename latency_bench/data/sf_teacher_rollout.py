@@ -12,6 +12,7 @@ import torch
 from gymnasium.spaces import Box
 from tqdm import tqdm
 
+from latency_bench.core.decision_action_history import DecisionActionHistory
 from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env
 from latency_bench.data.filters import (
     FILTER_PRESET_CLEAN_V1,
@@ -762,6 +763,11 @@ def _probe_accepted_specs(
                                 ),
                                 "seed": int(spec["seed"]),
                                 "split": str(final_split),
+                                "termination_reason": (
+                                    "terminated" if step_result.terminated and not life_loss_boundary
+                                    else "truncated" if step_result.truncated
+                                    else "horizon"
+                                ),
                             }
                             if behavior_env_name == "demon_attack":
                                 accepted_spec["episode_raw_return"] = float(summary["episode_raw_return"])
@@ -850,6 +856,7 @@ def _replay_accepted_specs(
     action_spec: ActionSpec | None = None,
     base_prompt: str | None = None,
     integration_name: str | None = None,
+    export_zero_action_history: int | None = None,
 ) -> list[int] | None:
     """Replay accepted specs with raw RGB export and write episode shards.
 
@@ -874,6 +881,8 @@ def _replay_accepted_specs(
         action_spec: Explicit action layout carried by a generic checkpoint.
         base_prompt: Explicit task prompt carried by a generic checkpoint.
         integration_name: Integration identity used for legacy-specific rollout behavior.
+        export_zero_action_history: Export-only history; the teacher retains its
+            original observation and network input contract.
     Returns:
         First observed image resolution, or ``None`` when no spec is replayed.
     """
@@ -892,6 +901,19 @@ def _replay_accepted_specs(
     obs_fps = float(cfg.obs_fps)
     obs_stride_raw_frames = int(env_fps / obs_fps)
     include_state = integration_name == "gymnasium" and bool(cfg.gym_state_labels_json)
+    history_decisions = getattr(cfg, "action_history_decisions", None)
+    include_decision_history = (
+        export_zero_action_history is None
+        and integration_name in {"flappy", "demon_attack", "deadly_corridor"}
+        and history_decisions is not None
+    )
+    zero_history = None
+    if export_zero_action_history is not None:
+        if cfg.latency_type != "fixed" or cfg.fixed_latency_ms != 0:
+            raise ValueError("Export-only zero action history requires fixed latency 0 ms")
+        zero_history = DecisionActionHistory(
+            driver.action_space, num_envs=driver.slot_count, decisions=export_zero_action_history,
+        )
     uses_g1_sonic_contract = env_name.startswith("g1_sonic_")
     state_info_key = "gymnasium_state" if include_state else None
     spec_cursor = 0
@@ -969,6 +991,17 @@ def _replay_accepted_specs(
                 active_slots = [slot for slot, spec in enumerate(active_specs) if spec is not None]
                 if not active_slots:
                     break
+                pre_decision_histories = (
+                    {
+                        slot: np.asarray(active_obs[slot]["transport"], dtype=np.float32)
+                        .reshape(-1).copy()
+                        for slot in active_slots
+                    }
+                    if include_decision_history else {}
+                )
+                if zero_history is not None:
+                    histories = zero_history.observation()
+                    pre_decision_histories = {slot: histories[slot] for slot in active_slots}
                 raw_actions, new_rnn_states, step_results = _step_teacher_policy(
                     runtime,
                     driver,
@@ -979,6 +1012,8 @@ def _replay_accepted_specs(
                     preserve_leading_batch=behavior_env_name == "gymnasium",
                     preserve_issued_actions=uses_g1_sonic_contract,
                 )
+                if zero_history is not None:
+                    zero_history.append(active_slots, np.ones(len(active_slots)), raw_actions, raw_actions)
                 reset_plan: dict[int, int] = {}
 
                 for batch_idx, slot in enumerate(active_slots):
@@ -1001,36 +1036,36 @@ def _replay_accepted_specs(
                         next_raw_frame=next_decision_step * obs_stride_raw_frames,
                         max_steps_per_episode=int(max_steps_per_episode),
                     )
-                    if not life_loss_boundary:
-                        active_episode_frames[slot].append(np.array(image_frame, copy=True))
-                        row = teacher_dataset_row(
-                            env_name=env_name,
-                            spec=spec,
-                            decision_step=decision_step,
-                            image=str(image_path),
-                            raw_action=(
-                                _g1_issued_absolute_request(
-                                    driver,
-                                    slot,
-                                    raw_actions[batch_idx],
-                                )
-                                if uses_g1_sonic_contract
-                                else raw_actions[batch_idx]
-                            ),
-                            info=step_result.info | {
-                                "raw_done": step_result.terminated or step_result.truncated,
-                            },
-                            reward=step_result.reward,
-                            env_fps=env_fps,
-                            obs_fps=obs_fps,
-                            image_transform=image_transform_config.normalized_transform(),
-                            action_spec=action_spec,
-                            base_prompt=base_prompt,
-                            state=active_states[slot],
-                        )
-                        active_episode_rows[slot].append(row)
+                    active_episode_frames[slot].append(np.array(image_frame, copy=True))
+                    row = teacher_dataset_row(
+                        env_name=env_name,
+                        spec=spec,
+                        decision_step=decision_step,
+                        image=str(image_path),
+                        raw_action=(
+                            _g1_issued_absolute_request(driver, slot, raw_actions[batch_idx])
+                            if uses_g1_sonic_contract else raw_actions[batch_idx]
+                        ),
+                        info=step_result.info | {
+                            "raw_done": step_result.terminated or step_result.truncated,
+                        },
+                        reward=step_result.reward,
+                        env_fps=env_fps,
+                        obs_fps=obs_fps,
+                        image_transform=image_transform_config.normalized_transform(),
+                        action_spec=action_spec,
+                        base_prompt=base_prompt,
+                        state=pre_decision_histories[slot] if include_decision_history or zero_history is not None else active_states[slot],
+                        prompt_override=base_prompt if include_decision_history or zero_history is not None else None,
+                    )
+                    active_episode_rows[slot].append(row)
                     rnn_states[slot] = new_rnn_states[batch_idx]
                     if episode_done:
+                        if len(active_episode_rows[slot]) != int(spec["episode_length"]):
+                            raise RuntimeError(
+                                f"Probe/replay length mismatch for seed={spec['seed']}: "
+                                f"probe={spec['episode_length']} replay={len(active_episode_rows[slot])}"
+                            )
                         final_rows = _finalize_attempt_rows(
                             active_episode_rows[slot],
                             final_dir=final_dir,
@@ -1090,6 +1125,8 @@ def _replay_accepted_specs(
                         rnn_states[slot].zero_()
                     else:
                         if life_loss_boundary:
+                            if zero_history is not None:
+                                zero_history.reset([slot])
                             active_obs[slot], reset_info = driver.continue_after_life_loss(slot)
                             if state_info_key is not None:
                                 active_states[slot] = reset_info[state_info_key]
@@ -1113,6 +1150,8 @@ def _replay_accepted_specs(
                         active_decision_steps[slot] = next_decision_step
 
                 if reset_plan:
+                    if zero_history is not None:
+                        zero_history.reset(list(reset_plan))
                     if isinstance(driver, BatchedTeacherRolloutDriver):
                         reset_results = driver.reset_slots(reset_plan, [spec is not None for spec in active_specs])
                     else:
@@ -1164,6 +1203,10 @@ def _build_rollout_driver_runtime(
     with sample_factory_init_log(output_dir):
         module, cfg = build_sample_factory_rollout_cfg(config)
         frame_stack = int(cfg.frame_stack)
+        if (integration_name in {"flappy", "demon_attack", "deadly_corridor"}
+                and getattr(cfg, "action_history_decisions", None) == 8
+                and cfg.latency_type == "profile_sample"):
+            setattr(cfg, "rollout_profile_seed_by_reset", True)
         setattr(cfg, "export_env_raw_rgb_frames", bool(export_env_raw_rgb_frames))
         if integration_name == "flappy" and cfg.use_gpu_render:
             maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
@@ -1212,7 +1255,25 @@ def _build_rollout_driver_runtime(
     if use_batched_driver:
         driver = BatchedTeacherRolloutDriver(runtime["envs"][0], int(num_envs))
     else:
-        driver = SerialTeacherRolloutDriver(runtime["envs"])
+        recreate_env = None
+        if integration_name == "deadly_corridor" and (
+            "export_zero_action_history" in config or getattr(cfg, "rollout_profile_seed_by_reset", False)
+        ):
+            from sample_factory.algo.utils.make_env import make_env_func_batched
+            from sample_factory.utils.attr_dict import AttrDict
+
+            def recreate_env(slot: int):
+                return make_env_func_batched(
+                    cfg,
+                    env_config=AttrDict(worker_index=0, vector_index=slot, env_id=slot),
+                    render_mode=None,
+                )
+
+        driver = (
+            SerialTeacherRolloutDriver(runtime["envs"], recreate_env=recreate_env)
+            if recreate_env is not None
+            else SerialTeacherRolloutDriver(runtime["envs"])
+        )
     return cfg, runtime, driver, frame_stack
 
 
@@ -1358,7 +1419,23 @@ def collect_teacher_dataset(
     ]
     image_resolution = None
     if remaining_specs:
-        replay_envs = min(int(replay_num_envs), len(remaining_specs))
+        matched_gpu_replay = (
+            integration_name in {"flappy", "demon_attack"}
+            and ("export_zero_action_history" in config or (
+                "flat_cfg" in config
+                and config["flat_cfg"].get("action_history_decisions") == 8
+                and config["flat_cfg"]["latency_type"] == "profile_sample"
+            ))
+        )
+        if matched_gpu_replay and completed_episode_indices:
+            raise RuntimeError(
+                "GPU history replay must start from all probe slots; clear partial "
+                "episode_rows and images before replaying again"
+            )
+        replay_envs = (
+            int(replay_num_envs) if matched_gpu_replay
+            else min(int(replay_num_envs), len(remaining_specs))
+        )
         replay_cfg, replay_runtime, replay_driver, frame_stack = _build_rollout_driver_runtime(
             config,
             output_dir=output_dir,
@@ -1384,6 +1461,8 @@ def collect_teacher_dataset(
             action_spec=action_spec,
             base_prompt=base_prompt,
             integration_name=integration_name,
+            export_zero_action_history=(config["export_zero_action_history"]
+                                        if "export_zero_action_history" in config else None),
         )
 
     runtime_metadata = probe_state["runtime_metadata"]
@@ -1425,6 +1504,13 @@ def collect_teacher_dataset(
         "train_episodes": split_stats["train_episodes"],
         "val_episodes": split_stats["val_episodes"],
     }
+    if "flat_cfg" in config and config["flat_cfg"].get("action_history_decisions") is not None:
+        metadata["action_history_decisions"] = int(config["flat_cfg"]["action_history_decisions"])
+    if "export_zero_action_history" in config:
+        metadata["action_history_decisions"] = config["export_zero_action_history"]
+    if ("flat_cfg" in config and config["flat_cfg"].get("latency_type") == "profile_sample"
+            and metadata.get("action_history_decisions") == 8):
+        metadata["profile_seed_by_reset"] = "env_reset_seed"
     if episode_return_gt is not None:
         metadata["episode_return_gate"] = filter_report["episode_return_gate"]
     return metadata

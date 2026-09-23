@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -46,6 +46,7 @@ def batch_observations(
                 np.concatenate(values, axis=0)
                 if (
                     values[0].ndim >= 4
+                    or key == "transport"
                     or (
                         preserve_leading_batch
                         and values[0].ndim >= 1
@@ -123,13 +124,15 @@ class RolloutStepResult:
 class SerialTeacherRolloutDriver:
     """Rollout driver for multiple independent environment instances."""
 
-    def __init__(self, envs: Sequence[Any]):
+    def __init__(self, envs: Sequence[Any], *, recreate_env: Callable[[int], Any] | None = None):
         """Create a driver that steps independent env instances.
 
         Args:
             envs: Sequence of Sample Factory-compatible environments.
         """
         self.envs = list(envs)
+        self.recreate_env = recreate_env
+        self._started_slots: set[int] = set()
 
     @property
     def slot_count(self) -> int:
@@ -156,8 +159,12 @@ class SerialTeacherRolloutDriver:
 
         observations = {}
         for slot, seed in reset_plan.items():
+            if self.recreate_env is not None and int(slot) in self._started_slots:
+                self.envs[int(slot)].close()
+                self.envs[int(slot)] = self.recreate_env(int(slot))
             obs, reset_info = self.envs[int(slot)].reset(seed=int(seed))
             observations[int(slot)] = (obs, reset_info[0])
+            self._started_slots.add(int(slot))
         return observations
 
     def step(self, active_slots: Sequence[int], raw_actions: Sequence[Any]) -> dict[int, RolloutStepResult]:
