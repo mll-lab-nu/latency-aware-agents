@@ -18,6 +18,8 @@ from scripts.mikasa.evaluate import _reset_seeded_slot, _reset_seeded_slots
 from scripts.starvla import train_task
 from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
     _copy_branch_state,
+    _prefix_settings,
+    _save_episode,
     _selected_slots,
     _teacher_chunks,
 )
@@ -25,6 +27,7 @@ from scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset imp
     _features as conditioned_h8_features,
 )
 from scripts.tasks.mikasa_intercept_grab_fast.prepare_h8_dataset import prepare_mikasa_h8
+from scripts.tasks.mikasa_intercept_grab_fast import dispatch_h8_naive_dagger_queue as naive_queue
 
 
 def _write_h1_split(root: Path, episode_lengths: list[int], *, split_at: int | None = None) -> None:
@@ -400,6 +403,47 @@ def test_conditioned_teacher_batches_prefixes_and_masks_each_terminal_tail():
     )
 
 
+def test_naive_dagger_labels_full_h8_without_prefix():
+    class Teacher:
+        def forward(self, observation):
+            return torch.full((len(observation["state"]), 7), 0.25)
+
+    main = _BranchEnv(state=[[0.0] * 7], elapsed=[0], success_after=[100])
+    private = _BranchEnv(state=[[9.0] * 7], elapsed=[0], success_after=[100])
+    prefixes = np.zeros((1, 8, 7), dtype=np.float32)
+    mask = np.zeros((1, 8), dtype=bool)
+    chunks, loss_masks = _teacher_chunks(
+        Teacher(), main, private, prefixes, mask, np.asarray([True]),
+    )
+
+    assert _prefix_settings("zero-latency", {}) == {"mode": "none"}
+    assert conditioned_h8_features("mikasa_h8")["observation.state"]["shape"] == (7,)
+    assert "action_prefix_mask" not in conditioned_h8_features("mikasa_h8")
+    np.testing.assert_array_equal(loss_masks, np.ones((1, 8), dtype=bool))
+    np.testing.assert_allclose(chunks, 0.25)
+
+
+def test_naive_queue_respects_gpu_claims_after_ssh_json(monkeypatch):
+    host = naive_queue.HOSTS[0]
+    payload = {
+        "memory": {str(gpu): 0 for gpu in range(8)},
+        "busy_gpus": [],
+        "old_training_claims": list(range(6)),
+        "old_simulator_claims": [6, 7],
+        "shareable_simulators": [],
+    }
+    monkeypatch.setattr(naive_queue.subprocess, "check_output",
+                        lambda *args, **kwargs: json.dumps(payload))
+    snapshot = naive_queue._remote(host, "snapshot", "--host", host)
+    assert naive_queue._slot(snapshot, {}, host) is None
+
+    snapshot["shareable_simulators"] = [6, 7]
+    assert naive_queue._slot(snapshot, {}, host) == ((6, 7), 6)
+
+    snapshot["old_training_claims"] = [2, 3, 4, 5]
+    assert naive_queue._slot(snapshot, {}, host) == ((0, 1), 6)
+
+
 def test_conditioned_batch_selects_shortest_seed_prefix_reaching_target():
     assert _selected_slots([0, 5, 4, 7], collected=3, target=10) == [
         False,
@@ -407,6 +451,34 @@ def test_conditioned_batch_selects_shortest_seed_prefix_reaching_target():
         True,
         False,
     ]
+
+
+def test_dagger_episode_keeps_student_control_separate_from_teacher_suffix(tmp_path):
+    teacher = np.zeros((8, 7), dtype=np.float32)
+    student = np.zeros_like(teacher)
+    teacher[2] = 0.4
+    student[2] = -0.2
+    prefix_mask = np.asarray([True, True] + [False] * 6)
+    loss_mask = np.asarray([False, False, True] + [False] * 5)
+    path = tmp_path / "episode.npz"
+    _save_episode(path, [{
+        "top": np.zeros((128, 128, 3), dtype=np.uint8),
+        "wrist": np.zeros((128, 128, 3), dtype=np.uint8),
+        "state": np.zeros(71, dtype=np.float32),
+        "chunk": teacher,
+        "student_chunk": student,
+        "prefix_mask": prefix_mask,
+        "loss_mask": loss_mask,
+        "frame": 0,
+        "request_index": 1,
+        "latency_raw_frames": 2,
+        "latency_ms": 100.0,
+    }], seed=11_000_000)
+    with np.load(path) as episode:
+        np.testing.assert_array_equal(episode["issued_command_chunk"][0], teacher)
+        np.testing.assert_array_equal(episode["student_command_chunk"][0], student)
+        np.testing.assert_array_equal(episode["action_loss_mask"][0], loss_mask)
+        assert episode["request_index"].tolist() == [1]
 
 
 @pytest.mark.parametrize(

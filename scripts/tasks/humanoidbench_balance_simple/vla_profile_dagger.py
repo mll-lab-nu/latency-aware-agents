@@ -41,6 +41,7 @@ from scripts.starvla.balance_dagger import (
     write_balance_dataset,
 )
 from scripts.starvla import artifacts
+from scripts.starvla.dagger_mixture import write_dagger_mixture
 from latency_bench.policy.action_prefix import action_prefix_arrays, resolve_action_prefix
 from latency_bench.data.starvla_tasks import task_spec
 from scripts.starvla.prepare_dataset import prepare_lerobot
@@ -737,18 +738,6 @@ def publish_result(args, bundle, evaluation, result, run_record):
     return publication
 
 
-def _write_training_mixture(bootstrap, deltas, robot_type, mixture_path):
-    mixture = [[str(bootstrap / "lerobot"), 1.0, robot_type]]
-    if deltas:
-        mixture.extend([str(delta / "lerobot"), 0.5 / (len(deltas) - 1), robot_type]
-                       for delta in deltas[:-1])
-        mixture.append([str(deltas[-1] / "lerobot"), 1.0, robot_type])
-    _write_json_atomic(mixture_path, {
-        "train": mixture,
-        "validation": [[str(bootstrap / "lerobot__val"), 1.0, robot_type]],
-    })
-
-
 def _training_launch(
     args,
     bootstrap,
@@ -780,7 +769,7 @@ def _training_launch(
     config["datasets"]["vla_data"]["eval_num_workers"] = 0
     robot_type = json.loads((bootstrap / "lerobot/task_contract.json").read_text())["robot_type"]
     mixture_path = Path(config["datasets"]["vla_data"]["custom_mixtures_path"])
-    _write_training_mixture(bootstrap, deltas, robot_type, mixture_path)
+    write_dagger_mixture(bootstrap, deltas, robot_type, mixture_path)
     stem = phase if stop_step is None else f"{phase}_{stop_step}"
     path = args.output_dir / f"{stem}.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False))
@@ -1237,7 +1226,7 @@ def main():
                     resident_control_dir=control_dir, step=current_step,
                 )
                 deltas.append(next_directory)
-                _write_training_mixture(bootstrap, deltas, robot_type, mixture_path)
+                write_dagger_mixture(bootstrap, deltas, robot_type, mixture_path)
                 optimizer_steps = budget["bootstrap_steps"] + current_step
                 _write_json_atomic(
                     continue_path,
@@ -1266,7 +1255,7 @@ def main():
                 resident_control_dir=control_dir, step=boundary,
             )
             deltas.append(next_directory)
-            _write_training_mixture(bootstrap, deltas, robot_type, mixture_path)
+            write_dagger_mixture(bootstrap, deltas, robot_type, mixture_path)
             optimizer_steps = budget["bootstrap_steps"] + boundary
             _write_json_atomic(
                 control_dir / f"step_{boundary}.continue.json",

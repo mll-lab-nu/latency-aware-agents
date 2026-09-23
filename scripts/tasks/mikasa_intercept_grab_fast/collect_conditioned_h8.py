@@ -25,6 +25,7 @@ from latency_bench.logging.metrics import latency_type_from_source, profile_meta
 from latency_bench.policy.action_prefix import resolve_action_prefix, with_action_prefix
 from latency_bench.scheduler.factory import build_action_scheduler
 from scripts.mikasa.evaluate import (
+    MIKASA_IMAGE_VIEWS_INFO_KEY,
     MIKASA_STATE_INFO_KEY,
     _PpoPolicy,
     _make_ppo_env,
@@ -40,6 +41,8 @@ MAX_EPISODE_STEPS = 60
 
 
 def _prefix_settings(condition: str, config: dict) -> dict:
+    if condition == "zero-latency":
+        return {"mode": "none"}
     settings = (
         {
             "mode": "profile_p95",
@@ -160,23 +163,27 @@ def _selected_slots(
 
 
 def _save_episode(path: Path, rows: list[dict], *, seed: int) -> None:
-    np.savez_compressed(
-        path,
-        top=np.stack([row["top"] for row in rows]),
-        wrist=np.stack([row["wrist"] for row in rows]),
-        state=np.stack([row["state"] for row in rows]),
-        action=np.stack([row["chunk"][0] for row in rows]),
-        issued_command_chunk=np.stack([row["chunk"] for row in rows]),
-        action_prefix_mask=np.stack([row["prefix_mask"] for row in rows]),
-        action_loss_mask=np.stack([row["loss_mask"] for row in rows]),
-        latency_raw_frames=np.asarray([row["latency_raw_frames"] for row in rows], dtype=np.int64),
-        latency_ms=np.asarray([row["latency_ms"] for row in rows], dtype=np.float32),
-        observation_frame=np.asarray([row["frame"] for row in rows], dtype=np.int64),
-        episode_seed=np.asarray(seed, dtype=np.int64),
-    )
+    values = {
+        "top": np.stack([row["top"] for row in rows]),
+        "wrist": np.stack([row["wrist"] for row in rows]),
+        "state": np.stack([row["state"] for row in rows]),
+        "action": np.stack([row["chunk"][0] for row in rows]),
+        "issued_command_chunk": np.stack([row["chunk"] for row in rows]),
+        "action_prefix_mask": np.stack([row["prefix_mask"] for row in rows]),
+        "action_loss_mask": np.stack([row["loss_mask"] for row in rows]),
+        "latency_raw_frames": np.asarray([row["latency_raw_frames"] for row in rows], dtype=np.int64),
+        "latency_ms": np.asarray([row["latency_ms"] for row in rows], dtype=np.float32),
+        "observation_frame": np.asarray([row["frame"] for row in rows], dtype=np.int64),
+        "episode_seed": np.asarray(seed, dtype=np.int64),
+    }
+    if "student_chunk" in rows[0]:
+        values["student_command_chunk"] = np.stack([row["student_chunk"] for row in rows])
+        values["request_index"] = np.asarray([row["request_index"] for row in rows], dtype=np.int64)
+    np.savez_compressed(path, **values)
 
 
-def collect(args: argparse.Namespace) -> dict:
+def collect(args: argparse.Namespace, *, student_pool=None, seed_start: int = 0,
+            simulator_device: str = "gpu", student_source: str | None = None) -> dict:
     config = load_config(args.latency_config)
     config["scheduler"]["hold_last_chunk_action"] = True
     prefix_settings = _prefix_settings(args.condition, config)
@@ -214,8 +221,8 @@ def collect(args: argparse.Namespace) -> dict:
     episodes_dir = args.output / "episodes"
     episodes_dir.mkdir()
     attempts_path = args.output / "attempts.jsonl"
-    rgb_env = _make_vla_env(num_envs=args.num_envs)
-    branch_env = _make_ppo_env(num_envs=args.num_envs)
+    rgb_env = _make_vla_env(num_envs=args.num_envs, simulator_device=simulator_device)
+    branch_env = _make_ppo_env(num_envs=args.num_envs, simulator_device=simulator_device)
     teacher = _PpoPolicy(branch_env, args.checkpoint)
     split_targets = {
         "train": args.train_targets,
@@ -237,19 +244,27 @@ def collect(args: argparse.Namespace) -> dict:
     action_id = 0
     obs_id = 0
     latency_counts = Counter()
-    attempted_seed = 0
+    attempted_seed = seed_start
     batch_index = 0
+    student_errors = {"first": [], "later": []}
 
     try:
-        while splits["validation"]["valid_actions"] < split_targets["validation"]:
+        while any(splits[name]["valid_actions"] < target for name, target in split_targets.items()):
             split = (
                 "train"
                 if splits["train"]["valid_actions"] < split_targets["train"]
                 else "validation"
             )
             seeds = list(range(attempted_seed, attempted_seed + args.num_envs))
+            if student_pool is not None:
+                for slot_id in range(args.num_envs):
+                    student_pool.reset_state(slot_id)
             rgb_observation = _reset_seeded_slots(rgb_env, seeds)
-            _reset_seeded_slots(branch_env, seeds)
+            if student_pool is None:
+                _reset_seeded_slots(branch_env, seeds)
+            else:
+                # Each teacher query replaces the branch with an exact copy of main state.
+                branch_env.reset(seed=0)
             for scheduler, timeline, capacity in zip(
                 schedulers,
                 timelines,
@@ -289,12 +304,14 @@ def collect(args: argparse.Namespace) -> dict:
                     for event in released:
                         scheduler.enqueue(event)
                     if capacity.can_submit() and timeline.pending_observation_count == 0:
-                        state, action_prefix, prefix_mask = _conditioned_observation(
-                            proprio[slot_id],
-                            scheduler,
-                            prefix_settings,
-                            frame,
-                        )
+                        if args.condition == "zero-latency":
+                            state = np.asarray(proprio[slot_id], dtype=np.float32)
+                            action_prefix = prefixes[slot_id]
+                            prefix_mask = prefix_masks[slot_id]
+                        else:
+                            state, action_prefix, prefix_mask = _conditioned_observation(
+                                proprio[slot_id], scheduler, prefix_settings, frame,
+                            )
                         submitted[slot_id] = True
                         states[slot_id] = state
                         prefixes[slot_id] = action_prefix
@@ -303,7 +320,7 @@ def collect(args: argparse.Namespace) -> dict:
                         recent_drop_counts[slot_id] += 1
 
                 if submitted.any():
-                    chunks, loss_masks = _teacher_chunks(
+                    teacher_chunks, loss_masks = _teacher_chunks(
                         teacher,
                         rgb_env,
                         branch_env,
@@ -312,6 +329,31 @@ def collect(args: argparse.Namespace) -> dict:
                         submitted,
                     )
                     rgb = _uint8_rgb(rgb_observation["rgb"])
+                    if student_pool is None:
+                        chunks = teacher_chunks
+                    else:
+                        slots = np.flatnonzero(submitted)
+                        observations = []
+                        for slot_id in slots:
+                            metadata = {
+                                MIKASA_IMAGE_VIEWS_INFO_KEY: np.stack((
+                                    rgb[slot_id, :, :, :3], rgb[slot_id, :, :, 3:6],
+                                )),
+                                MIKASA_STATE_INFO_KEY: states[slot_id],
+                                "slot_id": int(slot_id),
+                            }
+                            if args.condition != "zero-latency":
+                                metadata["action_prefix"] = prefixes[slot_id]
+                                metadata["action_prefix_mask"] = prefix_masks[slot_id]
+                            observations.append(Observation(
+                                data=None, env_step=frame,
+                                sim_time_ms=clock.step_to_time_ms(frame),
+                                metadata=metadata,
+                            ))
+                        predicted = student_pool.predict_batch(observations)
+                        chunks = np.zeros_like(teacher_chunks)
+                        for slot_id, output in zip(slots, predicted, strict=True):
+                            chunks[slot_id] = np.asarray(output.action_chunk, dtype=np.float32)
                 else:
                     chunks = np.zeros(
                         (args.num_envs, HORIZON, ACTION_DIM),
@@ -321,6 +363,7 @@ def collect(args: argparse.Namespace) -> dict:
                         (args.num_envs, HORIZON),
                         dtype=bool,
                     )
+                    teacher_chunks = chunks
 
                 for slot_id in np.flatnonzero(submitted):
                     sample = samplers[slot_id].sample(
@@ -373,19 +416,21 @@ def collect(args: argparse.Namespace) -> dict:
                     latency_counts[sample.action_ready_raw_frames] += 1
                     loss_mask = loss_masks[slot_id]
                     if loss_mask.any():
-                        rows[slot_id].append(
-                            {
+                        row = {
                                 "frame": frame,
                                 "top": rgb[slot_id, :, :, :3],
                                 "wrist": rgb[slot_id, :, :, 3:6],
                                 "state": states[slot_id],
-                                "chunk": chunk,
+                                "chunk": teacher_chunks[slot_id],
                                 "prefix_mask": prefix_masks[slot_id],
                                 "loss_mask": loss_mask,
                                 "latency_raw_frames": sample.action_ready_raw_frames,
                                 "latency_ms": sample.latency_ms,
                             }
-                        )
+                        if student_pool is not None:
+                            row["student_chunk"] = chunk
+                            row["request_index"] = int(submitted_requests[slot_id])
+                        rows[slot_id].append(row)
                     action_id += 1
                     obs_id += 1
                     recent_drop_counts[slot_id] = 0
@@ -471,6 +516,14 @@ def collect(args: argparse.Namespace) -> dict:
                             rows[slot_id],
                             seed=seed,
                         )
+                        if student_pool is not None:
+                            for row in rows[slot_id]:
+                                mask = row["loss_mask"]
+                                error = np.abs(
+                                    row["student_chunk"][mask] - row["chunk"][mask]
+                                ).mean()
+                                group = "first" if row["request_index"] == 1 else "later"
+                                student_errors[group].append(float(error))
                         episode = {"episode_index": episode_index, **attempt}
                         saved_episodes.append(episode)
                         split_record = splits[split]
@@ -499,7 +552,8 @@ def collect(args: argparse.Namespace) -> dict:
         rgb_env.close()
 
     result = {
-        "format": "mikasa_conditioned_h8_raw_v2",
+        "format": ("mikasa_h8_naive_dagger_raw_v1" if args.condition == "zero-latency"
+                   else "mikasa_conditioned_h8_raw_v2"),
         "condition": args.condition,
         "model": args.model,
         "collection_num_envs": args.num_envs,
@@ -507,7 +561,14 @@ def collect(args: argparse.Namespace) -> dict:
         "teacher_checkpoint": str(args.checkpoint.resolve()),
         "latency_config": config,
         "action_prefix": prefix_settings,
-        "attempted_episodes": attempted_seed,
+        "attempted_episodes": attempted_seed - seed_start,
+        "seed_start": seed_start,
+        "student_control": student_pool is not None,
+        "student_source": student_source,
+        "student_suffix_mae": {
+            key: {"n": len(values), "mean": float(np.mean(values)) if values else None}
+            for key, values in student_errors.items()
+        },
         "saved_episodes": saved_episodes,
         "splits": splits,
         "latency_raw_frame_counts": dict(sorted(latency_counts.items())),
@@ -520,7 +581,7 @@ def collect(args: argparse.Namespace) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--condition", choices=("profile-latency", "fixed-2"), required=True)
+    parser.add_argument("--condition", choices=("profile-latency", "fixed-2", "zero-latency"), required=True)
     parser.add_argument(
         "--model",
         choices=("qwenoft", "qwenpi_v3", "qwengr00t", "shared"),

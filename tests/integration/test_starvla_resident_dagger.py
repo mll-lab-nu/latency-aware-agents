@@ -9,11 +9,13 @@ from latency_bench.integrations.starvla_resident_dagger import (
     ResidentInferencePool,
     serve_resident_inference,
 )
+from scripts.starvla.dagger_mixture import write_dagger_mixture
 
 
 class _RankPolicy:
     def __init__(self, rank):
         self.rank = rank
+        self.resets = []
 
     def predict_batch(self, observations):
         return [
@@ -21,15 +23,19 @@ class _RankPolicy:
             for observation in observations
         ]
 
+    def reset_state(self, slot_id):
+        self.resets.append(slot_id)
+
 
 def test_resident_pool_uses_every_rank_and_survives_client_disconnect(tmp_path):
     control_dir = tmp_path / ("long-control-directory-" * 4)
     socket_dir = tmp_path / "s"
     returned = [None, None]
+    policies = [_RankPolicy(rank) for rank in range(2)]
 
     def serve(rank):
         returned[rank] = serve_resident_inference(
-            policy=_RankPolicy(rank),
+            policy=policies[rank],
             control_dir=control_dir,
             socket_dir=socket_dir,
             step=500,
@@ -54,6 +60,8 @@ def test_resident_pool_uses_every_rank_and_survives_client_disconnect(tmp_path):
     assert [output.action.value for output in first.predict_batch(observations)] == [
         [0, 0], [1, 1], [0, 2], [1, 3]
     ]
+    first.reset_state(3)
+    assert [policy.resets for policy in policies] == [[], [3]]
     first.close()
     assert all(thread.is_alive() for thread in threads)
 
@@ -70,3 +78,17 @@ def test_resident_pool_uses_every_rank_and_survives_client_disconnect(tmp_path):
     for thread in threads:
         thread.join(timeout=2)
     assert returned == [command, command]
+
+
+def test_replay_mixture_keeps_bootstrap_latest_and_history_weights(tmp_path):
+    bootstrap = tmp_path / "bootstrap"
+    deltas = [tmp_path / f"round-{index:02d}" for index in range(1, 4)]
+    destination = tmp_path / "mixture.json"
+    write_dagger_mixture(bootstrap, deltas[:1], "mikasa_h8", destination)
+    first = json.loads(destination.read_text())["train"]
+    assert [row[1] for row in first] == [1.0, 1.0]
+
+    write_dagger_mixture(bootstrap, deltas, "mikasa_h8", destination)
+    later = json.loads(destination.read_text())
+    assert [row[1] for row in later["train"]] == [1.0, 0.25, 0.25, 1.0]
+    assert later["validation"] == [[str(bootstrap / "lerobot__val"), 1.0, "mikasa_h8"]]

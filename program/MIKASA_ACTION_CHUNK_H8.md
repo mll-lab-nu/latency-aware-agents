@@ -176,3 +176,31 @@ fixed-trained 两格、profile-trained 一格。
 卡。主通过线只用于 `profile → profile` 与 `fixed → fixed-2`：
 `success_once >= 25/50`。Zero-latency transfer 只报告，不据此挑 checkpoint、续训或改超参。
 入口不会自动发布 checkpoint。
+
+## Naive H8 DAgger 对照
+
+QwenOFT、QwenPI v3、QwenGR00T 各自从现有 zero-latency H8 SFT step-5000
+权重开始，重置优化器，在 zero latency 下用当前 student rollout。每个 admitted
+observation 从当时的 main env 状态复制 private PPO env，零 prefix 地生成最多 8 个
+teacher future actions；episode 终止后的 head 用 `action_loss_mask` 排除。学生输入仍为
+双相机和 7D proprio，不加入 returned-action context 或 action prefix。增量数据复用
+各自原 SFT 的 7D state/action normalization 与原 validation split。
+
+训练预算与 conditioned DAgger 对齐：10 轮、每轮 500 optimizer updates、每轮至少
+16,000 个有效 teacher action labels，global batch 128，bootstrap/current/history
+采样权重依次为首轮 50/50，之后 40/40/20（历史轮次等权）。naive 监督完整有效
+chunk，conditioned 监督 prefix 之后的有效 suffix；两者的标签位置不同，报告中必须
+同时列明。每轮 zero-latency 开发评测用共同 seeds `4242424442–4242424541`，
+只据该评测选 best。step-5000 后对 SFT baseline、best、latest 分别在 zero、各模型
+RTX 3090 Profile、Fixed-2 下用 held-out seeds `4242424542–4242424741` 各评测
+200 局；按模型和 seed 配对比较，不以延迟终评选 checkpoint。
+
+独立队列按 OFT、PI、GR00T 顺序，在两台 H200 任意安全的双训练卡空闲时提交；
+6/7 上若只有已识别的旧六路模拟器进程且显存占用低于 8 GiB，可与新 trainer
+共用；新任务的 simulator 可与自身 trainer 同卡，模拟器进程按原 GPU lock 串行。
+OFT 用 micro batch 32 / accumulation 2，PI 用 64 / 1，GR00T 用 32 / 2，
+均保持 global batch 128。队列直接启动正式任务，入口为
+`scripts/tasks/mikasa_intercept_grab_fast/dispatch_h8_naive_dagger_queue.py dispatch`；
+单路入口为 `launch_h8_naive_dagger_arm.sh`。正式输出根为两机各自的
+`outputs/starvla/runs/mikasa_intercept_grab_fast/h8-naive-dagger-20260923/`。
+训练和核验不会自动发布模型。
