@@ -44,7 +44,10 @@ POLICY_TYPES = {
 
 def periodic_eval_enabled(config: dict[str, Any]) -> bool:
     evaluation_cfg = config.get("evaluation", {})
-    return isinstance(evaluation_cfg, dict) and evaluation_cfg.get("eval_interval_steps") is not None
+    return isinstance(evaluation_cfg, dict) and (
+        evaluation_cfg.get("eval_interval_steps") is not None
+        or evaluation_cfg.get("checkpoint_interval_steps") is not None
+    )
 
 
 def build_latency_bench_config_from_training_config(
@@ -64,6 +67,7 @@ def build_latency_bench_config_from_training_config(
         for key in (
             "experiment",
             "backend",
+            "executor",
             "env",
             "latency",
             "scheduler",
@@ -74,6 +78,8 @@ def build_latency_bench_config_from_training_config(
         if key in training_config
     }
     config = merge_dicts(base_config, override)
+    if "eval_suites" in training_config["evaluation"]:
+        config["evaluation"]["eval_suites"] = deepcopy(training_config["evaluation"]["eval_suites"])
     config["backend"]["run_mode"] = "eval"
     config["policy"] = merge_dicts(
         base_config.get("policy", {}),
@@ -145,7 +151,12 @@ class LatencyBenchEvalJob:
 class LatencyBenchPeriodicEvalObserver:
     def __init__(self, training_config: dict[str, Any], *, checkpoint_timeout_sec: float = 60.0):
         self.training_config = deepcopy(training_config)
-        self.interval_steps = int(training_config["evaluation"]["eval_interval_steps"])
+        evaluation_cfg = training_config["evaluation"]
+        self.checkpoint_only = evaluation_cfg.get("checkpoint_interval_steps") is not None
+        self.interval_steps = int(
+            evaluation_cfg["checkpoint_interval_steps"]
+            if self.checkpoint_only else evaluation_cfg["eval_interval_steps"]
+        )
         self.uses_optimizer_steps = training_config["backend"]["algo"] == "FAST_TD3"
         self.next_eval_step = self.interval_steps
         self.checkpoint_timeout_sec = float(checkpoint_timeout_sec)
@@ -169,7 +180,14 @@ class LatencyBenchPeriodicEvalObserver:
         del training_iteration_since_resume
         step = _runner_step(runner, uses_optimizer_steps=self.uses_optimizer_steps)
         if step >= self.next_eval_step:
-            self._submit_eval_request(runner, step=step, phase="train_periodic")
+            if self.checkpoint_only:
+                checkpoint_path = self._save_checkpoint_for_eval(runner)
+                mark_checkpoint_for_eval_retention(
+                    checkpoint_path,
+                    metadata={"train_env_steps": _runner_env_steps(runner), "checkpoint_path": str(checkpoint_path)},
+                )
+            else:
+                self._submit_eval_request(runner, step=step, phase="train_periodic")
             while self.next_eval_step <= step:
                 self.next_eval_step += self.interval_steps
 

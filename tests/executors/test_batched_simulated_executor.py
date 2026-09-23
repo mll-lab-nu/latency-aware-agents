@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import current_profiler
@@ -911,6 +912,48 @@ def test_batched_executor_worker_capacity_is_independent_per_slot(tmp_path: Path
     assert [item.metadata["submitted_observation_frames"] for item in metrics] == [2, 2]
     assert [item.metadata["dropped_observation_count"] for item in metrics] == [3, 3]
     assert [item.metadata["simulated_worker_capacity"] for item in metrics] == [1, 1]
+
+
+def test_decision_history_records_completed_four_frame_windows_and_drops():
+    class CapturePolicy(PolicyRunner):
+        def __init__(self):
+            self.observations = []
+
+        def predict(self, observation):
+            raise AssertionError("batched path required")
+
+        def predict_batch(self, observations):
+            self.observations.extend(observations)
+            return [PolicyOutput(action=Action(1, name="fire")) for _ in observations]
+
+    clock = EnvClock(env_fps=60, obs_fps=15)
+    noop = Action(0, name="noop", is_noop=True)
+    env = DummyEnvAdapter(env_fps=60, max_steps=9, noop_action=noop)
+    env.action_space = Discrete(2)
+    policy = CapturePolicy()
+    executor = BatchedSimulatedLatencyExecutor(
+        env_backend=SerialEnvStepBackend([env]),
+        policy=policy,
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
+        latency_sources=[DivergentReadyAndWorkerLatencySource(action_ready_frames=0, worker_service_frames=8)],
+        action_schedulers=[ActionScheduler(
+            clock=clock, noop_action=noop, persistence_policy=HoldPolicy(),
+            ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+        )],
+        clock=clock,
+        simulated_worker_capacity=1,
+        action_history_decisions=8,
+    )
+    try:
+        executor.run_episodes(episode_ids=[0], seeds=[0], eval_max_steps=9)
+    finally:
+        executor.close()
+
+    assert len(policy.observations) == 2
+    first, second = [item.data for item in policy.observations]
+    assert first["transport"].shape == (24,)
+    np.testing.assert_array_equal(first["transport"], 0)
+    np.testing.assert_array_equal(second["transport"][-6:], [1, 1, 1, 0, 0, 1])
 
 
 def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path):

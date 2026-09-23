@@ -34,6 +34,7 @@
 | [logs/mikasa-h8-naive-dagger-2026-09-23](logs/mikasa-h8-naive-dagger-2026-09-23.md) | 三路 zero-latency naive H8 DAgger 的队列与运行状态 | 运行记录；正式终点核验后更新 PROGRESS |
 | [logs/atari-gpu-training-gate-2026-09-22](logs/atari-gpu-training-gate-2026-09-22.md) | Atlantis/Asterix CuLE 接入、2048/4096 H100 吞吐与 100 局 GPU/CPU 兼容评测 | 2048 候选通过吞吐与兼容门；三 seed 同帧数质量 A/B 尚未完成 |
 | [logs/worker-capacity-contract-2026-09-23](logs/worker-capacity-contract-2026-09-23.md) | Flappy/Demon/Deadly 训练评测容量不一致的诊断、统一实现、H100 验证与 corrected 重训协议 | 九项旧 profile-small 结果失效；corrected 产物只留挂载盘，未经批准不更新 HF |
+| [logs/decision-action-history-nine-profile-2026-09-23](logs/decision-action-history-nine-profile-2026-09-23.md) | Flappy/Demon/Deadly 共用 8 次决策历史与 3090 temporal 配方；Deadly 时钟修正与重跑 | Deadly 原 60/15 run 已删除，35/8.75 新队列已启动；正式结果待核验 |
 | [parkour/OPTIMIZE](parkour/OPTIMIZE.md) | CPU 调度收益、预算对齐及已回退的 PhysX/cache 实验 | 保留性能记录；训练吞吐与 VLA inference latency profile 分开解释 |
 
 ## 研究资料

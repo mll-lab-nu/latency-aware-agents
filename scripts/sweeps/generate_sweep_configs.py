@@ -102,6 +102,7 @@ ENV_KEYS_BY_NAME = {
         "normalize_obs",
         "audio_on",
         "frame_stack",
+        "action_history_decisions",
         "obs_resize",
         "use_gpu_render",
         "simulator",
@@ -127,6 +128,7 @@ ENV_KEYS_BY_NAME = {
         "reset_mode",
         "frame_stack",
         "terminal_on_life_loss",
+        "action_history_decisions",
         "clip_reward",
         "repeat_action_probability",
         "full_action_space",
@@ -142,6 +144,7 @@ ENV_KEYS_BY_NAME = {
         "noop_action",
         "frame_stack",
         "res_w",
+        "action_history_decisions",
         "res_h",
         "wide_aspect_ratio",
         "max_episode_steps",
@@ -670,6 +673,7 @@ def _build_full_train_config(
         observation_stride,
         seed,
     )
+    specified_tags = config["logging"]["wandb_tags"]
     config["logging"]["wandb_tags"] = _wandb_tags(
         experiment_family,
         env_name,
@@ -681,6 +685,8 @@ def _build_full_train_config(
         observation_stride,
         seed,
     )
+    if isinstance(specified_tags, list):
+        config["logging"]["wandb_tags"].extend(specified_tags)
     return config
 
 
@@ -815,6 +821,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not spec_path.is_absolute():
         spec_path = (REPO_ROOT / spec_path).resolve()
     spec = read_yaml(spec_path)
+    explicit_eval_interval = "eval_interval_steps" in spec.get("evaluation", {})
     if "__base__" in spec:
         spec = load_config(spec_path)
         base_config = {
@@ -874,7 +881,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             experiment_family=experiment_family,
         )
         train_config = _prune_sample_factory_config(full_train_config)
-        _disable_periodic_eval(train_config)
+        if not explicit_eval_interval:
+            _disable_periodic_eval(train_config)
         latency_bench_eval_config = _build_latency_bench_eval_config(
             base_config,
             full_train_config,

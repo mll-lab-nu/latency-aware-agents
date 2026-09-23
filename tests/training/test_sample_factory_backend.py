@@ -283,6 +283,36 @@ def test_flappy_linear_lr_resume_uses_checkpoint_optimizer_step():
     )
 
 
+def test_deadly_tuple_action_history_uses_decision_boundary_action():
+    from training.common.latency_wrapper import ActionLatencyWrapper
+
+    class Env(gym.Env):
+        action_space = gym.spaces.Tuple((gym.spaces.Discrete(3), gym.spaces.Discrete(3), gym.spaces.Discrete(3), gym.spaces.Discrete(2)))
+        observation_space = gym.spaces.Box(low=0, high=255, shape=(3, 4, 4), dtype=np.uint8)
+
+        def reset(self, *, seed=None, options=None):
+            return np.zeros((3, 4, 4), dtype=np.uint8), {}
+
+        def step(self, action):
+            return np.zeros((3, 4, 4), dtype=np.uint8), 0.0, False, False, {}
+
+    env = ActionLatencyWrapper(
+        Env(), fixed_latency_raw_frames=0, env_fps=35, obs_fps=8.75,
+        hold_policy="hold", ordering_policy="latest_ready",
+        simulated_worker_capacity=1, add_latency_info=False, action_history_decisions=8,
+    )
+    try:
+        obs, _ = env.reset(seed=42)
+        assert obs["transport"].shape == (120,)
+        np.testing.assert_array_equal(obs["transport"], 0)
+        obs, *_ = env.step((1, 0, 2, 1))
+        np.testing.assert_array_equal(
+            obs["transport"][-15:], [1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1],
+        )
+    finally:
+        env.close()
+
+
 def test_flappy_sf_cli_maps_env_rates_and_scheduler_policies():
     from training.flappy_sf.integration import build_cli_args_from_config
 

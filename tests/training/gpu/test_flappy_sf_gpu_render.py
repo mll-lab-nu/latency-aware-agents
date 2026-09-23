@@ -83,6 +83,52 @@ def test_flappy_sf_gpu_render_cpu_reset_contract_image_only():
         env.close()
 
 
+def test_flappy_decision_history_is_24d_and_contains_only_completed_step():
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(action_history_decisions=8, simulated_worker_capacity=1),
+        env_config=_env_config(),
+    )
+    try:
+        obs, _ = env.reset(seed=123)
+        assert obs["transport"].shape == (1, 24)
+        assert not obs["transport"].any()
+        obs, *_ = env.step(np.array([1]))
+        np.testing.assert_array_equal(obs["transport"][0, -3:].cpu().numpy(), [1, 1, 1])
+    finally:
+        env.close()
+
+
+def test_flappy_decision_history_matches_cpu_and_cuda():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    common = dict(
+        action_history_decisions=8,
+        obs_fps=10,
+        latency_type="fixed",
+        fixed_latency_ms=200.0,
+        simulated_worker_capacity=1,
+        gpu_render_batch_size=2,
+    )
+    cpu = make_flappy_sf_env("latency_flappy", cfg=_flappy_gpu_cfg(simulator="cpu", **common), env_config=_env_config())
+    cuda = make_flappy_sf_env("latency_flappy", cfg=_flappy_gpu_cfg(simulator="gpu", gpu_render_device="cuda", **common), env_config=_env_config())
+    try:
+        cpu.reset(seed=123)
+        cuda.reset(seed=123)
+        for actions in ([1, 0], [0, 1], [1, 1]):
+            cpu_obs, *_ = cpu.step(actions)
+            cuda_obs, *_ = cuda.step(torch.tensor(actions, device="cuda"))
+            np.testing.assert_array_equal(cpu_obs["transport"].cpu().numpy(), cuda_obs["transport"].cpu().numpy())
+    finally:
+        cpu.close()
+        cuda.close()
+
+
 def test_flappy_sf_gpu_render_export_reports_raw_rgb_stack_before_resize():
     torch = pytest.importorskip("torch")
 

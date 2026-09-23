@@ -676,6 +676,30 @@ def _clip_parity_cfg(**overrides):
     return SimpleNamespace(**cfg)
 
 
+def test_demon_gpu_decision_history_uses_final_applied_action():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
+
+    env = DemonAttackBatchedGpuEnv(
+        cfg=_clip_parity_cfg(action_history_decisions=8, simulated_worker_capacity=1),
+        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        gpu_env_device="cuda", gpu_env_batch_size=2,
+    )
+    try:
+        obs, _ = env.reset(seed=123)
+        assert obs["transport"].shape == (2, 88)
+        assert not obs["transport"].any()
+        obs, *_ = env.sample_factory_gpu_step(torch.ones(2, dtype=torch.int64, device="cuda"))
+        np.testing.assert_array_equal(
+            obs["transport"][0, -11:].cpu().numpy(),
+            [1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+        )
+    finally:
+        env.close()
+
+
 def test_demon_attack_gpu_clip_reward_is_sum_of_per_frame_signs():
     """clip_reward must clip per raw frame then sum (matching the CPU path),
     not sign the accumulated decision reward (which would saturate to {-1,0,1}

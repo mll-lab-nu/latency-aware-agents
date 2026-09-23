@@ -1,0 +1,50 @@
+__base__: ../../base/deadly_corridor.yaml
+experiment_family: deadly_corridor_decision_history_native35_temporal_25m_seed42
+generated_root: configs/train/deadly_corridor/decision_history_native35_temporal_25m_seed42
+train_dir: results/checkpoints/deadly_corridor/decision_history_native35_temporal_25m_seed42
+output_root: outputs/tasks/deadly_corridor/decision_history_native35_temporal_25m_seed42
+device: cuda
+restart_behavior: resume
+
+env:
+  env_fps: 35
+  obs_fps: 8.75
+  action_history_decisions: 8
+
+executor:
+  simulated_worker_capacity: 1
+
+seeds: [42]
+
+training:
+  train_for_env_steps: 25000000
+
+evaluation:
+  checkpoint_interval_steps: 5000000
+  eval_episodes: 100
+  eval_parallel_envs: 1
+  eval_max_steps: 3600
+
+logging:
+  wandb_project: starvla_tasks
+  wandb_job_type: deadly_corridor_decision_history_native35_temporal
+  wandb_tags: [decision_v1]
+
+latency_settings:
+  qwenoft_rtx3090_temporal_hist8_capacity1_native35:
+    kind: temporal
+    profile_path: results/profiling/profiles/openvla/1x-rtx3090/deadly_corridor/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+  gr00t_rtx3090_temporal_hist8_capacity1_native35:
+    kind: temporal
+    profile_path: results/profiling/profiles/gr00t/1x-rtx3090/deadly_corridor/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+  pi05_rtx3090_temporal_hist8_capacity1_native35:
+    kind: temporal
+    profile_path: results/profiling/profiles/pi05/1x-rtx3090/deadly_corridor/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+
+sweeps:
+  frame_stack:
+    frame_stack: [4]
+    obs_fps: [8.75]

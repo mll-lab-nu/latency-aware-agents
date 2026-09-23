@@ -1,0 +1,51 @@
+__base__: ../../base/demon_attack.yaml
+experiment_family: demon_attack_decision_history_temporal_25m_seed42
+generated_root: configs/train/demon_attack/decision_history_temporal_25m_seed42
+train_dir: results/checkpoints/demon_attack/decision_history_temporal_25m_seed42
+output_root: outputs/tasks/demon_attack/decision_history_temporal_25m_seed42
+device: cuda
+restart_behavior: resume
+
+env:
+  env_fps: 60
+  obs_fps: 15
+  action_history_decisions: 8
+
+executor:
+  simulated_worker_capacity: 1
+
+seeds: [42]
+
+training:
+  train_for_env_steps: 25000000
+  lr_schedule: linear_decay
+
+evaluation:
+  checkpoint_interval_steps: 5000000
+  eval_episodes: 100
+  eval_parallel_envs: 1
+  eval_max_steps: 14400
+
+logging:
+  wandb_project: starvla_tasks
+  wandb_job_type: demon_attack_decision_history_temporal
+  wandb_tags: [decision_v1]
+
+latency_settings:
+  qwenoft_rtx3090_temporal_hist8_capacity1:
+    kind: temporal
+    profile_path: results/profiling/profiles/openvla/1x-rtx3090/demon_attack/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+  gr00t_rtx3090_temporal_hist8_capacity1:
+    kind: temporal
+    profile_path: results/profiling/profiles/gr00t/1x-rtx3090/demon_attack/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+  pi05_rtx3090_temporal_hist8_capacity1:
+    kind: temporal
+    profile_path: results/profiling/profiles/pi05/1x-rtx3090/demon_attack/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+
+sweeps:
+  frame_stack:
+    frame_stack: [4]
+    obs_fps: [15]

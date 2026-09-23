@@ -189,6 +189,7 @@ def make_latency_doom_env_from_spec(
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
         max_pending_actions=getattr(cfg, "max_pending_actions", None),
+        action_history_decisions=getattr(cfg, "action_history_decisions", None),
     )
     env = EpisodeMetricsWrapper(
         env,
@@ -272,6 +273,7 @@ def add_latency_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--eval-deterministic", type=str2bool, default=True)
     parser.add_argument("--disable-reward-scaling", type=str2bool, default=False)
     parser.add_argument("--frame_stack", type=int, default=1)
+    parser.add_argument("--action-history-decisions", dest="action_history_decisions", type=int, default=None)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu"])
     parser.add_argument("--episode_metrics_path", type=str, default="")
@@ -314,6 +316,8 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--res_h", env_cfg.get("res_h", 72))
     append_cli_arg(args, "--wide_aspect_ratio", env_cfg.get("wide_aspect_ratio", False))
     append_cli_arg(args, "--frame_stack", env_cfg.get("frame_stack", 1))
+    if "action_history_decisions" in env_cfg:
+        append_cli_arg(args, "--action-history-decisions", env_cfg["action_history_decisions"])
     append_cli_arg(args, "--max_episode_steps", env_cfg.get("max_episode_steps"))
     append_cli_arg(args, "--simulator", env_cfg["simulator"])
     append_cli_arg(args, "--vizdoom_init_max_parallel", env_cfg.get("vizdoom_init_max_parallel"))

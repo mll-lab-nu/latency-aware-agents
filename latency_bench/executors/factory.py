@@ -157,7 +157,11 @@ def _build_simulated_executor(
     eval_parallel_envs = _eval_parallel_envs(config)
     num_episodes = int(config["evaluation"]["eval_episodes"])
     if (
-        (env_backend is not None or eval_parallel_envs > 1)
+        (
+            env_backend is not None
+            or eval_parallel_envs > 1
+            or config["env"].get("action_history_decisions") is not None
+        )
         and num_episodes > 0
         and resolve_latency_method(config["latency"]) in BATCHED_SIMULATED_METHODS
     ):
@@ -302,6 +306,7 @@ def _build_batched_simulated_executor(
             profile_pipeline=config["logging"]["simulated_pipeline_profile"],
             inference_pool=inference_pool,
             action_prefix=config["policy"]["action_prefix"],
+            action_history_decisions=config["env"].get("action_history_decisions"),
         )
     except Exception:
         if inference_pool is not None:

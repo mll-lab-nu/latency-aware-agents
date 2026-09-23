@@ -180,6 +180,7 @@ def make_demon_attack_sf_env(
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=cfg.add_latency_info,
         max_pending_actions=cfg.max_pending_actions,
+        action_history_decisions=getattr(cfg, "action_history_decisions", None),
     )
     env = EpisodeMetricsWrapper(
         env,
@@ -257,6 +258,7 @@ def add_demon_attack_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--noop_max", type=int, default=30)
     parser.add_argument("--reset-mode", dest="reset_mode", type=str, default="fire", choices=["raw", "noop", "fire"])
     parser.add_argument("--frame_stack", type=int, default=1)
+    parser.add_argument("--action-history-decisions", dest="action_history_decisions", type=int, default=None)
     parser.add_argument("--terminal_on_life_loss", type=str2bool, default=False)
     parser.add_argument("--clip_reward", type=str2bool, default=True)
     parser.add_argument("--repeat_action_probability", type=float, default=0.0)
@@ -334,6 +336,8 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--noop_max", env_cfg["noop_max"])
     append_cli_arg(args, "--reset-mode", env_cfg["reset_mode"])
     append_cli_arg(args, "--frame_stack", env_cfg["frame_stack"])
+    if "action_history_decisions" in env_cfg:
+        append_cli_arg(args, "--action-history-decisions", env_cfg["action_history_decisions"])
     append_cli_arg(args, "--terminal_on_life_loss", env_cfg["terminal_on_life_loss"])
     append_cli_arg(args, "--clip_reward", env_cfg["clip_reward"])
     append_cli_arg(args, "--repeat_action_probability", env_cfg["repeat_action_probability"])
