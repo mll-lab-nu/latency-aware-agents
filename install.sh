@@ -196,8 +196,7 @@ install_latency_env() {
     ensure_uv
     PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
     pip_install -e ".[dev,sonic]"
-    pip_install --no-deps -e third_party/humanoid-bench
-    python -c 'import humanoid_bench, mujoco, onnxruntime; print("latency Sonic imports complete")'
+    pip_install imageio ale-py
     pip_install -e third_party/sample-factory
 
     for env_name in demon_attack deadly_corridor flappy; do
@@ -218,7 +217,6 @@ init_model_submodules() {
         third_party/starVLA
         third_party/sample-factory
         third_party/flappy-bird-gymnasium
-        third_party/humanoid-bench
     )
 
     case "${MODEL_TARGET}" in
