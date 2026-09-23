@@ -53,6 +53,135 @@ def test_batched_latency_fixed_one_frame_then_noop_matches_scalar_action_timing(
     assert int(decision.applied_actions[0]) == 1
 
 
+def test_batched_capacity_drops_busy_observations_without_sampling_or_stopping_physics(monkeypatch):
+    from latency_bench.core.clock import EnvClock
+    from latency_bench.latency.sample import LatencySample
+    from training.flappy_sf import batched_latency
+
+    class ScriptedSampler:
+        def __init__(self):
+            self.calls = []
+
+        def sample(self, context):
+            self.calls.append(context)
+            return LatencySample.from_action_ready(
+                action_ready_raw_frames=0,
+                worker_service_raw_frames=3,
+                worker_service_ms=100.0,
+                clock=EnvClock(env_fps=30, obs_fps=30),
+            )
+
+    sampler = ScriptedSampler()
+    monkeypatch.setattr(batched_latency, "build_profile_sampler", lambda *args, **kwargs: sampler)
+    monkeypatch.setattr(
+        batched_latency,
+        "profile_sampler_max_latency_raw_frames_for_workers",
+        lambda *args, **kwargs: 0,
+    )
+    scheduler = batched_latency.BatchedFlappyLatencyScheduler(
+        batch_size=1,
+        fixed_latency_raw_frames=0,
+        env_fps=30,
+        obs_fps=30,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        latency_distribution_spec=None,
+        profile_path="profile.json",
+        profile_worker_slot=0,
+        profile_method="iid",
+        simulated_worker_capacity=1,
+        seeds=[7],
+        env_reset_seed_bases=[100],
+        add_latency_info=True,
+    )
+    active = np.asarray([True])
+    scheduler.reset(indices=[0], seeds=[123])
+
+    decisions = []
+    for action in (1, 0, 1, 0):
+        scheduler.begin_decision(np.asarray([action]), active_mask=active)
+        scheduler.raw_actions(active)
+        scheduler.record_raw_step(active)
+        decisions.append(scheduler.finish_decision(active, np.asarray([1])))
+
+    assert [bool(item.command_admitted[0]) for item in decisions] == [True, False, False, True]
+    assert [bool(item.observation_dropped[0]) for item in decisions] == [False, True, True, False]
+    assert [int(item.worker_service_raw_frames[0]) for item in decisions] == [3, 0, 0, 3]
+    assert [int(item.ready_raw_frames[0]) for item in decisions] == [0, -1, -1, 3]
+    assert scheduler.env_step_idx.tolist() == [4]
+    assert scheduler.next_action_id.tolist() == [2]
+    assert len(sampler.calls) == 2
+
+    scheduler.reset(indices=[0], seeds=[456])
+    scheduler.begin_decision(np.asarray([1]), active_mask=active)
+    reset_decision = scheduler.finish_decision(active, np.asarray([0]))
+    assert bool(reset_decision.command_admitted[0]) is True
+    assert scheduler.submitted_observations.tolist() == [1]
+    assert scheduler.dropped_observations.tolist() == [0]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
+def test_cuda_capacity_drops_busy_observations_without_sampling_or_stopping_physics():
+    from latency_bench.core.clock import EnvClock
+    from latency_bench.latency.sample import LatencySample
+    from training.common.gpu_latency import CudaLatencyScheduler
+
+    class ScriptedSampler:
+        def __init__(self):
+            self.calls = []
+
+        def sample(self, context):
+            self.calls.append(context)
+            return LatencySample.from_action_ready(
+                action_ready_raw_frames=0,
+                worker_service_raw_frames=3,
+                worker_service_ms=100.0,
+                clock=EnvClock(env_fps=30, obs_fps=30),
+            )
+
+    sampler = ScriptedSampler()
+    scheduler = CudaLatencyScheduler(
+        batch_size=1,
+        fixed_latency_raw_frames=0,
+        env_fps=30,
+        obs_fps=30,
+        hold_policy="hold",
+        ordering_policy="latest_ready",
+        seeds=[7],
+        env_reset_seed_bases=[100],
+        add_latency_info=True,
+        device=torch.device("cuda"),
+        latency_samplers=[sampler],
+        profile_worker_slot=0,
+        profile_max_latency_raw_frames=0,
+        simulated_worker_capacity=1,
+    )
+    active = torch.ones(1, dtype=torch.bool, device="cuda")
+    scheduler.reset(indices=[0], seeds=[123])
+
+    decisions = []
+    for action in (1, 0, 1, 0):
+        scheduler.begin_decision(torch.tensor([action], device="cuda"), active_mask=active)
+        scheduler.raw_actions(active)
+        scheduler.record_raw_step(active)
+        decisions.append(scheduler.finish_decision(active, torch.ones(1, dtype=torch.int64, device="cuda")))
+
+    assert [bool(item.command_admitted[0].item()) for item in decisions] == [True, False, False, True]
+    assert [bool(item.observation_dropped[0].item()) for item in decisions] == [False, True, True, False]
+    assert [int(item.worker_service_raw_frames[0].item()) for item in decisions] == [3, 0, 0, 3]
+    assert [int(item.ready_raw_frames[0].item()) for item in decisions] == [0, -1, -1, 3]
+    assert scheduler.env_step_idx.detach().cpu().tolist() == [4]
+    assert scheduler.next_action_id.detach().cpu().tolist() == [2]
+    assert len(sampler.calls) == 2
+
+    scheduler.reset(indices=[0], seeds=[456])
+    scheduler.begin_decision(torch.tensor([1], device="cuda"), active_mask=active)
+    reset_decision = scheduler.finish_decision(active, torch.zeros(1, dtype=torch.int64, device="cuda"))
+    assert bool(reset_decision.command_admitted[0].item()) is True
+    assert scheduler.submitted_observations.detach().cpu().tolist() == [1]
+    assert scheduler.dropped_observations.detach().cpu().tolist() == [0]
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
 @pytest.mark.parametrize("ordering_policy", ("issue_order_fifo", "latest_ready"))
 @pytest.mark.parametrize("hold_policy", ("one_frame_then_noop", "hold"))
@@ -248,6 +377,7 @@ def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one(hol
         seeds=latency_seeds,
         env_reset_seed_bases=[1001, 1002, 1003, 1004],
         add_latency_info=False,
+        simulated_worker_capacity=1,
     )
     cuda_latency = CudaLatencyScheduler(
         batch_size=batch_size,
@@ -259,6 +389,7 @@ def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one(hol
         seeds=latency_seeds,
         env_reset_seed_bases=[1001, 1002, 1003, 1004],
         add_latency_info=False,
+        simulated_worker_capacity=1,
         device=torch.device("cuda"),
     )
 
@@ -307,6 +438,9 @@ def test_cuda_latency_core_decision_fused_path_matches_cpu_for_stride_gt_one(hol
         np.testing.assert_array_equal(cuda_decision.scores, latest_scores)
         np.testing.assert_array_equal(cuda_decision.raw_frames_advanced, raw_frames_advanced)
         np.testing.assert_array_equal(cuda_decision.latency_raw_frames, cpu_decision.latency_raw_frames)
+        np.testing.assert_array_equal(cuda_decision.command_admitted, cpu_decision.command_admitted)
+        np.testing.assert_array_equal(cuda_decision.observation_dropped, cpu_decision.observation_dropped)
+        np.testing.assert_array_equal(cuda_decision.ready_raw_frames, cpu_decision.ready_raw_frames)
         np.testing.assert_allclose(cuda_core.observations(), cpu_core.observations(), rtol=0, atol=0)
 
 

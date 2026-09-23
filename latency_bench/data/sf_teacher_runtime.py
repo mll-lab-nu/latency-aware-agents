@@ -183,7 +183,12 @@ def build_env_and_policy(module: Any, cfg: Any, config: Mapping[str, Any], num_e
     actor_critic.eval()
     actor_critic.model_to_device(device)
     checkpoint_path = config["checkpoint_path"]
-    checkpoint = load_sample_factory_policy_state_dict(cfg, actor_critic, device, checkpoint_path)
+    checkpoint, _ = load_sample_factory_policy_state_dict(
+        cfg,
+        actor_critic,
+        device,
+        checkpoint_path,
+    )
     return {
         "envs": envs,
         "env_info": env_info,

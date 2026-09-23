@@ -1,6 +1,7 @@
 """Task inference must use current state and return the full action chunk."""
 
 import json
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -106,7 +107,8 @@ def test_task_policy_normalizes_and_forwards_action_prefix():
     np.testing.assert_array_equal(captured[0]["action_prefix_mask"], prefix_mask)
 
 
-def test_live_policy_uses_task_contract_without_loading_a_checkpoint(tmp_path):
+@pytest.mark.parametrize("model_source", ["live", "checkpoint"])
+def test_task_policy_loads_contract_for_model_source(tmp_path, monkeypatch, model_source):
     from latency_bench.policy.starvla import build_live_starvla_policy
 
     spec = TASK_SPECS["balance_profile_h8"]
@@ -123,18 +125,51 @@ def test_live_policy_uses_task_contract_without_loading_a_checkpoint(tmp_path):
     contract_path.write_text(json.dumps(contract))
     framework = SimpleNamespace()
 
-    policy = build_live_starvla_policy(
-        framework=framework,
-        model_cfg={"datasets": {"vla_data": {
-            "obs_image_size": [224, 224], "image_mode": "single"
-        }}},
-        config={"policy": {
-            "task_contract_path": str(contract_path),
-            "state_info_key": "state",
-            "image_views_info_key": "views",
-        }},
-        action_resolver=None,
-    )
+    model_cfg = {"datasets": {"vla_data": {
+        "obs_image_size": [224, 224], "image_mode": "single"
+    }}}
+    config = {"policy": {
+        "task_contract_path": str(contract_path),
+        "state_info_key": "state",
+        "image_views_info_key": "views",
+    }}
+    if model_source == "live":
+        policy = build_live_starvla_policy(
+            framework=framework,
+            model_cfg=model_cfg,
+            config=config,
+            action_resolver=None,
+        )
+    else:
+        from latency_bench.policy.starvla_tasks import build_task_starvla_policy
+
+        config["policy"].update(
+            checkpoint_path=str(tmp_path / "checkpoint.pt"),
+            backbone_path=str(tmp_path / "prepared_backbone"),
+            device="cpu",
+        )
+        loaded = {}
+
+        def from_pretrained(checkpoint_path, *, backbone_path):
+            loaded.update(checkpoint=checkpoint_path, backbone=backbone_path)
+            return framework
+
+        framework.to = lambda **kwargs: framework
+        framework.eval = lambda: framework
+        monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(bfloat16=object()))
+        monkeypatch.setitem(
+            sys.modules, "starVLA.model.framework.base_framework",
+            SimpleNamespace(baseframework=SimpleNamespace(from_pretrained=from_pretrained)),
+        )
+        monkeypatch.setitem(
+            sys.modules, "starVLA.model.framework.share_tools",
+            SimpleNamespace(read_mode_config=lambda path: (model_cfg, {})),
+        )
+        policy = build_task_starvla_policy(config)
+        assert loaded == {
+            "checkpoint": config["policy"]["checkpoint_path"],
+            "backbone": config["policy"]["backbone_path"],
+        }
 
     assert isinstance(policy, TaskStarVlaPolicyRunner)
     assert policy.framework is framework

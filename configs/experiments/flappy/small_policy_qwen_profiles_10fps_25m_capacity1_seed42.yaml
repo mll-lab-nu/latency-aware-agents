@@ -1,0 +1,50 @@
+__base__: ../../base/flappy.yaml
+experiment_family: flappy_profiled_small_capacity1
+generated_root: configs/train/flappy/profiled_small_qwen_10fps_25m_capacity1_seed42
+train_dir: results/checkpoints/flappy/profiled_small_qwen_10fps_25m_capacity1_seed42
+output_root: outputs/tasks/flappy/profiled_small_qwen_10fps_25m_capacity1_seed42
+device: cuda
+restart_behavior: resume
+
+env:
+  env_fps: 10
+  obs_fps: 10
+
+executor:
+  simulated_worker_capacity: 1
+
+seeds:
+  - 42
+
+training:
+  train_for_env_steps: 25000000
+
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 100
+  eval_max_steps: 18000
+
+logging:
+  wandb_project: starvla_tasks
+  wandb_job_type: flappy_profiled_small_capacity1
+
+latency_settings:
+  qwenoft_rtx3090_temporal_25m_capacity1:
+    kind: temporal
+    profile_path: results/profiling/profiles/openvla/1x-rtx3090/flappy/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+  qwengr00t_rtx3090_temporal_25m_capacity1:
+    kind: temporal
+    profile_path: results/profiling/profiles/gr00t/1x-rtx3090/flappy/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+  qwenpi_v3_rtx3090_temporal_25m_capacity1:
+    kind: temporal
+    profile_path: results/profiling/profiles/pi05/1x-rtx3090/flappy/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+
+sweeps:
+  profile:
+    frame_stack:
+      - 4
+    obs_fps:
+      - 10

@@ -12,6 +12,7 @@ backend:
 
 executor:
   mode: simulated
+  simulated_worker_capacity: null
 
 env:
   name: defend_the_line

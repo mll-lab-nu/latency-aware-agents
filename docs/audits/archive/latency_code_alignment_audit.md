@@ -1,5 +1,9 @@
 # Latency Code Alignment Audit
 
+> Archived implementation snapshot from 2026-05-08. Status and TODOs below
+> describe that audit, not the current runtime. See [core infrastructure](../../infra.md)
+> and the [semantic contract](../../latency_execution_semantics_en.md) for current guidance.
+
 **Status:** Phases 1-3 implementation audit
 **Date:** 2026-05-08
 **Scope:** Current implementation gaps against the stable latency execution semantics.

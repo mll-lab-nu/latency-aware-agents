@@ -27,6 +27,7 @@ from training.common.config_adapter import (
 )
 from training.common.episode_metrics import start_episode_metrics_aggregator, stop_episode_metrics_aggregator
 from training.common.latency_config import (
+    add_sample_factory_latency_args,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
@@ -408,10 +409,13 @@ def make_flappy_sf_env(
         sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
         profile_path=latency_params.profile_path,
         profile_worker_slot=latency_params.profile_worker_slot,
+        profile_method=latency_params.profile_method,
+        simulated_worker_capacity=latency_params.simulated_worker_capacity,
         seed=latency_seed,
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(getattr(cfg, "add_latency_info", False)),
         max_pending_actions=getattr(cfg, "max_pending_actions", None),
+        action_history_decisions=getattr(cfg, "action_history_decisions", None),
     )
     env = EpisodeMetricsWrapper(
         env,
@@ -477,6 +481,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--gpu-render-batch-size", dest="gpu_render_batch_size", type=int, default=1)
     parser.add_argument("--gpu-render-profile", dest="gpu_render_profile", type=str2bool, default=False)
     parser.add_argument("--gpu-render-profile-interval", dest="gpu_render_profile_interval", type=int, default=1000)
+    parser.add_argument("--action-history-decisions", dest="action_history_decisions", type=int, default=None)
     parser.add_argument("--pipe_gap", type=int, default=100)
     parser.add_argument("--bird_color", type=str, default="yellow")
     parser.add_argument("--pipe_color", type=str, default="green")
@@ -487,17 +492,7 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug-timelimit-diagnostics", dest="debug_timelimit_diagnostics", type=str2bool, default=False)
     parser.add_argument("--max_episode_steps", type=int, default=0)
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"])
-    parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
-    parser.add_argument("--fixed-latency-ms", dest="fixed_latency_ms", type=float)
-    parser.add_argument("--mean-latency-ms", dest="mean_latency_ms", type=float)
-    parser.add_argument("--std-latency-ms", dest="std_latency_ms", type=float)
-    parser.add_argument("--min-latency-ms", dest="min_latency_ms", type=float)
-    parser.add_argument("--max-latency-ms", dest="max_latency_ms", type=float)
-    parser.add_argument("--latency-seed", dest="latency_seed", type=int)
-    parser.add_argument("--latency-profile-path", dest="latency_profile_path", type=str)
-    parser.add_argument("--latency-profile-worker-slot", dest="latency_profile_worker_slot", type=int)
-    parser.add_argument("--add-latency-info", type=str2bool, default=False)
-    parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
+    add_sample_factory_latency_args(parser)
     parser.add_argument(
         "--hold-policy",
         dest="hold_policy",
@@ -574,6 +569,8 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--gpu-render-device", env_cfg.get("gpu_render_device", "auto"))
     append_cli_arg(args, "--gpu-render-profile", env_cfg.get("gpu_render_profile", False))
     append_cli_arg(args, "--gpu-render-profile-interval", env_cfg.get("gpu_render_profile_interval", 1000))
+    if "action_history_decisions" in env_cfg:
+        append_cli_arg(args, "--action-history-decisions", env_cfg["action_history_decisions"])
     append_cli_arg(args, "--pipe_gap", env_cfg.get("pipe_gap", 100))
     append_cli_arg(args, "--bird_color", env_cfg.get("bird_color", "yellow"))
     append_cli_arg(args, "--pipe_color", env_cfg.get("pipe_color", "green"))

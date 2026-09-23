@@ -125,8 +125,8 @@ def resolve_backbone(model: str) -> tuple[Path, dict]:
     reference = deepcopy(BACKBONES['wan' if model == 'wanoft' else 'qwen'])
     path = snapshot_download(reference['repo_id'],
                              allow_patterns=reference['allow_patterns'],
-                             local_dir=STARVLA / 'playground/Pretrained_models' / reference['repo_id'].split('/')[-1],
                              token=resolve_token(''))
+    reference['revision'] = Path(path).name
     return Path(path).resolve(), reference
 
 

@@ -80,13 +80,19 @@ def test_build_latency_bench_config_from_training_config_uses_base_env_config(tm
         / "checkpoint_000000001_1000.pth"
     )
 
+    training_config = _training_config(tmp_path)
+    training_config["executor"] = {
+        "mode": "simulated",
+        "simulated_worker_capacity": 1,
+    }
     config = build_latency_bench_config_from_training_config(
-        _training_config(tmp_path),
+        training_config,
         checkpoint_path=checkpoint_path,
         output_dir=tmp_path / "eval_outputs",
     )
 
     assert config["executor"]["mode"] == "simulated"
+    assert config["executor"]["simulated_worker_capacity"] == 1
     assert config["backend"]["run_mode"] == "eval"
     assert config["backend"]["train_dir"] == str(tmp_path / "checkpoints")
     assert config["policy"]["type"] == "flappy_sf"
@@ -95,6 +101,7 @@ def test_build_latency_bench_config_from_training_config_uses_base_env_config(tm
     assert config["experiment"]["name"] == "flappy_sf_l0_seed0"
     assert config["experiment"]["seed"] == 0
     assert config["evaluation"]["eval_episodes"] == 3
+    assert config["evaluation"]["eval_suites"] == {"fixed": [[0, 1]]}
     assert config["env"]["action_map"] == {"noop": 0, "flap": 1}
     assert config["evaluation"]["eval_raw_reward"] is False
     assert config["logging"]["output_dir"] == str(tmp_path / "eval_outputs")
@@ -166,6 +173,32 @@ def test_periodic_observer_saves_checkpoint_and_defers_latency_bench_job(monkeyp
     }
     assert result_path == tmp_path / "train_outputs" / "latency_bench_train_eval" / "step_1000" / "eval_result.json"
     assert writer.scalars == []
+
+
+def test_checkpoint_only_observer_keeps_milestone_without_running_eval(tmp_path: Path):
+    from training.common.checkpoints import prune_unleased_sample_factory_checkpoints
+    from training.common.latency_bench_periodic_eval import LatencyBenchPeriodicEvalObserver, periodic_eval_enabled
+
+    config = _training_config(tmp_path)
+    del config["evaluation"]["eval_interval_steps"]
+    config["evaluation"]["checkpoint_interval_steps"] = 1_000
+    checkpoint_dir = tmp_path / "checkpoints" / "flappy_sf_l0_seed0" / "checkpoint_p0"
+    checkpoint_dir.mkdir(parents=True)
+    milestone = checkpoint_dir / "checkpoint_000000002_000000001000.pth"
+
+    class SavePeriodic:
+        def emit(self):
+            milestone.write_text("checkpoint\n", encoding="utf-8")
+
+    runner = SimpleNamespace(env_steps={0: 1_000}, save_periodic=SavePeriodic())
+    assert periodic_eval_enabled(config)
+    observer = LatencyBenchPeriodicEvalObserver(config)
+    observer.on_training_step(runner, training_iteration_since_resume=1)
+    assert list(observer.pending_jobs) == []
+    newer = checkpoint_dir / "checkpoint_000000003_000000002000.pth"
+    newer.write_text("newer\n", encoding="utf-8")
+    prune_unleased_sample_factory_checkpoints(checkpoint_dir, "checkpoint", keep_checkpoints=1, verbose=False)
+    assert milestone.exists()
 
 
 def test_fasttd3_periodic_eval_uses_optimizer_step_and_keeps_raw_frames(monkeypatch, tmp_path: Path):

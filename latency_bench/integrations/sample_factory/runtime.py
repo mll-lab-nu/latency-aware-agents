@@ -26,14 +26,17 @@ def load_sample_factory_policy_state_dict(
     actor_critic: Any,
     device: torch.device,
     checkpoint_path: str | None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Path]:
+    from pathlib import Path
+
     from training.common.checkpoints import (
         load_sample_factory_checkpoint_from_paths,
         trusted_torch_load,
     )
 
     if checkpoint_path is not None:
-        checkpoint = trusted_torch_load(checkpoint_path, device)
+        resolved_checkpoint_path = Path(checkpoint_path).expanduser().resolve()
+        checkpoint = trusted_torch_load(resolved_checkpoint_path, device)
     else:
         from sample_factory.algo.learning.learner import Learner
 
@@ -42,9 +45,12 @@ def load_sample_factory_policy_state_dict(
             Learner.checkpoint_dir(cfg, cfg.policy_index),
             f"{name_prefix}_*",
         )
-        checkpoint = load_sample_factory_checkpoint_from_paths(checkpoints, device)
+        checkpoint, resolved_checkpoint_path = load_sample_factory_checkpoint_from_paths(
+            checkpoints,
+            device,
+        )
     actor_critic.load_state_dict(checkpoint["model"])
-    return checkpoint
+    return checkpoint, resolved_checkpoint_path
 
 
 class SampleFactoryIntegrationModule:

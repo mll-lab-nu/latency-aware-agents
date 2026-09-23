@@ -6,16 +6,6 @@ from typing import Any
 import yaml
 
 
-REQUIRED_TOP_LEVEL_KEYS = (
-    "experiment",
-    "executor",
-    "env",
-    "latency",
-    "scheduler",
-    "policy",
-    "logging",
-)
-
 def merge_dicts(base: dict, override: dict) -> dict:
     merged = deepcopy(base)
     for key, value in override.items():

@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from latency_bench.core.config import load_config
 from latency_bench.cross_device.sync import download_profile
 from latency_bench.utils.io import read_json
 
@@ -51,6 +52,7 @@ def resolve_model_artifacts(
         )
         resolved["runtime_checkpoint_path"] = str(runtime["path"])
         resolved["runtime_provenance"] = runtime["provenance"]
+    _prepare_backbone(resolved)
     return resolved
 
 
@@ -77,7 +79,28 @@ def resolve_profile_artifacts(
         runtime = _download_profile_artifact(runtime_provenance)
         resolved["runtime_checkpoint_path"] = str(runtime["path"])
         resolved["runtime_provenance"] = runtime_provenance
+    _prepare_backbone(resolved)
     return resolved
+
+
+def _prepare_backbone(spec: dict[str, Any]) -> None:
+    """Prepare explicit bundle backbone metadata before inference workers start."""
+    if "backbone_path" in spec:
+        spec["backbone_path"] = str(Path(spec["backbone_path"]).expanduser().resolve())
+        return
+    if "model_config_path" not in spec:
+        return
+    model_config = load_config(spec["model_config_path"])
+    if "backbone" not in model_config:
+        return
+    from huggingface_hub import snapshot_download
+
+    backbone = model_config["backbone"]
+    download_args = {"repo_id": backbone["repo_id"]}
+    for field in ("revision", "allow_patterns"):
+        if field in backbone:
+            download_args[field] = backbone[field]
+    spec["backbone_path"] = str(Path(snapshot_download(**download_args)).resolve())
 
 
 def _download_profile_artifact(provenance: dict[str, Any]) -> dict[str, Path]:

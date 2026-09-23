@@ -10,6 +10,7 @@ backend:
   run_mode: eval
 executor:
   mode: simulated
+  simulated_worker_capacity: null
 env:
   name: flappy
   gym_id: FlappyBird-v0

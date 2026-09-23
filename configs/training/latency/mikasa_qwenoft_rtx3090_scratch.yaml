@@ -9,6 +9,7 @@ executor:
 scheduler:
   ordering_policy: latest_ready
   hold_policy: hold
+  hold_last_chunk_action: true
 
 profile_source:
   repo_id: latency-sensitive-bench/profiles

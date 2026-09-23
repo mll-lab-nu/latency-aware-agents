@@ -12,6 +12,7 @@ backend:
 
 executor:
   mode: simulated
+  simulated_worker_capacity: null
 
 env:
   name: demon_attack
@@ -79,7 +80,7 @@ evaluation:
   eval_interval_steps: 1000000
   eval_episodes: 20
   eval_parallel_envs: 100
-  eval_max_steps: 3600
+  eval_max_steps: 14400
   eval_deterministic: true
   eval_raw_reward: true
   eval_suites:

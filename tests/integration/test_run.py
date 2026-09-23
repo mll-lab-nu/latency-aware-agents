@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.executors.base import BatchedExecutor, EpisodeExecutor
@@ -182,7 +183,9 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
     }
 
 
-def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp_path: Path):
+@pytest.mark.parametrize("configured_seed", [11, None])
+def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp_path: Path, configured_seed):
+    """Long-lived eval driver contract: SF episode seeds retain their offset."""
     episode_seeds = []
     global_seed_calls = []
 
@@ -206,17 +209,23 @@ def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp
     monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     monkeypatch.setattr(evaluation, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
     config = _run_config("deadly_corridor_sf", tmp_path, seed=11, num_episodes=3)
+    if configured_seed is None:
+        del config["experiment"]["seed"]
+    seed = 0 if configured_seed is None else configured_seed
 
     evaluation.run_from_config(config)
 
-    assert global_seed_calls == [11]
-    assert episode_seeds == [104740, 104741, 104742]
+    assert global_seed_calls == [seed]
+    assert episode_seeds == [seed + 104729 + episode_id for episode_id in range(3)]
 
 
+@pytest.mark.parametrize("configured_seed", [11, None])
 def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_policy(
     monkeypatch,
     tmp_path: Path,
+    configured_seed,
 ):
+    """Long-lived eval driver contract: omitted seeds match the explicit zero seed."""
     episode_seeds = []
     global_seed_calls = []
 
@@ -240,11 +249,14 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
     monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     monkeypatch.setattr(evaluation, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
     config = _run_config("constant", tmp_path, seed=11, num_episodes=3)
+    if configured_seed is None:
+        del config["experiment"]["seed"]
+    seed = 0 if configured_seed is None else configured_seed
 
     evaluation.run_from_config(config)
 
-    assert global_seed_calls == [11]
-    assert episode_seeds == [11, 12, 13]
+    assert global_seed_calls == [seed]
+    assert episode_seeds == [seed + episode_id for episode_id in range(3)]
 
 
 def test_run_from_config_uses_evaluation_eval_max_steps(
@@ -285,13 +297,11 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
 ):
     run_calls = []
 
-    class FakeEnv:
-        def close(self):
-            pass
-
     class FakeBatchedExecutor(BatchedExecutor):
         logger = None
-        env = FakeEnv()
+
+        def close(self):
+            pass
 
         def run_episodes(self, *, episode_ids, seeds, eval_max_steps):
             run_calls.append((list(episode_ids), list(seeds), eval_max_steps))
@@ -797,7 +807,9 @@ logging:
     assert fake_run.summary["eval_corrected/fixed/latency_2/mean_return"] == 250.0
 
 
-def test_main_applies_runtime_overrides(tmp_path: Path):
+def test_main_applies_runtime_overrides(tmp_path: Path, monkeypatch):
+    """Long-lived CLI contract: user paths resolve from the caller directory."""
+    monkeypatch.chdir(tmp_path)
     config_path = tmp_path / "config.yaml"
     config_output_dir = tmp_path / "config_output"
     override_output_dir = tmp_path / "override_output"
@@ -823,9 +835,17 @@ def test_main_applies_runtime_overrides(tmp_path: Path):
     metrics = json.loads(metrics_path.read_text(encoding="utf-8").splitlines()[0])
     assert metrics["metadata"]["config_name"] == "override_run"
     assert metrics["metadata"]["run_name"] == "override_run"
-    assert metrics["metadata"]["checkpoint_path"] == "override_checkpoint.pt"
+    assert metrics["metadata"]["checkpoint_path"] == str(tmp_path / "override_checkpoint.pt")
     assert metrics["metadata"]["checkpoint_kind"] == "best"
     assert metrics["metadata"]["output_dir"] == str(override_output_dir)
+    resolved = yaml.safe_load((override_output_dir / "resolved_config.yaml").read_text())
+    assert resolved["policy"]["checkpoint_path"] == str(tmp_path / "override_checkpoint.pt")
+    assert resolved["logging"]["output_dir"] == str(override_output_dir)
+    assert resolved["evaluation"]["eval_parallel_envs"] == 1
+    assert resolved["executor"]["simulated_inference_pool"] is False
+    assert resolved["executor"]["simulated_worker_capacity"] is None
+    assert resolved["logging"]["simulated_pipeline_profile"] is False
+    assert resolved["policy"]["action_prefix"] == {"mode": "none"}
     summary = json.loads((override_output_dir / "queue_eval_latency_0.json").read_text(encoding="utf-8"))
     assert summary["checkpoint_kind"] == "best"
 

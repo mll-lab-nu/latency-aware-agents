@@ -2,10 +2,21 @@ __base__: ../../base/demon_attack.yaml
 
 experiment:
   name: demon_attack_sf_zero_latency
+  seed: 42
+
+env:
+  terminal_on_life_loss: true
+  clip_reward: false
 
 evaluation:
-  eval_episodes: 10
-  eval_max_steps: 10000
+  eval_episodes: 100
+  eval_parallel_envs: 100
+  eval_max_steps: 14400
+  latency_bench_env_backend: demon_attack_gpu_batched
+  eval_suites:
+    fixed: []
+    normal: []
+    uniform: []
 
 latency:
   method: zero
@@ -18,3 +29,9 @@ policy:
 
 logging:
   output_dir: outputs/demon_attack_sf_eval_zero_latency
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

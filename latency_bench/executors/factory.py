@@ -10,6 +10,7 @@ from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.types import ExecutorMode
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
+from latency_bench.eval.config import resolve_evaluation_config
 from latency_bench.executors.backend_selection import (
     build_env_step_backend,
     raise_if_unsupported_batched_action_space,
@@ -28,8 +29,6 @@ from latency_bench.latency.config import (
 )
 from latency_bench.latency.hardware_info import visible_cuda_device_count
 from latency_bench.latency.samplers import (
-    LatencySampler,
-    ZeroSampler,
     build_episode_sampler_factory,
     build_sampler,
 )
@@ -53,6 +52,7 @@ def build_executor(
     env_backend: EnvStepBackend | None = None,
     inference_devices: list[str] | None = None,
 ) -> Executor:
+    resolve_evaluation_config(config)
     prepare_action_prefix(config)
     executor_cfg = config["executor"]
     if inference_devices is None and "inference_devices" in executor_cfg:
@@ -112,11 +112,6 @@ class _ExecutorRuntimeComponents:
     action_scheduler: ActionScheduler
 
 
-@dataclass(frozen=True)
-class _CommonExecutorComponents(_ExecutorRuntimeComponents):
-    logger: TrajectoryLogger | None
-
-
 def _build_executor_runtime_components(
     config: dict[str, Any],
     *,
@@ -126,7 +121,7 @@ def _build_executor_runtime_components(
     if env is None:
         env = build_env_adapter(config, action_resolver.noop_action)
     clock = _build_clock(config)
-    decision_scheduler = _build_decision_scheduler(clock)
+    decision_scheduler = ObservationCadenceDecisionScheduler(clock)
     action_scheduler = build_action_scheduler(config["scheduler"], clock=clock, noop_action=env.noop_action)
     return _ExecutorRuntimeComponents(
         action_resolver=action_resolver,
@@ -134,23 +129,6 @@ def _build_executor_runtime_components(
         clock=clock,
         decision_scheduler=decision_scheduler,
         action_scheduler=action_scheduler,
-    )
-
-
-def _build_common_executor_components(
-    config: dict[str, Any],
-    *,
-    env: EnvAdapter | None = None,
-) -> _CommonExecutorComponents:
-    """Build the executor dependencies that are identical across the single-episode modes."""
-    runtime = _build_executor_runtime_components(config, env=env)
-    return _CommonExecutorComponents(
-        action_resolver=runtime.action_resolver,
-        env=runtime.env,
-        clock=runtime.clock,
-        decision_scheduler=runtime.decision_scheduler,
-        action_scheduler=runtime.action_scheduler,
-        logger=_build_trajectory_logger(config),
     )
 
 
@@ -163,7 +141,6 @@ def _build_realtime_runtime(
     return RealtimeRuntime(
         env=runtime.env,
         decision_scheduler=runtime.decision_scheduler,
-        latency_source=ZeroSampler(clock=runtime.clock),
         action_scheduler=runtime.action_scheduler,
         clock=runtime.clock,
     )
@@ -180,7 +157,11 @@ def _build_simulated_executor(
     eval_parallel_envs = _eval_parallel_envs(config)
     num_episodes = int(config["evaluation"]["eval_episodes"])
     if (
-        (env_backend is not None or eval_parallel_envs > 1)
+        (
+            env_backend is not None
+            or eval_parallel_envs > 1
+            or config["env"].get("action_history_decisions") is not None
+        )
         and num_episodes > 0
         and resolve_latency_method(config["latency"]) in BATCHED_SIMULATED_METHODS
     ):
@@ -207,9 +188,9 @@ def _build_single_simulated_executor(
     env: EnvAdapter | None = None,
     inference_devices: list[str] | None = None,
 ) -> SimulatedLatencyExecutor:
-    c = _build_common_executor_components(config, env=env)
+    c = _build_executor_runtime_components(config, env=env)
     inference_pool = None
-    if _simulated_inference_pool_enabled(config):
+    if config["executor"]["simulated_inference_pool"]:
         if policy is not None:
             raise ValueError(
                 "executor.simulated_inference_pool builds its policy inside subprocess "
@@ -229,7 +210,7 @@ def _build_single_simulated_executor(
     latency_source = (
         episode_latency_source_factory(0)
         if episode_latency_source_factory is not None
-        else _build_latency_source(config["latency"], c.clock)
+        else build_sampler(config["latency"], clock=c.clock)
     )
     return SimulatedLatencyExecutor(
         env=c.env,
@@ -238,16 +219,12 @@ def _build_single_simulated_executor(
         latency_source=latency_source,
         action_scheduler=c.action_scheduler,
         clock=c.clock,
-        logger=c.logger,
+        logger=_build_trajectory_logger(config),
         episode_latency_source_factory=episode_latency_source_factory,
-        simulated_worker_capacity=_simulated_worker_capacity(config),
+        simulated_worker_capacity=config["executor"]["simulated_worker_capacity"],
         inference_pool=inference_pool,
         action_prefix=config["policy"]["action_prefix"],
     )
-
-
-def _simulated_inference_pool_enabled(config: dict[str, Any]) -> bool:
-    return bool(config["executor"].get("simulated_inference_pool"))
 
 
 def _build_batched_simulated_executor(
@@ -273,7 +250,7 @@ def _build_batched_simulated_executor(
         raise_if_unsupported_batched_action_space(env_backend.slot_handles)
 
         clock = _build_clock(config)
-        if _simulated_inference_pool_enabled(config):
+        if config["executor"]["simulated_inference_pool"]:
             if policy is not None:
                 raise ValueError(
                     "executor.simulated_inference_pool builds its policy inside subprocess "
@@ -294,7 +271,7 @@ def _build_batched_simulated_executor(
                     f"policy.type={config['policy']['type']} does not support safe batched simulated eval yet; "
                     "implement PolicyRunner.predict_batch before using evaluation.eval_parallel_envs > 1"
                 )
-        decision_scheduler = _build_decision_scheduler(clock)
+        decision_scheduler = ObservationCadenceDecisionScheduler(clock)
         action_schedulers = [
             build_action_scheduler(scheduler_cfg, clock=clock, noop_action=env.noop_action)
             for env in env_backend.slot_handles
@@ -315,7 +292,7 @@ def _build_batched_simulated_executor(
                 replica_latency = config["latency"].copy()
                 if "seed" in replica_latency:
                     replica_latency["seed"] = derive_seed(replica_latency["seed"], vector_index=slot_id)
-                latency_sources.append(_build_latency_source(replica_latency, clock))
+                latency_sources.append(build_sampler(replica_latency, clock=clock))
         return BatchedSimulatedLatencyExecutor(
             env_backend=env_backend,
             policy=policy,
@@ -325,10 +302,11 @@ def _build_batched_simulated_executor(
             clock=clock,
             logger=logger,
             episode_latency_source_factory=episode_latency_source_factory,
-            simulated_worker_capacity=_simulated_worker_capacity(config),
-            profile_pipeline=config["logging"].get("simulated_pipeline_profile", False),
+            simulated_worker_capacity=config["executor"]["simulated_worker_capacity"],
+            profile_pipeline=config["logging"]["simulated_pipeline_profile"],
             inference_pool=inference_pool,
             action_prefix=config["policy"]["action_prefix"],
+            action_history_decisions=config["env"].get("action_history_decisions"),
         )
     except Exception:
         if inference_pool is not None:
@@ -346,15 +324,14 @@ def _build_paused_executor(
     if resolve_latency_method(latency_cfg) != "zero":
         raise ValueError("paused executor supports only latency.method=zero")
 
-    c = _build_common_executor_components(config)
+    c = _build_executor_runtime_components(config)
     return PausedLatencyExecutor(
         env=c.env,
         policy=_resolve_policy(config, c.action_resolver, policy),
         decision_scheduler=c.decision_scheduler,
-        latency_source=ZeroSampler(clock=c.clock),
         action_scheduler=c.action_scheduler,
         clock=c.clock,
-        logger=c.logger,
+        logger=_build_trajectory_logger(config),
         action_prefix=config["policy"]["action_prefix"],
     )
 
@@ -385,7 +362,6 @@ def _build_realtime_executor(
     video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
     return RealtimeLatencyExecutor(
         runtime=runtime,
-        policy=None,
         logger=_build_trajectory_logger(config),
         config=config,
         inference_devices=inference_devices,
@@ -419,21 +395,8 @@ def _video_output_dir(config: dict[str, Any]) -> str:
     return str(os.path.join(str(config["logging"]["output_dir"]), "videos"))
 
 
-def _build_decision_scheduler(clock: EnvClock) -> DecisionScheduler:
-    return ObservationCadenceDecisionScheduler(clock)
-
-
-def _build_latency_source(latency_cfg: dict[str, Any], clock: EnvClock) -> LatencySampler:
-    return build_sampler(latency_cfg, clock=clock)
-
-
-def _simulated_worker_capacity(config: dict[str, Any]) -> int | None:
-    return config["executor"].get("simulated_worker_capacity")
-
-
 def _eval_parallel_envs(config: dict[str, Any]) -> int:
-    value = config.get("evaluation", {}).get("eval_parallel_envs", 1)
-    eval_parallel_envs = int(value)
+    eval_parallel_envs = config["evaluation"]["eval_parallel_envs"]
     if eval_parallel_envs <= 0:
         raise ValueError("evaluation.eval_parallel_envs must be positive")
     return eval_parallel_envs

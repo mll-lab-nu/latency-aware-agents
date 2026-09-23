@@ -185,6 +185,7 @@ def test_measure_config_resolves_task_contract_for_model_bundle(
     model_config_path = tmp_path / "bundle" / "config.yaml"
     spec["checkpoint_path"] = str(tmp_path / "bundle/checkpoints/model.pt")
     spec["model_config_path"] = str(model_config_path)
+    spec["backbone_path"] = "/models/backbone/snapshots/recorded-commit"
     if workload == "extreme_parkour_go2":
         spec["runtime_checkpoint_path"] = "/models/parkour/model_14999.pt"
     elif workload == "haic_pull_cart":
@@ -202,6 +203,7 @@ def test_measure_config_resolves_task_contract_for_model_bundle(
     )
 
     assert config["policy"]["model_config_path"] == str(model_config_path)
+    assert config["policy"]["backbone_path"] == spec["backbone_path"]
     assert config["policy"]["task_contract_path"] == str(
         model_config_path.parent / "task_contract.json"
     )

@@ -44,13 +44,13 @@ from latency_bench.policy.starvla import (
     build_live_starvla_policy,
 )
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map
+from latency_bench.utils.paths import REPO_ROOT
 
 # eval_core lives in the starVLA submodule (editable-installed).
 from starVLA.training.rl_games import RlGamesEvalRunner
 from starVLA.training.rl_games.eval_core import EvalResult
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 BASE_CONFIGS = {
     "flappy": REPO_ROOT / "configs" / "base" / "flappy.yaml",
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",

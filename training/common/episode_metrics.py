@@ -43,11 +43,15 @@ class EpisodeMetricsAggregator:
         self.length_sum = 0
         self.raw_frames_sum = 0
         self.latency_sum = 0.0
+        self.submitted_observation_sum = 0
+        self.dropped_observation_sum = 0
         self.return_window: deque[float] = deque(maxlen=self.rolling_window)
         self.raw_return_window: deque[float] = deque(maxlen=self.rolling_window)
         self.length_window: deque[int] = deque(maxlen=self.rolling_window)
         self.raw_frames_window: deque[int] = deque(maxlen=self.rolling_window)
         self.latency_window: deque[int] = deque(maxlen=self.rolling_window)
+        self.submitted_observation_window: deque[int] = deque(maxlen=self.rolling_window)
+        self.dropped_observation_window: deque[int] = deque(maxlen=self.rolling_window)
         self._offset = (
             self.path.stat().st_size if start_at_end and self.path.exists() else 0
         )
@@ -61,6 +65,8 @@ class EpisodeMetricsAggregator:
         raw_frames = int(event["raw_frames"])
         latency_raw_frames = event.get("latency_raw_frames")
         latency_raw_frame_value = float(latency_raw_frames) if latency_raw_frames is not None else None
+        submitted_observations = int(event["submitted_observation_count"])
+        dropped_observations = int(event["dropped_observation_count"])
 
         self.completed_episodes += 1
         self.completed_decision_steps += episode_length
@@ -71,6 +77,8 @@ class EpisodeMetricsAggregator:
         self.raw_frames_sum += raw_frames
         if latency_raw_frame_value is not None:
             self.latency_sum += latency_raw_frame_value
+        self.submitted_observation_sum += submitted_observations
+        self.dropped_observation_sum += dropped_observations
 
         self.return_window.append(episode_return)
         self.raw_return_window.append(raw_episode_return)
@@ -78,6 +86,13 @@ class EpisodeMetricsAggregator:
         self.raw_frames_window.append(raw_frames)
         if latency_raw_frames is not None:
             self.latency_window.append(int(latency_raw_frames))
+        self.submitted_observation_window.append(submitted_observations)
+        self.dropped_observation_window.append(dropped_observations)
+
+        latest_observation_count = submitted_observations + dropped_observations
+        rolling_submitted = sum(self.submitted_observation_window)
+        rolling_dropped = sum(self.dropped_observation_window)
+        cumulative_observation_count = self.submitted_observation_sum + self.dropped_observation_sum
 
         rolling_raw_return = float(sum(self.raw_return_window) / len(self.raw_return_window))
         rolling_return = float(sum(self.return_window) / len(self.return_window))
@@ -106,6 +121,17 @@ class EpisodeMetricsAggregator:
             "episode/length": int(episode_length),
             "episode/return_per_step": (
                 float(raw_episode_return) / float(episode_length) if episode_length > 0 else 0.0
+            ),
+            "episode_train/latest_submitted_observations": submitted_observations,
+            "episode_train/latest_dropped_observations": dropped_observations,
+            "episode_train/latest_observation_drop_ratio": (
+                float(dropped_observations) / float(latest_observation_count)
+            ),
+            "episode_train/rolling_observation_drop_ratio": (
+                float(rolling_dropped) / float(rolling_submitted + rolling_dropped)
+            ),
+            "episode_train/cumulative_observation_drop_ratio": (
+                float(self.dropped_observation_sum) / float(cumulative_observation_count)
             ),
         }
         if event.get("score") is not None:

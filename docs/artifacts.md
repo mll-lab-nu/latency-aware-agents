@@ -27,6 +27,33 @@ configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 | Balance Simple | FastTD3 teacher | `results/humanoidbench_g1_balance_control_comparison_fasttd3_25m/checkpoints/g1_sonic_balance_simple_raw_ramp_0p1s_fasttd3_25000000steps_s1/checkpoint_p0/best_000325980_20864000_reward_702.976.pth` | `zero-latency/humanoidbench-balance-simple/small-policy/fasttd3-v1/` | Published |
 | Extreme Parkour Go2 | Privileged PPO teacher | `third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k/model_14999.pt` | `zero-latency/extreme-parkour-go2/small-policy/ppo-v1/` | Teacher verified; publication pending VLA pipeline |
 | HAIC Pull Cart G1 | Native PPO teacher | `outputs/haic/phase1_teacher/checkpoint_final.pt` | `zero-latency/haic-pull-cart/small-policy/ppo-v1/` | Teacher verified; publication pending VLA pipeline |
+| Flappy Bird | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/flappy/small-policy/sample-factory-v1/` | Published; 100-episode mean 444.600; central readback passed |
+| Flappy Bird | Sample Factory with QwenOFT RTX 3090 temporal latency | `results/checkpoints/flappy/profiled_small_qwen_10fps_25m/flappy_profile_qwenoft_rtx3090_temporal_25m_obs10_seed42/checkpoint_p0/best_000046048_23592960_reward_1867.668.pth` | `latency-aware/flappy/small-policy/sample-factory-openvla-rtx3090-v1/` | Historical publication retained for audit; invalid train/eval worker-capacity contract; readback `d9034095ab140c1bf1369c3dc236499518e343d2` |
+| Flappy Bird | Sample Factory with QwenGR00T RTX 3090 temporal latency | `results/checkpoints/flappy/profiled_small_qwen_10fps_25m/flappy_profile_qwengr00t_rtx3090_temporal_25m_obs10_seed42/checkpoint_p0/best_000048624_24903680_reward_1812.752.pth` | `latency-aware/flappy/small-policy/sample-factory-gr00t-rtx3090-v1/` | Historical publication retained for audit; invalid train/eval worker-capacity contract; readback `d9034095ab140c1bf1369c3dc236499518e343d2` |
+| Demon Attack | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/demon-attack/small-policy/sample-factory-v1/` | Published; soft-reset-corrected 14400-step 100-episode raw game-score mean 8727.150; central readback `7a6d7af88f921c6244aafe03078f1d30d94cc9b7` |
+| Deadly Corridor | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/deadly-corridor/small-policy/sample-factory-v1/` | Published; 100-episode mean 2116.794; central readback passed |
+| Atlantis | Sample Factory zero-latency teacher | Existing central checkpoint/config | `zero-latency/atlantis/small-policy/sample-factory-v1/` | Published; 100-episode mean 29271.000; central readback passed |
+| Asterix | Sample Factory zero-latency teacher | Existing central checkpoint/config | `zero-latency/asterix/small-policy/sample-factory-v1/` | Published; 100-episode mean 4099.000; central readback passed |
+
+The five historical Atari-like tasks additionally reserve three zero-latency
+VLA paths per task, named
+`zero-latency/<task>/vla/starvla-{openvla|gr00t|pi05}-v1/`. Flappy Bird,
+Demon Attack, and Deadly Corridor reserve three matching latency-aware small
+policy paths named
+`latency-aware/<task>/small-policy/sample-factory-{openvla|gr00t|pi05}-rtx3090-v1/`.
+The five zero-latency small-policy bundles remain valid. The nine published
+latency-aware small-policy artifacts are retained only for audit: their training
+did not enforce the worker-capacity admission contract used by evaluation, so
+their checkpoints and scores are not accepted formal results. The historical
+Flappy replacement remains readable at revision
+`fa25969ae7db7bc7f42fb6d19eccbbcfb18ab6c7`, with atomic content readback at
+`d9034095ab140c1bf1369c3dc236499518e343d2`. Corrected `capacity1_seed42`
+training and evaluation stay local until explicit review approval; no central
+bundle is replaced as part of that run.
+The 15 VLA paths remain pending until their corresponding evaluation and central
+revision readback pass. Exact sources, checkpoint selections, results, exclusions,
+and the parallel evaluation protocol are maintained in
+[`ARTIFACT_HANDOFF`](../program/ARTIFACT_HANDOFF.md).
 
 Do not replace an exact source path with a `latest` symlink in a publication
 record.
@@ -87,3 +114,53 @@ normalization. Model provenance references the exact shared and delta revisions.
 Teacher checkpoint downloads for all four tasks use the model repository's
 default branch in the H1 pipeline, including the Parkour and HAIC teachers.
 Published artifacts record the resolved publication revision where applicable.
+
+## Prepare a backbone for evaluation
+
+Select the exact model repository and revision from the checkpoint's recorded
+provenance or its explicit `backbone` metadata. A directory named after a model
+is not evidence of its identity. Prepare the model before starting inference:
+
+```bash
+hf download MODEL_REPO_ID --revision MODEL_COMMIT
+```
+
+The command prints the prepared snapshot directory in the Hugging Face cache.
+Use that absolute path as `policy.backbone_path`, or supply an already prepared
+local directory. Downloads do not need to live inside `third_party/starVLA`.
+Cross-device profiling prepares the explicit `backbone.repo_id` from the resolved
+model configuration before starting workers and passes any recorded `revision`
+and `allow_patterns` to the download. A prepared `backbone_path` in a profile
+spec takes precedence. The task training launchers already prepare their configured Qwen or Wan
+backbone before training and evaluation; they use the standard Hugging Face
+cache and record its resolved snapshot revision. Their current default-branch selection remains part of the task recipe;
+for reproduction, select the recorded revision explicitly.
+
+Create a local evaluation overlay rather than changing historical source
+configs. Replace every uppercase path below with an absolute path to the exact
+artifact for the selected experiment:
+
+```yaml
+__base__: /ABSOLUTE/CHECKOUT/configs/examples/gymnasium/inverted_pendulum/starvla_eval.yaml
+policy:
+  checkpoint_path: /ABSOLUTE/ARTIFACT/checkpoints/steps_2000_pytorch_model.pt
+  model_config_path: /ABSOLUTE/ARTIFACT/config.full.yaml
+  task_manifest_path: /ABSOLUTE/DATASET/manifest.json
+  latency_prompt_map_path: /ABSOLUTE/DATASET/latency_prompt_map.json
+  backbone_path: /ABSOLUTE/HF_CACHE/snapshots/MODEL_COMMIT
+logging:
+  output_dir: /ABSOLUTE/RESULTS/inverted_pendulum_eval
+```
+
+Run it in the installed benchmark environment:
+
+```bash
+python -m latency_bench.run --config /ABSOLUTE/PATH/local_eval.yaml
+```
+
+The overlay changes artifact locations only. Preserve the base recipe's model,
+manifest, checkpoint step, normalization, latency, seed and FPS. The task StarVLA
+adapter requires a prepared backbone path. A generic StarVLA model that needs no
+external override can continue using its checkpoint's model configuration.
+Historical configs under `configs/examples/.../source_contract/` and named
+experiment snapshots retain their original paths as provenance.

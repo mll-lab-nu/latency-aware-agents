@@ -13,14 +13,15 @@ from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
 from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.decision_action_history import DecisionActionHistory
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
 )
 from training.common.latency_config import (
-    build_iid_profile_sampler,
-    profile_sampler_max_latency_raw_frames,
+    build_profile_sampler,
+    profile_sampler_max_latency_raw_frames_for_workers,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
@@ -80,23 +81,31 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self._env_raw_rgb_frames: list[deque[np.ndarray]] = [
             deque(maxlen=int(frame_stack)) for _ in range(self.num_agents)
         ]
-        self.observation_space = GymDict(
-            {
-                "obs": Box(
-                    low=0,
-                    high=255,
-                    shape=(
-                        self.observation_config.in_channels,
-                        self.observation_config.image_size,
-                        self.observation_config.image_size,
-                    ),
-                    dtype=np.uint8,
-                )
-            }
+        self.action_space = Discrete(2)
+        history_decisions = getattr(cfg, "action_history_decisions", None)
+        self.decision_action_history = (
+            DecisionActionHistory(self.action_space, num_envs=self.num_agents, decisions=history_decisions)
+            if history_decisions is not None else None
         )
+        observation_spaces = {
+            "obs": Box(
+                low=0,
+                high=255,
+                shape=(
+                    self.observation_config.in_channels,
+                    self.observation_config.image_size,
+                    self.observation_config.image_size,
+                ),
+                dtype=np.uint8,
+            )
+        }
+        if self.decision_action_history is not None:
+            observation_spaces["transport"] = Box(
+                low=0, high=1, shape=(self.decision_action_history.observation_dim,), dtype=np.float32
+            )
+        self.observation_space = GymDict(observation_spaces)
 
         self.uses_batched_core = True
-        self.action_space = Discrete(2)
         score_limit = getattr(self.cfg, "score_limit", None)
         resolved_score_limit = None if score_limit in (None, "", 0, -1) else int(score_limit)
         simulator = self.cfg.simulator
@@ -131,17 +140,19 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         profile_max_latency_raw_frames = None
         if latency_params.profile_path is not None:
             profile_samplers = [
-                build_iid_profile_sampler(
+                build_profile_sampler(
                     latency_params.profile_path,
+                    method=latency_params.profile_method,
                     seed=latency_seeds[agent_idx],
                     env_fps=self.clock.env_fps,
                     obs_fps=self.clock.obs_fps,
                 )
                 for agent_idx in range(self.num_agents)
             ]
-            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames(
+            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames_for_workers(
                 profile_samplers[0],
-                worker_slot=latency_params.profile_worker_slot,
+                profile_worker_slot=latency_params.profile_worker_slot,
+                simulated_worker_capacity=latency_params.simulated_worker_capacity,
                 env_fps=self.clock.env_fps,
             )
         max_pending_actions = getattr(self.cfg, "max_pending_actions", None)
@@ -155,6 +166,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             "seeds": latency_seeds,
             "env_reset_seed_bases": [seed + 104729 for seed in sub_seeds],
             "add_latency_info": bool(getattr(self.cfg, "add_latency_info", False)),
+            "simulated_worker_capacity": latency_params.simulated_worker_capacity,
         }
         if isinstance(self.core, CudaFlappyBirdCore):
             self.latency = CudaLatencyScheduler(
@@ -173,6 +185,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 latency_distribution_spec=latency_params.latency_distribution_spec,
                 profile_path=latency_params.profile_path,
                 profile_worker_slot=latency_params.profile_worker_slot,
+                profile_method=latency_params.profile_method,
                 sample_distribution_per_episode=latency_params.sample_distribution_per_episode,
                 max_pending_actions=max_pending_actions,
             )
@@ -244,6 +257,8 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         self.metrics.reset()
         self._raw_episode_steps[:] = 0
         self._raw_episode_steps_gpu.zero_()
+        if self.decision_action_history is not None:
+            self.decision_action_history.reset()
         numeric_obs, core_infos = self.core.reset_batch(seeds=reset_seeds)
         infos = [
             self._with_numeric_obs({**core_infos[agent_idx], **latency_infos[agent_idx]}, numeric_obs[agent_idx])
@@ -297,6 +312,8 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 reset_mask[agent_idx] = True
                 self._raw_episode_steps[agent_idx] = 0
                 self._raw_episode_steps_gpu[agent_idx] = 0
+            if self.decision_action_history is not None:
+                self.decision_action_history.reset(reset_indices)
 
         with self.gpu_render_profiler.time("reset_obs_total_s"):
             raw_rgb = self._render_raw_rgb()
@@ -353,6 +370,9 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 terminated_out = fused_result.terminated_gpu
                 truncated_out = fused_result.truncated_gpu
                 raw_frames_advanced = fused_result.raw_frames_advanced
+                self._record_decision_history(
+                    fused_result.command_admitted, issued_actions, fused_result.applied_actions, active
+                )
                 self._raw_episode_steps[active] += raw_frames_advanced[active]
                 timeout_mask = fused_result.timeout_mask
                 latest_scores = fused_result.scores
@@ -366,6 +386,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                         scores=latest_scores,
                         active_mask=active,
                         latency_raw_frames=latency_raw_frames,
+                        command_admitted=fused_result.command_admitted,
                         timeout_mask=timeout_mask,
                     )
                 done_mask = active & np.logical_or(terminated, truncated)
@@ -443,6 +464,9 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                 with self.gpu_render_profiler.time("latency_finish_s"):
                     latency_result = self.latency.finish_decision(active, raw_frames_advanced)
                     latency_raw_frames = latency_result.latency_raw_frames
+                self._record_decision_history(
+                    latency_result.command_admitted, issued_actions, latency_result.applied_actions, active
+                )
                 with self.gpu_render_profiler.time("metrics_update_s"):
                     done_infos = self.metrics.update(
                         issued_actions=issued_actions,
@@ -452,6 +476,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
                         scores=latest_scores,
                         active_mask=active,
                         latency_raw_frames=latency_raw_frames,
+                        command_admitted=latency_result.command_admitted,
                         timeout_mask=timeout_mask,
                     )
 
@@ -548,6 +573,8 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             seeds=reset_seeds,
             indices=reset_indices,
         )
+        if self.decision_action_history is not None:
+            self.decision_action_history.reset(reset_indices)
         reset_infos: dict[int, dict[str, Any]] = {}
         for offset, agent_idx in enumerate(reset_indices):
             self._raw_episode_steps[agent_idx] = 0
@@ -566,7 +593,16 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             raise RuntimeError(
                 f"Expected batched observation tensor with shape ({expected_batch},C,H,W), got {tuple(obs.shape)}"
             )
-        return {"obs": obs}
+        result = {"obs": obs}
+        if self.decision_action_history is not None:
+            result["transport"] = torch.as_tensor(self.decision_action_history.observation(), device=self.render_device)
+        return result
+
+    def _record_decision_history(self, admitted, issued, applied, active) -> None:
+        if self.decision_action_history is None:
+            return
+        indices = np.flatnonzero(active)
+        self.decision_action_history.append(indices, admitted[indices], issued[indices], applied[indices])
 
     def _render_raw_rgb(self) -> torch.Tensor:
         if isinstance(self.core, CudaFlappyBirdCore):

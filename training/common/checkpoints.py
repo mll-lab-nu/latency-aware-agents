@@ -202,13 +202,13 @@ def patch_sample_factory_checkpoint_loader() -> None:
 def load_sample_factory_checkpoint_from_paths(
     checkpoints: list[str] | list[Path],
     device: torch.device,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Path]:
     if not checkpoints:
         raise RuntimeError("No checkpoints found to load")
     last_error: Exception | None = None
-    for checkpoint_path in reversed([str(Path(item).expanduser()) for item in checkpoints]):
+    for checkpoint_path in reversed([Path(item).expanduser().resolve() for item in checkpoints]):
         try:
-            return trusted_torch_load(checkpoint_path, device)
+            return trusted_torch_load(checkpoint_path, device), checkpoint_path
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             continue

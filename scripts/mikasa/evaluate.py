@@ -22,6 +22,10 @@ from latency_bench.executors.gpu_batched_env_step_backend import (  # noqa: E402
     GpuBatchedEnvStepBackendBase,
     SlotStepOutcome,
 )
+from mikasa_robo_suite.seed_reset import (  # noqa: E402
+    reset_seeded_slot as _reset_seeded_slot,
+    reset_seeded_slots as _reset_seeded_slots,
+)
 
 
 ENV_ID = "InterceptGrabFast-VLA-v0"
@@ -56,19 +60,28 @@ def _make_raw_env(
     )
 
 
-def _make_ppo_env():
+def _make_ppo_env(num_envs: int = 1, simulator_device: str = "gpu"):
     from baselines.ppo.ppo_memtasks import FlattenRGBDObservationWrapper
     from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
     from mikasa_robo_suite.vla.dataset_collectors.get_mikasa_robo_datasets import (
         env_info,
     )
 
-    env = _make_raw_env("state")
+    env = _make_raw_env(
+        "state",
+        num_envs=num_envs,
+        simulator_device=simulator_device,
+    )
     wrappers, _ = env_info(ENV_ID)
     for wrapper, kwargs in wrappers:
         env = wrapper(env, **kwargs)
     env = FlattenRGBDObservationWrapper(env, rgb=False, depth=False, state=True)
-    return ManiSkillVectorEnv(env, 1, ignore_terminations=True, record_metrics=True)
+    return ManiSkillVectorEnv(
+        env,
+        num_envs,
+        ignore_terminations=True,
+        record_metrics=True,
+    )
 
 
 def _make_vla_env(num_envs: int = 1, simulator_device: str = "gpu"):
@@ -133,10 +146,10 @@ class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
     def _reset_slot_observation(self, slot_id: int, *, seed: int | None) -> Observation:
         if seed is not None:
             self._episode_seeds[slot_id] = int(seed)
-        env_idx = torch.tensor([slot_id], device=self.env.unwrapped.device)
-        self._observation, _ = self.env.reset(
-            seed=self._episode_seeds,
-            options={"env_idx": env_idx},
+        self._observation, _ = _reset_seeded_slot(
+            self.env,
+            slot_id=slot_id,
+            seed=self._episode_seeds[slot_id],
         )
         self._env_steps[slot_id] = 0
         self._success[slot_id] = False
@@ -191,15 +204,24 @@ class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
                 np.asarray(rgb[slot_id, :, :, 3:6], dtype=np.uint8),
             ]
         )
+        metadata = {
+            MIKASA_IMAGE_VIEWS_INFO_KEY: views,
+            MIKASA_STATE_INFO_KEY: self._observation["proprio"][slot_id].detach().cpu().numpy(),
+            "slot_id": slot_id,
+        }
+        if "returned_action_context" in self.config["env"]:
+            context = self.config["env"]["returned_action_context"]
+            metadata["returned_action_context"] = {
+                **context,
+                "order": np.asarray(context["order"]),
+                "low": np.asarray(context["low"], dtype=np.float32),
+                "high": np.asarray(context["high"], dtype=np.float32),
+            }
         return Observation(
             data=None,
             env_step=int(self._env_steps[slot_id]),
             sim_time_ms=float(self._env_steps[slot_id]) * self._frame_ms,
-            metadata={
-                MIKASA_IMAGE_VIEWS_INFO_KEY: views,
-                MIKASA_STATE_INFO_KEY: self._observation["proprio"][slot_id].detach().cpu().numpy(),
-                "slot_id": slot_id,
-            },
+            metadata=metadata,
         )
 
     def close(self) -> None:

@@ -212,7 +212,7 @@ def test_simulated_mode_builds_simulated_executor(tmp_path):
     try:
         assert isinstance(executor, SimulatedLatencyExecutor)
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_simulated_inference_pool_requires_cuda_when_enabled(tmp_path, monkeypatch):
@@ -280,7 +280,7 @@ def test_build_executor_uses_injected_policy_and_skips_build_policy(tmp_path, mo
         assert isinstance(executor, PausedLatencyExecutor)
         assert executor.policy is sentinel
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_build_executor_realtime_rejects_injected_policy(tmp_path):
@@ -329,7 +329,7 @@ def test_factory_preserves_explicit_latest_ready_ablation(tmp_path):
     try:
         assert executor.action_scheduler.ordering_policy == OrderingPolicy.LATEST_READY
     finally:
-        executor.env.close()
+        executor.close()
 
 
 @pytest.mark.parametrize(
@@ -349,7 +349,7 @@ def test_factory_builds_explicit_hold_policies(tmp_path, hold_policy, expected_t
     try:
         assert isinstance(executor.action_scheduler.persistence_policy, expected_type)
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_factory_requires_hold_policy(tmp_path):
@@ -393,7 +393,7 @@ def test_simulated_eval_parallel_envs_1_keeps_old_executor_path(tmp_path):
     try:
         assert isinstance(executor, SimulatedLatencyExecutor)
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_injected_env_backend_uses_common_batched_executor_with_one_slot(tmp_path):
@@ -456,7 +456,7 @@ def test_simulated_parallel_builds_batched_executor_for_distribution_latency(tmp
         if close is not None:
             close()
         else:
-            executor.env.close()
+            executor.close()
 
 
 def test_seeded_stochastic_latency_source_factory_derives_episode_streams():
@@ -615,15 +615,22 @@ def test_latency_bench_env_backend_defaults_to_auto_for_parallel_defend_the_line
     assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
 
 
-def test_latency_bench_env_backend_accepts_explicit_demon_attack_gpu_batched(tmp_path):
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "demon_attack_gpu_batched",
+        "atlantis_gpu_batched",
+        "asterix_gpu_batched",
+    ],
+)
+def test_latency_bench_env_backend_accepts_explicit_atari_gpu_batched(tmp_path, backend):
     from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
 
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_parallel_envs"] = 2
-    config["evaluation"]["latency_bench_env_backend"] = "demon_attack_gpu_batched"
-    config["env"]["name"] = "demon_attack"
+    config["evaluation"]["latency_bench_env_backend"] = backend
 
-    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "demon_attack_gpu_batched"
+    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == backend
 
 
 def test_latency_bench_env_backend_auto_selects_flappy_gpu_batched_backend(tmp_path):
@@ -687,7 +694,7 @@ def test_realtime_flappy_starvla_ignores_env_backend_selection_and_keeps_cpu_ren
         assert isinstance(executor.env, FlappyBirdEnvAdapter)
         assert executor.env.use_gpu_render is False
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_latency_bench_env_backend_auto_keeps_serial_for_flappy_sf_without_gpu_render(tmp_path):
@@ -718,7 +725,7 @@ def test_paused_mode_builds_paused_executor(tmp_path):
     try:
         assert isinstance(executor, PausedLatencyExecutor)
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_realtime_mode_builds_realtime_executor(monkeypatch, tmp_path):
@@ -730,7 +737,7 @@ def test_realtime_mode_builds_realtime_executor(monkeypatch, tmp_path):
         assert isinstance(executor, RealtimeLatencyExecutor)
         assert executor.inference_devices == ["cuda:0"]
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_realtime_mode_uses_injected_env_and_inference_devices(tmp_path):
@@ -744,7 +751,7 @@ def test_realtime_mode_uses_injected_env_and_inference_devices(tmp_path):
         assert executor.inference_devices == ["cuda:1"]
         assert executor.use_env_process is False
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_realtime_devices_follow_cuda_visible_devices(monkeypatch):
@@ -818,7 +825,7 @@ def test_factory_builds_profile_sample_latency_source(tmp_path):
         assert executor.latency_source.latency_type == "profile_sample"
         assert executor.latency_source.profile_metadata["model_id"] == "openvla"
     finally:
-        executor.env.close()
+        executor.close()
 
 
 @pytest.mark.parametrize("latency_method", ["empirical_sample", "empirical_trace_replay", "measured"])
@@ -901,7 +908,7 @@ def test_temporal_latency_source_gets_no_per_episode_streams(tmp_path):
         assert executor.episode_latency_source_factory is None
         assert isinstance(executor.latency_source, HiddenRegimeSampler)
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_parallel_simulated_temporal_keeps_one_timeline_per_replica(tmp_path):
@@ -973,4 +980,4 @@ def test_executor_scheduler_uses_env_normalized_noop(monkeypatch, mode: str, tmp
         assert executor.env.noop_action.value == "env-noop"
         assert executor.action_scheduler.noop_action is executor.env.noop_action
     finally:
-        executor.env.close()
+        executor.close()

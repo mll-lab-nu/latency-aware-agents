@@ -20,8 +20,7 @@ class EvalSuite:
 
 
 def has_eval_suites(config: dict[str, Any]) -> bool:
-    evaluation_cfg = config.get("evaluation", {})
-    return isinstance(evaluation_cfg, dict) and "eval_suites" in evaluation_cfg
+    return bool(parse_eval_suites(config))
 
 
 def parse_eval_suites(config: dict[str, Any]) -> list[EvalSuite]:

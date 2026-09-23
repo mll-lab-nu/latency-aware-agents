@@ -1,0 +1,16 @@
+env:
+  env_fps: 20
+  obs_fps: 20
+  noop_action: [0, 0, 0, 0, 0, 0, 0]
+
+executor:
+  simulated_worker_capacity: 1
+
+scheduler:
+  ordering_policy: latest_ready
+  hold_policy: hold
+  hold_last_chunk_action: true
+
+latency:
+  method: fixed
+  fixed_latency_ms: 100.0

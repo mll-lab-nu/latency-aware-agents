@@ -1,0 +1,53 @@
+__base__: ../../base/atlantis.yaml
+
+experiment:
+  name: starvla_atlantis_zero_latency_eval
+  seed: 42
+
+backend:
+  run_mode: eval
+
+env:
+  obs_resize: [224, 224]
+  simulator: gpu
+  gpu_env_device: auto
+  noop_max: 30
+  clip_reward: false
+  terminal_on_life_loss: false
+
+latency:
+  method: zero
+  add_latency_info: false
+
+policy:
+  type: starvla
+  checkpoint_path: ""
+  model_config_path: ""
+  task_manifest_path: ""
+  device: cuda
+  unnorm_key: new_embodiment
+  prompt_mode: raw
+
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 10
+  latency_bench_env_backend: atlantis_gpu_batched
+  eval_max_steps: 5000
+  eval_deterministic: true
+  eval_raw_reward: true
+  eval_suites:
+    fixed: []
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/starvla_atlantis_zero_latency_eval
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  wandb_project: null
+  wandb_group: null
+  wandb_job_type: null

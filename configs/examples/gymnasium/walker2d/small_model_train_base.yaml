@@ -10,6 +10,7 @@ backend:
   run_mode: train
 executor:
   mode: simulated
+  simulated_worker_capacity: null
 env:
   name: gymnasium
   task_name: walker2d_continuous_torque

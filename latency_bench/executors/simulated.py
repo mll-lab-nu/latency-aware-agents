@@ -206,13 +206,23 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         while raw_frame < eval_max_steps:
             current_time_ms = self.clock.step_to_time_ms(raw_frame)
             worker_capacity.release_ready(raw_frame)
+            if pool is not None:
+                wait_for_events_due(raw_frame)
+            released_events, _ = result_timeline.release_arrived(raw_frame)
+            for released_event in released_events:
+                self.action_scheduler.enqueue(released_event)
             observation_submitted = False
             observation_dropped = False
             if self.decision_scheduler.should_observe(raw_frame, current_time_ms):
                 observation = self.env.observe()
                 obs_id = self._next_obs_id
                 self._next_obs_id += 1
-                if worker_capacity.can_submit():
+                prefix_request_pending = (
+                    self.action_prefix is not None
+                    and self.action_prefix["mode"] != "none"
+                    and result_timeline.pending_observation_count > 0
+                )
+                if worker_capacity.can_submit() and not prefix_request_pending:
                     worker_slot = worker_capacity.assign_worker()
                     latency_context = {
                         "observation": observation,

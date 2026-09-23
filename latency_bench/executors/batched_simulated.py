@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.decision_action_history import DecisionActionHistory
 from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.base import EnvAdapter
@@ -15,7 +18,7 @@ from latency_bench.executors._simulated_timeline import (
     build_simulated_action_event,
 )
 from latency_bench.executors.base import BatchedExecutor
-from latency_bench.executors.env_step_backend import EnvStepBackend
+from latency_bench.executors.env_step_backend import EnvStepBackend, env_action_space
 from latency_bench.latency.sample import LatencySample
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
@@ -89,6 +92,9 @@ class _SlotState:
     episode_seed: int | None = None
     env_step: int = 0
     recent_drop_count: int = 0
+    decision_action_history: DecisionActionHistory | None = None
+    decision_admitted: bool = False
+    decision_issued_action: object = None
     buffers: _EpisodeBuffers = field(default_factory=_EpisodeBuffers)
     worker_capacity: SimulatedWorkerCapacity = field(
         default_factory=lambda: SimulatedWorkerCapacity(capacity=None, busy_until_by_worker={})
@@ -104,17 +110,6 @@ class _PendingPolicyObservation:
     worker_slot: int
 
 
-class _BatchedEnvCollection:
-    def __init__(self, envs: Sequence[EnvAdapter], close_fn: Callable[[], None]):
-        self.envs = list(envs)
-        self._close_fn = close_fn
-        self.noop_action = self.envs[0].noop_action if self.envs else None
-        self.env_fps = self.envs[0].env_fps if self.envs else 0.0
-
-    def close(self) -> None:
-        self._close_fn()
-
-
 class BatchedSimulatedLatencyExecutor(BatchedExecutor):
     """Run multiple simulated episodes concurrently with independent slot state.
 
@@ -126,8 +121,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
     def __init__(
         self,
         *,
-        envs: Sequence[EnvAdapter] | None = None,
-        env_backend: EnvStepBackend | None = None,
+        env_backend: EnvStepBackend,
         policy: PolicyRunner,
         decision_scheduler: DecisionScheduler,
         latency_sources: Sequence[LatencySampler],
@@ -139,11 +133,11 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         profile_pipeline: bool = False,
         inference_pool=None,
         action_prefix=None,
+        action_history_decisions: int | None = None,
     ):
         slot_count = env_backend.num_slots
         self.env_backend = env_backend
         self.envs = list(env_backend.slot_handles)
-        self.env = _BatchedEnvCollection(self.envs, close_fn=self.env_backend.close)
         self.policy = policy
         self.decision_scheduler = decision_scheduler
         self.clock = clock
@@ -165,6 +159,11 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                 action_scheduler=action_schedulers[slot_id],
                 result_timeline=SimulatedResultTimeline(
                     ordering_policy=action_schedulers[slot_id].ordering_policy
+                ),
+                decision_action_history=(
+                    DecisionActionHistory(
+                        env_action_space(self.envs[slot_id]), num_envs=1, decisions=action_history_decisions
+                    ) if action_history_decisions is not None else None
                 ),
                 buffers=self._new_episode_buffers(),
                 worker_capacity=SimulatedWorkerCapacity(
@@ -240,10 +239,16 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
                 slot.worker_capacity.release_ready(slot.env_step)
+                self._deliver_arrived_results(slot, raw_frame=slot.env_step)
                 observation_submitted = False
                 observation_dropped = False
                 if self.decision_scheduler.should_observe(slot.env_step, current_time_ms):
-                    if slot.worker_capacity.can_submit():
+                    prefix_request_pending = (
+                        self.action_prefix is not None
+                        and self.action_prefix["mode"] != "none"
+                        and slot.result_timeline.pending_observation_count > 0
+                    )
+                    if slot.worker_capacity.can_submit() and not prefix_request_pending:
                         observation_slots.append(slot)
                         observation_submitted = True
                     else:
@@ -255,6 +260,9 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                         "observation_submitted": observation_submitted,
                         "observation_dropped": observation_dropped,
                     }
+                if slot.decision_action_history is not None and slot.env_step % self.clock.obs_stride_raw_frames == 0:
+                    slot.decision_admitted = observation_submitted
+                    slot.decision_issued_action = slot.action_scheduler.noop_action.value
 
             observe_ms = 0.0
             if observation_slots:
@@ -267,6 +275,10 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                         self._policy_observation(
                             slot,
                             observations_by_slot[slot.slot_id],
+                            transport=(
+                                slot.decision_action_history.observation()[0]
+                                if slot.decision_action_history is not None else None
+                            ),
                         ),
                     )
                     for slot in observation_slots
@@ -292,6 +304,8 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                         **{key: float(value) for key, value in profiler.timings.items()},
                     }
                 for pending, policy_output in zip(pending_observations, policy_outputs):
+                    if pending.slot.decision_action_history is not None:
+                        pending.slot.decision_issued_action = policy_output.action.value
                     self._enqueue_policy_output(
                         pending.slot,
                         pending.observation,
@@ -316,6 +330,14 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             for slot in active_slots:
                 current_time_ms = self.clock.step_to_time_ms(slot.env_step)
                 active_action = actions_by_slot[slot.slot_id]
+                if (
+                    slot.decision_action_history is not None
+                    and (slot.env_step + 1) % self.clock.obs_stride_raw_frames == 0
+                ):
+                    slot.decision_action_history.append(
+                        [0], [slot.decision_admitted],
+                        [slot.decision_issued_action], [active_action.value],
+                    )
                 result = step_responses[slot.slot_id].result
                 soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
                 episode_done = bool(result.done or result.truncated) and not soft_reset
@@ -350,6 +372,8 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     slot.result_timeline.reset()
                     self._reset_policy_state(slot.slot_id)
                     slot.worker_capacity.reset()
+                    if slot.decision_action_history is not None:
+                        slot.decision_action_history.reset()
                     slot.recent_drop_count = 0
 
                 slot.env_step += 1
@@ -370,14 +394,18 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         self,
         slot: _SlotState,
         observation: Observation,
+        transport: np.ndarray | None = None,
     ) -> Observation:
         observation = with_action_prefix(observation, slot.action_scheduler, self.action_prefix)
         metadata = dict(observation.metadata)
         metadata["slot_id"] = slot.slot_id
         metadata["episode_id"] = int(slot.episode_id)
         metadata["action_noise_seed"] = slot.episode_seed
+        data = observation.data
+        if transport is not None:
+            data = {**data, "transport": transport} if isinstance(data, Mapping) else {"obs": data, "transport": transport}
         return Observation(
-            data=observation.data,
+            data=data,
             env_step=observation.env_step,
             sim_time_ms=observation.sim_time_ms,
             metadata=metadata,
@@ -444,6 +472,8 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             slot.action_scheduler.reset()
             slot.result_timeline.reset()
             slot.worker_capacity.reset()
+            if slot.decision_action_history is not None:
+                slot.decision_action_history.reset()
 
     def _active_slots(self) -> list[_SlotState]:
         return [slot for slot in self.slots if slot.active]
@@ -466,6 +496,8 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.action_scheduler.reset()
         slot.result_timeline.reset()
         slot.worker_capacity.reset()
+        if slot.decision_action_history is not None:
+            slot.decision_action_history.reset()
         self._reset_policy_state(slot.slot_id)
         self.env_backend.reset_slot(slot.slot_id, episode_id=episode_id, seed=seed)
         self.started_episodes += 1
@@ -525,6 +557,8 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.action_scheduler.reset()
         slot.result_timeline.reset()
         slot.worker_capacity.reset()
+        if slot.decision_action_history is not None:
+            slot.decision_action_history.reset()
         self._flush_completed_in_episode_order()
         if on_episode_complete is not None:
             on_episode_complete(metrics)

@@ -4,7 +4,6 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import EpisodeExecutor
-from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
     apply_latency_raw_fields,
     apply_latency_record_raw_fields,
@@ -20,12 +19,12 @@ from latency_bench.scheduler.decision import DecisionScheduler
 
 
 class PausedLatencyExecutor(EpisodeExecutor):
+    """Run inference and apply actions without advancing simulated time during inference."""
     def __init__(
         self,
         env: EnvAdapter,
         policy: PolicyRunner,
         decision_scheduler: DecisionScheduler,
-        latency_source: LatencySampler,
         action_scheduler: ActionScheduler,
         clock: EnvClock,
         logger: TrajectoryLogger | None = None,
@@ -37,7 +36,6 @@ class PausedLatencyExecutor(EpisodeExecutor):
         self.action_prefix = action_prefix
         self.policy = policy
         self.decision_scheduler = decision_scheduler
-        self.latency_source = latency_source
         self.action_scheduler = action_scheduler
         self.clock = clock
         self.logger = logger

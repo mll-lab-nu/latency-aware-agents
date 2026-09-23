@@ -179,6 +179,7 @@ def test_demon_attack_batched_gpu_env_applies_fixed_latency_step():
             hold_policy="hold",
             ordering_policy="latest_ready",
             max_pending_actions=None,
+            simulated_worker_capacity=None,
             episode_metrics_path="",
             latency_seed=123,
             export_env_raw_rgb_frames=False,
@@ -223,6 +224,7 @@ def test_demon_attack_batched_gpu_env_exports_native_raw_rgb_stack():
             hold_policy="hold",
             ordering_policy="latest_ready",
             max_pending_actions=None,
+            simulated_worker_capacity=None,
             episode_metrics_path="",
             latency_seed=123,
             export_env_raw_rgb_frames=True,
@@ -267,6 +269,7 @@ def test_demon_attack_batched_gpu_env_resets_core_on_time_limit_truncation():
             hold_policy="hold",
             ordering_policy="latest_ready",
             max_pending_actions=None,
+            simulated_worker_capacity=None,
             episode_metrics_path="",
             latency_seed=123,
             export_env_raw_rgb_frames=False,
@@ -323,6 +326,7 @@ def test_demon_attack_gpu_latency_info_uses_fused_decision_path(monkeypatch):
             hold_policy="hold",
             ordering_policy="latest_ready",
             max_pending_actions=None,
+            simulated_worker_capacity=None,
             episode_metrics_path="",
             latency_seed=123,
             export_env_raw_rgb_frames=False,
@@ -396,6 +400,7 @@ def test_demon_attack_gpu_max_episode_steps_uses_fused_decision_path(monkeypatch
             hold_policy="hold",
             ordering_policy="latest_ready",
             max_pending_actions=None,
+            simulated_worker_capacity=None,
             episode_metrics_path="",
             latency_seed=123,
             export_env_raw_rgb_frames=False,
@@ -457,6 +462,7 @@ def test_demon_attack_cuda_core_gpu_decision_matches_cpu_projection():
         env_reset_seed_bases=[1001, 1002, 1003],
         add_latency_info=False,
         max_pending_actions=None,
+        simulated_worker_capacity=1,
         device="cuda",
     )
     latency_gpu = CudaLatencyScheduler(
@@ -472,6 +478,7 @@ def test_demon_attack_cuda_core_gpu_decision_matches_cpu_projection():
         env_reset_seed_bases=[1001, 1002, 1003],
         add_latency_info=False,
         max_pending_actions=None,
+        simulated_worker_capacity=1,
         device="cuda",
     )
     latency_cpu.reset()
@@ -504,6 +511,8 @@ def test_demon_attack_cuda_core_gpu_decision_matches_cpu_projection():
     assert torch.equal(gpu_result.truncated_gpu.cpu(), torch.from_numpy(cpu_result.truncated))
     assert torch.equal(gpu_result.raw_frames_advanced_gpu.cpu(), torch.from_numpy(cpu_result.raw_frames_advanced))
     assert torch.equal(gpu_result.latency_raw_frames_gpu.cpu(), torch.from_numpy(cpu_result.latency_raw_frames))
+    assert cpu_result.command_admitted.tolist() == [True, True, True]
+    assert gpu_result.command_admitted.tolist() == [True, True, True]
 
     latency_cpu.fixed_latency_raw_frames = 0
     latency_gpu.fixed_latency_raw_frames = 0
@@ -525,7 +534,12 @@ def test_demon_attack_cuda_core_gpu_decision_matches_cpu_projection():
     torch.cuda.synchronize()
 
     assert torch.equal(gpu_result.observations, cpu_result.observations)
-    assert torch.equal(gpu_result.applied_actions_gpu, second_actions)
+    assert cpu_result.command_admitted.tolist() == [False, False, False]
+    assert gpu_result.command_admitted.tolist() == [False, False, False]
+    assert gpu_result.observation_dropped.tolist() == [True, True, True]
+    assert gpu_result.raw_frames_advanced_gpu.tolist() == [4, 4, 4]
+    assert gpu_result.env_step_indices_gpu.tolist() == [8, 8, 8]
+    assert torch.equal(gpu_result.applied_actions_gpu, actions)
     assert torch.equal(gpu_result.applied_actions_gpu.cpu(), torch.from_numpy(cpu_result.applied_actions))
     assert torch.equal(gpu_result.pending_counts_gpu.cpu(), torch.from_numpy(cpu_result.pending_counts))
     assert gpu_result.pending_counts_gpu.tolist() == [0, 0, 0]
@@ -552,6 +566,7 @@ def test_demon_attack_batched_gpu_env_fast_step_matches_regular_step_without_ful
         hold_policy="hold",
         ordering_policy="latest_ready",
         max_pending_actions=None,
+        simulated_worker_capacity=None,
         episode_metrics_path="",
         latency_seed=123,
         export_env_raw_rgb_frames=False,
@@ -611,6 +626,7 @@ def test_demon_attack_batched_gpu_env_fast_step_preserves_done_reset_info():
             hold_policy="hold",
             ordering_policy="latest_ready",
             max_pending_actions=None,
+            simulated_worker_capacity=None,
             episode_metrics_path="",
             latency_seed=123,
             export_env_raw_rgb_frames=False,
@@ -651,12 +667,37 @@ def _clip_parity_cfg(**overrides):
         hold_policy="hold",
         ordering_policy="latest_ready",
         max_pending_actions=None,
+        simulated_worker_capacity=None,
         episode_metrics_path="",
         latency_seed=123,
         export_env_raw_rgb_frames=False,
     )
     cfg.update(overrides)
     return SimpleNamespace(**cfg)
+
+
+def test_demon_gpu_decision_history_uses_final_applied_action():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
+
+    env = DemonAttackBatchedGpuEnv(
+        cfg=_clip_parity_cfg(action_history_decisions=8, simulated_worker_capacity=1),
+        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+        gpu_env_device="cuda", gpu_env_batch_size=2,
+    )
+    try:
+        obs, _ = env.reset(seed=123)
+        assert obs["transport"].shape == (2, 88)
+        assert not obs["transport"].any()
+        obs, *_ = env.sample_factory_gpu_step(torch.ones(2, dtype=torch.int64, device="cuda"))
+        np.testing.assert_array_equal(
+            obs["transport"][0, -11:].cpu().numpy(),
+            [1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+        )
+    finally:
+        env.close()
 
 
 def test_demon_attack_gpu_clip_reward_is_sum_of_per_frame_signs():

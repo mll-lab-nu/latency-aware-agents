@@ -49,12 +49,18 @@ SPEC_ONLY_KEYS = {
 TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
     "experiment",
     "backend",
+    "executor",
     "env",
     "latency",
     "scheduler",
     "training",
     "evaluation",
     "logging",
+)
+
+EXECUTOR_KEYS = (
+    "mode",
+    "simulated_worker_capacity",
 )
 
 LATENCY_KEYS = (
@@ -96,6 +102,7 @@ ENV_KEYS_BY_NAME = {
         "normalize_obs",
         "audio_on",
         "frame_stack",
+        "action_history_decisions",
         "obs_resize",
         "use_gpu_render",
         "simulator",
@@ -121,6 +128,7 @@ ENV_KEYS_BY_NAME = {
         "reset_mode",
         "frame_stack",
         "terminal_on_life_loss",
+        "action_history_decisions",
         "clip_reward",
         "repeat_action_probability",
         "full_action_space",
@@ -136,6 +144,7 @@ ENV_KEYS_BY_NAME = {
         "noop_action",
         "frame_stack",
         "res_w",
+        "action_history_decisions",
         "res_h",
         "wide_aspect_ratio",
         "max_episode_steps",
@@ -173,6 +182,10 @@ ENV_KEYS_BY_NAME = {
         "env_fps",
         "obs_fps",
         "frame_stack",
+        "simulator",
+        "gpu_env_device",
+        "terminal_on_life_loss",
+        "clip_reward",
         "noop_action",
         "action_map",
         "action_order",
@@ -250,9 +263,9 @@ def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed
     if kind == "fixed":
         latency_cfg["method"] = "fixed"
         latency_cfg["fixed_latency_ms"] = float(setting["frames"]) * _frame_ms(config)
-    elif kind == "iid":
+    elif kind in {"iid", "temporal"}:
         latency_cfg.update(
-            method="iid",
+            method=kind,
             profile_path=str(setting["profile_path"]),
             profile_worker_slot=int(setting["profile_worker_slot"]),
             seed=int(seed),
@@ -285,7 +298,7 @@ def _latency_manifest_fields(setting: dict[str, Any]) -> dict[str, str]:
     if row["latency_kind"] == "fixed":
         row["latency_fixed_frames"] = _number_label(setting["frames"])
         return row
-    if row["latency_kind"] == "iid":
+    if row["latency_kind"] in {"iid", "temporal"}:
         return row
     if row["latency_kind"] in {"normal", "mixed_normal"}:
         row["latency_mean_frames"] = _number_label(setting["mean"])
@@ -313,9 +326,26 @@ def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDis
     )
 
 
-def _matched_eval_suites(setting: dict[str, Any]) -> dict[str, list[list[Any]]]:
+def _matched_eval_suites(
+    setting: dict[str, Any],
+    *,
+    latency_label: str,
+    seed: int,
+) -> dict[str, list[Any]]:
     if "eval_suites" in setting:
         return deepcopy(setting["eval_suites"])
+
+    kind = setting["kind"]
+    if kind in {"iid", "temporal"}:
+        return {
+            kind: [
+                {
+                    "name": latency_label,
+                    "profile_path": setting["profile_path"],
+                    "seed": int(seed),
+                }
+            ]
+        }
 
     def fixed_suite() -> dict[str, list[list[Any]]]:
         return {
@@ -338,16 +368,12 @@ def _matched_eval_suites(setting: dict[str, Any]) -> dict[str, list[list[Any]]]:
             "uniform": [[setting["min"], setting["max"]]],
         }
 
-    def iid_suite() -> dict[str, list[list[Any]]]:
-        return {"fixed": [], "normal": [], "uniform": []}
-
     builders = {
         "fixed": fixed_suite,
         "normal": normal_suite,
         "uniform": uniform_suite,
-        "iid": iid_suite,
     }
-    return builders[setting["kind"]]()
+    return builders[kind]()
 
 
 def _run_axis_fragment(
@@ -547,6 +573,13 @@ def _prune_sample_factory_config(config: dict[str, Any]) -> dict[str, Any]:
         if key in experiment_cfg
     }
 
+    executor_cfg = pruned["executor"]
+    pruned["executor"] = {
+        key: deepcopy(executor_cfg[key])
+        for key in EXECUTOR_KEYS
+        if key in executor_cfg
+    }
+
     env_cfg = pruned["env"]
     env_keys = ENV_KEYS_BY_NAME[str(env_cfg["name"]).strip().lower()]
     pruned["env"] = {
@@ -615,7 +648,11 @@ def _build_full_train_config(
     config.setdefault("env", {})["frame_stack"] = int(frame_stack)
     config["env"]["obs_fps"] = obs_fps
     _apply_latency_setting(config, latency_setting, int(seed))
-    config.setdefault("evaluation", {})["eval_suites"] = _matched_eval_suites(latency_setting)
+    config.setdefault("evaluation", {})["eval_suites"] = _matched_eval_suites(
+        latency_setting,
+        latency_label=latency_label,
+        seed=seed,
+    )
     config.setdefault("logging", {})["output_dir"] = str(
         _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, observation_stride, seed)
     )
@@ -636,6 +673,7 @@ def _build_full_train_config(
         observation_stride,
         seed,
     )
+    specified_tags = config["logging"]["wandb_tags"]
     config["logging"]["wandb_tags"] = _wandb_tags(
         experiment_family,
         env_name,
@@ -647,6 +685,8 @@ def _build_full_train_config(
         observation_stride,
         seed,
     )
+    if isinstance(specified_tags, list):
+        config["logging"]["wandb_tags"].extend(specified_tags)
     return config
 
 
@@ -675,10 +715,14 @@ def _build_latency_bench_eval_config(
     seed: int,
     output_root: Path,
     latency_bench_policy_device: str,
+    checkpoint_kind: str = "latest",
 ) -> dict[str, Any]:
     config = merge_dicts(base_config, full_train_config)
+    config["evaluation"]["eval_suites"] = deepcopy(full_train_config["evaluation"]["eval_suites"])
     env_name = _env_name(config)
     config["backend"]["run_mode"] = "eval"
+    if env_name in ("asterix", "atlantis"):
+        config["env"]["simulator"] = "cpu"
     _drop_eval_time_limit_fields(config)
     _align_demon_attack_raw_eval_config(config, env_name)
     config["policy"] = merge_dicts(
@@ -690,8 +734,8 @@ def _build_latency_bench_eval_config(
             "deterministic": True,
         },
     )
-    config["policy"]["checkpoint_kind"] = "latest"
-    apply_checkpoint_kind_override(config["backend"], "latest")
+    config["policy"]["checkpoint_kind"] = checkpoint_kind
+    apply_checkpoint_kind_override(config["backend"], checkpoint_kind)
     config["logging"]["output_dir"] = str(
         _output_dir(
             output_root,
@@ -760,6 +804,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--device", type=str)
     parser.add_argument("--restart-behavior", type=str)
     parser.add_argument("--latency-bench-policy-device", type=str, default="auto")
+    parser.add_argument(
+        "--eval-checkpoint-kind",
+        choices=("latest", "best"),
+        default="latest",
+    )
     parser.add_argument("--train-upload-repo-id", type=str, default="")
     parser.add_argument("--train-upload-repo-type", type=str, default="model")
     parser.add_argument("--train-upload-path-prefix", type=str, default="")
@@ -772,6 +821,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not spec_path.is_absolute():
         spec_path = (REPO_ROOT / spec_path).resolve()
     spec = read_yaml(spec_path)
+    explicit_eval_interval = "eval_interval_steps" in spec.get("evaluation", {})
     if "__base__" in spec:
         spec = load_config(spec_path)
         base_config = {
@@ -831,7 +881,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             experiment_family=experiment_family,
         )
         train_config = _prune_sample_factory_config(full_train_config)
-        _disable_periodic_eval(train_config)
+        if not explicit_eval_interval:
+            _disable_periodic_eval(train_config)
         latency_bench_eval_config = _build_latency_bench_eval_config(
             base_config,
             full_train_config,
@@ -843,6 +894,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             seed=seed,
             output_root=output_root,
             latency_bench_policy_device=args.latency_bench_policy_device,
+            checkpoint_kind=args.eval_checkpoint_kind,
         )
 
         run_dir = _run_dir(generated_root, sweep_name, latency_label, frame_stack, obs_fps, observation_stride, seed)

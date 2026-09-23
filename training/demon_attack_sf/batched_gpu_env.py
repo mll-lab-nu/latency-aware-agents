@@ -9,9 +9,10 @@ import torch
 from gymnasium.spaces import Box, Dict as GymDict, Discrete
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.decision_action_history import DecisionActionHistory
 from training.common.latency_config import (
-    build_iid_profile_sampler,
-    profile_sampler_max_latency_raw_frames,
+    build_profile_sampler,
+    profile_sampler_max_latency_raw_frames_for_workers,
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
@@ -22,7 +23,10 @@ from training.demon_attack_sf.gpu_core import CudaDemonAttackCore
 
 
 class DemonAttackBatchedGpuEnv(gym.Env):
+    """Expose the shared CuLE CUDA core through Sample Factory's batched env API."""
+
     is_multiagent = True
+    core_cls = CudaDemonAttackCore
 
     def __init__(
         self,
@@ -43,7 +47,6 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         self._env_raw_rgb_frames: list[deque[np.ndarray]] = [
             deque(maxlen=int(self.frame_stack)) for _ in range(self.num_agents)
         ]
-        self.action_space = Discrete(6)
         self.observation_space = GymDict(
             {
                 "obs": Box(
@@ -54,7 +57,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
                 )
             }
         )
-        self.core = CudaDemonAttackCore(
+        self.core = self.core_cls(
             batch_size=self.num_agents,
             device=self.device,
             noop_max=cfg.noop_max,
@@ -62,6 +65,17 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             obs_stride=self.clock.obs_stride_raw_frames,
             frame_stack=self.frame_stack,
         )
+        self.action_space = Discrete(len(self.core.minimal_action_values))
+        history_decisions = getattr(cfg, "action_history_decisions", None)
+        self.decision_action_history = (
+            DecisionActionHistory(self.action_space, num_envs=self.num_agents, decisions=history_decisions)
+            if history_decisions is not None else None
+        )
+        if self.decision_action_history is not None:
+            self.observation_space = GymDict({
+                **self.observation_space.spaces,
+                "transport": Box(low=0, high=1, shape=(self.decision_action_history.observation_dim,), dtype=np.float32),
+            })
         sub_seeds = [self._sub_seed(agent_idx) for agent_idx in range(self.num_agents)]
         latency_seeds = [
             sample_factory_latency_seed_from_flat_config(
@@ -76,17 +90,19 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         profile_max_latency_raw_frames = None
         if latency_params.profile_path is not None:
             profile_samplers = [
-                build_iid_profile_sampler(
+                build_profile_sampler(
                     latency_params.profile_path,
+                    method=latency_params.profile_method,
                     seed=latency_seeds[agent_idx],
                     env_fps=self.clock.env_fps,
                     obs_fps=self.clock.obs_fps,
                 )
                 for agent_idx in range(self.num_agents)
             ]
-            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames(
+            profile_max_latency_raw_frames = profile_sampler_max_latency_raw_frames_for_workers(
                 profile_samplers[0],
-                worker_slot=latency_params.profile_worker_slot,
+                profile_worker_slot=latency_params.profile_worker_slot,
+                simulated_worker_capacity=latency_params.simulated_worker_capacity,
                 env_fps=self.clock.env_fps,
             )
         self.latency = CudaLatencyScheduler(
@@ -105,6 +121,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             latency_samplers=profile_samplers,
             profile_worker_slot=latency_params.profile_worker_slot,
             profile_max_latency_raw_frames=profile_max_latency_raw_frames,
+            simulated_worker_capacity=latency_params.simulated_worker_capacity,
             device=self.device,
         )
         self.metrics = BatchedEpisodeMetrics(
@@ -158,6 +175,8 @@ class DemonAttackBatchedGpuEnv(gym.Env):
                 seeds=[int(seed) + int(agent_idx) for agent_idx in range(self.num_agents)]
             )
         self.metrics.reset()
+        if self.decision_action_history is not None:
+            self.decision_action_history.reset()
         self._raw_episode_steps[:] = 0
         self._raw_episode_steps_gpu.zero_()
         obs, _ = self.core.reset_batch(seeds=reset_seeds)
@@ -267,9 +286,20 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             scores=scores,
             active_mask=self._active_mask_cpu,
             latency_raw_frames=latency_raw_frames,
+            command_admitted=result.command_admitted,
             lives=lives,
         )
         done_mask = np.logical_or(terminated, truncated)
+        if self.decision_action_history is not None:
+            indices = np.flatnonzero(self._active_mask_cpu & (raw_frames_advanced > 0))
+            issued = actions.detach().cpu().numpy()
+            applied = (
+                result.applied_actions
+                if full_infos else result.applied_actions_gpu.detach().cpu().numpy()
+            )
+            self.decision_action_history.append(
+                indices, result.command_admitted[indices], issued[indices], applied[indices]
+            )
         core_reset_mask = truncated | (terminated & (lives <= 0))
         life_loss_reset_mask = terminated & (lives > 0) & ~truncated
         step_frame_numbers = self._frame_numbers.copy()
@@ -351,6 +381,8 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         reset_seed_inputs = [int(seed) for seed in reset_plan.values()]
         reset_seeds, reset_latency_infos = self.latency.reset(indices=reset_indices, seeds=reset_seed_inputs)
         self.metrics.reset(indices=reset_indices)
+        if self.decision_action_history is not None:
+            self.decision_action_history.reset(reset_indices)
         index_t = torch.as_tensor(reset_indices, dtype=torch.int64, device=self.device)
         self._raw_episode_steps[reset_indices] = 0
         self._raw_episode_steps_gpu[index_t] = 0
@@ -516,6 +548,10 @@ class DemonAttackBatchedGpuEnv(gym.Env):
             "queued_action": int(decision.queued_actions_gpu[agent_idx].item()),
             "ready_raw_frame": int(decision.ready_raw_frames_gpu[agent_idx].item()),
             "raw_frames_advanced": int(decision.raw_frames_advanced_gpu[agent_idx].item()),
+            "command_admitted": bool(decision.command_admitted[agent_idx]),
+            "observation_dropped": bool(decision.observation_dropped[agent_idx]),
+            "worker_id": int(decision.worker_ids[agent_idx]),
+            "worker_service_raw_frames": int(decision.worker_service_raw_frames[agent_idx]),
         }
         if self.latency.latency_distribution_spec is not None:
             info["latency_distribution"] = self.latency.latency_distribution_spec.to_dict()
@@ -534,6 +570,8 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         reset_indices = [int(agent_idx) for agent_idx in done_indices]
         reset_seeds, reset_latency_infos = self.latency.reset(indices=reset_indices)
         self.metrics.reset(indices=reset_indices)
+        if self.decision_action_history is not None:
+            self.decision_action_history.reset(reset_indices)
         self._raw_episode_steps[reset_indices] = 0
         self._raw_episode_steps_gpu[torch.as_tensor(reset_indices, dtype=torch.int64, device=self.device)] = 0
         reset_infos = {
@@ -558,7 +596,10 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         return reset_obs_by_agent, reset_infos
 
     def _obs(self) -> dict[str, torch.Tensor]:
-        return {"obs": self._stack}
+        result = {"obs": self._stack}
+        if self.decision_action_history is not None:
+            result["transport"] = torch.as_tensor(self.decision_action_history.observation(), device=self.device)
+        return result
 
     def _reset_infos(self, latency_infos: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         return [self._reset_info_for_latency_info(info) for info in latency_infos]
@@ -569,7 +610,7 @@ class DemonAttackBatchedGpuEnv(gym.Env):
         return {}
 
     def _reset_frame_numbers(self, indices: Sequence[int] | np.ndarray | None = None) -> None:
-        base_frames = self.core.cache_index.detach().cpu().numpy().astype(np.int64) + 3
+        base_frames = self.core.reset_raw_frame_counts.detach().cpu().numpy().astype(np.int64)
         if indices is None:
             self._frame_numbers[:] = base_frames
         else:

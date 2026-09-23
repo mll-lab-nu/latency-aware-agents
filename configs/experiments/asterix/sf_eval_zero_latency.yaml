@@ -2,9 +2,14 @@ __base__: ../../base/asterix.yaml
 
 experiment:
   name: asterix_sf_zero_latency
+  seed: 42
 
 backend:
   run_mode: eval
+
+env:
+  frame_stack: 4
+  simulator: cpu
 
 latency:
   method: zero
@@ -18,15 +23,19 @@ policy:
   deterministic: true
 
 evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
+  eval_episodes: 100
+  eval_parallel_envs: 32
   eval_max_steps: 5000
+  eval_suites:
+    fixed: []
+    normal: []
+    uniform: []
 
 logging:
   output_dir: outputs/asterix_sf_eval_zero_latency
   video:
-    enabled: true
+    enabled: false
     num_bins: 1
-  save_step_records: true
-  save_action_records: true
-  save_latency_records: true
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false

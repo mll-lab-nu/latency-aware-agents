@@ -255,7 +255,7 @@ def test_profile_latency_override_preserves_sampler_method(method):
     from latency_bench.data.sf_teacher_runtime import _apply_latency_to_flat_cfg
     from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
-    cfg = SimpleNamespace()
+    cfg = SimpleNamespace(simulated_worker_capacity=None)
     _apply_latency_to_flat_cfg(
         cfg,
         {"method": method, "profile_path": "profile.json", "profile_worker_slot": 0, "seed": 0},
@@ -2340,6 +2340,69 @@ def test_flappy_gpu_rollout_uses_requested_render_batch_size(
         "num_envs": runtime_num_envs,
     }
     assert driver.kind == driver_kind
+    assert frame_stack == 4
+
+
+def test_gymnasium_atlantis_gpu_rollout_uses_one_native_batched_env(monkeypatch, tmp_path):
+    from contextlib import nullcontext
+
+    from latency_bench.data import sf_teacher_rollout
+
+    cfg = SimpleNamespace(frame_stack=4, device="gpu", cli_args={})
+    serial_env = SimpleNamespace(close=lambda: captured.update(serial_closed=True))
+    runtime = {"envs": [serial_env]}
+    captured = {}
+
+    class FakeAtlantisGpuEnv:
+        def __init__(self, **kwargs):
+            captured["gpu_env_kwargs"] = kwargs
+
+    monkeypatch.setattr(sf_teacher_rollout, "sample_factory_init_log", lambda output_dir: nullcontext())
+    monkeypatch.setattr(
+        sf_teacher_rollout,
+        "build_sample_factory_rollout_cfg",
+        lambda config: (object(), cfg),
+    )
+
+    def fake_build_env_and_policy(module, rollout_cfg, config, build_num_envs):
+        captured["runtime_num_envs"] = build_num_envs
+        return runtime
+
+    monkeypatch.setattr(sf_teacher_rollout, "build_env_and_policy", fake_build_env_and_policy)
+    monkeypatch.setattr(
+        sf_teacher_rollout,
+        "_GYMNASIUM_ATARI_GPU_ENVS",
+        {"atlantis": FakeAtlantisGpuEnv},
+    )
+    monkeypatch.setattr(
+        sf_teacher_rollout,
+        "BatchedTeacherRolloutDriver",
+        lambda env, slot_count: SimpleNamespace(kind="batched", env=env, slot_count=slot_count),
+    )
+
+    config = {
+        "env_name": "atlantis",
+        "integration_name": "gymnasium",
+        "flat_cfg": {
+            "gym_make_kwargs_json": json.dumps({
+                "noop_max": 30,
+                "base_make_kwargs": {"max_num_frames_per_episode": 108_000},
+            }),
+        },
+    }
+    _, _, driver, frame_stack = sf_teacher_rollout._build_rollout_driver_runtime(
+        config,
+        output_dir=tmp_path,
+        num_envs=128,
+        export_env_raw_rgb_frames=False,
+    )
+
+    assert captured["runtime_num_envs"] == 1
+    assert captured["serial_closed"] is True
+    assert captured["gpu_env_kwargs"]["gpu_env_device"] == "cuda"
+    assert captured["gpu_env_kwargs"]["gpu_env_batch_size"] == 128
+    assert driver.kind == "batched"
+    assert driver.slot_count == 128
     assert frame_stack == 4
 
 

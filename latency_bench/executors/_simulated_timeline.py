@@ -96,6 +96,11 @@ class SimulatedResultTimeline:
     def pending_event_count(self) -> int:
         return len(self._pending) + len(self.coordinator.result_buffer)
 
+    @property
+    def pending_observation_count(self) -> int:
+        """Number of submitted observations whose result has not been released."""
+        return len(self.coordinator.issue_order)
+
     def get_pending_events(self) -> list[ActionEvent]:
         """Read in-flight issue times for the committed action context window."""
         return [event for _, _, event in self._pending] + list(self.coordinator.result_buffer.values())

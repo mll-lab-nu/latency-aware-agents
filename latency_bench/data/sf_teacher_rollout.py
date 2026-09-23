@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -46,7 +47,15 @@ from latency_bench.integrations.sample_factory.actions import (
     to_python_action,
 )
 from latency_bench.envs.atari import is_true_atari_episode_end
+from training.asterix_sf.batched_gpu_env import AsterixBatchedGpuEnv
+from training.atlantis_sf.batched_gpu_env import AtlantisBatchedGpuEnv
 from training.common.utils import maybe_set_cli_override
+
+
+_GYMNASIUM_ATARI_GPU_ENVS = {
+    "asterix": AsterixBatchedGpuEnv,
+    "atlantis": AtlantisBatchedGpuEnv,
+}
 
 
 def _g1_issued_absolute_request(
@@ -1158,14 +1167,45 @@ def _build_rollout_driver_runtime(
         setattr(cfg, "export_env_raw_rgb_frames", bool(export_env_raw_rgb_frames))
         if integration_name == "flappy" and cfg.use_gpu_render:
             maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
+        use_gymnasium_atari_gpu_batch = (
+            integration_name == "gymnasium"
+            and env_name in _GYMNASIUM_ATARI_GPU_ENVS
+            and str(cfg.device) == "gpu"
+            and int(num_envs) > 1
+        )
         use_batched_driver = (
             (integration_name == "flappy" and int(num_envs) > 1 and cfg.use_gpu_render)
             or (integration_name == "demon_attack" and cfg.simulator == "gpu")
+            or use_gymnasium_atari_gpu_batch
         )
         if use_batched_driver:
             if integration_name == "demon_attack":
                 maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
             runtime = build_env_and_policy(module, cfg, config, 1)
+            if use_gymnasium_atari_gpu_batch:
+                make_kwargs = json.loads(config["flat_cfg"]["gym_make_kwargs_json"])
+                base_make_kwargs = make_kwargs["base_make_kwargs"]
+                maybe_set_cli_override(cfg, "noop_max", make_kwargs["noop_max"])
+                maybe_set_cli_override(cfg, "terminal_on_life_loss", False)
+                maybe_set_cli_override(cfg, "clip_reward", False)
+                maybe_set_cli_override(
+                    cfg,
+                    "max_episode_steps",
+                    base_make_kwargs["max_num_frames_per_episode"],
+                )
+                maybe_set_cli_override(cfg, "gpu_env_device", "cuda")
+                maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
+                maybe_set_cli_override(cfg, "episode_metrics_path", "")
+                runtime["envs"][0].close()
+                env_type = _GYMNASIUM_ATARI_GPU_ENVS[env_name]
+                runtime["envs"] = [
+                    env_type(
+                        cfg=cfg,
+                        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+                        gpu_env_device=cfg.gpu_env_device,
+                        gpu_env_batch_size=cfg.gpu_env_batch_size,
+                    )
+                ]
         else:
             runtime = build_env_and_policy(module, cfg, config, int(num_envs))
 

@@ -9,7 +9,6 @@ import sys
 import threading
 import time
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
 
 from latency_bench.core.types import Observation, PolicyOutput
@@ -20,6 +19,8 @@ from latency_bench.executors.realtime.messages import (
 )
 from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.executors.thread_env import set_thread_env_defaults
+from latency_bench.utils.paths import REPO_ROOT
+
 REALTIME_INFERENCE_START_METHOD = "spawn"
 _PROCESS_START_LOCK = threading.Lock()
 
@@ -47,7 +48,7 @@ class ProcessInferencePool:
         if "policy" in config and "worker_python_executable" in config["policy"]:
             self.worker_python_executable = config["policy"]["worker_python_executable"]
             self.worker_sys_path = [
-                str(Path(__file__).resolve().parents[3]),
+                str(REPO_ROOT),
                 *json.loads(
                     subprocess.check_output(
                         [

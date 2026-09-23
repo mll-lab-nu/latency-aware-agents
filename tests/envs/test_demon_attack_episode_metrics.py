@@ -23,7 +23,10 @@ class _ScriptedAtariInfoEnv(gym.Env):
             raise AssertionError("script exhausted")
         reward, terminated, truncated, info = self.steps[self.index]
         self.index += 1
-        return np.full((2, 2), self.index, dtype=np.uint8), float(reward), terminated, truncated, dict(info)
+        info = dict(info)
+        info["command_admitted"] = True
+        info["observation_dropped"] = False
+        return np.full((2, 2), self.index, dtype=np.uint8), float(reward), terminated, truncated, info
 
 
 def test_learner_reward_stays_clipped_while_episode_return_is_raw(tmp_path):
@@ -145,6 +148,7 @@ def test_batched_episode_metrics_uses_lives_to_accumulate_across_life_loss(tmp_p
         scores=[0],
         active_mask=[True],
         latency_raw_frames=[4],
+        command_admitted=[True],
         lives=[2],
     )
     metrics.reset(indices=[0])
@@ -156,6 +160,7 @@ def test_batched_episode_metrics_uses_lives_to_accumulate_across_life_loss(tmp_p
         scores=[0],
         active_mask=[True],
         latency_raw_frames=[4],
+        command_admitted=[False],
         lives=[0],
     )
 
@@ -174,9 +179,14 @@ def test_batched_episode_metrics_uses_lives_to_accumulate_across_life_loss(tmp_p
     assert game_over_info[0]["episode_extra_stats"]["episode/raw_return"] == 30.0
     assert game_over_info[0]["episode_extra_stats"]["episode/raw_frames"] == 8
     assert game_over_info[0]["episode_extra_stats"]["episode/index"] == 0
+    assert game_over_info[0]["episode_extra_stats"]["episode/submitted_observation_count"] == 1
+    assert game_over_info[0]["episode_extra_stats"]["episode/dropped_observation_count"] == 1
+    assert game_over_info[0]["episode_extra_stats"]["episode/observation_drop_ratio"] == 0.5
 
     events = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines()]
     assert len(events) == 1
     assert events[0]["return"] == 30.0
     assert events[0]["raw_return"] == 30.0
     assert events[0]["raw_frames"] == 8
+    assert events[0]["submitted_observation_count"] == 1
+    assert events[0]["dropped_observation_count"] == 1

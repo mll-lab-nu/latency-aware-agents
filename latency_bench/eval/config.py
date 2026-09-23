@@ -6,6 +6,7 @@ shared by the CLI, evaluation drivers, and reporting.
 from __future__ import annotations
 
 from collections.abc import Sequence
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,56 @@ _SAMPLE_FACTORY_POLICY_TYPES = {
     "deadly_corridor_sf",
     "gymnasium_sf",
 }
+
+
+def resolve_evaluation_config(config: dict[str, Any]) -> None:
+    """Materialize existing evaluation defaults at direct-dict and CLI boundaries.
+
+    Serial evaluation, in-process inference and disabled pipeline profiling are
+    the existing defaults. Worker capacity is explicitly optional. Experiment
+    seed stays untouched: policy and suite RNGs distinguish omission from zero.
+    Explicit filesystem inputs are expanded against the caller's working
+    directory; model identifiers and paths embedded in model configs are not
+    interpreted here.
+    """
+    defaults = {
+        "evaluation": {"eval_parallel_envs": 1},
+        "executor": {
+            "simulated_inference_pool": False,
+            "simulated_worker_capacity": None,
+        },
+        "logging": {"simulated_pipeline_profile": False},
+    }
+    for section, fields in defaults.items():
+        for name, value in fields.items():
+            if name not in config[section]:
+                config[section][name] = value
+    evaluation = config["evaluation"]
+    for field in ("eval_max_steps", "eval_episodes"):
+        if field in evaluation and evaluation[field] is not None:
+            evaluation[field] = int(evaluation[field])
+    evaluation["eval_parallel_envs"] = int(evaluation["eval_parallel_envs"])
+    evaluation["eval_latency_values"] = _eval_latency_values(config)
+
+    path_fields = {
+        "policy": (
+            "checkpoint_path",
+            "model_config_path",
+            "task_contract_path",
+            "task_manifest_path",
+            "latency_prompt_map_path",
+            "backbone_path",
+        ),
+        "latency": ("profile_path",),
+        "logging": ("output_dir",),
+    }
+    # HF snapshot filenames and sibling metadata depend on preserving symlinks.
+    for section, fields in path_fields.items():
+        if section not in config:
+            continue
+        for field in fields:
+            if field in config[section] and config[section][field] not in (None, ""):
+                config[section][field] = os.path.abspath(Path(config[section][field]).expanduser())
 
 
 def apply_runtime_overrides(
@@ -49,7 +100,7 @@ def apply_runtime_overrides(
     if latency_seed is not None:
         config["latency"]["seed"] = latency_seed
     if run_name is not None:
-        config["experiment"]["name"] = str(run_name)
+        config["experiment"]["name"] = run_name
     if output_dir is not None:
         config["logging"]["output_dir"] = str(output_dir)
     if checkpoint_kind is not None:
@@ -61,40 +112,39 @@ def apply_runtime_overrides(
     if latency_prompt_map_path is not None:
         config["policy"]["latency_prompt_map_path"] = str(latency_prompt_map_path)
     if latency_raw_frames is not None:
-        latency_ms = (
-            int(latency_raw_frames)
-            * 1000.0
-            / float(config["env"]["env_fps"])
-        )
-        _apply_eval_latency(config, int(latency_raw_frames), latency_ms)
-        config["policy"]["latency_prompt_key"] = int(latency_raw_frames)
+        latency_ms = _latency_steps_to_ms(config, latency_raw_frames)
+        _apply_eval_latency(config, latency_raw_frames, latency_ms)
+        config["policy"]["latency_prompt_key"] = latency_raw_frames
         if "eval_suites" in config["evaluation"]:
             config["evaluation"]["eval_suites"] = {
-                "fixed": [[int(latency_raw_frames)]],
+                "fixed": [[latency_raw_frames]],
                 "normal": [],
                 "uniform": [],
             }
         if "eval_latency_values" in config["evaluation"]:
-            config["evaluation"]["eval_latency_values"] = [
-                int(latency_raw_frames)
-            ]
+            config["evaluation"]["eval_latency_values"] = [latency_raw_frames]
     if eval_max_steps is not None:
-        config["evaluation"]["eval_max_steps"] = int(eval_max_steps)
+        config["evaluation"]["eval_max_steps"] = eval_max_steps
     if eval_parallel_envs is not None:
-        config["evaluation"]["eval_parallel_envs"] = int(eval_parallel_envs)
+        config["evaluation"]["eval_parallel_envs"] = eval_parallel_envs
     return config
 
 
 def _is_sample_factory_policy(config: dict[str, Any]) -> bool:
-    policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
+    policy_type = config["policy"]["type"].strip().lower()
     return policy_type in _SAMPLE_FACTORY_POLICY_TYPES
 
 
+def _evaluation_seed(config: dict[str, Any]) -> int:
+    """Episode and reporting seed; omitted policy/suite RNG seeds remain optional."""
+    return int(config["experiment"].get("seed", 0))
+
+
 def _episode_seed(config: dict[str, Any], episode_id: int) -> int:
-    seed = int(config["experiment"].get("seed", 0))
+    seed = _evaluation_seed(config)
     if _is_sample_factory_policy(config):
-        return seed + 104729 + int(episode_id)
-    return seed + int(episode_id)
+        return seed + 104729 + episode_id
+    return seed + episode_id
 
 
 def _eval_max_steps(config: dict[str, Any]) -> int:
@@ -105,7 +155,7 @@ def _eval_max_steps(config: dict[str, Any]) -> int:
 
 
 def _eval_episodes(config: dict[str, Any]) -> int:
-    return int(config["evaluation"]["eval_episodes"])
+    return config["evaluation"]["eval_episodes"]
 
 
 def _selected_episode_count(config: dict[str, Any], episode_ids: Sequence[int] | None) -> int:
@@ -129,7 +179,7 @@ def _eval_latency_values(config: dict[str, Any]) -> list[int] | None:
 
 
 def _latency_steps_from_config(config: dict[str, Any]) -> int | None:
-    executor_mode = str(config.get("executor", {}).get("mode", "")).strip().lower()
+    executor_mode = config["executor"]["mode"].strip().lower()
     if executor_mode == "realtime":
         return None
     latency_cfg = config["latency"]
@@ -149,26 +199,16 @@ def _latency_steps_from_config(config: dict[str, Any]) -> int | None:
     return int(rounded_steps)
 
 
-def _infer_latency_steps(config: dict[str, Any]) -> int | None:
-    return _latency_steps_from_config(config)
-
-
-def _train_latency_steps(config: dict[str, Any]) -> int | None:
-    return _latency_steps_from_config(config)
-
-
 def _latency_steps_to_ms(config: dict[str, Any], latency_steps: int) -> float:
     env_fps = float(config["env"]["env_fps"])
-    if env_fps <= 0:
-        raise ValueError("env.env_fps must be positive")
-    return int(latency_steps) * 1000.0 / env_fps
+    return latency_steps * 1000.0 / env_fps
 
 
 def _apply_eval_latency(config: dict[str, Any], latency_steps: int, latency_ms: float) -> None:
-    latency_cfg = config.setdefault("latency", {})
-    if int(latency_steps) == 0:
+    latency_cfg = config["latency"]
+    if latency_steps == 0:
         latency_cfg["method"] = "zero"
         latency_cfg.pop("fixed_latency_ms", None)
         return
     latency_cfg["method"] = "fixed"
-    latency_cfg["fixed_latency_ms"] = float(latency_ms)
+    latency_cfg["fixed_latency_ms"] = latency_ms

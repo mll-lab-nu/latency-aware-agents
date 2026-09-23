@@ -12,6 +12,7 @@ namespace atari
 enum ROM_FORMAT : uint8_t
 {
     ROM_4K,
+    ROM_F8,
     ROM_NOT_SUPPORTED,
     _ROM_MAX
 };

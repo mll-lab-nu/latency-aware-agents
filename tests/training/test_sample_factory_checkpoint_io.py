@@ -99,7 +99,7 @@ def test_policy_runtime_loads_explicit_checkpoint(monkeypatch):
     actor_critic = types.SimpleNamespace(load_state_dict=loaded.append)
     device = torch.device("cpu")
 
-    result = sf_runtime.load_sample_factory_policy_state_dict(
+    result, resolved_path = sf_runtime.load_sample_factory_policy_state_dict(
         types.SimpleNamespace(),
         actor_critic,
         device,
@@ -107,7 +107,8 @@ def test_policy_runtime_loads_explicit_checkpoint(monkeypatch):
     )
 
     assert result is checkpoint
-    assert calls == [("teacher.pth", device)]
+    assert resolved_path == Path("teacher.pth").resolve()
+    assert calls == [(Path("teacher.pth").resolve(), device)]
     assert loaded == [checkpoint["model"]]
 
 
@@ -133,13 +134,13 @@ def test_policy_runtime_selects_checkpoint_kind(monkeypatch, kind, pattern):
     monkeypatch.setattr(
         checkpoint_io,
         "load_sample_factory_checkpoint_from_paths",
-        lambda paths, device: calls.append((paths, device)) or checkpoint,
+        lambda paths, device: calls.append((paths, device)) or (checkpoint, Path("/checkpoints/best_1.pth")),
     )
     loaded = []
     actor_critic = types.SimpleNamespace(load_state_dict=loaded.append)
     device = torch.device("cpu")
 
-    result = sf_runtime.load_sample_factory_policy_state_dict(
+    result, resolved_path = sf_runtime.load_sample_factory_policy_state_dict(
         types.SimpleNamespace(load_checkpoint_kind=kind, policy_index=3),
         actor_critic,
         device,
@@ -147,6 +148,7 @@ def test_policy_runtime_selects_checkpoint_kind(monkeypatch, kind, pattern):
     )
 
     assert result is checkpoint
+    assert resolved_path == Path("/checkpoints/best_1.pth")
     assert calls == [
         ("dir", 3),
         ("/checkpoints", pattern),

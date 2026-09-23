@@ -28,6 +28,10 @@ class CudaLatencyDecisionResult:
     ready_raw_frames: torch.Tensor
     raw_frames_advanced: torch.Tensor
     pending_counts: torch.Tensor
+    command_admitted: torch.Tensor
+    observation_dropped: torch.Tensor
+    worker_ids: torch.Tensor
+    worker_service_raw_frames: torch.Tensor
 
 
 @dataclass
@@ -45,6 +49,10 @@ class CudaCoreDecisionResult:
     env_step_indices: np.ndarray
     decision_step_indices: np.ndarray
     timeout_mask: np.ndarray
+    command_admitted: np.ndarray
+    observation_dropped: np.ndarray
+    worker_ids: np.ndarray
+    worker_service_raw_frames: np.ndarray
     rewards_gpu: torch.Tensor
     terminated_gpu: torch.Tensor
     truncated_gpu: torch.Tensor
@@ -70,6 +78,7 @@ class CudaLatencyScheduler:
         latency_samplers: Sequence[Any] | None = None,
         profile_worker_slot: int | None = None,
         profile_max_latency_raw_frames: int | None = None,
+        simulated_worker_capacity: int | None = None,
     ) -> None:
         self.batch_size = int(batch_size)
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
@@ -144,10 +153,29 @@ class CudaLatencyScheduler:
         self.pending_head = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self.pending_count = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self.latency_rng_state = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
+        self.worker_busy_until = (
+            None
+            if simulated_worker_capacity is None
+            else torch.zeros(
+                (self.batch_size, simulated_worker_capacity),
+                dtype=torch.int64,
+                device=self.device,
+            )
+        )
+        self.submitted_observations = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
+        self.dropped_observations = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
 
         self._decision_latency_raw_frames = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self._decision_ready_raw_frames = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self._decision_queued_actions = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
+        self._decision_admitted = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
+        self._decision_dropped = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
+        self._decision_worker_ids = torch.full(
+            (self.batch_size,), -1, dtype=torch.int64, device=self.device
+        )
+        self._decision_worker_service_raw_frames = torch.zeros(
+            self.batch_size, dtype=torch.int64, device=self.device
+        )
         self._decision_timeout = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
         self._raw_actions = torch.zeros(self.batch_size, dtype=torch.int64, device=self.device)
         self._profile_latency_raw_frames = torch.zeros(
@@ -168,6 +196,11 @@ class CudaLatencyScheduler:
     ) -> tuple[list[int], list[dict[str, Any]]]:
         target_indices = self._indices(indices)
         seed_values = self._seed_values(seeds, len(target_indices))
+        target_index_t = torch.as_tensor(target_indices, dtype=torch.int64, device=self.device)
+        if self.worker_busy_until is not None:
+            self.worker_busy_until[target_index_t] = 0
+        self.submitted_observations[target_index_t] = 0
+        self.dropped_observations[target_index_t] = 0
         if not self.add_latency_info:
             reset_seeds: list[int] = []
             infos: list[dict[str, Any]] = []
@@ -198,7 +231,7 @@ class CudaLatencyScheduler:
                 if self.latency_distribution_spec is not None:
                     infos[-1]["latency_distribution"] = self.latency_distribution_spec.to_dict()
                     infos[-1]["latency_distribution_label"] = str(self.latency_distribution_label)
-            index_t = torch.as_tensor(target_indices, dtype=torch.int64, device=self.device).contiguous()
+            index_t = target_index_t.contiguous()
             self._reset_latency_rng_states(target_indices)
             self.ext.flappy_latency_reset(
                 index_t,
@@ -252,10 +285,12 @@ class CudaLatencyScheduler:
     def begin_decision(self, actions: torch.Tensor, active_mask: torch.Tensor) -> None:
         action_t = actions.to(device=self.device, dtype=torch.int64).reshape(-1).contiguous()
         active = active_mask.to(device=self.device, dtype=torch.bool).reshape(-1).contiguous()
-        self._sample_profile_latencies(active)
+        issue_frames = self.env_step_idx.clone()
+        admitted, worker_ids = self._prepare_admission(active)
+        profile_service = self._sample_profile_latencies(admitted, worker_ids)
         self.ext.flappy_latency_begin(
             action_t,
-            active,
+            admitted,
             self.env_step_idx,
             self.next_action_id,
             self.current_latency_raw_frames,
@@ -278,6 +313,7 @@ class CudaLatencyScheduler:
             int(self.batch_size),
             int(self.queue_capacity),
         )
+        self._record_admitted_service(admitted, worker_ids, issue_frames, profile_service)
 
     def raw_actions(self, active_mask: torch.Tensor) -> torch.Tensor:
         active = active_mask.to(device=self.device, dtype=torch.bool).reshape(-1).contiguous()
@@ -317,7 +353,9 @@ class CudaLatencyScheduler:
         action_t = actions.to(device=self.device, dtype=torch.int64).reshape(-1).contiguous()
         active = active_mask.to(device=self.device, dtype=torch.bool).reshape(-1).contiguous()
         episode_steps = episode_step_idx.view(-1)
-        self._sample_profile_latencies(active)
+        issue_frames = self.env_step_idx.clone()
+        admitted, worker_ids = self._prepare_admission(active)
+        profile_service = self._sample_profile_latencies(admitted, worker_ids)
         reset_pipes_in_kernel = self.clock.obs_stride_raw_frames > 1
         if reset_pipes_in_kernel:
             reset_upper_pipe_xy, reset_lower_pipe_xy, reset_pipe_slot_capacity = core.prepare_pipe_resets_for_decision(
@@ -344,6 +382,7 @@ class CudaLatencyScheduler:
             core.lower_pipe_xy,
             action_t,
             active,
+            admitted,
             self.env_step_idx,
             self.decision_step_idx,
             self.next_action_id,
@@ -386,6 +425,7 @@ class CudaLatencyScheduler:
             int(self.queue_capacity),
             int(core._base_shift),
         )
+        self._record_admitted_service(admitted, worker_ids, issue_frames, profile_service)
         packed = core._packed_decision.detach().cpu().numpy()
         if not reset_pipes_in_kernel:
             core._reset_offscreen_pipes_from_numpy(packed[:, 5:8])
@@ -404,6 +444,12 @@ class CudaLatencyScheduler:
             env_step_indices=self.env_step_idx.detach().cpu().numpy().copy(),
             decision_step_indices=self.decision_step_idx.detach().cpu().numpy().copy(),
             timeout_mask=self._decision_timeout.detach().cpu().numpy().copy(),
+            command_admitted=self._decision_admitted.detach().cpu().numpy().copy(),
+            observation_dropped=self._decision_dropped.detach().cpu().numpy().copy(),
+            worker_ids=self._decision_worker_ids.detach().cpu().numpy().copy(),
+            worker_service_raw_frames=(
+                self._decision_worker_service_raw_frames.detach().cpu().numpy().copy()
+            ),
             rewards_gpu=core._decision_rewards,
             terminated_gpu=core._decision_terminated,
             truncated_gpu=core._decision_truncated,
@@ -423,6 +469,10 @@ class CudaLatencyScheduler:
             ready_raw_frames=self._decision_ready_raw_frames.clone(),
             raw_frames_advanced=advanced.clone(),
             pending_counts=self.pending_count.clone(),
+            command_admitted=self._decision_admitted.clone(),
+            observation_dropped=self._decision_dropped.clone(),
+            worker_ids=self._decision_worker_ids.clone(),
+            worker_service_raw_frames=self._decision_worker_service_raw_frames.clone(),
         )
         self.ext.flappy_latency_finish(active, self.decision_step_idx, int(self.batch_size))
         self._latency_raw_frames_cpu[:] = result.latency_raw_frames.detach().cpu().numpy()
@@ -451,6 +501,12 @@ class CudaLatencyScheduler:
         info["ready_raw_frame"] = int(decision.ready_raw_frames[agent_idx].item())
         info["raw_frames_advanced"] = int(decision.raw_frames_advanced[agent_idx].item())
         info["obs_stride_raw_frames"] = int(self.clock.obs_stride_raw_frames)
+        info["command_admitted"] = bool(decision.command_admitted[agent_idx].item())
+        info["observation_dropped"] = bool(decision.observation_dropped[agent_idx].item())
+        info["worker_id"] = int(decision.worker_ids[agent_idx].item())
+        info["worker_service_raw_frames"] = int(
+            decision.worker_service_raw_frames[agent_idx].item()
+        )
         return info
 
     def core_decision_info_for_agent(
@@ -476,6 +532,10 @@ class CudaLatencyScheduler:
             "queued_action": int(decision.queued_actions[agent_idx]),
             "ready_raw_frame": int(decision.ready_raw_frames[agent_idx]),
             "raw_frames_advanced": int(decision.raw_frames_advanced[agent_idx]),
+            "command_admitted": bool(decision.command_admitted[agent_idx]),
+            "observation_dropped": bool(decision.observation_dropped[agent_idx]),
+            "worker_id": int(decision.worker_ids[agent_idx]),
+            "worker_service_raw_frames": int(decision.worker_service_raw_frames[agent_idx]),
         }
         if self.latency_distribution_spec is not None:
             info["latency_distribution"] = self.latency_distribution_spec.to_dict()
@@ -544,22 +604,74 @@ class CudaLatencyScheduler:
             return int(make_latency_distribution_sampler(self.latency_distribution_spec, seed=seed).sample_frame())
         return 0
 
-    def _sample_profile_latencies(self, active: torch.Tensor) -> None:
+    def _prepare_admission(self, active: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        admitted = active.clone()
+        worker_ids = torch.full(
+            (self.batch_size,), -1, dtype=torch.int64, device=self.device
+        )
+        if self.worker_busy_until is None:
+            if self.profile_worker_slot is not None:
+                worker_ids[active] = int(self.profile_worker_slot)
+        else:
+            idle = self.worker_busy_until <= self.env_step_idx[:, None]
+            admitted &= idle.any(dim=1)
+            worker_ids[admitted] = idle[admitted].to(torch.int64).argmax(dim=1)
+        dropped = active & ~admitted
+        self._decision_admitted.copy_(admitted)
+        self._decision_dropped.copy_(dropped)
+        self._decision_worker_ids.copy_(worker_ids)
+        self._decision_latency_raw_frames.zero_()
+        self._decision_ready_raw_frames.fill_(-1)
+        self._decision_queued_actions.zero_()
+        self.current_latency_raw_frames[dropped] = 0
+        self.submitted_observations[admitted] += 1
+        self.dropped_observations[dropped] += 1
+        return admitted.contiguous(), worker_ids
+
+    def _record_admitted_service(
+        self,
+        admitted: torch.Tensor,
+        worker_ids: torch.Tensor,
+        issue_frames: torch.Tensor,
+        profile_service: torch.Tensor,
+    ) -> None:
+        worker_service = (
+            profile_service
+            if self.latency_samplers is not None
+            else self._decision_latency_raw_frames
+        )
+        self._decision_worker_service_raw_frames.zero_()
+        self._decision_worker_service_raw_frames[admitted] = worker_service[admitted]
+        if self.worker_busy_until is not None:
+            rows = torch.nonzero(admitted, as_tuple=False).flatten()
+            self.worker_busy_until[rows, worker_ids[rows]] = (
+                issue_frames[rows] + worker_service[rows]
+            )
+
+    def _sample_profile_latencies(
+        self,
+        admitted: torch.Tensor,
+        worker_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        worker_service = np.zeros(self.batch_size, dtype=np.int64)
         if self.latency_samplers is None:
-            return
-        active_cpu = active.detach().cpu().numpy()
+            return torch.as_tensor(worker_service, dtype=torch.int64, device=self.device)
+        admitted_cpu = admitted.detach().cpu().numpy()
+        workers_cpu = worker_ids.detach().cpu().numpy()
         sampled = np.zeros(self.batch_size, dtype=np.int64)
-        for agent_idx in np.flatnonzero(active_cpu):
+        for agent_idx in np.flatnonzero(admitted_cpu):
             sample = self.latency_samplers[int(agent_idx)].sample(
                 {
                     "episode_id": int(self.episode_idx_cpu[int(agent_idx)]),
-                    "worker_slot": self.profile_worker_slot,
+                    "worker_slot": int(workers_cpu[int(agent_idx)]),
                 }
             )
             sampled[int(agent_idx)] = int(sample.action_ready_raw_frames)
+            worker_service[int(agent_idx)] = int(sample.worker_service_raw_frames)
         self._profile_latency_raw_frames.copy_(
             torch.as_tensor(sampled, dtype=torch.int64, device=self.device)
         )
+        return torch.as_tensor(worker_service, dtype=torch.int64, device=self.device)
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:
         return batch_indices(indices, batch_size=self.batch_size)

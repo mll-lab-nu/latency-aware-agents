@@ -27,8 +27,14 @@
 | [BALANCE_DAGGER](BALANCE_DAGGER.md) | QwenOFT DAgger 标签修复短交接、十轮结果及终点验收待办 | 活跃交接；详版历史在 archive/DAGGER |
 | [BALANCE_CAUSAL_EVAL](BALANCE_CAUSAL_EVAL.md) | 现有 Balance 模型补评测协议、历史结果与统一入口用法 | 因果评测协议；正式结果见 PROGRESS 与实验报告 |
 | [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 四任务 evaluator、固定均值 prefix、sampler/worker 与 seed/reset 合同 | 保留合同记录；实现验证与正式训练分别记录 |
+| [ARTIFACT_HANDOFF](ARTIFACT_HANDOFF.md) | Flappy/Demon/Deadly/Atlantis/Asterix 的 5 类历史资产、统一 100 局评测与中央 HF 路径 | 活跃交接；只有正式评测与远端回读通过后才在 PROGRESS 标记发布 |
 | [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 四任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
 | [logs/starvla-resident-dagger-migration-2026-09-19](logs/starvla-resident-dagger-migration-2026-09-19.md) | StarVLA DAgger 常驻训练权重推理、smoke 验证与正式迁移 | 运行记录；未经核验的正式结果不写入 PROGRESS |
+| [logs/mikasa-h8-dagger-2026-09-23](logs/mikasa-h8-dagger-2026-09-23.md) | 六路 conditioned H8 从 SFT step-5000 接续 DAgger 的配置、smoke 与运行状态 | 运行记录；十轮与终评核验后更新 PROGRESS |
+| [logs/mikasa-h8-naive-dagger-2026-09-23](logs/mikasa-h8-naive-dagger-2026-09-23.md) | 三路 zero-latency naive H8 DAgger 的队列与运行状态 | 运行记录；正式终点核验后更新 PROGRESS |
+| [logs/atari-gpu-training-gate-2026-09-22](logs/atari-gpu-training-gate-2026-09-22.md) | Atlantis/Asterix CuLE 接入、2048/4096 H100 吞吐与 100 局 GPU/CPU 兼容评测 | 2048 候选通过吞吐与兼容门；三 seed 同帧数质量 A/B 尚未完成 |
+| [logs/worker-capacity-contract-2026-09-23](logs/worker-capacity-contract-2026-09-23.md) | Flappy/Demon/Deadly 训练评测容量不一致的诊断、统一实现、H100 验证与 corrected 重训协议 | 九项旧 profile-small 结果失效；corrected 产物只留挂载盘，未经批准不更新 HF |
+| [logs/decision-action-history-nine-profile-2026-09-23](logs/decision-action-history-nine-profile-2026-09-23.md) | Flappy/Demon/Deadly 共用 8 次决策历史与 3090 temporal 配方；Deadly 时钟修正与重跑 | Deadly 原 60/15 run 已删除，35/8.75 新队列已启动；正式结果待核验 |
 | [parkour/OPTIMIZE](parkour/OPTIMIZE.md) | CPU 调度收益、预算对齐及已回退的 PhysX/cache 实验 | 保留性能记录；训练吞吐与 VLA inference latency profile 分开解释 |
 
 ## 研究资料

@@ -45,28 +45,28 @@ teacher-to-VLA pipelines. Each guide starts with the task-owned entrypoints in
 | [Extreme Parkour (Go2)](docs/extreme_parkour/cookbook.md) | `bash scripts/profile.sh run --model qwenoft --workload extreme_parkour_go2 --model-path MODEL_PATH` | Teacher verified; three StarVLA baselines published |
 | [HAIC Pull Cart (G1)](docs/haic/cookbook.md) | `bash scripts/profile.sh run --model qwenoft --workload haic_pull_cart --model-path MODEL_PATH` | Teacher and QwenOFT baseline verified |
 
-Older game benchmarks and generic model adapters remain available as separate
-research paths: [historical game workflows](docs/standard_pipeline.md#older-game-and-generic-adapter-paths),
+Game benchmarks and generic model adapters are also supported through their
+existing entrypoints: [historical game workflows](docs/standard_pipeline.md#older-game-and-generic-adapter-paths),
 [Gymnasium adaptation](docs/gymnasium_adapter.md), and [latency profiling](docs/profiling/cookbook.md).
 
 ## Repository Map
 
 ```text
 latency-sensitive-bench/
-  latency_bench/        # benchmark runtime, latency queues, samplers, profiling, eval
-  configs/              # base env configs and experiment configs
-  scripts/              # rollout, memory, cross-device, and experiment orchestration
-  docs/                 # semantic contracts and detailed runbooks
-
-../starVLA/
-  examples/rl_games/bash_scripts/   # canonical VLA training/eval launchers
-  examples/rl_games/config/         # StarVLA Hydra experiment configs
-  starVLA/training/rl_games/        # eval_core and RL-games integration
-
-../latency-sensitive-bench-realtime-human/
-  static/pyodide.html               # browser-local human eval prototype
-  server.py                         # FastAPI human realtime eval backend
+  latency_bench/        # runtime, scheduling, latency, profiling, evaluation
+  training/             # teacher training and framework integrations
+  configs/              # shared defaults, task recipes, experiment records
+  scripts/              # task launchers and artifact preparation
+  third_party/           # pinned simulator and model source submodules
+    starVLA/            # VLA training and inference
+  docs/                 # setup, task cookbooks, and semantic contracts
+  program/              # verified research status and experiment history
 ```
+
+See [core infrastructure](docs/infra.md) for ownership boundaries and the
+[artifact preparation guide](docs/artifacts.md#prepare-a-backbone-for-evaluation)
+for portable evaluation inputs. The optional human-evaluation application is a
+separate repository; it is not required by the benchmark runtime.
 
 ## Installation
 
@@ -243,7 +243,7 @@ Detailed guide: [docs/standard_pipeline.md](docs/standard_pipeline.md).
 Example mixed-latency OpenVLA training:
 
 ```bash
-cd ../starVLA
+cd third_party/starVLA
 bash examples/rl_games/bash_scripts/openvla/bridge/mixed/flappy.sh
 ```
 
@@ -366,6 +366,13 @@ Create a self-contained report at docs/gym-adapt/gymnasium/[TASK_NAME]/index.htm
 ```
 
 ## Documentation
+
+Start with [installation](docs/QUICK_START.md), then the task cookbook linked
+above or the [standard pipeline](docs/standard_pipeline.md). Infrastructure
+contributors should use [core ownership and validation](docs/infra.md) and the
+semantic contracts below. [Archived audits](docs/audits/archive/README.md) record
+past implementation states; research results and current decisions live in
+[program/PROGRESS.md](program/PROGRESS.md).
 
 - [Latency execution semantics](docs/latency_execution_semantics_en.md)
 - [Supported-task standard pipeline](docs/standard_pipeline.md)

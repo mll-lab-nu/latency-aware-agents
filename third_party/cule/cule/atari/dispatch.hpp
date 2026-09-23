@@ -76,6 +76,7 @@ reset(ExecutionPolicy&& policy,
                             wrap.cached_frame_states_ptr,
                             nullptr);
     }
+    wrap.cached_states_ptr[0].score = Environment::ALE_t::getScore(wrap.cached_states_ptr[0]);
 
     for (size_t i = 1; i < wrap.noop_reset_steps; i++)
     {
@@ -104,6 +105,7 @@ reset(ExecutionPolicy&& policy,
                             wrap.cache_index_ptr + i,
                             wrap.cached_frame_states_ptr + i,
                             nullptr);
+        wrap.cached_states_ptr[i].score = Environment::ALE_t::getScore(wrap.cached_states_ptr[i]);
     }
 
     for (size_t i = 0; i < wrap.size(); i++)

@@ -237,6 +237,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "num_batches_to_accumulate",
         "policy_workers_per_policy",
         "learning_rate",
+        "lr_schedule",
         "kl_loss_coeff",
         "lr_schedule_kl_threshold",
         "nonlinearity",
@@ -339,8 +340,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--latency-seed", latency_cfg.get("seed"))
     append_cli_arg(args, "--latency-profile-path", latency_cfg.get("profile_path"))
     append_cli_arg(args, "--latency-profile-worker-slot", latency_cfg.get("profile_worker_slot"))
-    if config["env"]["name"] == "gymnasium":
-        append_cli_arg(args, "--simulated-worker-capacity", config.get("executor", {}).get("simulated_worker_capacity"))
+    append_cli_arg(args, "--simulated-worker-capacity", config["executor"]["simulated_worker_capacity"])
     append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
     append_cli_arg(args, "--max-pending-actions", latency_cfg.get("max_pending_actions"))
 

@@ -175,6 +175,7 @@ __device__ __forceinline__ int64_t sample_latency_raw_frames(
 __global__ void demon_decision_begin_kernel(
     const int64_t* __restrict__ actions,
     const bool* __restrict__ active,
+    const bool* __restrict__ admitted,
     int64_t* __restrict__ env_step_idx,
     int64_t* __restrict__ next_action_id,
     int64_t* __restrict__ current_latency_raw_frames,
@@ -218,7 +219,7 @@ __global__ void demon_decision_begin_kernel(
     decision_raw_frames_advanced[env] = 0;
     still_active[env] = active[env];
 
-    if (!active[env])
+    if (!admitted[env])
     {
         return;
     }
@@ -621,6 +622,7 @@ step_decision(const bool episodic_life,
               const int64_t queue_capacity,
               const int64_t* actions,
               const bool* active,
+              const bool* admitted,
               int64_t* env_step_idx,
               int64_t* decision_step_idx,
               int64_t* next_action_id,
@@ -663,6 +665,7 @@ step_decision(const bool episodic_life,
     demon_decision_begin_kernel<<<blocks, threads, 0, stream>>>(
         actions,
         active,
+        admitted,
         env_step_idx,
         next_action_id,
         current_latency_raw_frames,

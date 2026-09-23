@@ -70,6 +70,18 @@ class ResidentInferencePool:
                     outputs[index] = output
         return outputs  # type: ignore[return-value]
 
+    def reset_state(self, slot_id: int | None = None) -> None:
+        """Clear a slot on its owning rank, or all rank state at a boundary."""
+        ranks = range(self.worker_count) if slot_id is None else [slot_id % self.worker_count]
+        for rank in ranks:
+            self.connections[rank].send(("reset_state", {"slot_id": slot_id}))
+        for rank in ranks:
+            tag, payload = self.connections[rank].recv()
+            if tag == "error":
+                raise RuntimeError(payload["traceback"])
+            if tag != "reset_done":
+                raise RuntimeError(f"resident inference rank returned {tag!r} for reset_state")
+
     def close(self) -> None:
         if self.closed:
             return
@@ -145,6 +157,9 @@ def serve_resident_inference(
                 elif tag == "predict_batch":
                     outputs = policy.predict_batch(payload["observations"])
                     connection.send(("batch_result", {"policy_outputs": outputs}))
+                elif tag == "reset_state":
+                    policy.reset_state(payload["slot_id"])
+                    connection.send(("reset_done", {}))
                 else:
                     connection.send(("error", {"traceback": f"unknown resident request {tag!r}"}))
             except Exception:

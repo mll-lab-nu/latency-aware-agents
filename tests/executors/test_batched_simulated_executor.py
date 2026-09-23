@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import current_profiler
@@ -66,6 +67,23 @@ class RawFrameLatencySource(LatencySampler):
         self.calls.append(dict(context or {}))
         raw = self.raw_frames.pop(0)
         return LatencySample.from_latency_ms(raw * self.clock.frame_ms, clock=self.clock, latency_raw_frames=raw)
+
+
+class DivergentReadyAndWorkerLatencySource(LatencySampler):
+    def __init__(self, *, action_ready_frames: int, worker_service_frames: int):
+        self.action_ready_frames = action_ready_frames
+        self.worker_service_frames = worker_service_frames
+        self.calls: list[dict] = []
+
+    def sample(self, context=None) -> LatencySample:
+        self.calls.append(dict(context or {}))
+        return LatencySample(
+            latency_ms=self.action_ready_frames * _CLOCK.frame_ms,
+            latency_raw_frames=self.action_ready_frames,
+            action_ready_raw_frames=self.action_ready_frames,
+            worker_service_raw_frames=self.worker_service_frames,
+            worker_service_ms=self.worker_service_frames * _CLOCK.frame_ms,
+        )
 
 
 class TupleActionPolicy(PolicyRunner):
@@ -896,6 +914,48 @@ def test_batched_executor_worker_capacity_is_independent_per_slot(tmp_path: Path
     assert [item.metadata["simulated_worker_capacity"] for item in metrics] == [1, 1]
 
 
+def test_decision_history_records_completed_four_frame_windows_and_drops():
+    class CapturePolicy(PolicyRunner):
+        def __init__(self):
+            self.observations = []
+
+        def predict(self, observation):
+            raise AssertionError("batched path required")
+
+        def predict_batch(self, observations):
+            self.observations.extend(observations)
+            return [PolicyOutput(action=Action(1, name="fire")) for _ in observations]
+
+    clock = EnvClock(env_fps=60, obs_fps=15)
+    noop = Action(0, name="noop", is_noop=True)
+    env = DummyEnvAdapter(env_fps=60, max_steps=9, noop_action=noop)
+    env.action_space = Discrete(2)
+    policy = CapturePolicy()
+    executor = BatchedSimulatedLatencyExecutor(
+        env_backend=SerialEnvStepBackend([env]),
+        policy=policy,
+        decision_scheduler=ObservationCadenceDecisionScheduler(clock),
+        latency_sources=[DivergentReadyAndWorkerLatencySource(action_ready_frames=0, worker_service_frames=8)],
+        action_schedulers=[ActionScheduler(
+            clock=clock, noop_action=noop, persistence_policy=HoldPolicy(),
+            ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
+        )],
+        clock=clock,
+        simulated_worker_capacity=1,
+        action_history_decisions=8,
+    )
+    try:
+        executor.run_episodes(episode_ids=[0], seeds=[0], eval_max_steps=9)
+    finally:
+        executor.close()
+
+    assert len(policy.observations) == 2
+    first, second = [item.data for item in policy.observations]
+    assert first["transport"].shape == (24,)
+    np.testing.assert_array_equal(first["transport"], 0)
+    np.testing.assert_array_equal(second["transport"][-6:], [1, 1, 1, 0, 0, 1])
+
+
 def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path):
     executor, _envs = _executor(tmp_path, num_slots=2, env_max_steps=1)
 
@@ -1304,3 +1364,42 @@ def test_fixed_prefix_is_isolated_between_environment_slots(tmp_path):
             np.testing.assert_array_equal(item["action_prefix_mask"], [True, True, False, False])
     finally:
         executor.close()
+
+
+@pytest.mark.parametrize(
+    ("action_ready_frames", "worker_service_frames", "expected_submissions"),
+    [
+        (0, 0, [0, 1, 2, 3, 4, 5]),
+        (2, 3, [0, 3]),
+        (3, 3, [0, 3]),
+        (4, 2, [0, 4]),
+    ],
+)
+def test_batched_prefix_requests_wait_for_worker_and_previous_result(
+    tmp_path, action_ready_frames, worker_service_frames, expected_submissions
+):
+    latency_source = DivergentReadyAndWorkerLatencySource(
+        action_ready_frames=action_ready_frames,
+        worker_service_frames=worker_service_frames,
+    )
+    executor, _ = _executor(
+        tmp_path,
+        num_slots=1,
+        env_max_steps=6,
+        policy=ConstantPolicyRunner(Action([1.0])),
+        latency_sources=[latency_source],
+        simulated_worker_capacity=1,
+    )
+    executor.slots[0].action_scheduler.noop_action = Action([0.0], is_noop=True)
+    executor.action_prefix = {
+        "mode": "profile_p95",
+        "frames": 3,
+        "action_horizon": 8,
+        "action_dim": 1,
+    }
+    try:
+        executor.run_episodes(episode_ids=[0], seeds=[1], eval_max_steps=6)
+    finally:
+        executor.close()
+
+    assert [call["raw_frame"] for call in latency_source.calls] == expected_submissions

@@ -34,6 +34,8 @@ class BatchedEpisodeMetrics:
         self.full_game_return = np.zeros(self.batch_size, dtype=np.float64)
         self.full_game_raw_return = np.zeros(self.batch_size, dtype=np.float64)
         self.full_game_length = np.zeros(self.batch_size, dtype=np.int64)
+        self.submitted_observation_count = np.zeros(self.batch_size, dtype=np.int64)
+        self.dropped_observation_count = np.zeros(self.batch_size, dtype=np.int64)
         self.episode_idx = np.zeros(self.batch_size, dtype=np.int64)
         self._preserve_full_game_on_next_reset = np.zeros(self.batch_size, dtype=np.bool_)
         self._action_labels = sorted({str(label) for label in self.issued_action_labels.values()})
@@ -66,6 +68,7 @@ class BatchedEpisodeMetrics:
         scores: Sequence[int] | np.ndarray,
         active_mask: Sequence[bool] | np.ndarray,
         latency_raw_frames: Sequence[int] | np.ndarray,
+        command_admitted: Sequence[bool] | np.ndarray,
         lives: Sequence[int] | np.ndarray | None = None,
         timeout_mask: Sequence[bool] | np.ndarray | None = None,
     ) -> dict[int, dict[str, Any]]:
@@ -76,6 +79,7 @@ class BatchedEpisodeMetrics:
         score_arr = np.asarray(scores, dtype=np.int64).reshape(-1)
         active = np.asarray(active_mask, dtype=np.bool_).reshape(-1)
         latency_arr = np.asarray(latency_raw_frames, dtype=np.int64).reshape(-1)
+        admitted_arr = np.asarray(command_admitted, dtype=np.bool_).reshape(-1)
         lives_arr = None if lives is None else np.asarray(lives, dtype=np.int64).reshape(-1)
         timeout_arr = (
             np.zeros(self.batch_size, dtype=np.bool_)
@@ -86,6 +90,8 @@ class BatchedEpisodeMetrics:
         self.full_game_return[active] += reward_arr[active]
         self.full_game_raw_return[active] += reward_arr[active]
         self.full_game_length[active] += 1
+        self.submitted_observation_count[active & admitted_arr] += 1
+        self.dropped_observation_count[active & ~admitted_arr] += 1
 
         done_mask = active & np.logical_or(term_arr, trunc_arr)
         if not np.any(done_mask):
@@ -150,6 +156,12 @@ class BatchedEpisodeMetrics:
         action_stats = self._issued_action_stats(agent_idx)
         extra_stats.update(action_stats)
         extra_stats["episode/latency_raw_frames"] = int(latency_raw_frames)
+        submitted = int(self.submitted_observation_count[agent_idx])
+        dropped = int(self.dropped_observation_count[agent_idx])
+        total_observations = submitted + dropped
+        extra_stats["episode/submitted_observation_count"] = submitted
+        extra_stats["episode/dropped_observation_count"] = dropped
+        extra_stats["episode/observation_drop_ratio"] = float(dropped) / float(total_observations)
 
         info["episode_extra_stats"] = extra_stats
         info["episodic_raw_return"] = float(self.full_game_raw_return[agent_idx])
@@ -172,6 +184,8 @@ class BatchedEpisodeMetrics:
             "time_limit_truncated": time_limit_truncated,
             "timeout": bool(truncated or time_limit_truncated),
             "done_reason": done_reason,
+            "submitted_observation_count": submitted,
+            "dropped_observation_count": dropped,
         }
         if info.get("score") is not None:
             event["score"] = float(info["score"])
@@ -184,6 +198,8 @@ class BatchedEpisodeMetrics:
         self.full_game_return[agent_idx] = 0.0
         self.full_game_raw_return[agent_idx] = 0.0
         self.full_game_length[agent_idx] = 0
+        self.submitted_observation_count[agent_idx] = 0
+        self.dropped_observation_count[agent_idx] = 0
         self.issued_action_counts[agent_idx, :] = 0
         self.issued_action_run_sums[agent_idx, :] = 0
         self.issued_action_run_counts[agent_idx, :] = 0

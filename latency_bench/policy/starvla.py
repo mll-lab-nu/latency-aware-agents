@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 from collections.abc import Mapping, Sequence
@@ -25,8 +24,9 @@ from latency_bench.envs.gymnasium_task import (
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 
+from latency_bench.utils.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
 STARVLA_ROOT = REPO_ROOT / "third_party" / "starVLA"
 STATEFUL_STARVLA_MODEL_IDS: tuple[str, ...] = (
     "pi0",
@@ -73,6 +73,8 @@ DEADLY_CORRIDOR_ATTACK_LABELS: tuple[str, ...] = (
 
 
 class StarVlaPolicyRunner(PolicyRunner):
+    """Translate observations and model outputs using the task action contract."""
+
     def __init__(
         self,
         *,
@@ -350,7 +352,6 @@ class StarVlaPolicyRunner(PolicyRunner):
             "checkpoint_path": self._checkpoint_path,
             "unnorm_key": self._unnorm_key,
             "device": self._device,
-            "prompt_sha256": sha256_text(example["lang"]),
             "input_frame_count": len(example["image"]),
             "image_transform": self._image_transform,
             "action_output_type": action_output_type,
@@ -620,43 +621,6 @@ def _load_starvla_model_config(path: str | Path) -> dict[str, Any]:
     return _normalized_model_cfg(OmegaConf.load(path))
 
 
-def _resolve_starvla_backbone_path(model_cfg: Mapping[str, Any]) -> str | None:
-    from huggingface_hub import snapshot_download
-
-    repo_id: str | None = None
-    allow_patterns = None
-    if "backbone" in model_cfg:
-        backbone = model_cfg["backbone"]
-        if isinstance(backbone, Mapping) and "repo_id" in backbone:
-            repo_id = str(backbone["repo_id"])
-            allow_patterns = backbone.get("allow_patterns")
-    if repo_id is None:
-        base_vlm = (
-            model_cfg.get("framework", {})
-            .get("qwenvl", {})
-            .get("base_vlm")
-        )
-        if base_vlm is not None:
-            base_name = Path(str(base_vlm)).name
-            if base_name == "Qwen3-VL-4B-Instruct":
-                repo_id = "Qwen/Qwen3-VL-4B-Instruct"
-            elif base_name == "Qwen3-VL-4B-Instruct-Action":
-                repo_id = "StarVLA/Qwen3-VL-4B-Instruct-Action"
-            elif base_name == "Qwen2.5-VL-3B-Instruct-Action":
-                repo_id = "StarVLA/Qwen2.5-VL-3B-Instruct-Action"
-    if repo_id is None:
-        return None
-    return snapshot_download(
-        repo_id,
-        allow_patterns=allow_patterns,
-        local_dir=(
-            STARVLA_ROOT
-            / "playground/Pretrained_models"
-            / repo_id.split("/")[-1]
-        ),
-    )
-
-
 def _apply_model_family_include_state_compat(cfg: Any) -> None:
     from omegaconf import OmegaConf
 
@@ -922,14 +886,6 @@ class LiveStarVlaWrapper:
             )
 
 
-def sha256_text(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def sha256_array(value: npt.NDArray[Any]) -> str:
-    return hashlib.sha256(np.ascontiguousarray(value).tobytes()).hexdigest()
-
-
 _LEGACY_GYMNASIUM_TASK_NAMES = {
     "ant_rgb_state": "ant",
     "half_cheetah_rgb_state": "half_cheetah",
@@ -964,11 +920,9 @@ def _validate_gymnasium_starvla_contract(
     env_cfg: Mapping[str, Any],
     policy_cfg: Mapping[str, Any],
     model_cfg: Mapping[str, Any],
+    manifest: Mapping[str, Any],
 ) -> None:
     eval_contract = gymnasium_task_contract(env_cfg)
-    manifest = json.loads(
-        Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
-    )
     manifest_task = manifest.get("gymnasium_task")
     expected = policy_cfg.get(
         "gymnasium_training_task_contract", manifest_task or eval_contract
@@ -1052,6 +1006,55 @@ def _validate_gymnasium_starvla_contract(
             )
 
 
+def _starvla_runner_kwargs(
+    config: dict[str, Any],
+    action_resolver: ActionResolver,
+    model_cfg: Mapping[str, Any] | None,
+    *,
+    base_prompt: str | None,
+) -> dict[str, Any]:
+    """Resolve task and input settings shared by checkpoint and resident models."""
+    env_cfg = config["env"]
+    policy_cfg = config["policy"]
+    if env_cfg["name"] == "gymnasium":
+        task_manifest = json.loads(
+            Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
+        )
+        _validate_gymnasium_starvla_contract(
+            env_cfg=env_cfg,
+            policy_cfg=policy_cfg,
+            model_cfg=model_cfg,
+            manifest=task_manifest,
+        )
+        semantic_env_name = env_cfg["task_name"]
+        action_refs = env_cfg.get("action_order", [])
+        base_prompt = env_cfg["base_prompt"]
+        state_normalization = task_manifest.get("state_normalization")
+    else:
+        semantic_env_name = env_cfg["name"]
+        action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
+        state_normalization = None
+    return dict(
+        unnorm_key=policy_cfg.get("unnorm_key"),
+        env_name=semantic_env_name,
+        action_resolver=action_resolver,
+        action_refs=action_refs,
+        latency_prompt_map=(
+            load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
+            if "latency_prompt_map_path" in policy_cfg
+            else None
+        ),
+        base_prompt=base_prompt,
+        latency_prompt_key=policy_cfg.get("latency_prompt_key"),
+        prompt_mode=policy_cfg.get("prompt_mode"),
+        obs_resize=tuple(env_cfg["obs_resize"]) if env_cfg.get("obs_resize") else None,
+        image_transform_config=policy_cfg.get("image_transform_config"),
+        observation_stride_raw_frames=_observation_stride_raw_frames(config),
+        model_cfg=model_cfg,
+        state_normalization=state_normalization,
+    )
+
+
 def build_starvla_policy(
     config: dict[str, Any],
     action_resolver: ActionResolver,
@@ -1064,35 +1067,20 @@ def build_starvla_policy(
         return build_task_starvla_policy(config)
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]
-    if integration_env_name == "gymnasium":
-        model_cfg = _load_starvla_model_config(policy_cfg["model_config_path"])
-        task_manifest = json.loads(
-            Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
-        )
-        _validate_gymnasium_starvla_contract(
-            env_cfg=env_cfg,
-            policy_cfg=policy_cfg,
-            model_cfg=model_cfg,
-        )
-        semantic_env_name = env_cfg["task_name"]
-        action_refs = env_cfg.get("action_order", [])
-        base_prompt = env_cfg["base_prompt"]
-    else:
-        semantic_env_name = integration_env_name
-        action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
-        base_prompt = env_cfg["base_prompt"] if "base_prompt" in env_cfg else None
-        model_cfg = (
-            _load_starvla_model_config(policy_cfg["model_config_path"])
-            if "model_config_path" in policy_cfg
-            else None
-        )
-    unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
+    model_cfg = (
+        _load_starvla_model_config(policy_cfg["model_config_path"])
+        if integration_env_name == "gymnasium" or "model_config_path" in policy_cfg
+        else None
+    )
+    runner_kwargs = _starvla_runner_kwargs(
+        config, action_resolver, model_cfg, base_prompt=env_cfg.get("base_prompt")
+    )
     wrapper_cls = _load_policy_wrapper_class()
     wrapper_kwargs: dict[str, Any] = dict(
         ckpt_path=policy_cfg["checkpoint_path"],
         device=policy_cfg["device"],
         use_bf16=True,
-        unnorm_key=unnorm_key,
+        unnorm_key=runner_kwargs["unnorm_key"],
         action_output_mode=(
             policy_cfg["action_output_mode"]
             if "action_output_mode" in policy_cfg
@@ -1108,17 +1096,12 @@ def build_starvla_policy(
             else None
         ),
     )
-    if model_cfg is not None:
-        backbone_path = (
-            policy_cfg["backbone_path"] if "backbone_path" in policy_cfg
-            else _resolve_starvla_backbone_path(model_cfg)
-        )
-        if backbone_path is not None:
-            wrapper_kwargs["backbone_path"] = backbone_path
+    if "backbone_path" in policy_cfg:
+        wrapper_kwargs["backbone_path"] = policy_cfg["backbone_path"]
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         decode_env_name = (
-            semantic_env_name
+            runner_kwargs["env_name"]
             if action_space["type"] != "box"
             else integration_env_name
         )
@@ -1127,35 +1110,11 @@ def build_starvla_policy(
             wrapper_kwargs["rl_games_gymnasium_action_space_type"] = "box"
         wrapper_kwargs["rl_games_env_name"] = decode_env_name
     wrapper = wrapper_cls(**wrapper_kwargs)
-    latency_prompt_map = (
-        load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
-        if "latency_prompt_map_path" in policy_cfg
-        else None
-    )
-    latency_prompt_key = policy_cfg.get("latency_prompt_key")
-    prompt_mode = policy_cfg.get("prompt_mode")
-    image_transform_config = policy_cfg.get("image_transform_config")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg["checkpoint_path"],
         device=policy_cfg["device"],
-        unnorm_key=unnorm_key,
-        env_name=semantic_env_name,
-        action_resolver=action_resolver,
-        action_refs=action_refs,
-        latency_prompt_map=latency_prompt_map,
-        base_prompt=base_prompt,
-        latency_prompt_key=latency_prompt_key,
-        prompt_mode=prompt_mode,
-        obs_resize=tuple(env_cfg["obs_resize"]) if env_cfg.get("obs_resize") else None,
-        image_transform_config=image_transform_config,
-        observation_stride_raw_frames=_observation_stride_raw_frames(config),
-        model_cfg=model_cfg,
-        state_normalization=(
-            task_manifest.get("state_normalization")
-            if integration_env_name == "gymnasium"
-            else None
-        ),
+        **runner_kwargs,
         image_views_info_key=(
             policy_cfg["image_views_info_key"]
             if "image_views_info_key" in policy_cfg
@@ -1198,26 +1157,17 @@ def build_live_starvla_policy(
             contract=contract,
         )
 
-    unnorm_key = policy_cfg["unnorm_key"] if "unnorm_key" in policy_cfg else None
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]
-    if integration_env_name == "gymnasium":
-        normalized_model_cfg = _normalized_model_cfg(model_cfg)
-        task_manifest = json.loads(
-            Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
-        )
-        _validate_gymnasium_starvla_contract(
-            env_cfg=env_cfg,
-            policy_cfg=policy_cfg,
-            model_cfg=normalized_model_cfg,
-        )
-        semantic_env_name = env_cfg["task_name"]
-        action_refs = env_cfg.get("action_order", [])
-        base_prompt = env_cfg["base_prompt"]
-    else:
-        semantic_env_name = integration_env_name
-        action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
-        base_prompt = None
+    normalized_model_cfg = (
+        _normalized_model_cfg(model_cfg)
+        if integration_env_name == "gymnasium"
+        else None
+    )
+    # Resident evaluation historically takes non-Gymnasium prompts from the map.
+    runner_kwargs = _starvla_runner_kwargs(
+        config, action_resolver, normalized_model_cfg, base_prompt=None
+    )
     wrapper_kwargs: dict[str, Any] = dict(
         framework=framework,
         model_cfg=model_cfg,
@@ -1232,7 +1182,7 @@ def build_live_starvla_policy(
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         decode_env_name = (
-            semantic_env_name
+            runner_kwargs["env_name"]
             if action_space["type"] != "box"
             else integration_env_name
         )
@@ -1241,35 +1191,11 @@ def build_live_starvla_policy(
             wrapper_kwargs["gymnasium_action_space_type"] = "box"
         wrapper_kwargs["env_name"] = decode_env_name
     wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
-    latency_prompt_map = (
-        load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
-        if "latency_prompt_map_path" in policy_cfg
-        else None
-    )
-    latency_prompt_key = policy_cfg.get("latency_prompt_key")
-    prompt_mode = policy_cfg.get("prompt_mode")
-    image_transform_config = policy_cfg.get("image_transform_config")
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg.get("checkpoint_path", ""),
         device=policy_cfg.get("device", "cuda"),
-        unnorm_key=unnorm_key,
-        env_name=semantic_env_name,
-        action_resolver=action_resolver,
-        action_refs=action_refs,
-        latency_prompt_map=latency_prompt_map,
-        base_prompt=base_prompt,
-        latency_prompt_key=latency_prompt_key,
-        prompt_mode=prompt_mode,
-        obs_resize=tuple(env_cfg["obs_resize"]) if env_cfg.get("obs_resize") else None,
-        image_transform_config=image_transform_config,
-        observation_stride_raw_frames=_observation_stride_raw_frames(config),
-        model_cfg=normalized_model_cfg if integration_env_name == "gymnasium" else None,
-        state_normalization=(
-            task_manifest.get("state_normalization")
-            if integration_env_name == "gymnasium"
-            else None
-        ),
+        **runner_kwargs,
     )
 
 

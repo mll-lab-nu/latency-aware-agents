@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 import math
 from typing import Any
@@ -8,7 +9,7 @@ from latency_bench.core.clock import EnvClock, ms_to_raw_frames
 from latency_bench.core.latency_distribution import LatencyDistributionSpec
 from latency_bench.latency.samplers import HiddenRegimeSampler, build_sampler
 
-from training.common.utils import env_instance_seed
+from training.common.utils import env_instance_seed, str2bool
 
 
 _NORMAL_LATENCY_TYPES = {"normal_distribution", "mixed_normal_distribution"}
@@ -25,6 +26,21 @@ class SampleFactoryLatencyParams:
     profile_worker_slot: int | None = None
     profile_method: str | None = None
     simulated_worker_capacity: int | None = None
+
+
+def add_sample_factory_latency_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--latency-type", dest="latency_type", type=str, default="zero")
+    parser.add_argument("--fixed-latency-ms", dest="fixed_latency_ms", type=float)
+    parser.add_argument("--mean-latency-ms", dest="mean_latency_ms", type=float)
+    parser.add_argument("--std-latency-ms", dest="std_latency_ms", type=float)
+    parser.add_argument("--min-latency-ms", dest="min_latency_ms", type=float)
+    parser.add_argument("--max-latency-ms", dest="max_latency_ms", type=float)
+    parser.add_argument("--latency-seed", dest="latency_seed", type=int)
+    parser.add_argument("--latency-profile-path", dest="latency_profile_path", type=str)
+    parser.add_argument("--latency-profile-worker-slot", dest="latency_profile_worker_slot", type=int)
+    parser.add_argument("--simulated-worker-capacity", dest="simulated_worker_capacity", type=int)
+    parser.add_argument("--add-latency-info", type=str2bool, default=False)
+    parser.add_argument("--max-pending-actions", dest="max_pending_actions", type=int)
 
 
 def sample_factory_latency_seed_from_flat_config(
@@ -88,7 +104,7 @@ def build_latency_info(
 
 def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) -> SampleFactoryLatencyParams:
     latency_type = cfg.latency_type
-    simulated_worker_capacity = getattr(cfg, "simulated_worker_capacity", None)
+    simulated_worker_capacity = cfg.simulated_worker_capacity
     if latency_type == "zero":
         return SampleFactoryLatencyParams(
             fixed_latency_raw_frames=0,
@@ -192,3 +208,25 @@ def profile_sampler_max_latency_raw_frames(sampler: Any, *, worker_slot: int, en
             )
             max_latency_ms = max(max_latency_ms, spike_ms + max(sampler.pre_worker_time["latency_ms"]))
     return latency_ms_to_raw_frames(max_latency_ms, env_fps=env_fps)
+
+
+def profile_sampler_max_latency_raw_frames_for_workers(
+    sampler: Any,
+    *,
+    profile_worker_slot: int,
+    simulated_worker_capacity: int | None,
+    env_fps: float,
+) -> int:
+    worker_slots = (
+        [profile_worker_slot]
+        if simulated_worker_capacity is None
+        else range(simulated_worker_capacity)
+    )
+    return max(
+        profile_sampler_max_latency_raw_frames(
+            sampler,
+            worker_slot=worker_slot,
+            env_fps=env_fps,
+        )
+        for worker_slot in worker_slots
+    )

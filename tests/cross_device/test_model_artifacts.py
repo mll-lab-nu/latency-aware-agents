@@ -11,6 +11,7 @@ from latency_bench.cross_device.profile_resolver import (
     resolve_profile_artifacts,
 )
 import latency_bench.cross_device.protocol as protocol
+from latency_bench.eval.config import resolve_evaluation_config
 from latency_bench.cross_device.spec import load_profile_spec
 
 
@@ -150,6 +151,15 @@ def test_missing_local_root_downloads_only_exact_hf_artifact(tmp_path, monkeypat
         "zero-latency/task/vla/model-v1/**"
     ]
     assert resolved["model_provenance"]["source"] == "hf"
+    # Long-lived artifact boundary: evaluation must retain the snapshot filename
+    # and bundle directory used by checkpoint/config loaders.
+    config = {
+        "evaluation": {}, "executor": {}, "logging": {}, "latency": {},
+        "policy": {"checkpoint_path": resolved["checkpoint_path"]},
+    }
+    resolve_evaluation_config(config)
+    assert config["policy"]["checkpoint_path"] == str(checkpoint)
+    assert Path(config["policy"]["checkpoint_path"]).read_bytes() == blob.read_bytes()
 
 
 def test_root_hf_artifact_downloads_from_snapshot_root(tmp_path, monkeypatch):
@@ -234,18 +244,32 @@ def test_explicit_hf_artifact_override_forces_download_even_with_local_root(tmp_
     assert resolved["model_provenance"]["source"] == "hf"
 
 
-def test_model_config_resolves_from_the_same_artifact_root(tmp_path):
+def test_model_config_resolves_from_the_same_artifact_root(tmp_path, monkeypatch):
     spec = _spec(tmp_path)
     spec["model_artifact"]["model_config"] = "config.full.yaml"
     root = Path(spec["model_artifact"]["local_root"])
     (root / "checkpoints").mkdir(parents=True)
     (root / "checkpoints/final.pt").touch()
-    (root / "config.full.yaml").touch()
+    (root / "config.full.yaml").write_text(
+        "backbone:\n  repo_id: org/backbone\n  revision: fixed-commit\n"
+        "  allow_patterns: ['*.safetensors']\n"
+    )
+    downloads = []
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(
+        snapshot_download=lambda **kwargs: (
+            downloads.append(kwargs) or str(tmp_path / "cache/snapshots/fixed-commit")
+        )
+    ))
 
     resolved = resolve_model_artifacts(spec)
 
     assert resolved["model_config_path"] == str((root / "config.full.yaml").resolve())
     assert resolved["model_provenance"]["model_config"] == "config.full.yaml"
+    assert resolved["backbone_path"] == str(tmp_path / "cache/snapshots/fixed-commit")
+    assert downloads == [{
+        "repo_id": "org/backbone", "revision": "fixed-commit",
+        "allow_patterns": ["*.safetensors"],
+    }]
 
 
 @pytest.mark.parametrize("registry_runtime,profile_runtime", [(False, True), (True, False)])

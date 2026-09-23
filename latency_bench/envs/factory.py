@@ -14,20 +14,6 @@ EnvAdapterBuilder = Callable[[dict[str, Any], Action], EnvAdapter]
 _ENV_ADAPTER_BUILDERS: dict[str, EnvAdapterBuilder] = {}
 
 
-def _flappy_env_adapter_type() -> type[EnvAdapter]:
-    if "FlappyBirdEnvAdapter" not in globals():
-        from latency_bench.envs.flappy import FlappyBirdEnvAdapter as adapter_type
-
-        globals()["FlappyBirdEnvAdapter"] = adapter_type
-    return globals()["FlappyBirdEnvAdapter"]
-
-
-def __getattr__(name: str) -> Any:
-    if name == "FlappyBirdEnvAdapter":
-        return _flappy_env_adapter_type()
-    raise AttributeError(name)
-
-
 def register_env_adapter(name: str) -> Callable[[EnvAdapterBuilder], EnvAdapterBuilder]:
     normalized_name = _normalize_env_name(name)
 
@@ -153,7 +139,9 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
     obs_resize = env_cfg.get("obs_resize")
     if obs_resize is not None:
         obs_resize = tuple(int(value) for value in obs_resize)
-    return _flappy_env_adapter_type()(
+    from latency_bench.envs.flappy import FlappyBirdEnvAdapter
+
+    return FlappyBirdEnvAdapter(
         gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),
         env_fps=float(env_cfg["env_fps"]),
         noop_action=noop_action,
@@ -181,12 +169,13 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
     env_cfg = config["env"]
     eval_raw_reward = bool(config.get("evaluation", {}).get("eval_raw_reward", False))
     is_latency_bench_eval = str(config.get("backend", {}).get("run_mode", "")).lower() == "eval"
-    terminal_on_life_loss = bool(env_cfg.get("terminal_on_life_loss", False))
-    clip_reward = bool(env_cfg.get("clip_reward", True))
+    terminal_on_life_loss = env_cfg["terminal_on_life_loss"]
+    clip_reward = env_cfg["clip_reward"]
     if is_latency_bench_eval and eval_raw_reward:
-        terminal_on_life_loss = True
         clip_reward = False
-    continue_life_loss_terminal = bool(is_latency_bench_eval and eval_raw_reward)
+    continue_life_loss_terminal = (
+        terminal_on_life_loss and is_latency_bench_eval and eval_raw_reward
+    )
     return DemonAttackEnvAdapter(
         env_id=env_cfg.get("env_id", env_cfg.get("gym_id", "ALE/DemonAttack-v5")),
         env_fps=float(env_cfg["env_fps"]),

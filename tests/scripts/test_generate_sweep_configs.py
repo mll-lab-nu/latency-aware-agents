@@ -45,6 +45,106 @@ def test_iid_latency_setting_preserves_profile_training_config():
     }
 
 
+def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tmp_path):
+    generated_root = tmp_path / "configs"
+    output_root = tmp_path / "outputs"
+    train_dir = tmp_path / "checkpoints"
+
+    generate_sweep_configs(
+        [
+            "--spec",
+            "configs/experiments/flappy/small_policy_qwen_profiles_10fps_25m_capacity1_seed42.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(output_root),
+            "--train-dir",
+            str(train_dir),
+            "--eval-checkpoint-kind",
+            "best",
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 3
+    assert {row["latency_label"] for row in rows} == {
+        "qwenoft_rtx3090_temporal_25m_capacity1",
+        "qwengr00t_rtx3090_temporal_25m_capacity1",
+        "qwenpi_v3_rtx3090_temporal_25m_capacity1",
+    }
+    assert {row["seed"] for row in rows} == {"42"}
+    assert {row["frame_stack"] for row in rows} == {"4"}
+    assert {row["obs_fps"] for row in rows} == {"10"}
+    assert {row["train_upload_repo_id"] for row in rows} == {""}
+    assert {row["eval_upload_repo_id"] for row in rows} == {""}
+
+    for row in rows:
+        train_cfg = yaml.safe_load(Path(row["train_config"]).read_text(encoding="utf-8"))
+        eval_cfg = yaml.safe_load(Path(row["eval_config"]).read_text(encoding="utf-8"))
+        assert train_cfg["env"]["env_fps"] == 10
+        assert train_cfg["env"]["obs_fps"] == 10
+        assert train_cfg["training"]["train_for_env_steps"] == 25_000_000
+        assert train_cfg["logging"]["wandb_project"] == "starvla_tasks"
+        assert train_cfg["executor"]["simulated_worker_capacity"] == 1
+        assert train_cfg["latency"]["method"] == "temporal"
+        assert train_cfg["latency"]["profile_worker_slot"] == 0
+        assert eval_cfg["evaluation"]["eval_suites"] == {
+            "temporal": [
+                {
+                    "name": row["latency_label"],
+                    "profile_path": train_cfg["latency"]["profile_path"],
+                    "seed": 42,
+                }
+            ]
+        }
+        assert eval_cfg["policy"]["checkpoint_kind"] == "best"
+        assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "best"]
+        assert eval_cfg["executor"]["simulated_worker_capacity"] == 1
+        assert eval_cfg["evaluation"]["eval_episodes"] == 100
+        assert eval_cfg["evaluation"]["eval_max_steps"] == 18_000
+
+
+def test_deadly_native35_history_spec_uses_game_clock_and_best_checkpoint(tmp_path):
+    generated_root = tmp_path / "configs"
+    generate_sweep_configs(
+        [
+            "--spec",
+            "configs/experiments/deadly_corridor/decision_history_native35_temporal_25m_seed42.yaml",
+            "--generated-root",
+            str(generated_root),
+            "--output-root",
+            str(tmp_path / "outputs"),
+            "--train-dir",
+            str(tmp_path / "checkpoints"),
+            "--eval-checkpoint-kind",
+            "best",
+        ]
+    )
+
+    rows = _read_manifest(generated_root / "manifest.tsv")
+    assert len(rows) == 3
+    assert {row["latency_label"] for row in rows} == {
+        "qwenoft_rtx3090_temporal_hist8_capacity1_native35",
+        "gr00t_rtx3090_temporal_hist8_capacity1_native35",
+        "pi05_rtx3090_temporal_hist8_capacity1_native35",
+    }
+    for row in rows:
+        train_cfg = yaml.safe_load(Path(row["train_config"]).read_text(encoding="utf-8"))
+        eval_cfg = yaml.safe_load(Path(row["eval_config"]).read_text(encoding="utf-8"))
+        assert row["observation_stride"] == "4"
+        assert train_cfg["env"]["env_fps"] == eval_cfg["env"]["env_fps"] == 35
+        assert train_cfg["env"]["obs_fps"] == eval_cfg["env"]["obs_fps"] == 8.75
+        assert train_cfg["env"]["action_history_decisions"] == 8
+        assert "decision_v1" in train_cfg["logging"]["wandb_tags"]
+        assert train_cfg["executor"]["simulated_worker_capacity"] == 1
+        assert train_cfg["latency"]["method"] == "temporal"
+        assert train_cfg["training"]["train_for_env_steps"] == 25_000_000
+        assert eval_cfg["policy"]["checkpoint_kind"] == "best"
+        assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "best"]
+        assert eval_cfg["evaluation"]["eval_episodes"] == 100
+        assert row["train_upload_repo_id"] == row["eval_upload_repo_id"] == ""
+
+
 @pytest.mark.parametrize(
     ("env_name", "latency_label", "latency_frames", "obs_fps", "obs_fps_label"),
     [
@@ -402,15 +502,18 @@ def test_asterix_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
     assert {row["env"] for row in rows} == {"asterix"}
     assert {row["latency_kind"] for row in rows} == {"fixed"}
     assert {row["latency_fixed_frames"] for row in rows} == {"0"}
-    assert {row["frame_stack"] for row in rows} == {"1"}
+    assert {row["frame_stack"] for row in rows} == {"4"}
     assert {row["obs_fps"] for row in rows} == {"15"}
 
     train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
+    resolved_train_cfg = load_config(rows[0]["train_config"])
     eval_cfg = load_config(rows[0]["eval_config"])
 
-    assert train_cfg["experiment"]["name"].startswith("asterix_frame_stack_fixed_l0_fs1_seed")
+    assert train_cfg["experiment"]["name"].startswith("asterix_frame_stack_fixed_l0_fs4_seed")
     assert train_cfg["env"]["name"] == "gymnasium"
     assert train_cfg["env"]["task_name"] == "asterix"
+    assert resolved_train_cfg["env"]["simulator"] == "cpu"
+    assert eval_cfg["env"]["simulator"] == "cpu"
     assert train_cfg["latency"] == {
         "method": "fixed",
         "fixed_latency_ms": 0.0,
@@ -447,15 +550,18 @@ def test_atlantis_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
     assert {row["env"] for row in rows} == {"atlantis"}
     assert {row["latency_kind"] for row in rows} == {"fixed"}
     assert {row["latency_fixed_frames"] for row in rows} == {"0"}
-    assert {row["frame_stack"] for row in rows} == {"1"}
+    assert {row["frame_stack"] for row in rows} == {"4"}
     assert {row["obs_fps"] for row in rows} == {"15"}
 
     train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
+    resolved_train_cfg = load_config(rows[0]["train_config"])
     eval_cfg = load_config(rows[0]["eval_config"])
 
-    assert train_cfg["experiment"]["name"].startswith("atlantis_frame_stack_fixed_l0_fs1_seed")
+    assert train_cfg["experiment"]["name"].startswith("atlantis_frame_stack_fixed_l0_fs4_seed")
     assert train_cfg["env"]["name"] == "gymnasium"
     assert train_cfg["env"]["task_name"] == "atlantis"
+    assert resolved_train_cfg["env"]["simulator"] == "cpu"
+    assert eval_cfg["env"]["simulator"] == "cpu"
     assert train_cfg["latency"] == {
         "method": "fixed",
         "fixed_latency_ms": 0.0,

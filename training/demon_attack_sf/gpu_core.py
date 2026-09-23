@@ -109,7 +109,7 @@ def demon_attack_rom_path() -> str:
 
 
 @dataclass
-class CudaDemonAttackStepResult:
+class _CudaAtariStepResult:
     observations: torch.Tensor
     rewards: torch.Tensor
     terminated: torch.Tensor
@@ -119,7 +119,7 @@ class CudaDemonAttackStepResult:
 
 
 @dataclass
-class CudaDemonAttackDecisionResult:
+class _CudaAtariDecisionResult:
     observations: torch.Tensor
     rewards: np.ndarray
     rewards_clipped: np.ndarray
@@ -136,6 +136,10 @@ class CudaDemonAttackDecisionResult:
     env_step_indices: np.ndarray
     decision_step_indices: np.ndarray
     timeout_mask: np.ndarray
+    command_admitted: np.ndarray
+    observation_dropped: np.ndarray
+    worker_ids: np.ndarray
+    worker_service_raw_frames: np.ndarray
     rewards_gpu: torch.Tensor
     rewards_clipped_gpu: torch.Tensor
     terminated_gpu: torch.Tensor
@@ -143,7 +147,7 @@ class CudaDemonAttackDecisionResult:
 
 
 @dataclass
-class CudaDemonAttackDecisionGpuResult:
+class _CudaAtariDecisionGpuResult:
     observations: torch.Tensor
     rewards_gpu: torch.Tensor
     rewards_clipped_gpu: torch.Tensor
@@ -160,13 +164,23 @@ class CudaDemonAttackDecisionGpuResult:
     timeout_mask_gpu: torch.Tensor
     scores_gpu: torch.Tensor
     lives_gpu: torch.Tensor
+    command_admitted: np.ndarray
+    observation_dropped: np.ndarray
+    worker_ids: np.ndarray
+    worker_service_raw_frames: np.ndarray
 
 
-class CudaDemonAttackCore:
+class CudaAtariCore:
+    """Run a supported CuLE Atari ROM and decision cadence entirely on CUDA."""
+
     def __init__(
         self,
         batch_size: int,
         *,
+        rom_path: str,
+        reset_actions: Sequence[int],
+        reset_action_frame_count: int,
+        life_loss_reset_actions: Sequence[int],
         device: str | torch.device = "cuda",
         noop_max: int = 30,
         terminal_on_life_loss: bool = False,
@@ -180,8 +194,11 @@ class CudaDemonAttackCore:
         self.obs_stride = int(obs_stride)
         self.frame_stack = frame_stack
         self.obs_frame_count = min(self.frame_stack, self.obs_stride)
+        self.reset_actions = tuple(reset_actions)
+        self.reset_action_frame_count = reset_action_frame_count
+        self.life_loss_reset_actions = tuple(life_loss_reset_actions)
         self.ext = load_cule_atari_extension()
-        self.rom = self.ext.AtariRom(demon_attack_rom_path())
+        self.rom = self.ext.AtariRom(rom_path)
         self.env = self.ext.AtariEnv(self.rom, self.batch_size, self.noop_max)
         self.native_screen_height = int(self.rom.screen_height())
         self.native_screen_width = int(self.rom.screen_width())
@@ -190,12 +207,6 @@ class CudaDemonAttackCore:
         self.num_channels = 1
         self.minimal_action_values = [int(action) for action in self.rom.minimal_actions()]
         self.action_set = torch.tensor(self.minimal_action_values, dtype=torch.uint8, device=self.device)
-        self._reset_ram_addresses = torch.tensor(_RESET_RAM_ADDRESSES, dtype=torch.int64, device=self.device)
-        self._reset_ram_values = torch.tensor(
-            _RESET_RAM_VALUES_BY_CACHE_INDEX,
-            dtype=torch.uint8,
-            device=self.device,
-        )
 
         self.states = torch.zeros((self.batch_size, self.env.state_size()), dtype=torch.uint8, device=self.device)
         self.frame_states = torch.zeros(
@@ -299,6 +310,10 @@ class CudaDemonAttackCore:
     def lives(self) -> torch.Tensor:
         return self._lives
 
+    @property
+    def reset_raw_frame_counts(self) -> torch.Tensor:
+        return self.cache_index.to(torch.int64) + 1 + self.reset_action_frame_count
+
     def observations(self) -> torch.Tensor:
         return self._obs84_single.unsqueeze(1).contiguous()
 
@@ -337,7 +352,7 @@ class CudaDemonAttackCore:
             self._lives.data_ptr(),
         )
         self._terminated[index_t] = self._kernel_done[index_t]
-        self._run_reset_action_sequence(target_indices, _FIRE_RESET_ACTIONS)
+        self._run_reset_action_sequence(target_indices, self.reset_actions)
         self._patch_reset_ram(target_indices)
         self.env.generate_obs84(True, self._obs84_single.data_ptr())
         reset_obs = self.observations()
@@ -354,14 +369,14 @@ class CudaDemonAttackCore:
         self,
         actions: Sequence[int] | np.ndarray | torch.Tensor,
         active_mask: Sequence[bool] | np.ndarray | torch.Tensor | None = None,
-    ) -> CudaDemonAttackStepResult:
+    ) -> _CudaAtariStepResult:
         action_indices = torch.as_tensor(actions, dtype=torch.int64, device=self.device).reshape(-1)
         if active_mask is None:
             self._active_mask.fill_(True)
         else:
             self._active_mask.copy_(torch.as_tensor(active_mask, dtype=torch.bool, device=self.device).reshape(-1))
         self._step_active_action_indices(action_indices, self._active_mask)
-        return CudaDemonAttackStepResult(
+        return _CudaAtariStepResult(
             observations=self.observations(),
             rewards=self._rewards,
             terminated=self._terminated,
@@ -374,7 +389,7 @@ class CudaDemonAttackCore:
         self,
         indices: Sequence[int] | np.ndarray | torch.Tensor,
     ) -> torch.Tensor:
-        return self._run_reset_action_sequence(self._indices(indices), _LIFE_LOSS_RESET_ACTIONS)
+        return self._run_reset_action_sequence(self._indices(indices), self.life_loss_reset_actions)
 
     def step_decision(
         self,
@@ -384,7 +399,7 @@ class CudaDemonAttackCore:
         active_mask: Sequence[bool] | np.ndarray | torch.Tensor,
         episode_step_idx: torch.Tensor,
         max_episode_steps: int,
-    ) -> CudaDemonAttackDecisionResult:
+    ) -> _CudaAtariDecisionResult:
         gpu_result = self.step_decision_gpu(
             latency,
             actions,
@@ -394,7 +409,7 @@ class CudaDemonAttackCore:
         )
         packed = self._packed_decision.detach().cpu().numpy()
         latency._latency_raw_frames_cpu[:] = packed[:, _DECISION_LATENCY_RAW_FRAMES].astype(np.int64)
-        return CudaDemonAttackDecisionResult(
+        return _CudaAtariDecisionResult(
             observations=gpu_result.observations,
             rewards=packed[:, _DECISION_REWARD].astype(np.float32).copy(),
             rewards_clipped=packed[:, _DECISION_REWARD_CLIPPED].astype(np.float32).copy(),
@@ -411,6 +426,10 @@ class CudaDemonAttackCore:
             env_step_indices=packed[:, _DECISION_ENV_STEP_IDX].astype(np.int64),
             decision_step_indices=packed[:, _DECISION_DECISION_STEP_IDX].astype(np.int64),
             timeout_mask=packed[:, _DECISION_TIMEOUT].astype(np.bool_),
+            command_admitted=gpu_result.command_admitted,
+            observation_dropped=gpu_result.observation_dropped,
+            worker_ids=gpu_result.worker_ids,
+            worker_service_raw_frames=gpu_result.worker_service_raw_frames,
             rewards_gpu=gpu_result.rewards_gpu,
             rewards_clipped_gpu=gpu_result.rewards_clipped_gpu,
             terminated_gpu=gpu_result.terminated_gpu,
@@ -425,11 +444,13 @@ class CudaDemonAttackCore:
         active_mask: Sequence[bool] | np.ndarray | torch.Tensor,
         episode_step_idx: torch.Tensor,
         max_episode_steps: int,
-    ) -> CudaDemonAttackDecisionGpuResult:
+    ) -> _CudaAtariDecisionGpuResult:
         action_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device).reshape(-1).contiguous()
         active_t = torch.as_tensor(active_mask, dtype=torch.bool, device=self.device).reshape(-1).contiguous()
         episode_steps = episode_step_idx.view(-1)
-        latency._sample_profile_latencies(active_t)
+        issue_frames = latency.env_step_idx.clone()
+        admitted, worker_ids = latency._prepare_admission(active_t)
+        profile_service = latency._sample_profile_latencies(admitted, worker_ids)
         self.env.step_decision(
             bool(self.terminal_on_life_loss),
             int(latency.clock.obs_stride_raw_frames),
@@ -448,6 +469,7 @@ class CudaDemonAttackCore:
             int(latency.queue_capacity),
             action_t.data_ptr(),
             active_t.data_ptr(),
+            admitted.data_ptr(),
             latency.env_step_idx.data_ptr(),
             latency.decision_step_idx.data_ptr(),
             latency.next_action_id.data_ptr(),
@@ -483,8 +505,15 @@ class CudaDemonAttackCore:
             self._scores.data_ptr(),
             self._obs84_multi.data_ptr(),
         )
+        latency._record_admitted_service(admitted, worker_ids, issue_frames, profile_service)
         decision_obs = self._obs84_multi.permute(1, 0, 2, 3).contiguous()
-        return CudaDemonAttackDecisionGpuResult(
+        command_admitted = latency._decision_admitted.detach().cpu().numpy().copy()
+        observation_dropped = latency._decision_dropped.detach().cpu().numpy().copy()
+        worker_ids_cpu = latency._decision_worker_ids.detach().cpu().numpy().copy()
+        worker_service_raw_frames = (
+            latency._decision_worker_service_raw_frames.detach().cpu().numpy().copy()
+        )
+        return _CudaAtariDecisionGpuResult(
             observations=decision_obs,
             rewards_gpu=self._decision_rewards,
             rewards_clipped_gpu=self._decision_rewards_clipped,
@@ -501,6 +530,10 @@ class CudaDemonAttackCore:
             timeout_mask_gpu=self._decision_timeout,
             scores_gpu=self._scores,
             lives_gpu=self._lives,
+            command_admitted=command_admitted,
+            observation_dropped=observation_dropped,
+            worker_ids=worker_ids_cpu,
+            worker_service_raw_frames=worker_service_raw_frames,
         )
 
     def _indices(self, indices: Sequence[int] | np.ndarray | torch.Tensor | None) -> list[int]:
@@ -544,9 +577,7 @@ class CudaDemonAttackCore:
         self.ram[index_t] = self.cached_ram[cache_indices]
 
     def _patch_reset_ram(self, target_indices: Sequence[int]) -> None:
-        index_t = torch.as_tensor(target_indices, dtype=torch.int64, device=self.device)
-        values = self._reset_ram_values[self.cache_index[index_t].to(torch.int64)]
-        self.ram[index_t[:, None], self._reset_ram_addresses[None, :]] = values
+        pass
 
     def _run_reset_action_sequence(self, indices: Sequence[int], actions: Sequence[int]) -> torch.Tensor:
         index_t = torch.as_tensor(indices, dtype=torch.int64, device=self.device)
@@ -577,3 +608,41 @@ class CudaDemonAttackCore:
         self.env.generate_obs84(True, self._obs84_single.data_ptr())
         self._truncated.zero_()
         return self.observations()
+
+
+class CudaDemonAttackCore(CudaAtariCore):
+    """Configure the shared CUDA Atari core for Demon Attack reset semantics."""
+
+    def __init__(
+        self,
+        batch_size: int,
+        *,
+        device: str | torch.device = "cuda",
+        noop_max: int = 30,
+        terminal_on_life_loss: bool = False,
+        obs_stride: int = 1,
+        frame_stack: int = 1,
+    ) -> None:
+        super().__init__(
+            batch_size,
+            rom_path=demon_attack_rom_path(),
+            reset_actions=_FIRE_RESET_ACTIONS,
+            reset_action_frame_count=len(_FIRE_RESET_ACTIONS),
+            life_loss_reset_actions=_LIFE_LOSS_RESET_ACTIONS,
+            device=device,
+            noop_max=noop_max,
+            terminal_on_life_loss=terminal_on_life_loss,
+            obs_stride=obs_stride,
+            frame_stack=frame_stack,
+        )
+        self._reset_ram_addresses = torch.tensor(_RESET_RAM_ADDRESSES, dtype=torch.int64, device=self.device)
+        self._reset_ram_values = torch.tensor(
+            _RESET_RAM_VALUES_BY_CACHE_INDEX,
+            dtype=torch.uint8,
+            device=self.device,
+        )
+
+    def _patch_reset_ram(self, target_indices: Sequence[int]) -> None:
+        index_t = torch.as_tensor(target_indices, dtype=torch.int64, device=self.device)
+        values = self._reset_ram_values[self.cache_index[index_t].to(torch.int64)]
+        self.ram[index_t[:, None], self._reset_ram_addresses[None, :]] = values

@@ -35,5 +35,50 @@ struct rom_accessor<ROM_4K>
     }
 };
 
+template<>
+struct rom_accessor<ROM_F8>
+{
+    template<class State_t>
+    static
+    CULE_ANNOTATION
+    void initialize(State_t& s)
+    {
+        s.bank = 1;
+    }
+
+    template<class State_t>
+    static
+    CULE_ANNOTATION
+    void write(State_t& s, const maddr_t& addr, const uint8_t&)
+    {
+        switch(addr & 0x0FFF)
+        {
+            case 0x0FF8:
+            {
+                s.bank = 0;
+                break;
+            }
+            case 0x0FF9:
+            {
+                s.bank = 1;
+                break;
+            }
+            default:
+            {
+                break;
+            }
+        }
+    }
+
+    template<class State_t>
+    static
+    CULE_ANNOTATION
+    uint8_t read(State_t& s, const maddr_t& addr)
+    {
+        write(s, addr, 0);
+        return s.rom[(s.bank * 4096) + (addr & 0x0FFF)];
+    }
+};
+
 } // end namespace atari
 } // end namespace cule

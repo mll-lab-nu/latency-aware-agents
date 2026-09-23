@@ -422,7 +422,7 @@ def test_demon_attack_starvla_env_exports_raw_rgb_frames(monkeypatch):
     assert captured["kwargs"]["export_env_raw_rgb_frames"] is True
 
 
-def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_keeps_life_loss_terminal(monkeypatch):
+def test_demon_attack_latency_bench_eval_raw_reward_continues_life_loss_terminal(monkeypatch):
     from latency_bench.envs import demon_attack
 
     captured = {}
@@ -461,6 +461,25 @@ def test_demon_attack_latency_bench_eval_raw_reward_disables_clipping_and_keeps_
     assert captured["continue_life_loss_terminal"] is True
 
 
+@pytest.mark.parametrize(
+    "config_path",
+    (
+        "configs/experiments/demon_attack/sf_eval_zero_latency.yaml",
+        "configs/experiments/demon_attack/sf_eval_openvla_rtx3090_profile.yaml",
+        "configs/experiments/demon_attack/sf_eval_gr00t_rtx3090_profile.yaml",
+        "configs/experiments/demon_attack/sf_eval_pi05_rtx3090_profile.yaml",
+    ),
+)
+def test_demon_attack_formal_small_eval_uses_raw_14400_step_game(config_path):
+    config = load_config(config_path)
+
+    assert config["env"]["terminal_on_life_loss"] is True
+    assert config["env"]["clip_reward"] is False
+    assert config["evaluation"]["eval_raw_reward"] is True
+    assert config["evaluation"]["eval_max_steps"] == 14400
+    assert config["evaluation"]["latency_bench_env_backend"] == "demon_attack_gpu_batched"
+
+
 def test_build_executor_uses_registered_env_factory(tmp_path):
     executor = build_executor(_config("dummy", output_dir=str(tmp_path)))
 
@@ -491,7 +510,7 @@ def test_build_env_adapter_passes_explicit_gpu_render_args_when_enabled(monkeypa
         def close(self):
             return None
 
-    monkeypatch.setattr(factory_module, "FlappyBirdEnvAdapter", FakeFlappyAdapter)
+    monkeypatch.setattr("latency_bench.envs.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
     config = _flappy_config()
     config["policy"] = {"type": "flappy_sf"}
     config["env"].update(
@@ -532,7 +551,7 @@ def test_flappy_starvla_env_exports_raw_rgb_frames(monkeypatch):
         def close(self):
             return None
 
-    monkeypatch.setattr(factory_module, "FlappyBirdEnvAdapter", FakeFlappyAdapter)
+    monkeypatch.setattr("latency_bench.envs.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
     config = _flappy_config()
     config["policy"] = {"type": "starvla"}
     noop = Action(value=0, name="noop", is_noop=True)
@@ -553,7 +572,7 @@ def test_build_executor_maps_flappy_policy_actions(tmp_path):
         assert executor.policy.action.is_oneshot
         assert executor.action_scheduler.noop_action.value == 0
     finally:
-        executor.env.close()
+        executor.close()
 
 
 def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path):

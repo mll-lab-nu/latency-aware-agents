@@ -38,7 +38,10 @@ class _ScriptedAtariInfoEnv(gym.Env):
         reward, terminated, truncated, info = self.steps[self.index]
         self.index += 1
         obs = np.full((2, 2), self.index + 10, dtype=np.uint8)
-        return obs, float(reward), bool(terminated), bool(truncated), dict(info)
+        info = dict(info)
+        info["command_admitted"] = True
+        info["observation_dropped"] = False
+        return obs, float(reward), bool(terminated), bool(truncated), info
 
 
 class _RenderedRgbEnv(gym.Env):
@@ -258,6 +261,56 @@ def test_flappy_sf_cli_maps_explicit_env_max_episode_steps():
     args = build_cli_args_from_config(cfg)
 
     assert args[args.index("--max_episode_steps") + 1] == "1800"
+
+
+def test_flappy_linear_lr_resume_uses_checkpoint_optimizer_step():
+    from sample_factory.algo.learning.learner import get_lr_scheduler
+    from sample_factory.utils.attr_dict import AttrDict
+
+    cfg = AttrDict(
+        lr_schedule="linear_decay",
+        train_for_env_steps=25_000_000,
+        batch_size=4096,
+        num_epochs=8,
+        learning_rate=2.5e-4,
+    )
+    updates = cfg.train_for_env_steps // cfg.batch_size * cfg.num_epochs
+    saved_step = 19_584
+    saved_lr = cfg.learning_rate * (1 - saved_step / updates)
+
+    assert get_lr_scheduler(cfg, saved_step).update(saved_lr, []) == pytest.approx(
+        cfg.learning_rate * (1 - (saved_step + 1) / updates)
+    )
+
+
+def test_deadly_tuple_action_history_uses_decision_boundary_action():
+    from training.common.latency_wrapper import ActionLatencyWrapper
+
+    class Env(gym.Env):
+        action_space = gym.spaces.Tuple((gym.spaces.Discrete(3), gym.spaces.Discrete(3), gym.spaces.Discrete(3), gym.spaces.Discrete(2)))
+        observation_space = gym.spaces.Box(low=0, high=255, shape=(3, 4, 4), dtype=np.uint8)
+
+        def reset(self, *, seed=None, options=None):
+            return np.zeros((3, 4, 4), dtype=np.uint8), {}
+
+        def step(self, action):
+            return np.zeros((3, 4, 4), dtype=np.uint8), 0.0, False, False, {}
+
+    env = ActionLatencyWrapper(
+        Env(), fixed_latency_raw_frames=0, env_fps=35, obs_fps=8.75,
+        hold_policy="hold", ordering_policy="latest_ready",
+        simulated_worker_capacity=1, add_latency_info=False, action_history_decisions=8,
+    )
+    try:
+        obs, _ = env.reset(seed=42)
+        assert obs["transport"].shape == (120,)
+        np.testing.assert_array_equal(obs["transport"], 0)
+        obs, *_ = env.step((1, 0, 2, 1))
+        np.testing.assert_array_equal(
+            obs["transport"][-15:], [1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1],
+        )
+    finally:
+        env.close()
 
 
 def test_flappy_sf_cli_maps_env_rates_and_scheduler_policies():
@@ -509,6 +562,7 @@ def test_common_sf_args_passes_latency_distribution_without_legacy_train_values(
         "experiment": {"name": "dist_run", "seed": 3},
         "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
         "env": {"name": "demon_attack", "env_fps": 60, "obs_fps": 15},
+        "executor": {"simulated_worker_capacity": 1},
         "latency": {
             "method": "uniform",
             "min_latency_ms": 0.0,
@@ -526,6 +580,30 @@ def test_common_sf_args_passes_latency_distribution_without_legacy_train_values(
     assert "--latency-mode" not in args
     assert args[args.index("--latency-type") + 1] == "uniform_distribution"
     assert args[args.index("--max-latency-ms") + 1] == "250.0"
+    assert args[args.index("--simulated-worker-capacity") + 1] == "1"
+
+
+@pytest.mark.parametrize(
+    ("module_name", "register_args_name"),
+    (
+        ("training.flappy_sf.integration", "add_flappy_env_args"),
+        ("training.demon_attack_sf.integration", "add_demon_attack_env_args"),
+        ("training.deadly_corridor_sf.integration", "add_latency_args"),
+        ("training.gymnasium_sf.integration", "add_gymnasium_env_args"),
+    ),
+)
+def test_all_sample_factory_integrations_register_worker_capacity(module_name, register_args_name):
+    import argparse
+
+    module = importlib.import_module(module_name)
+    parser = argparse.ArgumentParser()
+    getattr(module, register_args_name)(parser)
+
+    capacity_actions = [
+        action for action in parser._actions if action.dest == "simulated_worker_capacity"
+    ]
+    assert len(capacity_actions) == 1
+    assert capacity_actions[0].type is int
 
 
 def test_sample_factory_latency_params_use_bench_ceil_for_fixed_ms():
@@ -534,6 +612,7 @@ def test_sample_factory_latency_params_use_bench_ceil_for_fixed_ms():
     cfg = SimpleNamespace(
         latency_type="fixed",
         fixed_latency_ms=(1000.0 / 30.0) + 0.001,
+        simulated_worker_capacity=None,
     )
 
     params = sample_factory_latency_params_from_flat_config(cfg, env_fps=30)
@@ -550,6 +629,7 @@ def test_sample_factory_latency_distribution_preserves_fractional_bounds():
         latency_type="uniform_distribution",
         min_latency_ms=50.0,
         max_latency_ms=(3.5 * 1000.0 / 30.0),
+        simulated_worker_capacity=None,
     )
 
     params = sample_factory_latency_params_from_flat_config(cfg, env_fps=30)
@@ -747,6 +827,51 @@ def test_action_latency_wrapper_drops_busy_requests_and_reports_issued_applied()
     assert second_info["observation_dropped"] is True
     assert second_info["issued_action"] == 0
     assert second_info["applied_action"] == 0
+
+
+@pytest.mark.parametrize("env_name", ("doom_deadly_corridor", "doom_defend_the_line"))
+def test_vizdoom_scalar_integrations_forward_worker_capacity(monkeypatch, env_name):
+    from sf_examples.vizdoom.doom import doom_utils
+    from training.deadly_corridor_sf import integration
+
+    base_env = _ActionTraceEnv()
+    monkeypatch.setattr(doom_utils, "make_doom_env_from_spec", lambda *args, **kwargs: base_env)
+    monkeypatch.setattr(integration, "ensure_vizdoom_init_guard_installed", lambda *args, **kwargs: None)
+    cfg = SimpleNamespace(
+        disable_reward_scaling=False,
+        env_fps=30,
+        obs_fps=30,
+        frame_stack=1,
+        export_env_raw_rgb_frames=False,
+        max_episode_steps=0,
+        seed=0,
+        latency_seed=123,
+        latency_type="fixed",
+        fixed_latency_ms=100.0,
+        simulated_worker_capacity=1,
+        hold_policy="one_frame_then_noop",
+        ordering_policy="latest_ready",
+        add_latency_info=True,
+        max_pending_actions=None,
+        episode_metrics_path="",
+    )
+    env = integration.make_latency_doom_env_from_spec(
+        SimpleNamespace(name=env_name, reward_scaling=1.0),
+        env_name,
+        cfg,
+        SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+    )
+    try:
+        env.reset(seed=123)
+        first_info = env.step(1)[4]
+        second_info = env.step(1)[4]
+    finally:
+        env.close()
+
+    assert first_info["command_admitted"] is True
+    assert second_info["command_admitted"] is False
+    assert second_info["observation_dropped"] is True
+    assert base_env.step_count == 2
 
 
 def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop():
@@ -1005,6 +1130,7 @@ def test_sample_factory_latency_params_support_mixed_distribution():
         latency_type="mixed_uniform_distribution",
         min_latency_ms=50.0,
         max_latency_ms=(3.5 * 1000.0 / 30.0),
+        simulated_worker_capacity=None,
     )
 
     params = sample_factory_latency_params_from_flat_config(cfg, env_fps=30)
@@ -1473,6 +1599,8 @@ def test_episode_metrics_aggregator_logs_raw_visible_metrics(tmp_path):
             "raw_return": 30.0,
             "length": 3,
             "raw_frames": 12,
+            "submitted_observation_count": 2,
+            "dropped_observation_count": 1,
         }
     )
 
@@ -1486,6 +1614,9 @@ def test_episode_metrics_aggregator_logs_raw_visible_metrics(tmp_path):
     assert payload["episode_train/rolling_mean_raw_return"] == 30.0
     assert payload["episode_train/cumulative_mean_return"] == 30.0
     assert payload["episode_train/cumulative_mean_raw_return"] == 30.0
+    assert payload["episode_train/latest_observation_drop_ratio"] == pytest.approx(1.0 / 3.0)
+    assert payload["episode_train/rolling_observation_drop_ratio"] == pytest.approx(1.0 / 3.0)
+    assert payload["episode_train/cumulative_observation_drop_ratio"] == pytest.approx(1.0 / 3.0)
     assert [key for key in payload if "clipped" in key] == []
 
 
@@ -1496,8 +1627,20 @@ def test_episode_metrics_resume_reads_only_new_events(tmp_path):
     )
 
     path = tmp_path / "episodes.jsonl"
-    old_event = {"return": 1.0, "length": 1, "raw_frames": 1}
-    new_event = {"return": 2.0, "length": 2, "raw_frames": 2}
+    old_event = {
+        "return": 1.0,
+        "length": 1,
+        "raw_frames": 1,
+        "submitted_observation_count": 1,
+        "dropped_observation_count": 0,
+    }
+    new_event = {
+        "return": 2.0,
+        "length": 2,
+        "raw_frames": 2,
+        "submitted_observation_count": 1,
+        "dropped_observation_count": 1,
+    }
     append_episode_metrics_event(path, old_event)
     aggregator = EpisodeMetricsAggregator(path=path, start_at_end=True)
 
@@ -1523,7 +1666,10 @@ def test_episode_metrics_reader_waits_for_complete_locked_event(tmp_path):
         with ThreadPoolExecutor(max_workers=1) as executor:
             result = executor.submit(aggregator.poll_once)
             assert not result.done()
-            handle.write('"length": 1, "raw_frames": 1}\n')
+            handle.write(
+                '"length": 1, "raw_frames": 1, '
+                '"submitted_observation_count": 1, "dropped_observation_count": 0}\n'
+            )
             handle.flush()
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             assert result.result() == 1
@@ -1541,6 +1687,8 @@ def test_episode_metrics_aggregator_logs_numeric_debug_metrics_and_omits_done_re
             "raw_return": 12.0,
             "length": 4,
             "raw_frames": 4,
+            "submitted_observation_count": 3,
+            "dropped_observation_count": 1,
             "terminated": False,
             "truncated": True,
             "timeout": True,
@@ -1611,6 +1759,7 @@ def test_demon_attack_env_factory_patches_sample_factory_stats_in_worker_process
             min_latency_ms=None,
             max_latency_ms=None,
             latency_seed=None,
+            simulated_worker_capacity=None,
             add_latency_info=False,
             hold_policy="hold",
             ordering_policy="latest_ready",
@@ -1663,6 +1812,7 @@ def test_demon_attack_reference_env_is_sample_factory_compatible(monkeypatch):
         min_latency_ms=None,
         max_latency_ms=None,
         latency_seed=None,
+        simulated_worker_capacity=None,
         add_latency_info=False,
         hold_policy="hold",
         ordering_policy="latest_ready",
@@ -1732,6 +1882,7 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
         min_latency_ms=None,
         max_latency_ms=None,
         latency_seed=None,
+        simulated_worker_capacity=None,
         add_latency_info=False,
         hold_policy="one_frame_then_noop",
         ordering_policy="latest_ready",

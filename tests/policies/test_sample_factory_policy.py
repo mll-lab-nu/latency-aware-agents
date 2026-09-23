@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -431,7 +432,7 @@ def _build_discrete_runner(monkeypatch, *, action_space=None, use_rnn: bool = Fa
     monkeypatch.setattr(
         sf_runtime,
         "load_sample_factory_policy_state_dict",
-        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+        lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
     runner = sample_factory_common.SampleFactoryPolicyRunner(
@@ -460,7 +461,7 @@ def _build_rnn_discrete_runner(monkeypatch):
     monkeypatch.setattr(
         sf_runtime,
         "load_sample_factory_policy_state_dict",
-        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+        lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
     runner = sample_factory_common.SampleFactoryPolicyRunner(
@@ -489,7 +490,7 @@ def _build_state_echo_discrete_runner(monkeypatch, *, use_rnn: bool):
     monkeypatch.setattr(
         sf_runtime,
         "load_sample_factory_policy_state_dict",
-        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+        lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
     runner = sample_factory_common.SampleFactoryPolicyRunner(
@@ -555,7 +556,7 @@ def _build_tuple_runner(
     monkeypatch.setattr(
         sf_runtime,
         "load_sample_factory_policy_state_dict",
-        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+        lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
     config["policy"]["type"] = "deadly_corridor_sf"
@@ -725,7 +726,7 @@ def test_sample_factory_policy_loads_config_from_checkpoint_when_checkpoint_path
 
     def fake_load_state_dict(cfg, actor_critic, device, checkpoint_path):
         state_loads.append((getattr(cfg, "loaded_from_checkpoint", False), checkpoint_path))
-        return {"train_step": 123}
+        return {"train_step": 123}, Path("/tmp/best_123.pth")
 
     _install_fake_sample_factory_modules(
         monkeypatch,
@@ -737,9 +738,10 @@ def test_sample_factory_policy_loads_config_from_checkpoint_when_checkpoint_path
         fake_load_state_dict,
     )
 
+    config = _config("")
     runner = sample_factory_common.SampleFactoryPolicyRunner(
-        config=_config(""),
-        action_resolver=ActionResolver(_config("")["env"]),
+        config=config,
+        action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(),
         policy_type="flappy_sf",
     )
@@ -747,6 +749,8 @@ def test_sample_factory_policy_loads_config_from_checkpoint_when_checkpoint_path
     assert len(load_calls) == 1
     assert state_loads == [(True, None)]
     assert runner.checkpoint_global_step == 123
+    assert runner.checkpoint_path == "/tmp/best_123.pth"
+    assert config["policy"]["checkpoint_path"] == "/tmp/best_123.pth"
 
 
 def test_sample_factory_policy_skips_config_checkpoint_load_for_explicit_checkpoint_path(
@@ -761,7 +765,7 @@ def test_sample_factory_policy_skips_config_checkpoint_load_for_explicit_checkpo
 
     def fake_load_state_dict(cfg, actor_critic, device, checkpoint_path):
         state_loads.append((getattr(cfg, "loaded_from_checkpoint", False), checkpoint_path))
-        return {"train_step": 123}
+        return {"train_step": 123}, Path("/tmp/model.pth")
 
     _install_fake_sample_factory_modules(
         monkeypatch,
@@ -799,7 +803,7 @@ def test_sample_factory_policy_unsqueezes_discrete_argmax_actions_before_preproc
     monkeypatch.setattr(
         sf_runtime,
         "load_sample_factory_policy_state_dict",
-        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+        lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
 
     runner = sample_factory_common.SampleFactoryPolicyRunner(
@@ -852,7 +856,7 @@ def test_sample_factory_policy_emits_chunk_from_physical_observation(monkeypatch
     monkeypatch.setattr(
         sf_runtime,
         "load_sample_factory_policy_state_dict",
-        lambda cfg, actor_critic, device, checkpoint_path: {"train_step": 123},
+        lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
     config["policy"]["deterministic"] = False
@@ -923,6 +927,7 @@ def test_sample_factory_predict_batch_runs_one_forward_for_four_discrete_observa
     assert [output.raw_output for output in outputs] == [1, 2, 3, 4]
     assert [output.action.value for output in outputs] == [1, 2, 3, 4]
     assert [output.metadata["policy_type"] for output in outputs] == ["flappy_sf"] * 4
+    assert [output.metadata["checkpoint_path"] for output in outputs] == ["/tmp/model.pth"] * 4
     assert [output.metadata["checkpoint_global_step"] for output in outputs] == [123] * 4
 
 
