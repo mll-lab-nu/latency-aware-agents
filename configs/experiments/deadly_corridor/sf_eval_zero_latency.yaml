@@ -4,8 +4,13 @@ experiment:
   name: deadly_corridor_sf_zero_latency
 
 evaluation:
-  eval_episodes: 10
+  eval_episodes: 100
+  eval_parallel_envs: 16
   eval_max_steps: 30000
+  eval_suites:
+    fixed: []
+    normal: []
+    uniform: []
 
 latency:
   method: zero
@@ -18,3 +23,8 @@ policy:
 
 logging:
   output_dir: outputs/deadly_corridor_sf_eval_zero_latency
+  video:
+    enabled: false
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
