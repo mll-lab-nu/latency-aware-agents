@@ -507,9 +507,20 @@ def _step_teacher_policy(
         [active_obs[slot] for slot in active_slots],
         preserve_leading_batch=preserve_leading_batch,
     )
+    batched = isinstance(driver, BatchedTeacherRolloutDriver)
+    policy_rnn_states = rnn_states[active_slots]
+    if batched:
+        # GPU kernels can change near-tied argmax actions with the batch shape.
+        # Keep the declared slots through probe, replay, and inactive episodes.
+        padded = {}
+        for key, value in obs_batch.items():
+            padded[key] = np.zeros((driver.slot_count, *value.shape[1:]), dtype=value.dtype)
+            padded[key][active_slots] = value
+        obs_batch = padded
+        policy_rnn_states = rnn_states
     normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
     with torch.no_grad():
-        policy_outputs = actor_critic(normalized_obs, rnn_states[active_slots])
+        policy_outputs = actor_critic(normalized_obs, policy_rnn_states)
         actions = policy_outputs["actions"]
         if deterministic:
             actions = deterministic_actions_for_space(
@@ -518,6 +529,10 @@ def _step_teacher_policy(
                 argmax_actions=argmax_actions,
                 device=device,
             )
+        new_rnn_states = policy_outputs["new_rnn_states"]
+        if batched:
+            actions = actions[active_slots]
+            new_rnn_states = new_rnn_states[active_slots]
         actions = normalize_actions_for_space(
             actions,
             batch_size=len(active_slots),
@@ -531,7 +546,6 @@ def _step_teacher_policy(
             len(active_slots),
             action_space=driver.action_space,
         )
-        new_rnn_states = policy_outputs["new_rnn_states"]
     step_results = driver.step(active_slots, raw_actions)
     if isinstance(driver.action_space, Box) and not preserve_issued_actions:
         raw_actions = [

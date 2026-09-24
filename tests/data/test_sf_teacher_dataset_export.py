@@ -1614,7 +1614,8 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
     assert current_values == [10, 20, 30, 40]
 
 
-def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkeypatch, tmp_path):
+@pytest.mark.parametrize("episodes", [3, 5])
+def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkeypatch, tmp_path, episodes):
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -1635,8 +1636,11 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
             pass
 
     class FakeActorCritic:
+        inference_batches = []
+
         def __call__(self, normalized_obs, rnn_states):
             batch_size = int(normalized_obs["obs"].shape[0])
+            self.inference_batches.append(batch_size)
             return {
                 "actions": torch.arange(batch_size, dtype=torch.int64).reshape(batch_size, 1),
                 "new_rnn_states": torch.ones_like(rnn_states),
@@ -1715,7 +1719,7 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
             "device": torch.device("cpu"),
             "prepare_and_normalize_obs": lambda actor_critic, obs_batch: obs_batch,
             "argmax_actions": lambda action_distribution: action_distribution,
-            "preprocess_actions": lambda env_info, actions: np.arange(3, dtype=np.int64),
+            "preprocess_actions": lambda env_info, actions: actions.reshape(-1).numpy(),
             "unsqueeze_tensor": lambda value, dim: value.unsqueeze(dim),
             "rnn_size": 1,
             "checkpoint": {"train_step": 123},
@@ -1730,11 +1734,13 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
     exporter.collect_teacher_dataset(
         _rollout_descriptor("demon_attack"),
         output_dir=output_dir,
-        max_episodes=3,
+        max_episodes=episodes,
+        max_attempts=episodes,
         max_steps_per_episode=8,
         val_fraction=0.0,
         split_seed=0,
         num_envs=3,
+        replay_num_envs=3,
         deterministic=False,
         export_image_size=None,
         image_writer_workers=0,
@@ -1745,8 +1751,11 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
 
     assert build_env_calls == [1, 1]
     assert not val_rows
-    assert [row["episode_idx"] for row in train_rows] == [0, 1, 2]
-    assert fake_env.step_actions == [[0, 1, 2], [0, 1, 2]]
+    assert [row["episode_idx"] for row in train_rows] == list(range(episodes))
+    phase_actions = [[0, 1, 2]] if episodes == 3 else [[0, 1, 2], [0, 1, 0]]
+    assert fake_env.step_actions == phase_actions * 2
+    # Inactive slots must not shrink the GPU inference batch between phases.
+    assert FakeActorCritic.inference_batches == [3] * (2 * len(phase_actions))
 
 
 @pytest.mark.parametrize("export_history", [False, True])
