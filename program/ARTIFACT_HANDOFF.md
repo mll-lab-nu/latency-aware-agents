@@ -41,6 +41,26 @@ Small bundle 只包含所选 checkpoint、原始 `config.json`、`eval_l0.json` 
 `eval_profile.json`、`provenance.json` 和 `README.md`。不复制 W&B、训练日志或其他
 retained checkpoints。
 
+### Atlantis / Asterix 零延迟 H8 small（2026-09-24）
+
+两款模型均从零训练：CPU/ALE、60/15 FPS、四帧图像和最近 8 次决策动作历史、seed 0、
+目标 15M env steps，最终 checkpoint 均为 15,007,744 steps。正式评测使用各自训练所选
+`best` checkpoint，CPU/ALE、零延迟、seed 42、32 路并行、每局最多 14,400 原始帧，
+完成 100 局，实际环境 seeds 为 104771–104870。
+
+| 环境 | best checkpoint 的 env steps | 100 局 mean ± sample SD | 中央目录 |
+|---|---:|---:|---|
+| Atlantis | 13,598,720 | 88,613.000 ± 22,690.414 | `zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/` |
+| Asterix | 12,345,344 | 6,041.000 ± 2,272.101 | `zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/` |
+
+两项已训练完成、评测完成并发布到
+[`benchmark-models@dfaeecb`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency)；
+10 个中央文件逐一回读并与源文件匹配，旧 `sample-factory-v1` 目录保留。
+[Atlantis 逐局评测](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json)与
+[Asterix 逐局评测](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json)保留完整身份与结果；
+本地发布回执位于 `outputs/tasks/atari_zero_hist8_cpu15m/publication_receipt.json`。
+旧 teacher 的正式评测 horizon 为 5,000 原始帧，与本次 14,400 帧均分不可直接比较。
+
 ### 0-latency VLA：15 项
 
 | 环境 | O 源 | G 源 | π 源 | 中央目标 |

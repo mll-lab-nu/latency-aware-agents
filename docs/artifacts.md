@@ -34,6 +34,8 @@ configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 | Deadly Corridor | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/deadly-corridor/small-policy/sample-factory-v1/` | Published; 100-episode mean 2116.794; central readback passed |
 | Atlantis | Sample Factory zero-latency teacher | Existing central checkpoint/config | `zero-latency/atlantis/small-policy/sample-factory-v1/` | Published; 100-episode mean 29271.000; central readback passed |
 | Asterix | Sample Factory zero-latency teacher | Existing central checkpoint/config | `zero-latency/asterix/small-policy/sample-factory-v1/` | Published; 100-episode mean 4099.000; central readback passed |
+| Atlantis | Sample Factory zero-latency H8 CPU policy | [Published provenance](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/provenance.json) | `zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/` | Published at `dfaeecb`; 100-episode 14400-frame mean 88613.000; central readback passed |
+| Asterix | Sample Factory zero-latency H8 CPU policy | [Published provenance](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/provenance.json) | `zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/` | Published at `dfaeecb`; 100-episode 14400-frame mean 6041.000; central readback passed |
 
 The five historical Atari-like tasks additionally reserve three zero-latency
 VLA paths per task, named

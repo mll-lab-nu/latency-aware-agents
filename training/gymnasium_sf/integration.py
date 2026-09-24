@@ -354,6 +354,7 @@ def make_gymnasium_sf_env(
         env_reset_seed_base=wrapper_seed + 104729,
         add_latency_info=bool(cfg.add_latency_info),
         max_pending_actions=cfg.max_pending_actions,
+        action_history_decisions=cfg.action_history_decisions,
         hold_last_chunk_action=cfg.hold_last_chunk_action,
         release_results_at_observation_boundary=cfg.algo == "PPO",
         noop_action=noop_action,
@@ -424,6 +425,7 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--env-fps", dest="env_fps", type=float, required=True)
     parser.add_argument("--obs-fps", dest="obs_fps", type=float, required=True)
     parser.add_argument("--frame-stack", dest="frame_stack", type=int, required=True)
+    parser.add_argument("--action-history-decisions", dest="action_history_decisions", type=int, default=None)
     parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu", "gpu"])
     parser.add_argument("--gpu-env-device", dest="gpu_env_device", type=str, default="auto")
     parser.add_argument("--gpu-env-batch-size", dest="gpu_env_batch_size", type=int, default=1)
@@ -513,6 +515,8 @@ def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
     append_cli_arg(args, "--frame-stack", env_cfg["frame_stack"])
+    if "action_history_decisions" in env_cfg:
+        append_cli_arg(args, "--action-history-decisions", env_cfg["action_history_decisions"])
     if "simulator" in env_cfg:
         append_cli_arg(args, "--simulator", env_cfg["simulator"])
     if "simulator" in env_cfg and env_cfg["simulator"] == "gpu":

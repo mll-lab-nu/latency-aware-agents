@@ -1,0 +1,33 @@
+__base__: sf_eval_zero_latency.yaml
+
+experiment:
+  name: asterix_sf_zero_latency_hist8_cpu15m_seed0
+  seed: 42
+
+backend:
+  train_dir: results/checkpoints/atari_zero_hist8_cpu15m
+  extra_args:
+    - --encoder_conv_architecture
+    - convnet_simple
+    - --load_checkpoint_kind
+    - best
+
+env:
+  frame_stack: 4
+  simulator: cpu
+  action_history_decisions: 8
+
+policy:
+  type: gymnasium_sf
+  checkpoint_path: ""
+  checkpoint_kind: best
+  device: auto
+  deterministic: true
+
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 32
+  eval_max_steps: 14400
+
+logging:
+  output_dir: outputs/atari_zero_hist8_cpu15m/asterix/eval_best_cpu

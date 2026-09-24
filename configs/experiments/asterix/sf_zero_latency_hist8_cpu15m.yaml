@@ -1,0 +1,34 @@
+__base__: ../../base/asterix.yaml
+
+experiment:
+  name: asterix_sf_zero_latency_hist8_cpu15m_seed0
+  seed: 0
+
+backend:
+  run_mode: train
+  train_dir: results/checkpoints/atari_zero_hist8_cpu15m
+  restart_behavior: resume
+
+env:
+  frame_stack: 4
+  simulator: cpu
+  action_history_decisions: 8
+
+latency:
+  method: zero
+  add_latency_info: false
+
+training:
+  train_for_env_steps: 15000000
+  num_workers: 4
+  num_envs_per_worker: 16
+  worker_num_splits: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  max_policy_lag: 300
+
+logging:
+  output_dir: outputs/atari_zero_hist8_cpu15m/asterix/train
