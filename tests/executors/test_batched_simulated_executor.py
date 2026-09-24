@@ -13,6 +13,7 @@ from gymnasium.spaces import Discrete
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
+from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
@@ -278,16 +279,25 @@ class SoftResetEnvAdapter(EnvAdapter):
                 reward=1.0,
                 done=False,
                 truncated=False,
-                info={"soft_reset": True},
+                info={
+                    "soft_reset": True,
+                    "lives": 2,
+                    TRUE_EPISODE_END_INFO_KEY: False,
+                },
             )
 
         self.env_step += 1
+        done = self.total_steps >= 4
         return StepResult(
             observation=self._observation(),
             reward=1.0,
-            done=self.total_steps >= 4,
+            done=done,
             truncated=False,
-            info={"total_steps": self.total_steps},
+            info={
+                "total_steps": self.total_steps,
+                "lives": 0 if done else 2,
+                TRUE_EPISODE_END_INFO_KEY: done,
+            },
         )
 
     def render_frame(self):
@@ -858,6 +868,9 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
     assert metrics[0].episode_id == 7
     assert metrics[0].survival_steps == 4
     assert metrics[0].episode_return == 4.0
+    assert metrics[0].metadata["soft_reset_count"] == 1
+    assert metrics[0].metadata["final_lives"] == 0
+    assert metrics[0].metadata["final_is_true_episode_end"] is True
     assert [action.value for action in env.applied_actions] == ["noop", "noop", "noop", "noop"]
     assert policy.reset_calls == [0, 0]
 

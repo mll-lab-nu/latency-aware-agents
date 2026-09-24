@@ -11,6 +11,7 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.decision_action_history import DecisionActionHistory
 from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
+from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors._simulated_timeline import (
     SimulatedResultTimeline,
@@ -53,6 +54,9 @@ class _EpisodeBuffers:
     num_invalid_actions: int = 0
     submitted_observation_frames: int = 0
     dropped_observation_count: int = 0
+    soft_reset_count: int = 0
+    final_lives: int | None = None
+    final_is_true_episode_end: bool | None = None
     task_metrics: dict | None = None
     task_metric_moments: dict | None = None
 
@@ -61,6 +65,12 @@ class _EpisodeBuffers:
         self.survival_steps += 1
         if "invalid_action" in info and info["invalid_action"]:
             self.num_invalid_actions += 1
+        if "soft_reset" in info and info["soft_reset"]:
+            self.soft_reset_count += 1
+        if "lives" in info:
+            self.final_lives = info["lives"]
+        if TRUE_EPISODE_END_INFO_KEY in info:
+            self.final_is_true_episode_end = info[TRUE_EPISODE_END_INFO_KEY]
         if "game_score" in info:
             self.game_score = float(info["game_score"])
         if "score" in info:
@@ -664,6 +674,11 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             metadata["task_metrics"] = buffers.task_metrics
         if buffers.task_metric_moments is not None:
             metadata["task_metric_moments"] = buffers.task_metric_moments
+        if buffers.final_lives is not None:
+            metadata["final_lives"] = buffers.final_lives
+        if buffers.final_is_true_episode_end is not None:
+            metadata["final_is_true_episode_end"] = buffers.final_is_true_episode_end
+            metadata["soft_reset_count"] = buffers.soft_reset_count
         if buffers.step_records is not None and buffers.action_events is not None:
             return compute_episode_metrics(
                 episode_id=episode_id,
