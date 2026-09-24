@@ -53,6 +53,9 @@ from training.common.sample_factory_config import (
     SampleFactoryConfigParser,
     force_sample_factory_raw_frame_step_cfg,
 )
+from training.common.sf_episode_extra_stats_compat import (
+    ensure_sample_factory_episode_extra_stats_installed,
+)
 from training.common.sf_gpu_sampling_compat import (
     ensure_sample_factory_gpu_sampling_compat_installed,
 )
@@ -278,6 +281,7 @@ def make_gymnasium_sf_env(
     force_sample_factory_raw_frame_step_cfg(cfg)
     env_config = _sample_factory_env_config(env_config)
     if cfg.simulator == "gpu":
+        ensure_sample_factory_episode_extra_stats_installed(env_name=SF_ENV_NAME)
         ensure_sample_factory_raw_reward_console_stats_installed(env_name=SF_ENV_NAME)
         ensure_sample_factory_gpu_sampling_compat_installed(env_name=SF_ENV_NAME)
         env_type = _GPU_ATARI_ENVS[cfg.gym_task_name]
