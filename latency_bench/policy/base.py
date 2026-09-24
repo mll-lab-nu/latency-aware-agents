@@ -33,6 +33,9 @@ class RandomPolicyRunner(PolicyRunner):
         action = self.rng.choice(self.actions)
         return PolicyOutput(action=action, raw_output=action.value)
 
+    def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
+        return [self.predict(observation) for observation in observations]
+
 
 class ConstantPolicyRunner(PolicyRunner):
     def __init__(self, action: Action):
