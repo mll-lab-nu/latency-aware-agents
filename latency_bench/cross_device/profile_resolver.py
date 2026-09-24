@@ -115,6 +115,8 @@ def _download_profile_artifact(provenance: dict[str, Any]) -> dict[str, Path]:
         "repo_id": provenance["repo_id"],
         "repo_type": "model",
     }
+    if "revision" in provenance:
+        download_kwargs["revision"] = provenance["revision"]
     if path_in_repo != Path("."):
         download_kwargs["allow_patterns"] = [f"{path_in_repo.as_posix()}/**"]
     snapshot = Path(snapshot_download(**download_kwargs))

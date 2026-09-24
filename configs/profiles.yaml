@@ -218,10 +218,10 @@ models:
         base_config: configs/experiments/flappy/realtime/starvla_profile.yaml
         model_artifact:
           local_root: third_party/starVLA/results/Checkpoints/pi05_flappy_fix_latency_0_200ep
-          checkpoint: checkpoints/steps_5000_pytorch_model.pt
+          checkpoint: checkpoints/steps_5000_state/model.safetensors
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/pi05_flappy_fix_latency_0_200ep
-          hf_path: .
+          hf_repo: latency-sensitive-bench/pi05_fix_latency
+          hf_path: pi05_flappy_fix_latency_0_200ep
         checkpoint_kind: best
         session_count: 5
         eval_episodes: 10

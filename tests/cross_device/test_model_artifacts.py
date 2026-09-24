@@ -300,6 +300,7 @@ def test_simulation_resolves_the_model_artifact_recorded_by_the_profile(
                 "path_in_repo": "zero-latency/task/vla/model-v1",
                 "checkpoint": "checkpoints/final.pt",
                 "model_config": "profile-config.yaml",
+                "revision": "model-revision",
                 "source": "hf",
             }
         }
@@ -319,7 +320,7 @@ def test_simulation_resolves_the_model_artifact_recorded_by_the_profile(
     # The replay must use the model config recorded by the profile, not the
     # (possibly changed) live registry value.
     assert resolved["model_config_path"] == str(root / "profile-config.yaml")
-    assert "revision" not in calls["snapshot"]
+    assert calls["snapshot"]["revision"] == "model-revision"
     if profile_runtime:
         assert resolved["runtime_checkpoint_path"] == str(root / "runtime.pt")
     else:

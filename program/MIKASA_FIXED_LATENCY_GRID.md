@@ -1,7 +1,9 @@
 # MIKASA QwenOFT H8 fixed-latency grid
 
-当前阶段：本地实现与测试，等待代码 review。尚未向远端同步本轮改动，未运行 GPU smoke、
-新训练或新正式评测。review 通过后才进入远端执行阶段。仅暂存相关代码，不自动 commit。
+当前阶段：用户已批准同步和正式启动，并明确要求跳过 GPU 短流程。两台 H200 的独立
+运行目录已同步，Fixed-1/3/4 正式数据采集与后续训练流水线已启动；Fixed-2 的五档评测
+同步进行。训练/评测完成另行核验。仅暂存相关代码，不自动 commit。
+[执行记录](logs/mikasa-fixed-grid-2026-09-24.md)。
 
 ## 冻结协议
 
@@ -63,7 +65,7 @@ DAgger 从 SFT 权重初始化新优化器，10×500 updates；每轮至少 16,0
 DAgger 每轮采集 seed 起点为 `10,000,000 + round×1,000,000`。原 baseline/best/latest
 独立终评保持 200 局 seeds `4242424542–4242424741`，不与下面主矩阵混用。
 
-### review 后的命令入口
+### 正式命令入口
 
 在两台 H200 任意已确认空闲的卡上安排三组双卡；每台训练机额外安排空闲 simulator 卡，
 沿用已有 GPU lock 串行化同卡采集/评测。以下卡号仅演示一组，启动前重新核实。
@@ -91,9 +93,7 @@ bash scripts/tasks/mikasa_intercept_grab_fast/launch_h8_dagger_arm.sh \
   "$PWD/outputs/starvla/runs/mikasa_intercept_grab_fast/fixed-grid-dagger-20260924/${FIXED_CONDITION}/qwenoft"
 ```
 
-先运行双卡短流程，再运行上述正式入口。短流程用独立目录、少量采集数据及 SFT
-`--smoke --num-gpus 2 --micro-batch 64 --no-gradient-checkpointing --no-oom-retry --train-only`；
-随后 `run_dagger --smoke` 做两轮两步，使用该 source run 实际保存的 SFT step。正式 SFT
+按用户最新指令直接运行上述正式入口，不运行短流程。正式 SFT
 恢复使用相同 run-id/output-dir 加 `--resume --train-only`；DAgger 重启相同命令，复用完整
 双 rank 边界与已打包增量，不重复已完成轮次。partial eval 保留供检查，用新 label 重跑。
 
