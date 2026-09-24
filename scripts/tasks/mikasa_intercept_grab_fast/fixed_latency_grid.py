@@ -87,7 +87,8 @@ def summarize_cell(directory: Path, manifest: dict) -> dict:
         "mean_return": evaluation["mean_return"], "std_return": evaluation["std_return"],
         "artifact": {**manifest["artifact"], "bundle_path": manifest["bundle"]},
         "inference_code": manifest["inference_code"], "action_prefix": manifest["action_prefix"],
-        "evidence_path": str(directory), "execution_audit": mikasa_h8_execution_audit(directory),
+        "evidence_path": config["logging"]["output_dir"],
+        "execution_audit": mikasa_h8_execution_audit(directory),
     }
 
 

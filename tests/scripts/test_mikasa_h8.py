@@ -970,6 +970,7 @@ def test_grid_cell_summarizes_raw_episodes_and_action_trace(tmp_path):
         "env": {"env_fps": 20, "obs_fps": 20},
         "latency": {"method": "fixed", "fixed_latency_ms": 50.0},
         "policy": {"action_prefix": prefix},
+        "logging": {"output_dir": "/original/evaluation/location"},
     }))
     episodes, steps, actions = [], [], []
     for episode in range(200):
@@ -1003,6 +1004,7 @@ def test_grid_cell_summarizes_raw_episodes_and_action_trace(tmp_path):
     assert summary["mean_return"] == 2.0
     assert summary["std_return"] == 1.0
     assert summary["execution_audit"]["passed"] is True
+    assert summary["evidence_path"] == "/original/evaluation/location"
     actions[0]["latency_raw_frames"] = 2
     (tmp_path / "actions.jsonl").write_text("".join(json.dumps(row) + "\n" for row in actions))
     with pytest.raises(AssertionError):

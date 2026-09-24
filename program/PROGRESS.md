@@ -72,7 +72,7 @@ L0 使用 50 个共同 seeds `4242424242–4242424291`。
 新增范围为 QwenOFT Fixed-1/3/4，每路 SFT 5k + DAgger 5k，global batch 128、
 gradient checkpointing 关闭。主矩阵每格 200 局、20/20Hz、reset seeds
 `4242424242–4242424441`；Zero 列复用已核验 Figure 2 的既有五格，其余 20 格待评测。
-已按用户要求跳过短流程并启动三路正式数据采集→SFT→DAgger 流水线，以及已有 Fixed-2 的五档评测；训练与矩阵终点尚未完成。
+已按用户要求跳过短流程启动正式流水线：Fixed-1/3 已进入 SFT，Fixed-4 完成数据准备后自动接续训练。已有 Fixed-2 DAgger step-5000（Hub `795468e5`）五档评测完成，成功数依次为 **1、1、177、0、0 / 200**，执行审计均通过；新模型训练与完整矩阵尚未完成。[Fixed-2 证据](../outputs/tasks/mikasa_intercept_grab_fast/fixed-grid-20260924/fixed2_column.json)。
 [协议与执行入口](MIKASA_FIXED_LATENCY_GRID.md)。
 
 ### Extreme Parkour Go2

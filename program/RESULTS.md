@@ -197,3 +197,24 @@ the formal `113/200` and `115/200` results exactly.
 [complete raw outputs](../outputs/tasks/mikasa_intercept_grab_fast/figure2_h1_h8_naive_dagger_fixed_latency_20260923/) ·
 [QwenOFT L1/L2 identical-seed replication](../outputs/tasks/mikasa_intercept_grab_fast/figure2_h8_dagger_oft_l1_l2_replication_20260923/) ·
 [Figure 2 data and panel](../paper/figures/2_2_performance_degradation/README.md).
+
+## QwenOFT H8 Fixed-2 → Fixed Latency 0–4 — MIKASA InterceptGrabFast
+
+The published Fixed-2 DAgger step-5000 checkpoint at
+[benchmark-models@795468e5](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/795468e53947d26314e891cbc375775c6e0bd491/fixed-2/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923)
+was evaluated with its trained **K=2 hard prefix retained at every latency**, including L0.
+Each setting uses 200 episodes, common seeds `4242424242–4242424441`, 20/20Hz,
+60 transitions, deterministic inference, capacity 1, and observation-aligned H8×7 chunks.
+The 71D conditioned input is retained; the existing naive Zero model uses 7D without a prefix.
+
+| Metric | L0 | L1 | L2 | L3 | L4 |
+|---|---:|---:|---:|---:|---:|
+| Success | 1/200 (0.5%) | 1/200 (0.5%) | 177/200 (88.5%) | 0/200 (0.0%) | 0/200 (0.0%) |
+| Return mean ± population SD | 3.39886±5.89048 | 3.39886±5.89048 | 32.41834±8.76923 | 0.94342±0.74828 | 0.83236±1.71474 |
+
+All five execution audits passed. L0 and L1 have identical per-episode return vectors.
+No off-diagonal result was discarded or used to reselect the model. The remaining
+Fixed-1/3/4 training columns are pending; this is not a completed 5×5 grid.
+[Column summary](../outputs/tasks/mikasa_intercept_grab_fast/fixed-grid-20260924/fixed2_column.json) ·
+[Raw records](../outputs/tasks/mikasa_intercept_grab_fast/fixed-grid-20260924/train_2/) ·
+[Execution protocol](MIKASA_FIXED_LATENCY_GRID.md).
