@@ -17,6 +17,7 @@ from latency_bench.integrations.starvla_resident_dagger import ResidentInference
 from latency_bench.policy.base import PolicyRunner
 from scripts.mikasa.evaluate import MikasaEnvStepBackend
 from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import collect
+from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
 
 
 class _ResidentPolicy(PolicyRunner):
@@ -139,7 +140,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("eval", "collect"))
     parser.add_argument("--model", choices=("qwenoft", "qwenpi_v3", "qwengr00t"), required=True)
-    parser.add_argument("--condition", choices=("profile-latency", "fixed-2", "zero-latency"), required=True)
+    parser.add_argument("--condition", choices=("profile-latency", *FIXED_LATENCIES, "zero-latency"), required=True)
     parser.add_argument("--eval-config", type=Path, required=True)
     parser.add_argument("--source-run", type=Path, required=True)
     parser.add_argument("--latency-config", type=Path, required=True)

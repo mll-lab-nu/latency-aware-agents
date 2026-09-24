@@ -114,9 +114,10 @@ CUDA_VISIBLE_DEVICES=1 VLA_PY=/path/to/starvla-python \
 
 Conditioned 路线使用独立任务键 `mikasa_conditioned_h8`，不改变上面的 `mikasa_h8`
 baseline。action 仍为 `8×7`，state 改为 71D：7D proprio、controller 当时真实可见的
-returned chunk `8×7`，以及 active-head one-hot 8D。Zero 评测只关闭显式
-`action_prefix`；71D 中的 returned-action context 仍按真实 scheduler 状态因果生成，不能
-替换成全零历史。数据同时保存 `action_prefix_mask` 与 `action_loss_mask`。
+returned chunk `8×7`，以及 active-head one-hot 8D。所有评测延迟（包括 Zero）都保留
+训练合同中的 `action_prefix`；71D returned-action context 按真实 scheduler 状态因果生成。
+旧评测入口在 Zero 时关闭 prefix 的行为已纠正；旧 conditioned Zero 结果不能代表本协议。
+Naive H8 仍为 7D、无 prefix。数据同时保存 `action_prefix_mask` 与 `action_loss_mask`。
 
 Profile 数据按模型分别采集，使用 RTX 3090 profile revision
 `66414463f2a609316da63935941a79abf0a73ce9` 的 p95 latency 投影固定 prefix：
@@ -129,6 +130,13 @@ Profile 数据按模型分别采集，使用 RTX 3090 profile revision
 
 Fixed-2 使用 `latency.method=fixed`、`fixed_latency_ms=100.0` 和
 `action_prefix.mode=fixed_frames, frames=2`，三模型共享同一份数据。
+
+Fixed-1/3/4 沿用同一协议，训练时分别使用 50/150/200ms 和 K=1/3/4。
+评测时只改变实际延迟，K 从训练合同读取。请求 t 的 prefix 是当时可见计划中 t 起的
+K 个动作；QwenOFT 返回后由策略适配层覆盖对应 head。实际到达 t+L 时执行 head L，
+不再加 K。L<K 时可以执行复制来的 prefix；L>K 时训练假设轨迹与实际等待轨迹可能不同。
+普通 checkpoint 和 resident DAgger 推理共用该适配层。
+本次三路训练、5×5 矩阵和 review 边界见 [Fixed latency grid](MIKASA_FIXED_LATENCY_GRID.md)。
 
 每个 admitted observation 先从主 scheduler 冻结 K 个 controller-visible future
 actions；再把主 ManiSkill state、elapsed step、oracle info 和 reached status 复制到

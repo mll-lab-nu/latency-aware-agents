@@ -1,6 +1,7 @@
 """Cumulative replay and retryable artifact publication contracts."""
 
 import json
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -28,7 +29,7 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
     args = SimpleNamespace(task=task, model=model, output_dir=tmp_path,
                            smoke=True, num_gpus=1, micro_batch=1, num_workers=4,
                            persistent_workers=True, pin_memory=True, prefetch_factor=2,
-                           condition=condition)
+                           condition=condition, gradient_checkpointing=True)
 
     config = train_task.training_config(
         args, bootstrap=bootstrap.parent, deltas=[], backbone=tmp_path / 'backbone',
@@ -42,7 +43,7 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
     assert config['wandb_tags'][-1] == wandb_condition
     assert config['run_id'] == phase
     assert config['run_root_dir'] == str(tmp_path / 'training')
-    assert config['trainer']['save_interval'] == 2500
+    assert config['trainer']['save_interval'] == 500
     assert config['checkpoint']['save_training_state'] is True
     assert config['checkpoint']['local']['keep_last_n'] == 2
     data = config['datasets']['vla_data']
@@ -62,6 +63,8 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
 
 def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
     calls = []
+    monkeypatch.delenv('WANDB_RUN_ID', raising=False)
+    monkeypatch.delenv('WANDB_RESUME', raising=False)
     args = SimpleNamespace(
         output_dir=tmp_path,
         task='balance',
@@ -92,6 +95,13 @@ def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
     assert calls[1]['env']['WANDB_RESUME'] == 'allow'
     assert calls[2]['env']['WANDB_RESUME'] == 'allow'
     assert all(call['env']['WANDB_MODE'] == 'online' for call in calls)
+
+    monkeypatch.setenv('WANDB_RUN_ID', 'explicit-run-id')
+    monkeypatch.setenv('WANDB_RESUME', 'allow')
+    train_task.train(args, config)
+    assert calls[-1]['env']['WANDB_RUN_ID'] == 'explicit-run-id'
+    assert calls[-1]['env']['WANDB_RESUME'] == 'allow'
+
     args.smoke = True
     train_task.train(args, config)
     assert calls[-1]['env']['WANDB_MODE'] == 'disabled'
@@ -100,6 +110,30 @@ def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
 def test_resume_requires_explicit_run_id():
     with pytest.raises(SystemExit, match='2'):
         train_task.main(['--task', 'balance', '--model', 'qwenpi_v3', '--resume'])
+
+
+def test_fixed_training_oom_preserves_requested_batch(tmp_path, monkeypatch):
+    """Long-lived trainer contract: disabled retries never change batch or accumulation."""
+    args = SimpleNamespace(
+        output_dir=tmp_path, task='mikasa_conditioned_h8', model='qwenoft', run_id='fixed-3',
+        resume=False, smoke=False, vla_python=tmp_path / 'python', num_gpus=2, port=29521,
+        oom_retry=False, micro_batch=64,
+    )
+    config = {'run_id': 'bootstrap', 'datasets': {'vla_data': {'per_device_batch_size': 64}},
+              'trainer': {'stop_after_steps': 5000, 'is_resume': False, 'gradient_accumulation_steps': 1}}
+    calls = []
+
+    def fail(command, log, **kwargs):
+        calls.append(command)
+        log.write_text('CUDA out of memory')
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(train_task, 'run_command', fail)
+    with pytest.raises(subprocess.CalledProcessError):
+        train_task.train(args, config)
+    assert len(calls) == 1
+    assert args.micro_batch == config['datasets']['vla_data']['per_device_batch_size'] == 64
+    assert config['trainer']['gradient_accumulation_steps'] == 1
 
 
 @pytest.mark.parametrize(('method', 'label'), [('zero', '0'), ('temporal', 'profile_sample')])
@@ -138,6 +172,7 @@ def test_resume_requires_complete_training_state(tmp_path):
         'task': 'balance',
         'model': 'qwenpi_v3',
         'run_id': 'formal-1',
+        'condition': 'zero-latency',
     })
 
     with pytest.raises(FileNotFoundError, match='complete bootstrap training state'):
@@ -147,6 +182,19 @@ def test_resume_requires_complete_training_state(tmp_path):
             '--run-id', 'formal-1',
             '--output-dir', str(tmp_path),
             '--resume',
+        ])
+
+
+def test_resume_rejects_a_different_training_latency(tmp_path):
+    """Long-lived resume contract: changing Fixed-K starts a new training run."""
+    train_task.write_json(tmp_path / 'run.json', {
+        'task': 'mikasa_conditioned_h8', 'model': 'qwenoft',
+        'run_id': 'fixed-run', 'condition': 'fixed-1',
+    })
+    with pytest.raises(ValueError, match='condition'):
+        train_task.main([
+            '--task', 'mikasa_conditioned_h8', '--model', 'qwenoft', '--condition', 'fixed-3',
+            '--run-id', 'fixed-run', '--output-dir', str(tmp_path), '--resume',
         ])
 
 
@@ -179,6 +227,7 @@ def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path
         'task': 'haic',
         'model': 'qwenpi_v3',
         'run_id': 'formal-1',
+        'condition': 'zero-latency',
         'smoke': False,
         'teacher': {},
         'backbone': {},

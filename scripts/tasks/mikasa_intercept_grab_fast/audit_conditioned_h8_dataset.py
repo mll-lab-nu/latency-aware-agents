@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
 from pathlib import Path
 
 import numpy as np
@@ -113,10 +114,10 @@ def audit(
     else:
         assert collection["latency_config"]["latency"] == {
             "method": "fixed",
-            "fixed_latency_ms": 100.0,
+            "fixed_latency_ms": FIXED_LATENCIES[condition] * 50.0,
         }
         assert prefix["mode"] == "fixed_frames"
-        assert prefix_frames == 2
+        assert prefix_frames == FIXED_LATENCIES[condition]
 
     raw_train = _raw_rows(raw_root, train_split["episode_indices"])
     raw_validation = _raw_rows(raw_root, validation_split["episode_indices"])
@@ -129,8 +130,8 @@ def audit(
             row["loss_mask"],
             (np.arange(8) >= prefix_frames) & (np.arange(8) < prefix_frames + suffix_length),
         )
-        if condition == "fixed-2":
-            assert row["latency_frame"] == 2
+        if condition in FIXED_LATENCIES:
+            assert row["latency_frame"] == FIXED_LATENCIES[condition]
 
     datasets = (
         (dataset, raw_train),
@@ -197,7 +198,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-root", type=Path, required=True)
     parser.add_argument("--dataset", type=Path, required=True)
-    parser.add_argument("--condition", choices=("profile-latency", "fixed-2"), required=True)
+    parser.add_argument("--condition", choices=("profile-latency", *FIXED_LATENCIES), required=True)
     args = parser.parse_args()
     print(
         json.dumps(

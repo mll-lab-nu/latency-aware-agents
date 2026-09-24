@@ -23,6 +23,7 @@ from latency_bench.executors._simulated_timeline import (
 from latency_bench.latency.samplers import build_sampler
 from latency_bench.logging.metrics import latency_type_from_source, profile_metadata_from_source
 from latency_bench.policy.action_prefix import resolve_action_prefix, with_action_prefix
+from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
 from latency_bench.scheduler.factory import build_action_scheduler
 from scripts.mikasa.evaluate import (
     MIKASA_IMAGE_VIEWS_INFO_KEY,
@@ -50,7 +51,7 @@ def _prefix_settings(condition: str, config: dict) -> dict:
             "profile_revision": config["profile_source"]["revision"],
         }
         if condition == "profile-latency"
-        else {"mode": "fixed_frames", "frames": 2}
+        else {"mode": "fixed_frames", "frames": FIXED_LATENCIES[condition]}
     )
     return resolve_action_prefix(
         settings,
@@ -581,7 +582,7 @@ def collect(args: argparse.Namespace, *, student_pool=None, seed_start: int = 0,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--condition", choices=("profile-latency", "fixed-2", "zero-latency"), required=True)
+    parser.add_argument("--condition", choices=("profile-latency", *FIXED_LATENCIES, "zero-latency"), required=True)
     parser.add_argument(
         "--model",
         choices=("qwenoft", "qwenpi_v3", "qwengr00t", "shared"),

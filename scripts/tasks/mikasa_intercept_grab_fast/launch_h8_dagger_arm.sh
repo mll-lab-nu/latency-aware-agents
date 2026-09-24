@@ -10,8 +10,8 @@ OUTPUT="${6:?output path}"
 MODE="${7:-formal}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BASE="${ROOT}/outputs/starvla"
-SOURCE="${BASE}/runs/mikasa_intercept_grab_fast/h8-conditioned-seed-reset-20260922/${CONDITION}/${MODEL}"
-DATA="${BASE}/datasets/mikasa_intercept_grab_fast/conditioned-h8-seed-reset-20260922"
+SOURCE="${MIKASA_H8_SOURCE_RUN:?Set MIKASA_H8_SOURCE_RUN to the SFT run}"
+DATA="${MIKASA_H8_DATA_ROOT:?Set MIKASA_H8_DATA_ROOT}"
 TEACHER="${BASE}/artifacts/models/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/checkpoint.pt"
 TASK_PY="${ROOT}/third_party/MIKASA-Robo/.venv/bin/python"
 INFERENCE_GPU="${TRAIN_DEVICES%%,*}"
@@ -28,10 +28,10 @@ case "${CONDITION}" in
     EVAL_CONFIG="${SOURCE}/evals/final-profile/eval_config.yaml"
     LATENCY_CONFIG="${DATA}/configs/profile-${MODEL}.yaml"
     ;;
-  fixed-2)
-    BOOTSTRAP="${DATA}/fixed-2"
-    EVAL_CONFIG="${SOURCE}/evals/final-fixed-2/eval_config.yaml"
-    LATENCY_CONFIG="${DATA}/configs/fixed-2.yaml"
+  fixed-[1234])
+    BOOTSTRAP="${DATA}/${CONDITION}"
+    EVAL_CONFIG="${SOURCE}/evals/final-${CONDITION}/eval_config.yaml"
+    LATENCY_CONFIG="${DATA}/configs/${CONDITION}.yaml"
     ;;
   *) exit 2 ;;
 esac

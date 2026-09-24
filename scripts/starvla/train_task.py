@@ -19,6 +19,7 @@ from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 import yaml
 
 from latency_bench.core.config import load_config
+from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.data.starvla_tasks import TASK_SPECS, read_task_contract, task_spec
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
@@ -26,6 +27,7 @@ from latency_bench.eval.reporting import _log_corrected_eval_summaries_to_wandb,
 from latency_bench.utils.hf import resolve_token
 from scripts.starvla import artifacts
 from scripts.starvla.model_config import make_model_config
+from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES, QWEN_BACKBONE_REVISION
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +43,16 @@ BACKBONES = {
         'allow_patterns': ['model_index.json', 'scheduler/*', 'tokenizer/*', 'text_encoder/*', 'transformer/*', 'vae/*'],
     },
 }
+_MIKASA_SETTINGS = {
+    'teacher': 'ppo-v1/checkpoint.pt', 'conda_env': None,
+    'eval_config': 'configs/examples/mikasa/official_starvla_profile.yaml',
+    'state_info_key': 'mikasa_proprio', 'global_batch': 128, 'sft_steps': 5000,
+    'max_episode_steps': 60, 'seed': 4242424242,
+}
+_MIKASA_RTX3090_PROFILE_CONFIGS = {
+    model: f'configs/training/latency/mikasa_{model}_rtx3090_scratch.yaml'
+    for model in ('qwenoft', 'qwenpi_v3', 'qwengr00t')
+}
 TASK_SETTINGS = {
     'balance': {
         'teacher': 'fasttd3-h8-v1/checkpoint.pth', 'conda_env': 'latency',
@@ -54,12 +66,9 @@ TASK_SETTINGS = {
         'state_info_key': 'parkour_proprio', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1500, 'seed': 2,
     },
-    'mikasa': {
-        'teacher': 'ppo-v1/checkpoint.pt', 'conda_env': None,
-        'eval_config': 'configs/examples/mikasa/official_starvla_profile.yaml',
-        'state_info_key': 'mikasa_proprio', 'global_batch': 128, 'sft_steps': 5000,
-        'max_episode_steps': 60, 'seed': 4242424242,
-    },
+    'mikasa': _MIKASA_SETTINGS,
+    'mikasa_h8': _MIKASA_SETTINGS,
+    'mikasa_conditioned_h8': _MIKASA_SETTINGS,
     'haic': {
         'teacher': 'ppo-v1/checkpoint_final.pt', 'conda_env': 'haic',
         'eval_config': 'configs/examples/haic/official_starvla_profile.yaml',
@@ -67,6 +76,25 @@ TASK_SETTINGS = {
         'max_episode_steps': 1000, 'seed': 0,
     },
 }
+
+
+def mikasa_h8_profile_latency(model: str) -> dict:
+    profile_config = load_config(ROOT / _MIKASA_RTX3090_PROFILE_CONFIGS[model])
+    source = profile_config['profile_source']
+    profile_path = ROOT / profile_config['latency']['profile_path']
+    if not profile_path.is_file():
+        snapshot = Path(snapshot_download(
+            source['repo_id'],
+            repo_type='dataset',
+            revision=source['revision'],
+            allow_patterns=[source['path'] + '/*'],
+            token=resolve_token(''),
+        ))
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(snapshot / source['path'], profile_path.parent, dirs_exist_ok=True)
+    latency = deepcopy(profile_config['latency'])
+    latency['profile_path'] = str(profile_path)
+    return latency
 
 
 def write_json(path: Path, value) -> None:
@@ -121,9 +149,12 @@ def resolve_teacher(task: str, override: Path | None, condition: str = "zero-lat
     return Path(downloaded).resolve(), reference
 
 
-def resolve_backbone(model: str) -> tuple[Path, dict]:
+def resolve_backbone(model: str, task: str) -> tuple[Path, dict]:
     reference = deepcopy(BACKBONES['wan' if model == 'wanoft' else 'qwen'])
     path = snapshot_download(reference['repo_id'],
+                             revision=(QWEN_BACKBONE_REVISION
+                                       if task in ('mikasa_h8', 'mikasa_conditioned_h8') and model != 'wanoft'
+                                       else None),
                              allow_patterns=reference['allow_patterns'],
                              token=resolve_token(''))
     reference['revision'] = Path(path).name
@@ -151,18 +182,26 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
     from scripts.starvla.collect import collect_bootstrap
 
     shared = (args.output_dir / 'bootstrap' if args.smoke else
-              ROOT / 'outputs/starvla/datasets' / task_spec(args.task).name / 'teacher-rollouts-h1-state-v1')
-    if args.dataset_dir is not None:
+              ROOT / 'outputs/starvla/datasets' / task_spec(args.task).name /
+              f'teacher-rollouts-h{task_spec(args.task).action_horizon}-state-v1')
+    if args.task == 'mikasa_conditioned_h8' or args.dataset_dir is not None:
         shared = args.dataset_dir.resolve()
     if args.task == 'balance' and args.dataset_dir is None:
         shared = args.output_dir / 'bootstrap'
-    if args.force and shared.exists():
+    if args.force and args.dataset_dir is None and shared.exists():
         shutil.rmtree(shared)
     shared.parent.mkdir(parents=True, exist_ok=True)
     with (shared.parent / f'.{shared.name}.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         ref = dataset_reference(args.task, shared, condition=args.condition)
         contract_file = shared / 'lerobot/task_contract.json'
+        if args.task == 'mikasa_h8' and args.dataset_dir is None and not contract_file.exists():
+            from scripts.tasks.mikasa_intercept_grab_fast.prepare_h8_dataset import prepare_mikasa_h8_from_hub
+
+            provenance = prepare_mikasa_h8_from_hub(shared / 'lerobot')
+            provenance['kind'] = 'bootstrap'
+            provenance['code_revisions'] = code_revisions(args.task)
+            write_json(shared / 'provenance.json', provenance)
         if args.task == 'balance' and not contract_file.exists():
             from scripts.starvla.collect import _prepare_converted
             policy_path = args.output_dir / 'bootstrap_policy.yaml'
@@ -178,7 +217,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
             write_json(shared / 'provenance.json', {'teacher': teacher_reference,
                        'label_provenance': raw_metadata['label_provenance'],
                        'teacher_raw_frames': raw_metadata['teacher_raw_frames'],
-                       'teacher_config': load_config(args.teacher_config), 'code_revisions': code_revisions(),
+                       'teacher_config': load_config(args.teacher_config), 'code_revisions': code_revisions(args.task),
                        'condition': args.condition, 'action_horizon': 8, 'seed': 0,
                        'train_episodes': 2 if args.smoke else 90, 'val_episodes': 1 if args.smoke else 10,
                        'label': 'expert closed-loop selected absolute request windows'})
@@ -199,7 +238,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                     from scripts.starvla.prepare_dataset import prepare_lerobot
 
                     provenance = {'task': task_spec(args.task).name, 'kind': 'bootstrap',
-                                  'code_revisions': code_revisions()}
+                                  'code_revisions': code_revisions(args.task)}
                     source_path = f'zero-latency/{task_spec(args.task).name.replace("_", "-")}/teacher-rollouts-v1'
                     snapshot = Path(snapshot_download(
                         artifacts.DATASET_REPO_ID, repo_type='dataset',
@@ -213,7 +252,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                 else:
                     provenance = {'task': task_spec(args.task).name, 'teacher': teacher_reference,
                                   'seed': 2 if args.task == 'parkour' else 0, 'split_seed': 0,
-                                  'kind': 'bootstrap', 'code_revisions': code_revisions(),
+                                  'kind': 'bootstrap', 'code_revisions': code_revisions(args.task),
                                   'collection': {
                                       'train_episodes': 2 if args.smoke else 250,
                                       'validation_episodes': 1 if args.smoke else 25,
@@ -259,18 +298,24 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
                      'output_min': contract['normalization']['action']['min'],
                      'output_max': contract['normalization']['action']['max']}
     framework = make_model_config(args.model, state_dim=contract['state_dim'], action_dim=contract['action_dim'],
-                                  backbone_path=str(backbone), action_horizon=contract["action_horizon"], task_objective=objective)
+                                  backbone_path=str(backbone), action_horizon=contract["action_horizon"],
+                                  task_objective=objective,
+                                  gradient_checkpointing=args.gradient_checkpointing)
     mixture_path = args.output_dir / f'{run_id}_mixture.json'
     write_mixture(mixture_path, bootstrap, deltas, contract['robot_type'])
     global_batch = args.num_gpus * args.micro_batch if args.smoke else TASK_SETTINGS[args.task]['global_batch']
     dataset_info = json.loads((bootstrap / 'lerobot/meta/info.json').read_text())
-    wandb_condition = {'zero-latency': 'zero-latency', 'latency-aware': 'profile-latency'}[args.condition]
+    wandb_condition = {
+        'zero-latency': 'zero-latency', 'latency-aware': 'profile-latency',
+        'profile-latency': 'profile-latency',
+        **{condition: condition for condition in FIXED_LATENCIES},
+    }[args.condition]
     wandb_name = f'{args.task}-{wandb_condition}-{args.model}'
     if run_id != 'bootstrap':
         wandb_name += f'-{run_id}'
     trainer = {
         'max_train_steps': steps,
-        'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 2500,
+        'num_warmup_steps': 0 if args.smoke else 100, 'save_interval': 500,
         'eval_interval': steps if stop_step is None else stop_step,
         'eval_num_batches': 1, 'logging_frequency': 1 if args.smoke else 5,
         'learning_rate': {'base': 3e-5, 'action_model': 1e-4},
@@ -291,7 +336,7 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
         'run_root_dir': str(args.output_dir / 'training'),
         'seed': 0, 'wandb_project': 'starvla_tasks', 'wandb_entity': None if args.smoke else os.environ['WANDB_ENTITY'],
         'wandb_group': None if args.smoke else os.environ['WANDB_RUN_GROUP'] if args.task == 'balance' else 'vla-train',
-        'wandb_tags': [args.task, 'h8' if args.task == 'balance' else 'h1',
+        'wandb_tags': [args.task, f'h{contract["action_horizon"]}',
                        'smoke' if args.smoke else 'formal', wandb_condition],
         'training_latency_condition': wandb_condition,
         'is_debug': False, 'version_id': '0.21', 'framework': framework,
@@ -304,7 +349,7 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
             'pin_memory': args.pin_memory, 'persistent_workers': args.persistent_workers,
             'num_workers': args.num_workers, 'prefetch_factor': args.prefetch_factor,
             'obs_image_size': [224, 224], 'video_backend': 'pyav',
-            'image_mode': 'stitch_views' if args.task == 'mikasa' and args.model == 'wanoft' else 'single',
+            'image_mode': 'stitch_views' if task_spec(args.task).name == 'mikasa_intercept_grab_fast' and args.model == 'wanoft' else 'single',
             'stitch_grid': [1, 2], 'num_obs_frames': 1,
         }},
         'trainer': trainer,
@@ -323,10 +368,13 @@ def train(args, config: dict) -> tuple[Path, Path]:
     trainer = config['trainer']
     global_batch = args.num_gpus * data['per_device_batch_size'] * trainer['gradient_accumulation_steps']
     env = environment()
-    env['WANDB_RUN_ID'] = f'{args.task}-{args.model}-{args.run_id}-{run_id}'
-    env['WANDB_RESUME'] = 'allow' if (
-        args.resume or trainer['is_resume'] or (run_id == 'dagger' and args.eval_every_round)
-    ) else 'never'
+    env['CUDA_HOME'] = str(args.vla_python.resolve().parent.parent)
+    if 'WANDB_RUN_ID' not in env:
+        env['WANDB_RUN_ID'] = f'{args.task}-{args.model}-{args.run_id}-{run_id}'
+    if 'WANDB_RESUME' not in env:
+        env['WANDB_RESUME'] = 'allow' if (
+            args.resume or trainer['is_resume'] or (run_id == 'dagger' and args.eval_every_round)
+        ) else 'never'
     env['WANDB_MODE'] = 'disabled' if args.smoke else 'online'
     while True:
         config_path.write_text(yaml.safe_dump(config, sort_keys=False))
@@ -341,6 +389,8 @@ def train(args, config: dict) -> tuple[Path, Path]:
             ], log, cwd=STARVLA, env=env)
             break
         except subprocess.CalledProcessError:
+            if not args.oom_retry:
+                raise
             if not re.search(r'CUDA (?:out of memory|error: out of memory)', log.read_text()):
                 raise
             micro_batch = data['per_device_batch_size']
@@ -388,7 +438,8 @@ def inference_bundle(trained: Path, checkpoint: Path, destination: Path, *,
 
 
 def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
-                eval_episodes: int | None = None) -> dict:
+                eval_episodes: int | None = None,
+                eval_latency_frames: int | None = None) -> dict:
     settings = TASK_SETTINGS[args.task]
     spec = task_spec(args.task)
     config = load_config(ROOT / settings['eval_config'])
@@ -403,15 +454,31 @@ def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
         'type': 'starvla', 'action_prefix': {'mode': 'none'}, 'checkpoint_path': str(bundle / 'checkpoints/model.pt'),
         'model_config_path': str(bundle / 'config.yaml'), 'task_contract_path': str(bundle / 'task_contract.json'),
         'worker_python_executable': str(args.vla_python), 'device': args.inference_device,
+        'backbone_path': str(args.backbone_path),
         'state_info_key': settings['state_info_key'],
-        'image_views_info_key': 'mikasa_image_views' if args.task == 'mikasa' else ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
+        'image_views_info_key': 'mikasa_image_views' if spec.name == 'mikasa_intercept_grab_fast' else ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
     }
     config['scheduler'] = {'hold_policy': 'hold', 'ordering_policy': 'latest_ready', 'hold_last_chunk_action': True}
     config['evaluation'] = {'eval_episodes': (2 if args.smoke else 100)
                             if eval_episodes is None else eval_episodes,
                             'eval_parallel_envs': 2 if args.smoke else (50 if args.task == 'parkour' else 10),
                             'eval_max_steps': settings['max_episode_steps'], 'eval_deterministic': True}
-    if args.task == 'balance':
+    if args.task in ('mikasa_h8', 'mikasa_conditioned_h8'):
+        config['executor']['simulated_worker_capacity'] = 1
+        config['latency'] = (
+            mikasa_h8_profile_latency(args.model) if eval_latency_frames is None
+            else {'method': 'zero', 'sync_cuda': False} if eval_latency_frames == 0
+            else {'method': 'fixed', 'fixed_latency_ms': eval_latency_frames * 50.0}
+        )
+        if args.task == 'mikasa_conditioned_h8':
+            config['env']['returned_action_context'] = {
+                'state_key': settings['state_info_key'], 'horizon': 8, 'frames': None,
+                'order': list(range(7)), 'low': [-1.0] * 7, 'high': [1.0] * 7,
+            }
+            config['policy']['action_prefix'] = json.loads(
+                (bundle / 'task_contract.json').read_text()
+            )['action_prefix']
+    elif args.task == 'balance':
         teacher_config = load_config(args.teacher_config)
         config['latency'] = deepcopy(teacher_config['latency'])
         config['scheduler'] = deepcopy(teacher_config['scheduler'])
@@ -430,7 +497,7 @@ def evaluation_command(args, config_path):
     """Launch the task's native environment with the shared evaluation driver."""
     if args.task == 'balance':
         command = [args.task_python, '-m', 'latency_bench.run', '--config', config_path]
-    elif args.task == 'mikasa':
+    elif args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8'):
         command = [args.task_python, ROOT / 'scripts/mikasa/evaluate.py', 'latency-eval', '--eval-config', config_path]
     elif args.task == 'parkour':
         command = [args.task_python, ROOT / 'third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py',
@@ -442,15 +509,22 @@ def evaluation_command(args, config_path):
 
 
 def evaluate(args, bundle: Path, teacher: Path, *, label: str,
-             wandb_checkpoint: tuple[str, int] | None = None) -> Path:
+             wandb_checkpoint: tuple[str, int] | None = None,
+             eval_latency_frames: int | None = None) -> Path:
     """Run native eval and optionally log its checkpoint metrics to the training run."""
     output_dir = args.output_dir / 'evals' / label
     output_dir.mkdir(parents=True, exist_ok=True)
     config_path = output_dir / 'eval_config.yaml'
-    config = eval_config(args, bundle, teacher, output_dir, eval_episodes=args.eval_episodes)
+    config = eval_config(args, bundle, teacher, output_dir,
+                         eval_episodes=args.eval_episodes, eval_latency_frames=eval_latency_frames)
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     command = evaluation_command(args, config_path)
-    run_command(command, output_dir / 'stdout.log')
+    if args.task in ('mikasa_h8', 'mikasa_conditioned_h8') and args.eval_cuda_visible_devices is not None:
+        eval_env = environment()
+        eval_env['CUDA_VISIBLE_DEVICES'] = args.eval_cuda_visible_devices
+        run_command(command, output_dir / 'stdout.log', env=eval_env)
+    else:
+        run_command(command, output_dir / 'stdout.log')
     if wandb_checkpoint is not None and not args.smoke:
         run_id, step = wandb_checkpoint
         # The task entries save summaries; this parent owns W&B reporting for all tasks.
@@ -460,6 +534,119 @@ def evaluate(args, bundle: Path, teacher: Path, *, label: str,
         summary['checkpoint_global_step'] = step
         _log_corrected_eval_summaries_to_wandb(config, [summary])
     return output_dir
+
+
+def evaluation_summary(evaluation: Path) -> dict:
+    summary = summarize_eval_run(evaluation)
+    summary['episodes'] = [
+        json.loads(line)
+        for line in (evaluation / 'episode_metrics.jsonl').read_text().splitlines()
+    ]
+    for episode in summary['episodes']:
+        episode['metadata'] = {
+            key: value
+            for key, value in episode['metadata'].items()
+            if key not in ('checkpoint_path', 'output_dir')
+        }
+    return summary
+
+
+def mikasa_h8_execution_audit(evaluation: Path) -> dict:
+    config = yaml.safe_load((evaluation / 'eval_config.yaml').read_text())
+    protocol = {
+        'executor_mode': config['executor']['mode'],
+        'simulated_worker_capacity': config['executor']['simulated_worker_capacity'],
+        'obs_fps': config['env']['obs_fps'],
+        'env_fps': config['env']['env_fps'],
+    }
+    expected_protocol = {
+        'executor_mode': 'simulated',
+        'simulated_worker_capacity': 1,
+        'obs_fps': 20,
+        'env_fps': 20,
+    }
+    if config['latency']['method'] == 'temporal':
+        protocol['latency_seed'] = config['latency']['seed']
+        expected_protocol['latency_seed'] = 0
+    elif config['latency']['method'] not in ('zero', 'fixed'):
+        raise AssertionError(
+            f"MIKASA H8 latency method must be zero, fixed, or temporal, got {config['latency']['method']}"
+        )
+    if protocol != expected_protocol:
+        raise AssertionError(
+            f'MIKASA H8 evaluation protocol mismatch: expected {expected_protocol}, got {protocol}'
+        )
+    actions = [
+        json.loads(line)
+        for line in (evaluation / 'actions.jsonl').read_text().splitlines()
+    ]
+    if config['latency']['method'] == 'fixed':
+        frames = ms_to_raw_frames(config['latency']['fixed_latency_ms'], config['env']['env_fps'])
+        if any(action['latency_raw_frames'] != frames for action in actions):
+            raise AssertionError(f'MIKASA H8 fixed evaluation emitted a non-{frames}-frame action')
+    steps = [
+        json.loads(line)
+        for line in (evaluation / 'steps.jsonl').read_text().splitlines()
+    ]
+    expected_episodes = len((evaluation / 'episode_metrics.jsonl').read_text().splitlines())
+    first_actions = [action for action in actions if action['obs_env_step'] == 0]
+    first_action_apply_frames = {
+        action['metadata']['episode_id']: action['apply_raw_frame']
+        for action in first_actions
+    }
+    if len(first_actions) != expected_episodes or any(
+        action['ready_raw_frame'] != action['apply_raw_frame']
+        or not action['applied']
+        or action['dropped']
+        for action in first_actions
+    ):
+        raise AssertionError(
+            f'MIKASA H8 first action mismatch: expected {expected_episodes} applied obs-0 '
+            f'events at their unmodified ready frames, got {first_actions}'
+        )
+    invalid_steps = []
+    executed_later_heads = 0
+    initial_noop_transitions = 0
+    for step in steps:
+        first_apply_frame = first_action_apply_frames[step['episode_id']]
+        source_step = step['info']['active_action_obs_env_step']
+        submitted = step['info']['observation_submitted']
+        dropped = step['info']['observation_dropped']
+        if step['info']['in_flight_count'] > 1 or submitted == dropped:
+            invalid_steps.append(step)
+            continue
+        if step['env_step'] < first_apply_frame:
+            if not step['active_action']['is_noop'] or source_step is not None:
+                invalid_steps.append(step)
+            initial_noop_transitions += 1
+        else:
+            age = step['info']['chunk_age_raw_frames']
+            if step['active_action']['is_noop'] or age != step['env_step'] - source_step:
+                invalid_steps.append(step)
+            if age > 0:
+                executed_later_heads += 1
+    if invalid_steps:
+        raise AssertionError(f'MIKASA H8 chunk execution mismatch: {invalid_steps}')
+    audit = {
+        'episodes': expected_episodes,
+        'request_fps': 20,
+        'simulated_worker_capacity': 1,
+        'latency_method': config['latency']['method'],
+        'startup_policy': 'environment_starts_at_reset',
+        'initial_noop_transitions': initial_noop_transitions,
+        'first_action_apply_raw_frames': sorted(first_action_apply_frames.values()),
+        'executed_later_heads': executed_later_heads,
+        'passed': True,
+    }
+    if config['latency']['method'] == 'temporal':
+        audit.update({
+            'latency_seed': 0,
+            'profile_path': config['latency']['profile_path'],
+        })
+    elif config['latency']['method'] == 'fixed':
+        audit['fixed_latency_ms'] = config['latency']['fixed_latency_ms']
+        audit['latency_raw_frames'] = frames
+    return audit
 
 
 def _evaluate_dagger_checkpoint(args, bundle: Path, teacher: Path, step: int) -> Path:
@@ -598,12 +785,38 @@ def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict
     return directory
 
 
-def code_revisions() -> dict:
+def _training_record(args, config, *, steps: int, dagger_updates: int, has_deltas: bool) -> dict:
+    return {
+        'sft_updates': steps,
+        'dagger_updates': dagger_updates,
+        'global_batch': args.num_gpus * args.micro_batch * config['trainer']['gradient_accumulation_steps'],
+        'bootstrap_weight': 0.5 if has_deltas else 1.0,
+        'dagger_weight': 0.5 if has_deltas else 0.0,
+        'micro_batch': args.micro_batch,
+        'num_gpus': args.num_gpus,
+        'gradient_accumulation_steps': config['trainer']['gradient_accumulation_steps'],
+        'gradient_checkpointing': args.gradient_checkpointing,
+        'oom_retry': args.oom_retry,
+        'optimizer': config['trainer']['optimizer'],
+        'learning_rate': config['trainer']['learning_rate'],
+        'scheduler': config['trainer']['lr_scheduler_type'],
+        'scheduler_kwargs': config['trainer']['scheduler_specific_kwargs'],
+        'warmup_updates': config['trainer']['num_warmup_steps'],
+    }
+
+
+def code_revisions(task: str) -> dict:
+    task_repo = {
+        'balance': ('humanoid_bench', ROOT / 'third_party/humanoid-bench'),
+        'parkour': ('parkour', ROOT / 'third_party/Isaaclab_Parkour'),
+        'mikasa': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
+        'mikasa_h8': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
+        'mikasa_conditioned_h8': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
+        'haic': ('haic', ROOT / 'third_party/HAIC'),
+    }[task]
     return {name: {'revision': subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip(),
                    'dirty': bool(subprocess.check_output(['git', '-C', str(path), 'status', '--porcelain'], text=True))}
-            for name, path in [('benchmark', ROOT), ('starvla', STARVLA),
-                               ('haic', ROOT / 'third_party/HAIC'), ('parkour', ROOT / 'third_party/Isaaclab_Parkour'),
-                               ('mikasa', ROOT / 'third_party/MIKASA-Robo')]}
+            for name, path in [('benchmark', ROOT), ('starvla', STARVLA), task_repo]}
 
 
 def publish_run(output_dir: Path) -> str:
@@ -639,7 +852,7 @@ def main(argv=None) -> None:
     parser.add_argument('--dataset-dir', type=Path)
     parser.add_argument('--teacher-checkpoint', type=Path)
     parser.add_argument('--teacher-config', type=Path)
-    parser.add_argument('--condition', choices=['zero-latency', 'latency-aware'], default='zero-latency')
+    parser.add_argument('--condition', choices=['zero-latency', 'latency-aware', 'profile-latency', *FIXED_LATENCIES], default='zero-latency')
     parser.add_argument('--force', action='store_true', help='Replace corresponding local artifacts')
     parser.add_argument('--dagger-from', type=Path,
                         help='Start DAgger from an existing inference bundle instead of training bootstrap')
@@ -654,12 +867,15 @@ def main(argv=None) -> None:
     parser.add_argument('--num-gpus', type=int, default=2)
     parser.add_argument('--micro-batch', type=int, default=64,
                         help='Per-GPU starting batch; halve on CUDA OOM while preserving global batch')
+    parser.add_argument('--oom-retry', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--gradient-checkpointing', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--num-workers', type=int, default=8)
     parser.add_argument('--prefetch-factor', type=int, default=3)
     parser.add_argument('--persistent-workers', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--pin-memory', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--inference-device', default='cuda:1')
     parser.add_argument('--simulator-device', default='cuda:0')
+    parser.add_argument('--eval-cuda-visible-devices')
     parser.add_argument('--eval-episodes', type=int)
     parser.add_argument('--eval-seed', type=int, help='First evaluation episode seed; defaults to the task seed')
     parser.add_argument('--port', type=int, default=29521)
@@ -667,6 +883,7 @@ def main(argv=None) -> None:
     parser.add_argument('--no-publish', action='store_true', help='Keep Hugging Face datasets and models local')
     parser.add_argument('--resume', action='store_true', help='Resume the matching --run-id from its latest complete state')
     parser.add_argument('--publish-only', action='store_true')
+    parser.add_argument('--train-only', action='store_true', help='Export SFT weights and full recovery state; evaluate separately')
     args = parser.parse_args(argv)
     if args.smoke:
         os.environ['WANDB_MODE'] = 'disabled'
@@ -678,7 +895,7 @@ def main(argv=None) -> None:
         args.eval_episodes = 2 if args.smoke else 100
     if args.resume and args.run_id is None:
         parser.error('--resume requires --run-id')
-    if args.dagger_from is not None and args.task == 'mikasa':
+    if args.dagger_from is not None and args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8'):
         parser.error('--dagger-from requires a DAgger task')
     if args.run_id is None:
         args.run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
@@ -696,8 +913,10 @@ def main(argv=None) -> None:
     bootstrap_state = None
     if args.resume:
         run = json.loads((args.output_dir / 'run.json').read_text())
-        if (run['task'], run['model'], run['run_id']) != (args.task, args.model, args.run_id):
-            raise ValueError('--resume task, model, and run-id must match run.json')
+        if (run['task'], run['model'], run['condition'], run['run_id']) != (
+            args.task, args.model, args.condition, args.run_id
+        ):
+            raise ValueError('--resume task, model, condition, and run-id must match run.json')
         if args.dagger_from is None:
             states = _training_states(args.output_dir / 'training/bootstrap/checkpoints')
             if not states:
@@ -706,11 +925,12 @@ def main(argv=None) -> None:
     args.vla_python = (args.vla_python.absolute() if args.vla_python is not None else
                        conda_python('starvla_rl_games_openvla'))
     args.task_python = (args.task_python.absolute() if args.task_python is not None else
-                        ROOT / 'third_party/MIKASA-Robo/.venv/bin/python' if args.task == 'mikasa' else
+                        ROOT / 'third_party/MIKASA-Robo/.venv/bin/python' if args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8') else
                         conda_python(TASK_SETTINGS[args.task]['conda_env']))
     teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint,
                                            args.condition if args.task == "balance" else "zero-latency")
-    backbone_path, backbone_ref = resolve_backbone(args.model)
+    backbone_path, backbone_ref = resolve_backbone(args.model, args.task)
+    args.backbone_path = backbone_path
     if run is None:
         bootstrap, bootstrap_ref = prepare_shared(args, teacher, teacher_ref, args.task_python)
     else:
@@ -728,7 +948,7 @@ def main(argv=None) -> None:
                      teacher, actor_checkpoint], args.output_dir / 'export_actor.log', env=env)
     if run is None:
         run = {'task': args.task, 'model': args.model, 'run_id': args.run_id, 'smoke': args.smoke,
-               'teacher': teacher_ref, 'backbone': backbone_ref, 'code_revisions': code_revisions(),
+               'teacher': teacher_ref, 'backbone': backbone_ref, 'code_revisions': code_revisions(args.task),
                'datasets': [bootstrap_ref], 'seed': 0, 'condition': args.condition}
         if args.dagger_from is not None:
             run['initial_model'] = json.loads((args.dagger_from / 'provenance.json').read_text())
@@ -749,6 +969,15 @@ def main(argv=None) -> None:
         steps = 0
         bundle = args.dagger_from.resolve()
         checkpoint = bundle / 'checkpoints/model.pt'
+    if args.train_only:
+        run['training'] = _training_record(args, config, steps=steps, dagger_updates=0, has_deltas=False)
+        write_json(args.output_dir / 'run.json', run)
+        write_json(bundle / 'provenance.json', run)
+        (bundle / 'README.md').write_text(
+            f'# {args.model} — {task_spec(args.task).name}\n\n'
+            f'H{task_spec(args.task).action_horizon}; SFT complete. Formal evaluation runs separately.\n')
+        print(f'MODEL_PATH={bundle / "checkpoints/model.pt"}')
+        return
     deltas = [Path(ref['local_dir']) for ref in run['datasets'][1:]]
     evaluation = None
     if args.task in ('balance', 'parkour', 'haic'):
@@ -816,29 +1045,89 @@ def main(argv=None) -> None:
                         round_bundle, bootstrap=bootstrap, backbone=backbone_ref,
                     )
                 evaluation = _evaluate_dagger_checkpoint(args, round_bundle, teacher, stop_step)
-    if evaluation is None:
+    if args.task in ('mikasa_h8', 'mikasa_conditioned_h8'):
+        phase = 'dagger' if deltas else 'bootstrap'
+        eval_step = len(deltas) * (2 if args.smoke else 500) if deltas else steps
+        run['evaluation_matrix'] = {}
+        run['acceptance_matrix'] = {}
+        if 'evaluation' in run:
+            del run['evaluation']
+        if 'acceptance' in run:
+            del run['acceptance']
+        evaluations = {}
+        settings = (
+            (('zero', 0), (args.condition, FIXED_LATENCIES[args.condition]))
+            if args.condition in FIXED_LATENCIES
+            else (('zero', 0), ('profile', None))
+        )
+        for setting, eval_latency_frames in settings:
+            evaluation = evaluate(
+                args,
+                bundle,
+                teacher,
+                label=f'final_{setting}',
+                wandb_checkpoint=(
+                    f'{args.task}-{args.model}-{args.run_id}-{phase}', eval_step
+                ),
+                eval_latency_frames=eval_latency_frames,
+            )
+            summary = evaluation_summary(evaluation)
+            execution_audit = mikasa_h8_execution_audit(evaluation)
+            summary['chunk_execution_audit'] = execution_audit
+            success_count = sum(
+                episode['metadata']['task_metrics']['success']
+                for episode in summary['episodes']
+            )
+            acceptance = {
+                'metric': 'success_once',
+                'success_count': success_count,
+                'episode_count': args.eval_episodes,
+                'success_rate': success_count / args.eval_episodes,
+                'threshold_count': args.eval_episodes // 2,
+                'passed': success_count >= args.eval_episodes // 2,
+            }
+            summary['acceptance'] = acceptance
+            result_name = {
+                'zero': 'eval_l0.json',
+                'profile': 'eval_profile.json',
+                **{condition: f'eval_fixed_{frames}f.json' for condition, frames in FIXED_LATENCIES.items()},
+            }[setting]
+            write_json(bundle / result_name, summary)
+            write_json(bundle / f'chunk_execution_audit_{setting}.json', execution_audit)
+            write_json(bundle / f'acceptance_{setting}.json', acceptance)
+            evaluation_record = {
+                'seed': args.eval_seed,
+                'episodes': args.eval_episodes,
+                'executor': 'simulated',
+                'request_fps': 20,
+                'simulated_worker_capacity': 1,
+                'latency_method': execution_audit['latency_method'],
+                'startup_policy': 'environment_starts_at_reset',
+            }
+            if setting == 'profile':
+                evaluation_record.update({
+                    'latency_seed': execution_audit['latency_seed'],
+                    'profile_path': execution_audit['profile_path'],
+                })
+            elif setting in FIXED_LATENCIES:
+                evaluation_record.update({
+                    'fixed_latency_ms': execution_audit['fixed_latency_ms'],
+                    'latency_raw_frames': execution_audit['latency_raw_frames'],
+                })
+            run['evaluation_matrix'][setting] = evaluation_record
+            run['acceptance_matrix'][setting] = acceptance
+            evaluations[setting] = evaluation
+        evaluation = evaluations[args.condition if args.condition in FIXED_LATENCIES else 'profile']
+    elif evaluation is None:
         phase = 'dagger' if deltas else 'bootstrap'
         eval_step = len(deltas) * (2 if args.smoke else 500) if deltas else steps
         evaluation = evaluate(args, bundle, teacher, label='final',
                               wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-{phase}', eval_step))
-    # The common evaluator's summary contains per-task metrics and episode counts.
-    summary = summarize_eval_run(evaluation)
-    summary['episodes'] = [json.loads(line) for line in
-                           (evaluation / 'episode_metrics.jsonl').read_text().splitlines()]
-    for episode in summary['episodes']:
-        episode['metadata'] = {key: value for key, value in episode['metadata'].items()
-                               if key not in ('checkpoint_path', 'output_dir')}
-    write_json(bundle / ('eval_profile.json' if args.condition == 'latency-aware' else 'eval_l0.json'), summary)
-    run['training'] = {'sft_updates': steps, 'dagger_updates': len(deltas) * (2 if args.smoke else 500),
-                       'global_batch': args.num_gpus * args.micro_batch * config['trainer']['gradient_accumulation_steps'],
-                       'bootstrap_weight': 0.5 if deltas else 1.0, 'dagger_weight': 0.5 if deltas else 0.0,
-                       'micro_batch': args.micro_batch, 'num_gpus': args.num_gpus,
-                       'gradient_accumulation_steps': config['trainer']['gradient_accumulation_steps'],
-                       'optimizer': config['trainer']['optimizer'],
-                       'learning_rate': config['trainer']['learning_rate'],
-                       'scheduler': config['trainer']['lr_scheduler_type'],
-                       'scheduler_kwargs': config['trainer']['scheduler_specific_kwargs'],
-                       'warmup_updates': config['trainer']['num_warmup_steps']}
+    if args.task not in ('mikasa_h8', 'mikasa_conditioned_h8'):
+        summary = evaluation_summary(evaluation)
+        write_json(bundle / ('eval_profile.json' if args.condition == 'latency-aware' else 'eval_l0.json'), summary)
+    run['training'] = _training_record(args, config, steps=steps,
+        dagger_updates=len(deltas) * (2 if args.smoke else 500), has_deltas=bool(deltas))
     write_json(args.output_dir / 'run.json', run)
     (bundle / 'README.md').write_text(
         f'# {args.model} — {task_spec(args.task).name}\n\n'

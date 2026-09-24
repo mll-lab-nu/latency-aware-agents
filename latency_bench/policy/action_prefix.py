@@ -14,22 +14,28 @@ def resolve_action_prefix(settings, *, env_fps, action_horizon, action_dim):
     mode = settings["mode"]
     if mode == "none":
         return {"mode": "none"}
-    if mode != "profile_mean":
+    if mode not in ("profile_mean", "profile_p95", "fixed_frames"):
         raise ValueError(f"Unknown action prefix mode: {mode}")
-    if "frames" in settings:
+    if mode == "fixed_frames":
+        resolved = {
+            **settings, "env_fps": env_fps,
+            "action_horizon": action_horizon, "action_dim": action_dim,
+        }
+    elif "frames" in settings:
         resolved = settings
     else:
         profile_path = Path(settings["profile_path"])
-        mean_ms = json.loads(profile_path.read_text())["summary"]["mean_ms"]
+        statistic = "mean_ms" if mode == "profile_mean" else "p95_ms"
+        latency_ms = json.loads(profile_path.read_text())["summary"][statistic]
         resolved = {
-            "mode": mode, "profile_path": str(profile_path), "mean_ms": mean_ms,
-            "env_fps": env_fps, "frames": math.ceil(mean_ms * env_fps / 1000),
+            **settings, "profile_path": str(profile_path), statistic: latency_ms,
+            "env_fps": env_fps, "frames": math.ceil(latency_ms * env_fps / 1000),
             "action_horizon": action_horizon, "action_dim": action_dim,
         }
     frames = resolved["frames"]
     if not 0 <= frames < action_horizon:
         raise ValueError(
-            f"profile_mean requires 0 <= K < H, got K={frames}, H={action_horizon}"
+            f"action prefix requires 0 <= K < H, got K={frames}, H={action_horizon}"
         )
     return resolved
 

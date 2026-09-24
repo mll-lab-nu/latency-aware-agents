@@ -25,6 +25,8 @@ if [[ -f "$output/controller.pid" ]]; then
   fi
 fi
 nohup env UV="$uv" PYTHONUNBUFFERED=1 \
+  MIKASA_H8_SOURCE_RUN="/home/ubuntu/codex/mikasa-h8/outputs/starvla/runs/mikasa_intercept_grab_fast/h8-conditioned-seed-reset-20260922/${condition}/${model}" \
+  MIKASA_H8_DATA_ROOT="/home/ubuntu/codex/mikasa-h8/outputs/starvla/datasets/mikasa_intercept_grab_fast/conditioned-h8-seed-reset-20260922" \
   bash "$launcher" "$model" "$condition" "$pair" "$simulator" "$port" "$output" formal \
   > "$output/controller.log" 2>&1 < /dev/null &
 printf '%s\n' "$!" > "$output/controller.pid"

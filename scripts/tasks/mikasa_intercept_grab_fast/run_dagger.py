@@ -17,6 +17,7 @@ import yaml
 from latency_bench.data.starvla_tasks import read_task_contract
 from scripts.starvla.dagger_mixture import write_dagger_mixture
 from scripts.starvla.train_task import inference_bundle
+from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -105,7 +106,7 @@ def _update_best(args) -> None:
         source = args.output / "training/dagger/checkpoints" / f"steps_{best_step}_pytorch_model.pt"
         source_run = json.loads((args.source_run / "run.json").read_text(encoding="utf-8"))
         inference_bundle(args.output / "training/dagger", source, bundle,
-                         task=args.task, bootstrap=args.bootstrap,
+                         bootstrap=args.bootstrap,
                          backbone=source_run["backbone"])
         best_checkpoint = bundle / "checkpoints/model.pt"
     else:
@@ -241,7 +242,8 @@ def _launch_trainer(args) -> int:
         "TOKENIZERS_PARALLELISM": "false",
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
         "WANDB_MODE": "disabled" if args.smoke else "online",
-        "WANDB_RUN_ID": f"mikasa-h8-dagger-{args.condition}-{args.model}-20260923",
+        "WANDB_RUN_ID": f"mikasa-h8-dagger-{args.condition}-{args.model}-"
+                        + json.loads((args.source_run / "run.json").read_text())["run_id"],
         "WANDB_RESUME": "allow",
     }
     env["PATH"] = os.pathsep.join((str(args.vla_python.parent),
@@ -319,15 +321,21 @@ def _bundle(args, name: str, trained: Path, weights: Path) -> Path:
             shutil.rmtree(destination)
         source_run = json.loads((args.source_run / "run.json").read_text(encoding="utf-8"))
         inference_bundle(trained, weights, destination,
-                         task=args.task, bootstrap=args.bootstrap,
+                         bootstrap=args.bootstrap,
                          backbone=source_run["backbone"])
     return checkpoint
 
 
 def run(args) -> None:
     args.task = "mikasa_h8" if args.condition == "zero-latency" else "mikasa_conditioned_h8"
+    source_run = json.loads((args.source_run / "run.json").read_text())
+    if (source_run["task"], source_run["model"], source_run["condition"]) != (
+        args.task, args.model, args.condition
+    ):
+        raise ValueError("DAgger source must match the requested task, model and training condition")
+    sft_step = source_run["training"]["sft_updates"]
     args.source_checkpoint = (
-        args.source_run / "training/bootstrap/checkpoints/steps_5000_pytorch_model.pt"
+        args.source_run / f"training/bootstrap/checkpoints/steps_{sft_step}_pytorch_model.pt"
     )
     args.round_steps = 2 if args.smoke else 500
     args.rounds = 2 if args.smoke else 10
@@ -340,7 +348,8 @@ def run(args) -> None:
         args.collect_envs, args.eval_envs = 128, 10
     args.output.mkdir(parents=True, exist_ok=True)
     marker = args.output / "run.json"
-    source = {"source_run": str(args.source_run), "source_checkpoint": str(args.source_checkpoint),
+    source = {"source_run": str(args.source_run), "source_run_id": source_run["run_id"],
+              "source_checkpoint": str(args.source_checkpoint),
               "bootstrap": str(args.bootstrap), "model": args.model,
               "condition": args.condition, "train_devices": args.train_devices,
               "simulator_gpu": args.simulator_gpu, "rounds": args.rounds,
@@ -397,7 +406,7 @@ def run(args) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", choices=("qwenoft", "qwenpi_v3", "qwengr00t"), required=True)
-    parser.add_argument("--condition", choices=("profile-latency", "fixed-2", "zero-latency"), required=True)
+    parser.add_argument("--condition", choices=("profile-latency", *FIXED_LATENCIES, "zero-latency"), required=True)
     parser.add_argument("--source-run", type=Path, required=True)
     parser.add_argument("--bootstrap", type=Path, required=True)
     parser.add_argument("--eval-config", type=Path, required=True)

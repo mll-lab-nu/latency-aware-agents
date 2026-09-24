@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shutil
 
 import numpy as np
 
@@ -124,6 +125,9 @@ def prepare(
     dataset_dirs = (output_train, output_val) if normalization_source is None else (output_train,)
     for dataset_dir in dataset_dirs:
         _rewrite_dataset(dataset_dir, spec)
+    if normalization_source is not None:
+        shutil.copyfile(normalization_source / "meta/modality.json",
+                        output_train / "meta/modality.json")
     write_task_contract(output_train, spec=spec, normalization_source=normalization_source)
     if normalization_source is None:
         write_task_contract(output_val, spec=spec, normalization_source=output_train)

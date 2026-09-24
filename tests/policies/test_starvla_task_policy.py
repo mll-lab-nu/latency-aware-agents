@@ -101,10 +101,12 @@ def test_task_policy_normalizes_and_forwards_action_prefix():
         },
     )
 
-    policy.predict(observation)
+    output = policy.predict(observation)
 
     np.testing.assert_array_equal(captured[0]["action_prefix"][:2, 0], [-1, 1])
     np.testing.assert_array_equal(captured[0]["action_prefix_mask"], prefix_mask)
+    np.testing.assert_array_equal(output.action_chunk[:2], prefix[:2])
+    np.testing.assert_array_equal(output.action_chunk[2:], 1.0)
 
 
 @pytest.mark.parametrize("model_source", ["live", "checkpoint"])
@@ -173,3 +175,12 @@ def test_task_policy_loads_contract_for_model_source(tmp_path, monkeypatch, mode
 
     assert isinstance(policy, TaskStarVlaPolicyRunner)
     assert policy.framework is framework
+    framework.predict_action = lambda **_: {"normalized_actions": np.zeros((1, 8, spec.action_dim))}
+    prefix = np.full((8, spec.action_dim), 0.75)
+    observation = Observation(None, 0, 0, {
+        "state": np.zeros(spec.state_dim), "views": [np.zeros((8, 8, 3), dtype=np.uint8)],
+        "action_prefix": prefix, "action_prefix_mask": np.arange(8) < 2,
+    })
+    output = policy.predict(observation)
+    np.testing.assert_array_equal(output.action_chunk[:2], prefix[:2])
+    np.testing.assert_array_equal(output.action_chunk[2:], 0.0)

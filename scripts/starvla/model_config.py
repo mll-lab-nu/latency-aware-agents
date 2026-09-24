@@ -21,6 +21,7 @@ def make_model_config(
     backbone_path: str,
     action_horizon: int = 1,
     task_objective: Any = None,
+    gradient_checkpointing: bool = True,
 ) -> dict[str, Any]:
     """Return the framework section for one continuous StarVLA model."""
 
@@ -41,7 +42,8 @@ def make_model_config(
 
     config: dict[str, Any] = {
         "name": framework_name,
-        "qwenvl": {"base_vlm": backbone_path, "enable_gradient_checkpointing": True},
+        "qwenvl": {"base_vlm": backbone_path,
+                   "enable_gradient_checkpointing": gradient_checkpointing},
         "action_model": action_model,
     }
     if model == "wanoft":

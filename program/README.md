@@ -10,6 +10,7 @@
 |---|---|---|
 | [BALANCE](BALANCE.md) | Balance Simple 早期 NVIDIA GR00T 实验和 10k 历史结果 | 历史记录；当前 H8 StarVLA 路线见 BALANCE_LOCAL_H8 和 PROGRESS |
 | [MIKASA](MIKASA.md) | InterceptGrabFast 环境、PPO teacher、275 条轨迹、LeRobot、QwenOFT 训练与评测 | 保留；早期 zero baseline，profile 详见 PROFILE |
+| [MIKASA_FIXED_LATENCY_GRID](MIKASA_FIXED_LATENCY_GRID.md) | QwenOFT H8 固定 prefix、Fixed-1/3/4 SFT+DAgger 与 5×5 成功率矩阵 | 本地代码待 review；远端新训练与评测尚未启动 |
 | [EXTREME_PARKOUR](EXTREME_PARKOUR.md) | Go2 teacher/student 与早期 NVIDIA GR00T action+yaw/DAgger 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
 | [HAIC](HAIC.md) | PullCart 原生 PPO 与早期 NVIDIA GR00T H40 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
 | [SCALE_MODELS](SCALE_MODELS.md) | 四任务×qwenoft/qwengr00t/qwenpi_v3/wanoft 的 H1 公共入口与 16 组 smoke | 活跃公共运行手册；正式训练不能用两步 smoke 代替 |

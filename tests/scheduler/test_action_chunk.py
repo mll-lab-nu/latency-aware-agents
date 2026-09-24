@@ -1,17 +1,68 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 import numpy as np
 import pytest
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionEvent, LatencyRecord, OrderingPolicy
+from latency_bench.core.types import Action, ActionEvent, LatencyRecord, OrderingPolicy, Observation
 from latency_bench.executors.realtime.messages import (
     _action_event_dispatch_payload,
     _action_event_from_dispatch_payload,
 )
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
-from latency_bench.policy.action_prefix import action_prefix_arrays
+from latency_bench.policy.action_prefix import action_prefix_arrays, with_action_prefix
+from latency_bench.policy.starvla_tasks import TaskStarVlaPolicyRunner
+
+
+@pytest.mark.parametrize(("prefix_frames", "delay", "expected"), [
+    (0, 0, [1, 11, 21, 31, 41, 51, 61, 71, 81, 91, 101, 111]),
+    (0, 2, [0, 0, 3, 4, 23, 24, 43, 44, 63, 64, 83, 84]),
+    (2, 0, [0, 0, 3, 13, 23, 33, 43, 53, 63, 73, 83, 93]),
+    (2, 1, [0, 0, 3, 13, 23, 33, 43, 53, 63, 73, 83, 93]),
+    (2, 2, [0, 0, 3, 4, 23, 24, 43, 44, 63, 64, 83, 84]),
+    (2, 5, [0, 0, 0, 0, 0, 6, 7, 8, 8, 8, 56, 57]),
+])
+def test_async_chunk_timeline_preserves_frozen_prefix(prefix_frames, delay, expected):
+    """Long-lived scheduler/policy contract: arrival age and prefix are independent."""
+    scheduler = ActionScheduler(EnvClock(env_fps=20, obs_fps=20), Action([0.0]),
+                                HoldPolicy(), OrderingPolicy.LATEST_READY,
+                                hold_last_chunk_action=True)
+    policy = TaskStarVlaPolicyRunner(
+        SimpleNamespace(predict_action=lambda **_: {
+            "normalized_actions": (2 * (frame * 10 + np.arange(8) + 1) - 1).reshape(1, 8, 1),
+        }),
+        policy_config={"state_info_key": "state", "image_views_info_key": "views"},
+        model_config={"datasets": {"vla_data": {"obs_image_size": [8, 8], "image_mode": "single"}}},
+        contract={"task": "timeline", "state_dim": 1, "prompt": "task", "normalization": {
+            "state": {"min": [0], "max": [1]}, "action": {"min": [0], "max": [1]},
+        }},
+    )
+    settings = ({"mode": "fixed_frames", "frames": prefix_frames, "action_horizon": 8,
+                 "action_dim": 1} if prefix_frames else {"mode": "none"})
+    # Run two episodes through the same objects to cover resetting an active plan.
+    for _ in range(2):
+        scheduler.reset()
+        pending = None
+        actual = []
+        for frame in range(len(expected)):
+            if pending is not None and pending.ready_raw_frame == frame:
+                scheduler.enqueue(pending)
+                pending = None
+            if pending is None:
+                observation = with_action_prefix(Observation(None, frame, frame * 50, {
+                    "state": np.zeros(1), "views": [np.zeros((8, 8, 3), dtype=np.uint8)],
+                }), scheduler, settings)
+                output = policy.predict(observation)
+                pending = _chunk_event(action_id=frame, obs_env_step=frame,
+                    ready_raw_frame=frame + delay, latency_ms=delay * 50,
+                    chunk=[Action(value) for value in output.action_chunk])
+                if delay == 0:
+                    scheduler.enqueue(pending)
+                    pending = None
+            actual.append(scheduler.update(frame, frame * 50).value[0])
+        assert actual == expected
 
 
 @pytest.mark.parametrize("delay", [1, 3, 5])

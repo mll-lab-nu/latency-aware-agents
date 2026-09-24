@@ -58,6 +58,11 @@ class TaskStarVlaPolicyRunner(PolicyRunner):
         actions = denormalize(
             prediction["normalized_actions"], self.contract["normalization"]["action"]
         )
+        # Prefix heads were excluded from the loss; retain the frozen controller plan.
+        for chunk, observation in zip(actions, observations):
+            if "action_prefix" in observation.metadata:
+                mask = observation.metadata["action_prefix_mask"]
+                chunk[mask] = observation.metadata["action_prefix"][mask]
         return [
             PolicyOutput(
                 action=Action(value=chunk[0].tolist(), name="task_command"),
