@@ -522,7 +522,7 @@ scene/task/embodiment/evaluation 组合层，包含 G1 loco-manip、open microwa
 refrigerator sequence 等 example。Arena 明确是 alpha software，API 不稳定；
 核心 latency plugin 应依赖 Isaac Lab，仅提供可选的 thin Arena bridge。
 
-[LW-BenchHub](https://github.com/LightwheelAI/LW-BenchHub) 和
+[LW-BenchHub](https://github.com/placeholder/LW-BenchHub) 和
 [RoboLab](https://github.com/NVlabs/RoboLab) 提供大量 language/kitchen task 和
 有用的 policy server/client interface，但大多数任务是静态 rearrangement。任务
 数量不能替代 latency sensitivity。
@@ -801,7 +801,7 @@ continuous StarVLA model/data support，以及 gaming path 之外的 task metric
 - [DynamicVLA](https://github.com/hzxie/DynamicVLA)
 - [SoftVTBench](https://github.com/TuojingAI/SoftVTBench)
 - [IsaacLabEvalTasks](https://github.com/isaac-sim/IsaacLabEvalTasks)
-- [LW-BenchHub](https://github.com/LightwheelAI/LW-BenchHub)
+- [LW-BenchHub](https://github.com/placeholder/LW-BenchHub)
 - [RoboLab](https://github.com/NVlabs/RoboLab)
 
 ### Migration references

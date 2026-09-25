@@ -169,7 +169,7 @@ transition 数重新计算并记录。
 用户原先给出的 `/path/to/user/latency-sensitive-vla` 在当前节点不存在。实际可见文件是：
 
 - `/path/to/user/placeholder/servers.md`：只记录
-  `ssh xinyuan@204.12.163.107`；
+  `ssh user@example-host`；
 - `/path/to/user/placeholder/.env`：包含 `WANDB_API_KEY`、`WANDB_ENTITY`、
   `HF_TOKEN` 等变量。
 
@@ -182,7 +182,7 @@ transition 数重新计算并记录。
 
 ```bash
 LOCAL_ROOT=/path/to/user/placeholder-mikasa-h1
-REMOTE_HOST=xinyuan@204.12.163.107
+REMOTE_HOST=user@example-host
 REMOTE_DIR=placeholder-mikasa-h1
 
 git -C "${LOCAL_ROOT}" submodule update --init \
@@ -225,7 +225,7 @@ git submodule update --init third_party/MIKASA-Robo third_party/starVLA
 登录后：
 
 ```bash
-ssh xinyuan@204.12.163.107
+ssh user@example-host
 cd ~/placeholder-mikasa-h1
 export REMOTE_ROOT="$PWD"
 

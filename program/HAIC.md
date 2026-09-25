@@ -109,7 +109,7 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py \
 
 ## 3. 远端环境和固定命令
 
-远端：`xinyuan@204.12.163.107`；计划使用一张 GPU。外部 checkout 和运行输出放在：
+远端：`user@example-host`；计划使用一张 GPU。外部 checkout 和运行输出放在：
 
 ```text
 /path/to/user/HAIC
