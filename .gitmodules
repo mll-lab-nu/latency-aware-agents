@@ -1,6 +1,6 @@
 [submodule "flappy-bird-gymnasium"]
 	path = third_party/flappy-bird-gymnasium
-	url = https://github.com/mindorigin150/flappy-bird-gymnasium.git
+	url = https://github.com/placeholder/flappy-bird-gymnasium.git
 	shallow = true
 [submodule "starVLA"]
 	path = third_party/starVLA
@@ -8,20 +8,20 @@
 	shallow = true
 [submodule "sample-factory"]
 	path = third_party/sample-factory
-	url = https://github.com/mindorigin150/sample-factory.git
+	url = https://github.com/placeholder/sample-factory.git
 	shallow = true
 
 [submodule "third_party/humanoid-bench"]
 	path = third_party/humanoid-bench
-	url = https://github.com/mindorigin150/humanoid-bench.git
+	url = https://github.com/placeholder/humanoid-bench.git
 	shallow = true
 [submodule "third_party/MIKASA-Robo"]
 	path = third_party/MIKASA-Robo
-	url = https://github.com/mindorigin150/MIKASA-Robo.git
+	url = https://github.com/placeholder/MIKASA-Robo.git
 	shallow = true
 [submodule "third_party/HAIC"]
 	path = third_party/HAIC
-	url = placeholder:mindorigin150/HAIC.git
+	url = https://github.com/placeholder/HAIC.git
 	shallow = true
 [submodule "third_party/IsaacLab"]
 	path = third_party/IsaacLab
@@ -29,5 +29,5 @@
 	shallow = true
 [submodule "third_party/Isaaclab_Parkour"]
 	path = third_party/Isaaclab_Parkour
-	url = placeholder:mindorigin150/Isaaclab_Parkour.git
+	url = https://github.com/placeholder/Isaaclab_Parkour.git
 	shallow = true
