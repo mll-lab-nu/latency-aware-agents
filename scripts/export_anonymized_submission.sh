@@ -12,6 +12,34 @@ trap 'rm -rf "$TMP"' EXIT
 echo "== Building archive =="
 rm -f "$OUT"
 git archive --format=zip --prefix="${ARCHIVE_ROOT}/" -o "$OUT" HEAD
+python3 - "$OUT" <<'PY'
+import os
+import sys
+import tempfile
+import zipfile
+
+archive_path = sys.argv[1]
+archive_dir = os.path.dirname(os.path.abspath(archive_path))
+fd, scrubbed_path = tempfile.mkstemp(prefix=".anonymous-", suffix=".zip", dir=archive_dir)
+os.close(fd)
+
+try:
+    with zipfile.ZipFile(archive_path, "r") as src, zipfile.ZipFile(scrubbed_path, "w") as dst:
+        dst.comment = b""
+        for info in src.infolist():
+            data = src.read(info.filename)
+            clean = zipfile.ZipInfo(info.filename, date_time=(1980, 1, 1, 0, 0, 0))
+            clean.compress_type = info.compress_type
+            clean.external_attr = info.external_attr
+            clean.create_system = info.create_system
+            clean.comment = b""
+            clean.extra = b""
+            dst.writestr(clean, data)
+    os.replace(scrubbed_path, archive_path)
+finally:
+    if os.path.exists(scrubbed_path):
+        os.unlink(scrubbed_path)
+PY
 echo "Wrote: $OUT"
 
 echo
