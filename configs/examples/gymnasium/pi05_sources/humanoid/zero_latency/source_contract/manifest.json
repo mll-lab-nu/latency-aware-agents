@@ -7,7 +7,7 @@
     "Make the Humanoid walk forward as fast as possible without falling. Predict seventeen continuous torques in [-0.4, 0.4] ordered as abdomen y, abdomen z, abdomen x, right hip x, right hip z, right hip y, right knee, left hip x, left hip z, left hip y, left knee, right shoulder 1, right shoulder 2, right elbow, left shoulder 1, left shoulder 2, and left elbow. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 66.6667 FPS and observations are emitted at 66.6667 FPS. Choose the best next action."
   ],
   "format": "lerobot_v2_image_parquet",
-  "source": "/mnt/data/latency-sensitive-bench/raw_rollouts/Humanoid/humanoid_rgb_state_l0_return_gt5000_100ep",
+  "source": "/path/to/mount/placeholder/raw_rollouts/Humanoid/humanoid_rgb_state_l0_return_gt5000_100ep",
   "integration_name": "gymnasium",
   "task_name": "humanoid_rgb_state",
   "action_layout": "gymnasium_continuous_v1",
@@ -1195,8 +1195,8 @@
     ]
   },
   "robot_type": "rl_games_gymnasium",
-  "latency_prompt_map_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/humanoid_rgb_state_l0_return_gt5000_100ep/latency_prompt_map.json",
-  "custom_mixtures_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/_generated_mixtures/humanoid_rgb_state_l0_return_gt5000_100ep.json",
+  "latency_prompt_map_path": "/path/to/mount/placeholder/vla_datasets/rl_games/humanoid_rgb_state_l0_return_gt5000_100ep/latency_prompt_map.json",
+  "custom_mixtures_path": "/path/to/mount/placeholder/vla_datasets/rl_games/_generated_mixtures/humanoid_rgb_state_l0_return_gt5000_100ep.json",
   "gymnasium_task": {
     "action_space": {
       "dtype": "float32",

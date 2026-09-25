@@ -226,7 +226,7 @@ evaluate() {
   set -a
   . "${REPO_ROOT}/.env"
   set +a
-  export WANDB_ENTITY="${MIKASA_WANDB_ENTITY:-saberrr-zju}"
+  export WANDB_ENTITY="${MIKASA_WANDB_ENTITY:-placeholder}"
   while [[ -n "$(nvidia-smi --id=1 --query-compute-apps=pid --format=csv,noheader,nounits)" ]]; do
     sleep 60
   done

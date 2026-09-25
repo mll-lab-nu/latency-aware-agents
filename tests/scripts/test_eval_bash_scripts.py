@@ -974,7 +974,7 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_single_dataset():
 
     assert result.returncode == 0, result.stderr
     assert (
-        "/opt/hfd.sh latency-sensitive-bench/demon_attack_fixed_l2_fs2 --dataset "
+        "/opt/hfd.sh placeholder/demon_attack_fixed_l2_fs2 --dataset "
         "--local-dir /tmp/ws/outputs/rl_games_raw/demon_attack_fixed_l2_fs2"
     ) in result.stdout
     assert (
@@ -1014,10 +1014,10 @@ def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datas
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.count("/opt/hfd.sh latency-sensitive-bench/") == 12
+    assert result.stdout.count("/opt/hfd.sh placeholder/") == 12
     assert result.stdout.count("python examples/rl_games/data_conversion/convert_") == 12
-    assert "latency-sensitive-bench/flappy_fixed_l2_fs1" in result.stdout
-    assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
+    assert "placeholder/flappy_fixed_l2_fs1" in result.stdout
+    assert "placeholder/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
 @pytest.mark.parametrize("model", ["pi05", "qwenoft"])

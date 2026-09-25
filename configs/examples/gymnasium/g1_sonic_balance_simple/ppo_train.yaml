@@ -142,6 +142,6 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
-  wandb_project: latency-sensitive-bench
-  wandb_entity: saberrr-zju
+  wandb_project: placeholder
+  wandb_entity: placeholder
   wandb_group: balance-h16-fixed100-mcppo

@@ -26,4 +26,4 @@ env:
       - left_foot_angular_velocity
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/walker2d/small_model_eval
+  output_dir: /path/to/mount/placeholder/tasks/walker2d/small_model_eval

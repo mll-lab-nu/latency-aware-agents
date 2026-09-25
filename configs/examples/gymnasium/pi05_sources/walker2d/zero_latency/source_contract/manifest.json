@@ -7,7 +7,7 @@
     "Move the Walker2d robot forward while keeping its torso upright. Predict six continuous torques in [-1, 1] ordered as right thigh, right leg, right foot, left thigh, left leg, and left foot. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 125 FPS and observations are emitted at 125 FPS. Choose the best next action."
   ],
   "format": "starvla_lerobot_v2_image_parquet",
-  "source": "/mnt/data/latency-sensitive-bench/raw_rollouts/Walker2D/walker2d_rgb_state_l0_return_gt3000_100ep",
+  "source": "/path/to/mount/placeholder/raw_rollouts/Walker2D/walker2d_rgb_state_l0_return_gt3000_100ep",
   "integration_name": "gymnasium",
   "task_name": "walker2d_rgb_state",
   "action_layout": "gymnasium_continuous_v1",
@@ -96,8 +96,8 @@
     ]
   },
   "robot_type": "rl_games_gymnasium",
-  "latency_prompt_map_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/walker2d_rgb_state_l0_return_gt3000_100ep/latency_prompt_map.json",
-  "custom_mixtures_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/_generated_mixtures/walker2d_rgb_state_l0_return_gt3000_100ep.json",
+  "latency_prompt_map_path": "/path/to/mount/placeholder/vla_datasets/rl_games/walker2d_rgb_state_l0_return_gt3000_100ep/latency_prompt_map.json",
+  "custom_mixtures_path": "/path/to/mount/placeholder/vla_datasets/rl_games/_generated_mixtures/walker2d_rgb_state_l0_return_gt3000_100ep.json",
   "gymnasium_task": {
     "action_space": {
       "dtype": "float32",

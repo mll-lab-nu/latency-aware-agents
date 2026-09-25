@@ -11,7 +11,7 @@ executor:
 
 policy:
   type: gymnasium_sf
-  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/small_models/ant/gymnasium_ant_qwenoft_rtx3090_profile_10fps_10m/checkpoint_p0/best_000019544_10006528_reward_2605.624.pth
+  checkpoint_path: /path/to/mount/placeholder/small_models/ant/gymnasium_ant_qwenoft_rtx3090_profile_10fps_10m/checkpoint_p0/best_000019544_10006528_reward_2605.624.pth
   checkpoint_kind: best
   device: cuda
   deterministic: true
@@ -23,7 +23,7 @@ evaluation:
   eval_deterministic: true
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/rtx3090_profile_10fps_small_model_eval
+  output_dir: /path/to/mount/placeholder/tasks/ant/rtx3090_profile_10fps_small_model_eval
   video:
     enabled: false
     num_bins: 1

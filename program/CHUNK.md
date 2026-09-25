@@ -16,7 +16,7 @@
 
 100 个配对场景的存活长度和回报均提升。修复针对 Q／target 的动作窗口、actor context 和 critic 初始化整体生效；仅截断额外 head 梯度的 first-two 诊断未能恢复学习。
 
-[修复前 5M 评估](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/profile_zero_20260913/profile_h8_s1_20260913T0403Z/matched_5000064.json) · [修复后 5M 评估](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/profile_repair_20260913/profile_h8_repair_s1_20260913T0638Z/matched_5000064.json) · [修复训练 W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/profile_h8_repair_s1_20260913T0638Z)。
+[修复前 5M 评估](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/profile_zero_20260913/profile_h8_s1_20260913T0403Z/matched_5000064.json) · [修复后 5M 评估](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/profile_repair_20260913/profile_h8_repair_s1_20260913T0638Z/matched_5000064.json) · [修复训练 W&B](https://wandb.ai/placeholder/placeholder/runs/profile_h8_repair_s1_20260913T0638Z)。
 
 ## 移除自定义限幅后的对照
 
@@ -30,7 +30,7 @@
 
 H8 移除限幅后在 5M 达到 471.60 帧，精确 6M 回退至 244.80；最终 6,000,384 steps 为 302.56。移除限幅的零延迟 H8 在精确 6M 为 335.32，最终 6,000,384 steps 为 365.92。
 
-[H8 保留限幅](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/fixed40_custom_limits_on_s1_20260912T1615Z) · [H8 移除限幅](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/fixed40_custom_limits_off_s1_20260912T1615Z) · [原生 H1](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/fixed40_custom_limits_off_h1_vanilla_s1_20260912T1708Z) · [视频、关节曲线与频谱](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/fixed40_limit_visuals_6m_s1_20260912T1715Z)。
+[H8 保留限幅](https://wandb.ai/placeholder/placeholder/runs/fixed40_custom_limits_on_s1_20260912T1615Z) · [H8 移除限幅](https://wandb.ai/placeholder/placeholder/runs/fixed40_custom_limits_off_s1_20260912T1615Z) · [原生 H1](https://wandb.ai/placeholder/placeholder/runs/fixed40_custom_limits_off_h1_vanilla_s1_20260912T1708Z) · [视频、关节曲线与频谱](https://wandb.ai/placeholder/placeholder/runs/fixed40_limit_visuals_6m_s1_20260912T1715Z)。
 
 限幅确实降低了高频运动，但也严重改变 PD 目标。三个相同场景的前 1 秒，实际关节 >10Hz 速度 RMS 为保留限幅 0.47、移除限幅 3.40 rad/s；两组为分别训练的策略。上述训练通过运行时替换移除自定义限制，上游 XML 物理边界保持原样。
 
@@ -62,10 +62,10 @@ Critic 为 execution-start 198D + 8 个计划次数。先按旧 198D 初始化 Q
 
 正式 profile 两组先启动；为减少 GPU 空闲，每条训练任务结束后接续 zero 对照，最多两组训练并行。
 
-- [Profile H8](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/profile_h8_s1_20260913T0403Z)（已完成精确 6M，配对平均存活 84.11 帧）
-- [Profile 原生 H1](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/profile_h1_native_s1_20260913T0403Z)（6M 训练和最终评估已完成，平均存活 35.97 帧）
-- [Zero 原生 H1](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/zero_h1_native_s1_20260913)
-- [Zero H8](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/zero_h8_s1_20260913)
+- [Profile H8](https://wandb.ai/placeholder/placeholder/runs/profile_h8_s1_20260913T0403Z)（已完成精确 6M，配对平均存活 84.11 帧）
+- [Profile 原生 H1](https://wandb.ai/placeholder/placeholder/runs/profile_h1_native_s1_20260913T0403Z)（6M 训练和最终评估已完成，平均存活 35.97 帧）
+- [Zero 原生 H1](https://wandb.ai/placeholder/placeholder/runs/zero_h1_native_s1_20260913)
+- [Zero H8](https://wandb.ai/placeholder/placeholder/runs/zero_h8_s1_20260913)
 
 Profile 精确 6M 匹配评估（相同 25 个环境 seeds × 4 个 latency seeds）：H8 平均存活 **84.11** 帧，原生 H1 **35.97** 帧。首个 1,000,064-step 匹配评估分别为 39.44／19.58 帧。这是修复前的历史结果；本轮修复后的学习提升见文首 5M 配对对照。
 
@@ -77,7 +77,7 @@ Profile 精确 6M 匹配评估（相同 25 个环境 seeds × 4 个 latency seed
 
 Profile 1M 的真实 replay 中，head 4 在 100% 的样本开放 Q 梯度，只有 6.05% 的片段实际执行。它也会通过旧 chunk context 影响下一次 actor，因此执行频率与梯度幅度不匹配还不足以单独确认根因。
 
-历史 first-two 诊断只截断额外 head 的 actor Q 梯度，未修改 Q/target/context。1M 配对均值 40.87（完整窗口梯度为 39.44），2M periodic 为 50.72；没有支持把修复局限于额外梯度。该诊断的程序开关、配置和专属测试已移除，历史输出继续保留。[诊断记录](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/profile_h8_first_two_s1_20260913T0500Z) · [历史探针结果](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/profile_zero_20260913/first_two_probe.json)。
+历史 first-two 诊断只截断额外 head 的 actor Q 梯度，未修改 Q/target/context。1M 配对均值 40.87（完整窗口梯度为 39.44），2M periodic 为 50.72；没有支持把修复局限于额外梯度。该诊断的程序开关、配置和专属测试已移除，历史输出继续保留。[诊断记录](https://wandb.ai/placeholder/placeholder/runs/profile_h8_first_two_s1_20260913T0500Z) · [历史探针结果](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/profile_zero_20260913/first_two_probe.json)。
 
 旧精确 6M 权重在现 profile 的相同 25 环境 seeds × 4 latency seeds 下平均存活 198.03，原 profile H8 为 84.11。旧权重确实执行了 2/3 帧延迟；这说明现 profile 执行路径本身可以运行有效的 chunk 策略。修复版从零训练 seed 1、精确 6M，保留 1M、2M、5M、6M checkpoints；沿用原来的 periodic 和 final 配对评估场景，不增加消融矩阵。
 
@@ -186,8 +186,8 @@ y = R + (1-done) * gamma^duration
 
 | 条件 | GPU | 结果目录／W&B | tmux |
 |---|---:|---|---|
-| zero | 0 | [结果](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/zero_fix_s1_20260912_r3/) · [W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/zero_fix_s1_20260912_r3) | `action_chunk_zero_6m_20260912_r3` |
-| fixed-2 | 1 | [结果](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/fixed40_fix_s1_20260912_r3/) · [W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/fixed40_fix_s1_20260912_r3) | `action_chunk_fixed40_6m_20260912_r3` |
+| zero | 0 | [结果](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/zero_fix_s1_20260912_r3/) · [W&B](https://wandb.ai/placeholder/placeholder/runs/zero_fix_s1_20260912_r3) | `action_chunk_zero_6m_20260912_r3` |
+| fixed-2 | 1 | [结果](../outputs/tasks/humanoidbench_balance_simple/action_chunk_h8_6m/fixed40_fix_s1_20260912_r3/) · [W&B](https://wandb.ai/placeholder/placeholder/runs/fixed40_fix_s1_20260912_r3) | `action_chunk_fixed40_6m_20260912_r3` |
 
 结果目录保存 `resolved_config.json`、`progress.jsonl`、`periodic/`、`matched_*.json`、`final.pth/json` 和 `old_final_new_controller.json`；日志在父目录的同名 `.log`。Periodic 每 1M 评估 8 场景，final 评估 25 场景，每场上限 1000 帧；recovery gate 为平均存活 ≥300 且 ≥100 比例 ≥0.8。Fixed 的 zero-transfer 使用未训练的 head 0，不作验收指标。
 

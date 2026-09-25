@@ -72,8 +72,8 @@
     1000.0
   ],
   "sources": [
-    "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/baseline_OpenVLA/evaluation/summary.json",
-    "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/summary.json"
+    "https://huggingface.co/datasets/placeholder/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/baseline_OpenVLA/evaluation/summary.json",
+    "https://huggingface.co/datasets/placeholder/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/OpenVLA/evaluation/summary.json"
   ],
   "std_definition": "population ddof=0",
   "B_mean": 19.8,

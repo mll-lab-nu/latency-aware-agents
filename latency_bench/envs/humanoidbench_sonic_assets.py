@@ -11,7 +11,7 @@ from huggingface_hub import snapshot_download
 
 from latency_bench.utils.paths import REPO_ROOT
 
-SONIC_ASSETS_REPO_ID = "latency-sensitive-bench/g1-sonic-assets"
+SONIC_ASSETS_REPO_ID = "placeholder/g1-sonic-assets"
 SONIC_ASSETS_REVISION = "7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d"
 
 

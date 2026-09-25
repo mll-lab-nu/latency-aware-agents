@@ -15,7 +15,7 @@ latency:
 policy:
   checkpoint_path: third_party/starVLA/results/Checkpoints/mikasa_latency_smoke_h1_ds/checkpoints/steps_2_pytorch_model.pt
   model_config_path: third_party/starVLA/results/Checkpoints/mikasa_latency_smoke_h1_ds/config.full.yaml
-  worker_python_executable: /pfs/users/lxy/conda/envs/starvla_rl_games_openvla/bin/python
+  worker_python_executable: /path/to/user/conda/envs/starvla_rl_games_openvla/bin/python
   device: cuda:1
 evaluation:
   eval_episodes: 1

@@ -238,7 +238,7 @@ CUDA_VISIBLE_DEVICES=0,1 .venv/bin/python \
 
 ```bash
 B=/home/<远程用户>/haic_runs/co_located_measure_root
-P=/home/<远程用户>/latency-sensitive-bench-mikasa-h1
+P=/home/<远程用户>/placeholder-mikasa-h1
 ```
 
 准备好的完整 pipeline config 为 `outputs/latency_rl/haic/haic_full_pipeline_remote.yaml`（同时同步到 `$P/outputs/latency_rl/haic/haic_full_pipeline_remote.yaml`）。它使用原 phase-1 teacher 做 native training、canonical remote HAIC latency config、现有 checkpoint-5000 baseline 做 profiling、全新的 base-model VLA run，以及 100-episode zero/profile evaluation。本次 acceptance 没有启动完整 run：
@@ -329,7 +329,7 @@ cd "$P"
 export HAIC_PYTHON=/home/<远程用户>/miniconda3/envs/haic/bin/python
 export CUDA_VISIBLE_DEVICES=0 OMNI_KIT_ACCEPT_EULA=YES
 export GROOT_HF_LOCAL_FIRST=1 GROOT_PATCH_MISTRAL=1
-export LD_LIBRARY_PATH=/home/<远程用户>/.cache/latency-sensitive-bench/ffmpeg7/lib
+export LD_LIBRARY_PATH=/home/<远程用户>/.cache/placeholder/ffmpeg7/lib
 bash scripts/tasks/haic_pull_cart/train_official_gr00t.sh \
   "$B/native_acceptance3_resume/wandb/latest-run/files/checkpoint_final.pt" \
   --base-model "$P/outputs/official_gr00t/models/GR00T-N1.7-3B" \
@@ -356,7 +356,7 @@ cd "$P"
 export HAIC_PYTHON=/home/<远程用户>/miniconda3/envs/haic/bin/python
 export OMNI_KIT_ACCEPT_EULA=YES GROOT_HF_LOCAL_FIRST=1 GROOT_PATCH_MISTRAL=1
 export PYTHONPATH="$P:$P/third_party/HAIC:$P/third_party/Isaac-GR00T"
-export LD_LIBRARY_PATH=/home/<远程用户>/.cache/latency-sensitive-bench/ffmpeg7/lib
+export LD_LIBRARY_PATH=/home/<远程用户>/.cache/placeholder/ffmpeg7/lib
 for config in eval_baseline_zero eval_baseline_profile eval_new_zero eval_new_profile; do
   "$HAIC_PYTHON" "$P/third_party/HAIC/scripts/haic_vla.py" latency-eval \
     --headless --eval-config "$B/${config}.yaml"
@@ -394,7 +394,7 @@ Profile 行复用 `$B/profile/profile.json`，不代表新的 latency 测量，�
 
 ```bash
 export PYTHONPATH="$PWD:$PWD/third_party/MIKASA-Robo${PYTHONPATH:+:$PYTHONPATH}"
-export VLA_ACCELERATE=/pfs/users/lxy/conda/envs/starvla_rl_games_openvla/bin/accelerate
+export VLA_ACCELERATE=/path/to/user/conda/envs/starvla_rl_games_openvla/bin/accelerate
 export CUDA_VISIBLE_DEVICES=1
 third_party/MIKASA-Robo/.venv/bin/python \
   third_party/MIKASA-Robo/mikasa_robo_suite/vla/dataset_collectors/get_dataset_collectors_ckpt.py \
@@ -450,9 +450,9 @@ CUDA_VISIBLE_DEVICES=0,1 third_party/MIKASA-Robo/.venv/bin/python \
 本地 interpreter：
 
 - MIKASA：`third_party/MIKASA-Robo/.venv/bin/python`
-- starVLA：`/pfs/users/lxy/conda/envs/starvla_rl_games_openvla/bin/python`
-- Parkour：`/pfs/users/lxy/conda/envs/extreme-parkour/bin/python`
-- HAIC：`/pfs/users/lxy/conda/envs/haic/bin/python`
+- starVLA：`/path/to/user/conda/envs/starvla_rl_games_openvla/bin/python`
+- Parkour：`/path/to/user/conda/envs/extreme-parkour/bin/python`
+- HAIC：`/path/to/user/conda/envs/haic/bin/python`
 - GR00T：`third_party/Isaac-GR00T/.venv/bin/python`
 
 转换环境是 MIKASA-Robo 下现有的 `uv run --project` project；其声明依赖已在 smoke 期间安装。MIKASA native smoke（含初始化）记录约 20 aggregate steps/s；恢复后的单次 update 约 86 steps/s。这些 tiny-run 速度不能用于正式训练预算，且没有记录 peak GPU memory。

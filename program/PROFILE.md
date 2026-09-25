@@ -21,7 +21,7 @@ RUN_ID=20260904T073201011403Z
 
 完整 run 共 500 episodes、30,000 observation attempts；16,473 个 request 被单个 inference
 worker 接收，13,527 个因 worker busy 被 capacity drop。profile 已发布到 Hugging Face dataset
-`latency-sensitive-bench/profiles`，远端同时存在 94 个 raw-run 文件。
+`placeholder/profiles`，远端同时存在 94 个 raw-run 文件。
 
 这次 realtime rollout 的 task success 是 `0/500`，mean return `0.35156`，每个 episode 都跑满
 60 steps。作为对照，同一训练模型的 canonical zero-delay 结果是 `27/50` success（54%，见
@@ -79,7 +79,7 @@ simulation_gpu=cuda:0      inference_device=cuda:1
 ### 3.1 仓库与硬件
 
 ```bash
-cd /path/to/latency-sensitive-bench
+cd /path/to/placeholder
 export BENCH_ROOT="$PWD"
 
 git submodule update --init \
@@ -133,7 +133,7 @@ ln -s "$(realpath third_party/starVLA/playground/Pretrained_models/Qwen3-VL-4B-I
 已训练 MIKASA 模型由 `configs/profiles.yaml` 精确解析：
 
 ```text
-repo:       latency-sensitive-bench/benchmark-models
+repo:       placeholder/benchmark-models
 path:       zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-v1
 checkpoint: checkpoints/steps_5000_pytorch_model.pt
 ```

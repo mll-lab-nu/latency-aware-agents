@@ -25,7 +25,7 @@ These are within-model comparisons from one training run. Different clocks, reci
 
 Prompt key 1 means one raw tick(200 ms at 5 FPS); this is a condition label, not an added 200 ms delay. F uses measured-only latency. Source checkpoint/FPS history remains provenance rather than being rewritten.
 
-[Zero model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/6358f39350b2ce864479637c4d9cbbf4137343a0/inverted_pendulum/zero_latency/GR00T) · [Profile model / final result](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/df76ab5e19a7b90d49c2a27a8f4133701d6d559f/inverted_pendulum/profile_latency/GR00T) · [APPO teacher](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/964ee0be2ba7348652fff3a5addbf9119e0316c6/inverted_pendulum/profile_latency/small_model/GR00T) · [L0 data](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/a3702d961080ffad9d34f5797d0ccd4cde64f4fb/inverted_pendulum/zero_latency/GR00T/h1_5fps_20260917) · [Profile data and evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917) · [Paired comparison](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/comparison.json).
+[Zero model](https://huggingface.co/placeholder/Standard-Pipeline/tree/6358f39350b2ce864479637c4d9cbbf4137343a0/inverted_pendulum/zero_latency/GR00T) · [Profile model / final result](https://huggingface.co/placeholder/Standard-Pipeline/tree/df76ab5e19a7b90d49c2a27a8f4133701d6d559f/inverted_pendulum/profile_latency/GR00T) · [APPO teacher](https://huggingface.co/placeholder/Standard-Pipeline/tree/964ee0be2ba7348652fff3a5addbf9119e0316c6/inverted_pendulum/profile_latency/small_model/GR00T) · [L0 data](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/a3702d961080ffad9d34f5797d0ccd4cde64f4fb/inverted_pendulum/zero_latency/GR00T/h1_5fps_20260917) · [Profile data and evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917) · [Paired comparison](https://huggingface.co/datasets/placeholder/Standard-Pipeline/blob/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/comparison.json).
 
 The evaluated F weights are revision`f6183233368798a9d98cf345e219410065bcae8a`, SHA256`9ec338c86369f59593c802c5c5b29e1c2956ee46a38eecac47e1788acf7fcdb8`. Final model documentation revision`df76ab5e19a7b90d49c2a27a8f4133701d6d559f` changes no weights. Dataset final evidence is pinned at`b561e4d1e15ee32dd133046896d4ded3087898a9`.
 
@@ -33,11 +33,11 @@ The evaluated F weights are revision`f6183233368798a9d98cf345e219410065bcae8a`, 
 
 [Compact results](results-summary.json) · [Publication index](gr00t-publication.json) · [Per-seed chart](gr00t-paired-returns.svg). Only display media and compact indices are local. Public artifacts include model bundles, raw demonstrations, QA, profiles, episode metrics and summaries. The audited B/F step, action, latency and observation-attempt records, including the 20,000-step F evaluation and both warmups, are now published: 18 trace files (89,646,252 bytes) plus four manifest/checksum files. All 22 files passed pinned size/hash verification; bulk traces remain off the local workspace.
 
-[Baseline traces](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917/baseline/evaluation/traces) · [Final traces](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/traces).
+[Baseline traces](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917/baseline/evaluation/traces) · [Final traces](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/traces).
 
 ## Historical references
 
-[OpenVLA 10 FPS detailed report](index.html#openvla) · [Original pinned archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum). Historical 25 FPS zero/fixed-L1 experiments remain separately labeled.
+[OpenVLA 10 FPS detailed report](index.html#openvla) · [Original pinned archive](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum). Historical 25 FPS zero/fixed-L1 experiments remain separately labeled.
 
 <details><summary>Terminated native H8 /15 FPS GR00T experiment</summary>
 
@@ -55,16 +55,16 @@ unchanged strict >900 gate. The 90/10 episode split yielded 89,370 training and
 9,930 validation H8 windows. Loader checks verified action `[8,1]`, state
 `[1,4]`, full chunk masks, and train-only normalization shared by validation.
 
-The [teacher bundle](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/cc850b1770b0ab4fec7b61583886fc718a486cb7/inverted_pendulum/zero_latency/small_model/GR00T)
-and [raw data and evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/408539fbe0d543600520afff4e802ddaf21f5490/inverted_pendulum/zero_latency/GR00T/native_h8_15fps_20260917)
+The [teacher bundle](https://huggingface.co/placeholder/Standard-Pipeline/tree/cc850b1770b0ab4fec7b61583886fc718a486cb7/inverted_pendulum/zero_latency/small_model/GR00T)
+and [raw data and evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/408539fbe0d543600520afff4e802ddaf21f5490/inverted_pendulum/zero_latency/GR00T/native_h8_15fps_20260917)
 are published at fixed revisions with file hashes verified. VLA training completed
 2000 updates with exit 0 at 2026-09-17 02: 39: 26 UTC; final checkpoint 9,976,816,419B.
 Portable packaging and H200 zero-latency 20-episode evaluation completed: mean
 return **4.85 ± 2.33** (populationSD), range 3–11, zero invalid/dropped actions.
 The controller has poor L0 performance. Checked I/O/normalization/head-loading
 contracts showed no mismatch; the cause is unresolved, and no extra training
-budget was added. The [fixed 2000-step inference model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/a10cfff82d2d4c084f473c25b13a0978f3babab0/inverted_pendulum/zero_latency/GR00T)
-and [training/evaluation evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/894ba80a64140299e2df1a5268b9950bf3073374/inverted_pendulum/zero_latency/GR00T/native_h8_15fps_20260917/vla)
+budget was added. The [fixed 2000-step inference model](https://huggingface.co/placeholder/Standard-Pipeline/tree/a10cfff82d2d4c084f473c25b13a0978f3babab0/inverted_pendulum/zero_latency/GR00T)
+and [training/evaluation evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/894ba80a64140299e2df1a5268b9950bf3073374/inverted_pendulum/zero_latency/GR00T/native_h8_15fps_20260917/vla)
 are hash-verified. Publication was not control-quality acceptance. This arm was terminated before P/B/E/F; it is not scheduled to resume.
 
 

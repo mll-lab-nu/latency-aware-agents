@@ -40,7 +40,7 @@ scheduler:
 
 policy:
   type: starvla
-  checkpoint_path: /mnt/data/latency_data/openvla_flappy_fix_latency_2/checkpoints/steps_5000_pytorch_model.pt
+  checkpoint_path: /path/to/mount/latency_data/openvla_flappy_fix_latency_2/checkpoints/steps_5000_pytorch_model.pt
   device: cuda
   unnorm_key: new_embodiment
   # Real and simulated runs share the same latency-neutral model prompt.

@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 RAW_ROOT="${REPO_ROOT}/teacher_datasets/memory"
-HF_REPO_ID="latency-sensitive-bench/memory-rollouts"
+HF_REPO_ID="placeholder/memory-rollouts"
 
 usage() {
   cat >&2 <<'EOF'

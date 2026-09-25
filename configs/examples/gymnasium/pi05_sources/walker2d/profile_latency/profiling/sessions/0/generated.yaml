@@ -5,7 +5,7 @@ backend:
   type: sample_factory
   algo: APPO
   device: cuda
-  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/walker2d
+  train_dir: /path/to/mount/placeholder/small_models/walker2d
   restart_behavior: overwrite
   run_mode: eval
 executor:
@@ -167,7 +167,7 @@ logging:
 provenance:
   model_provenance:
     source: local
-    repo_id: latency-sensitive-bench/extra-envs-checkpoints
+    repo_id: placeholder/extra-envs-checkpoints
     path_in_repo: OpenVLA/zero-latency/walker2d_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k
     checkpoint: checkpoints/steps_5000_pytorch_model.pt
     model_config: config.full.yaml

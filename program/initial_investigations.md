@@ -369,7 +369,7 @@ FALCON 的 payload transport、cart pulling 和 door opening 与 latency 下的�
    - 已经验证 teacher 训练效果好。
 
 2. **HAIC PullCart**
-   - 代表 sustained contact、object inertia 和 humanoid balance。
+   - 代表 placeholderained contact、object inertia 和 humanoid balance。
    - 直接复用已有 action-delay buffer，并在高 latency 下重训 PPO teacher。
 
 3. **Robot Parkour Leap**

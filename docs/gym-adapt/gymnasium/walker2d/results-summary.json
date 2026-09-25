@@ -163,7 +163,7 @@
     "protocol": "20 matched seeds42-61;5FPS;cap1000;measured-only;same B/F runtime with model and prompt0\u21921 changes",
     "interpretation": "Compare measured outcomes and realized latencies; no equal-latency causal claim and no teacher gate applied to VLA.",
     "L0_simulated": {
-      "checkpoint_path": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/walker2d/zero_latency/bundle/checkpoints/model.pt",
+      "checkpoint_path": "/path/to/mount/lzj/placeholder/serial_h1_5fps_20260917/walker2d/zero_latency/bundle/checkpoints/model.pt",
       "experiment_name": "gr00t_walker2d_zero",
       "latency": 0,
       "latency_type": "zero",
@@ -242,7 +242,7 @@
       "selected": "training_best",
       "candidates": {
         "final": {
-          "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/walker2d/profile_latency/teacher/checkpoints/walker2d_profile_appo_h1_5fps_20260917/checkpoint_p0/checkpoint_000019536_10002432.pth",
+          "checkpoint": "/path/to/mount/lzj/placeholder/serial_h1_5fps_20260917/walker2d/profile_latency/teacher/checkpoints/walker2d_profile_appo_h1_5fps_20260917/checkpoint_p0/checkpoint_000019536_10002432.pth",
           "sha256": "dcfe291db668f89db2fead0028a76fb5a005965b9daaab7a29bd19eb13c43ca0",
           "episodes": 20,
           "returns": [
@@ -272,7 +272,7 @@
           "strict_gt3000": 20
         },
         "training_best": {
-          "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/walker2d/profile_latency/teacher/checkpoints/walker2d_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000014536_7442432_reward_4186.861.pth",
+          "checkpoint": "/path/to/mount/lzj/placeholder/serial_h1_5fps_20260917/walker2d/profile_latency/teacher/checkpoints/walker2d_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000014536_7442432_reward_4186.861.pth",
           "sha256": "a9f0e63f8094fe10f82d2395fc7b59958dc22ac1abc59a6da52772eb1fd944ab",
           "episodes": 20,
           "returns": [
@@ -305,7 +305,7 @@
       "completed_at": "2026-09-17T17:24:56.075104+00:00"
     },
     "teacher_E10": {
-      "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/walker2d/profile_latency/teacher/checkpoints/walker2d_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000014536_7442432_reward_4186.861.pth",
+      "checkpoint": "/path/to/mount/lzj/placeholder/serial_h1_5fps_20260917/walker2d/profile_latency/teacher/checkpoints/walker2d_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000014536_7442432_reward_4186.861.pth",
       "sha256": "a9f0e63f8094fe10f82d2395fc7b59958dc22ac1abc59a6da52772eb1fd944ab",
       "episodes": 10,
       "returns": [
@@ -355,7 +355,7 @@
     "B_population_std": 4.904,
     "F_mean": 857.437,
     "F_population_std": 971.038,
-    "archive": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/walker2d"
+    "archive": "https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/walker2d"
   },
   "comparison_scope": "Within-model only; different clocks and recipes are not a controlled architecture comparison.",
   "raw_trace_scope": "Full F step/action/latency traces audited on server and retained on3090; only compact episode/config/summary evidence uploaded."

@@ -8,7 +8,7 @@ backend:
   type: sample_factory
   algo: APPO
   device: cuda
-  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/hopper
+  train_dir: /path/to/mount/placeholder/small_models/hopper
   restart_behavior: overwrite
   run_mode: train
 
@@ -116,7 +116,7 @@ evaluation:
   eval_deterministic: true
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/hopper/small_model_train
+  output_dir: /path/to/mount/placeholder/tasks/hopper/small_model_train
   video:
     enabled: false
     num_bins: 1

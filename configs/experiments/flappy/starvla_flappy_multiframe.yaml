@@ -24,7 +24,7 @@ policy:
   checkpoint_path: /workspace/starVLA/results/Checkpoints/flappy_qwenoft_multiframe4/checkpoints/steps_5000_state/model.safetensors
   device: cuda
   unnorm_key: new_embodiment
-  latency_prompt_map_path: /workspace/latency-sensitive-bench/prompt_map/flappy_fix_latency_prompt_map.json
+  latency_prompt_map_path: /workspace/placeholder/prompt_map/flappy_fix_latency_prompt_map.json
   actions:
     - noop
     - flap

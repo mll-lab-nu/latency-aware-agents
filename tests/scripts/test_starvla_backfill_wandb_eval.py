@@ -38,7 +38,7 @@ def test_download_model_uses_profile_artifact_and_work_local_hf_caches(tmp_path,
     captured = {}
     job = {"task": "mikasa", "workload": "mikasa_intercept_grab_fast", "model": "qwenoft"}
     profile = {
-        "hf_repo": "latency-sensitive-bench/profiles",
+        "hf_repo": "placeholder/profiles",
         "model_artifact": {
             "hf_repo": backfill.HF_REPO,
             "hf_path": "zero-latency/task/vla/model",

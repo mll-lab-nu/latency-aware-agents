@@ -175,7 +175,7 @@ student:   96 env/rank * 2 =  192 total
 固定组合是 Python 3.11、Torch 2.7.0+cu128、Isaac Sim 5.0.0 和仓库内 IsaacLab v2.2.0。
 HAIC 使用独立的 IsaacLab v2.3.2 checkout，不要为 HAIC 切换这里的 editable 源码版本。
 
-以下历史运行记录使用 `/pfs/users/lxy/conda/envs/extreme-parkour`；新机器将
+以下历史运行记录使用 `/path/to/user/conda/envs/extreme-parkour`；新机器将
 `PARKOUR_ROOT`、`PARKOUR_ENV` 和 `PARKOUR_PY` 替换为自己的安装路径。
 
 ## 6. Preflight 和 smoke
@@ -183,8 +183,8 @@ HAIC 使用独立的 IsaacLab v2.3.2 checkout，不要为 HAIC 切换这里的 e
 ### 6.1 Python/GPU
 
 ```bash
-export PARKOUR_ROOT=/pfs/users/lxy/latency-sensitive-bench
-export PARKOUR_PY=/pfs/users/lxy/conda/envs/extreme-parkour/bin/python
+export PARKOUR_ROOT=/path/to/user/placeholder
+export PARKOUR_PY=/path/to/user/conda/envs/extreme-parkour/bin/python
 export OMNI_KIT_ACCEPT_EULA=YES
 
 "${PARKOUR_PY}" - <<'PY'
@@ -290,9 +290,9 @@ student evaluation 同样需要 `--enable_cameras`，并在进程环境中预加
 | teacher/student exact resume | 通过；优化 profile 的 `model_4.pt` 均从 iteration 4 继续训练 1 iteration |
 | camera teardown | current keyboard unsubscribe API 单卡实跑通过，无退出 `AttributeError` |
 | allclose candidates | compile 因默认 `allclose` 失败而拒绝；cuDNN benchmark +1.26%～+1.64%，已启用，backward 最大绝对差异 `7.96e-13` |
-| teacher adaptive 15k | **failed/collapsed**；run `2026-09-01_23-53-57_teacher_zero_delay_ddp_seed1_15k`；[W&B `vjsucm5x`](https://wandb.ai/saberrr-zju/isaaclab-parkour/runs/vjsucm5x)；console `logs/teacher_zero_delay_ddp_seed1_15k.console.log`；LR iteration 5 达 `1e-2`，value loss iteration 12 达 `9.6582`，reward iteration 24 峰值 `0.2307` 后下降并从约 iteration 80 持续为零；iteration 1418 人工停止，episode length `11.09` |
-| teacher fixed 15k | **completed；exit 0**；run `2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k`；checkpoint `model_14999.pt`；[W&B `8lpfqa6a`](https://wandb.ai/saberrr-zju/isaaclab-parkour/runs/8lpfqa6a)；console `logs/teacher_zero_delay_fixed_lr_ddp_seed1_15k.console.log`；保存配置已确认 `schedule=fixed`、LR `2e-4`；gates 100/300/1000 均通过；iteration 14999 reward `19.59`、episode length `710.00`、terrain level `6.0593`、value loss `0.0049`；训练于 `2026-09-02 02:07 UTC` 正常结束，未复现 collapse |
-| student 5k | **running；resumed from model 2200**；original run `2026-09-02_10-10-50_student_zero_delay_ddp_seed1_5k` / [W&B `bhzgjid1`](https://wandb.ai/saberrr-zju/isaaclab-parkour/runs/bhzgjid1) / console `logs/student_zero_delay_ddp_seed1_5k.console.log`；iteration 2286 后被外部硬终止，loss 正常、无程序错误；resume run `2026-09-02_13-02-16_student_zero_delay_ddp_seed1_5k_resume2200` / [W&B `g3i1d4dh`](https://wandb.ai/saberrr-zju/isaaclab-parkour/runs/g3i1d4dh) / console `logs/student_zero_delay_ddp_seed1_5k_resume2200.console.log`；精确恢复 `model_2200.pt` 的网络和 optimizer，iteration 2220 total loss `1.1273`；最近 20 iterations 中位 `4.045s`，预计 `2026-09-02 08:11 UTC` 完成 |
+| teacher adaptive 15k | **failed/collapsed**；run `2026-09-01_23-53-57_teacher_zero_delay_ddp_seed1_15k`；[W&B `vjsucm5x`](https://wandb.ai/placeholder/isaaclab-parkour/runs/vjsucm5x)；console `logs/teacher_zero_delay_ddp_seed1_15k.console.log`；LR iteration 5 达 `1e-2`，value loss iteration 12 达 `9.6582`，reward iteration 24 峰值 `0.2307` 后下降并从约 iteration 80 持续为零；iteration 1418 人工停止，episode length `11.09` |
+| teacher fixed 15k | **completed；exit 0**；run `2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k`；checkpoint `model_14999.pt`；[W&B `8lpfqa6a`](https://wandb.ai/placeholder/isaaclab-parkour/runs/8lpfqa6a)；console `logs/teacher_zero_delay_fixed_lr_ddp_seed1_15k.console.log`；保存配置已确认 `schedule=fixed`、LR `2e-4`；gates 100/300/1000 均通过；iteration 14999 reward `19.59`、episode length `710.00`、terrain level `6.0593`、value loss `0.0049`；训练于 `2026-09-02 02:07 UTC` 正常结束，未复现 collapse |
+| student 5k | **running；resumed from model 2200**；original run `2026-09-02_10-10-50_student_zero_delay_ddp_seed1_5k` / [W&B `bhzgjid1`](https://wandb.ai/placeholder/isaaclab-parkour/runs/bhzgjid1) / console `logs/student_zero_delay_ddp_seed1_5k.console.log`；iteration 2286 后被外部硬终止，loss 正常、无程序错误；resume run `2026-09-02_13-02-16_student_zero_delay_ddp_seed1_5k_resume2200` / [W&B `g3i1d4dh`](https://wandb.ai/placeholder/isaaclab-parkour/runs/g3i1d4dh) / console `logs/student_zero_delay_ddp_seed1_5k_resume2200.console.log`；精确恢复 `model_2200.pt` 的网络和 optimizer，iteration 2220 total loss `1.1273`；最近 20 iterations 中位 `4.045s`，预计 `2026-09-02 08:11 UTC` 完成 |
 | teacher fixed evaluation | **passed**；checkpoint `model_14999.pt`；console `logs/eval_teacher_fixed_lr_seed1_model_14999.console.log`；reward `23.14±6.02`、episode length `907.95±296.15`、normalized waypoint progress `1.00±0.01`、edge violation `0.19±0.42` |
 | student fixed evaluation | pending |
 | VLA zero-delay common-executor smoke（bootstrap flow-aux SFT checkpoint-5000） | **completed；公共 summary 已生成（2026-09-05 01:11 UTC）**；`latency-eval --eval-config outputs/official_gr00t/extreme_parkour_go2_action_yaw_h40_official_flow_aux_dagger/bootstrap/vla_eval/eval_config.yaml`（100 episodes / 50 slots / seed 2 / `--inference_batch_size 32` / runtime `model_14999.pt`）；输出 `bootstrap/vla_eval/queue_eval_latency_0.json` 与 `queue_eval_results.jsonl`：逐步 100 episodes、mean_length `848.43`、mean_return `10.57±5.63`、`normalized_waypoint_progress` `0.385±0.248`、`edge_violation` count `84,843`。该 run 是统一链路 smoke，不作为策略质量结论 |
@@ -335,7 +335,7 @@ RGB camera；原 teacher/student 训练配置不变。先在相同 seed 2、50 �
 50 Hz privileged teacher 与 10 Hz privileged-latent oracle：
 
 ```bash
-export REPO_ROOT=/pfs/users/lxy/latency-sensitive-bench
+export REPO_ROOT=/path/to/user/placeholder
 export PARKOUR_ROOT="${REPO_ROOT}/third_party/Isaaclab_Parkour"
 export TEACHER_CKPT="${PARKOUR_ROOT}/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k/model_14999.pt"
 
@@ -518,7 +518,7 @@ baseline，并默认执行 round 0--9 的 192-env 采集、转换、500-step act
 control steps：
 
 ```bash
-cd /pfs/users/lxy/latency-sensitive-bench
+cd /path/to/user/placeholder
 bash scripts/tasks/extreme_parkour_go2/train_vla.sh \
   /absolute/path/to/model_14999.pt \
   --bootstrap-raw outputs/official_gr00t/extreme_parkour_go2_action_data/raw

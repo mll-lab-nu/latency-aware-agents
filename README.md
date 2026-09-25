@@ -52,7 +52,7 @@ existing entrypoints: [historical game workflows](docs/standard_pipeline.md#olde
 ## Repository Map
 
 ```text
-latency-sensitive-bench/
+placeholder/
   latency_bench/        # runtime, scheduling, latency, profiling, evaluation
   training/             # teacher training and framework integrations
   configs/              # shared defaults, task recipes, experiment records
@@ -77,8 +77,8 @@ environments; MIKASA, HAIC, and Parkour require the separate setup steps there.
 Clone this repository with submodules:
 
 ```bash
-git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-bench.git
-cd latency-sensitive-bench
+git clone --filter=blob:none https://github.com/placeholder/placeholder.git
+cd placeholder
 git submodule update --init --depth 1 --jobs 8
 ```
 
@@ -278,9 +278,9 @@ condition.
 
 Owner depends on the path:
 
-- `latency-sensitive-bench-realtime-human`: Pyodide human eval supports
+- `placeholder`: Pyodide human eval supports
   per-action IID jitter with uniform or normal sampling.
-- `latency-sensitive-bench`: cross-device simulation supports temporal, IID,
+- `placeholder`: cross-device simulation supports temporal, IID,
   fixed, and normal profile-derived replay.
 - `starVLA`: `eval_core` currently uses fixed latency queues; per-action jitter
   needs a small queue/sampler extension before it exactly matches the Pyodide
@@ -310,7 +310,7 @@ artifact layout, publishing, commit-pinned replay, and adding presets.
 ### 6. Run Human Realtime Evaluation
 
 ```bash
-cd ../latency-sensitive-bench-realtime-human
+cd ../placeholder
 bash run.sh
 ```
 
@@ -356,7 +356,7 @@ and cross-stage contract checks.
 Give the agent this prompt, replacing the bracketed fields:
 
 ```text
-Read docs/gymnasium_adapter.md and docs/gym-adapt/gymnasium/README.md. Adapt [ENV_ID] from [PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate env.name=gymnasium path. My task objective is [OBJECTIVE], and the target latency is [LATENCY].
+Read docs/gymnasium_adapter.md and docs/gym-adapt/gymnasium/README.md. Adapt [ENV_ID] from [PACKAGE + PINNED VERSION] into placeholder through the separate env.name=gymnasium path. My task objective is [OBJECTIVE], and the target latency is [LATENCY].
 
 First, probe the exact Gymnasium API and report its constructor arguments, action and observation spaces, reset/step/render behavior, native timing, and anything you cannot infer. Ask me to decide the action catalog, action order, no-op action, raw-tick meaning, preprocessing, reward and termination policy, task prompt, and experiment budgets whenever these cannot be determined from the API.
 
@@ -391,15 +391,15 @@ The project uses Hugging Face repositories for public artifacts:
 - fixed-latency and mixed-latency training data;
 - ghost-trail datasets;
 - model checkpoints;
-- device profiles in `latency-sensitive-bench/profiles`.
+- device profiles in `placeholder/profiles`.
 
 The four supported task pipelines use the shared Hugging Face organization
-[`latency-sensitive-bench`](https://huggingface.co/latency-sensitive-bench),
+[`placeholder`](https://huggingface.co/placeholder),
 with centralized developer repositories for new artifacts:
 
-- [benchmark-models](https://huggingface.co/latency-sensitive-bench/benchmark-models)
+- [benchmark-models](https://huggingface.co/placeholder/benchmark-models)
   stores small-policy teachers and VLA inference bundles under task prefixes.
-- [benchmark-datasets](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
+- [benchmark-datasets](https://huggingface.co/datasets/placeholder/benchmark-datasets)
   stores accepted teacher rollouts and converted train/validation datasets.
 
 The exact task paths, source revisions, and publication status are recorded in

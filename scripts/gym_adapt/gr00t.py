@@ -85,7 +85,7 @@ def vla_config(task: str, dataset: Path, backbone: Path, output: Path,
     write_json(mixture, {"train": [[str(dataset), 1.0, contract["robot_type"]]],
                          "validation": [[str(dataset.with_name(dataset.name + "__val")), 1.0, contract["robot_type"]]]})
     cfg.update(run_id=run_id, run_root_dir=str(output / "training"), seed=42, is_debug=False,
-               version_id="0.21", wandb_project="latency-sensitive-bench", wandb_entity=wandb_entity,
+               version_id="0.21", wandb_project="placeholder", wandb_entity=wandb_entity,
                wandb_name=run_id, wandb_group="gr00t-seven-env", wandb_tags=[task, condition, "GR00T", f"h{horizon}"],
                training_latency_condition=condition,
                backbone=BACKBONE, base_model={"repo_id": BACKBONE["repo_id"]})
@@ -199,7 +199,7 @@ def profile_spec(task: str, config_path: Path, bundle: Path, output: Path) -> di
         checkpoint_kind="latest", session_count=5, eval_episodes=10, evaluation_seed=42,
         calibrate_env_fps=False, simulation_parallel_envs=1, simulation_gpu=None, simulation_env={})
     spec["model_artifact"] = {"local_root": str(bundle), "checkpoint": "checkpoints/model.pt",
-        "model_config": "config.yaml", "hf_repo": "latency-sensitive-bench/Standard-Pipeline",
+        "model_config": "config.yaml", "hf_repo": "placeholder/Standard-Pipeline",
         "hf_path": f"{task}/zero_latency/GR00T"}
     return spec
 

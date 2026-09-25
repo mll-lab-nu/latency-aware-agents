@@ -26,7 +26,7 @@ F has **17,263 within-episode intervals**, averaging **200.000775 ms** (198.8927
 
 ## Published evidence
 
-[Dataset and final compact evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/f23f353a9c6b3efaa4407d32134fda8fa30fe78e/ant/profile_latency/GR00T/h1_5fps_20260917) · [Final model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/43f38eff5728642c0bb4dcaf844d15781fb47e68/ant/profile_latency/GR00T) · [Publication receipt](gr00t-publication.json).
+[Dataset and final compact evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/f23f353a9c6b3efaa4407d32134fda8fa30fe78e/ant/profile_latency/GR00T/h1_5fps_20260917) · [Final model](https://huggingface.co/placeholder/Standard-Pipeline/tree/43f38eff5728642c0bb4dcaf844d15781fb47e68/ant/profile_latency/GR00T) · [Publication receipt](gr00t-publication.json).
 
 Evaluated F revision `bfab5cbb9abbadb03eb39593d3f403471b835882`, checkpoint SHA256 `77dfb363a28a363a3acec7f53892e80c773cd8e2e5850ecff980abf6dbfff18b`. Documentation revision `43f38eff5728642c0bb4dcaf844d15781fb47e68` preserves these weights. Full step/action/latency traces were audited on the evaluation server and remain there; only compact evidence is published.
 
@@ -42,15 +42,15 @@ Latest experiment: [September 2026 profile-latency results](index.html#profile-p
 
 Open [`index.html`](index.html) for the verified Ant-v4 native 8D continuous-action and 27D RGB+state adaptation. The report includes the EGL probe, 10M-frame L0 APPO run, best-checkpoint L0-L4 evaluation, 100 gated teacher episodes, native LeRobot conversion, 5k QwenOFT training, and final-checkpoint L0/L2 VLA evaluation.
 
-Fresh profiling-only run: [20260911T023128Z-p-only4](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/provenance/profiling/status.md), env/obs FPS 10 / 10. Profiling is complete; the subsequent pipeline is tracked below.
+Fresh profiling-only run: [20260911T023128Z-p-only4](https://huggingface.co/datasets/placeholder/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/provenance/profiling/status.md), env/obs FPS 10 / 10. Profiling is complete; the subsequent pipeline is tracked below.
 
-- [September 11 realtime baseline](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/provenance/baseline/status.md): completed 20 episodes at 10 FPS; return 194.33 ± 259.05.
+- [September 11 realtime baseline](https://huggingface.co/datasets/placeholder/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/provenance/baseline/status.md): completed 20 episodes at 10 FPS; return 194.33 ± 259.05.
 
-- [Ant pipeline continuation](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/provenance/pipeline/status.md): S/E completed at 10/10 FPS; E return 2301.03 ± 37.60. E 0/10 and bounded exporter probe 0/12 passed the original >3000 gate; The user subsequently authorized a >2500 data gate; R/C completed 100,000 rows, all 100 actual episode returns pass >2500, and VLA training completed 5,000 steps with exit code 0 using the same teacher lineage. The final model bundle is uploaded and all 22 files verified; the 20-episode measured evaluation completed with exit 0: return 1,853.33 ± 508.69 versus baseline 194.33 ± 259.05, with all 20 paired seeds improving and 16/20 reaching 1,000 steps.
+- [Ant pipeline continuation](https://huggingface.co/datasets/placeholder/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/provenance/pipeline/status.md): S/E completed at 10/10 FPS; E return 2301.03 ± 37.60. E 0/10 and bounded exporter probe 0/12 passed the original >3000 gate; The user subsequently authorized a >2500 data gate; R/C completed 100,000 rows, all 100 actual episode returns pass >2500, and VLA training completed 5,000 steps with exit code 0 using the same teacher lineage. The final model bundle is uploaded and all 22 files verified; the 20-episode measured evaluation completed with exit 0: return 1,853.33 ± 508.69 versus baseline 194.33 ± 259.05, with all 20 paired seeds improving and 16/20 reaching 1,000 steps.
 
 ## Standard Pipeline archive
 
-[Complete experiment archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/ant) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
+[Complete experiment archive](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/ant) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
 
 
 [OpenVLA per-seed real-time comparison](openvla-paired-returns.svg) · [Plot data and fixed-revision sources](openvla-paired-results.json). 20 wins, 0 ties, 0 losses; mean paired gain +1,659.00.

@@ -13,7 +13,7 @@ Before execution, record these inputs in the run ledger:
 | `TASK` | Environment named in the execution request |
 | `ENV_FPS` | User-specified environment rate; otherwise the selected baseline's rate |
 | `OBS_FPS` | Explicit user value if supplied; otherwise preserve the baseline observation stride as described below |
-| `ZERO_BUNDLE` | Matching checkpoint under `<task>/zero_latency/OpenVLA/` in `latency-sensitive-bench/extra-envs-checkpoints` |
+| `ZERO_BUNDLE` | Matching checkpoint under `<task>/zero_latency/OpenVLA/` in `placeholder/extra-envs-checkpoints` |
 | `RUN_ID` | Unique UTC run identifier |
 | Baseline recipe | Actual source VLA config, teacher config and rollout metadata |
 
@@ -30,7 +30,7 @@ The user has confirmed that both SSH hosts are reachable and each has one GPU:
 
 The earlier H100 connection failure is superseded by this confirmation. At execution time, inspect current processes, GPU use, free disk space and available CPU/RAM; do not assume either server is idle merely because SSH works.
 
-Previously located 3090 paths are `/workspace/latency-sensitive-bench`, `/venv/starvla_rl_games_openvla/bin/python`, and `/mnt/results/latency-sensitive-bench`. Confirm these paths and locate the H100 checkout/interpreter before launching. Record actual root and submodule revisions on both hosts. Preserve unrelated changes; use an isolated checkout when needed instead of resetting the shared checkout.
+Previously located 3090 paths are `/workspace/placeholder`, `/venv/starvla_rl_games_openvla/bin/python`, and `/path/to/mount/placeholder`. Confirm these paths and locate the H100 checkout/interpreter before launching. Record actual root and submodule revisions on both hosts. Preserve unrelated changes; use an isolated checkout when needed instead of resetting the shared checkout.
 
 Use `LATENCY_BENCH_ENV_BACKEND_START_METHOD=spawn`. For the 3090 MuJoCo path, the previously working rendering setup is `MUJOCO_GL=osmesa`; keep the renderer identical across profiling and both VLA evaluations. The prior `exps` run encountered an OSMesa/model-initialization fork deadlock, so confirm the first episode completes before leaving a job unattended.
 
@@ -110,10 +110,10 @@ Use the requested new prefixes and retain old results:
 
 | Artifact | Repository | Path in repository |
 | --- | --- | --- |
-| Profile traces and fitted profile | Dataset: `latency-sensitive-bench/Standard-Pipeline` | `<task>/profile_latency/profiling/` |
-| Small-model bundle | Model: `latency-sensitive-bench/extra-envs-checkpoints` | `<task>/profile_latency/small_model/` |
-| Raw demonstrations | Dataset: `latency-sensitive-bench/Standard-Pipeline` | `<task>/profile_latency/demonstrations/raw/` |
-| Final VLA inference bundle | Model: `latency-sensitive-bench/extra-envs-checkpoints` | `<task>/profile_latency/OpenVLA/` |
+| Profile traces and fitted profile | Dataset: `placeholder/Standard-Pipeline` | `<task>/profile_latency/profiling/` |
+| Small-model bundle | Model: `placeholder/extra-envs-checkpoints` | `<task>/profile_latency/small_model/` |
+| Raw demonstrations | Dataset: `placeholder/Standard-Pipeline` | `<task>/profile_latency/demonstrations/raw/` |
+| Final VLA inference bundle | Model: `placeholder/extra-envs-checkpoints` | `<task>/profile_latency/OpenVLA/` |
 
 Model bundles use `<task>/<zero_latency|profile_latency>/small_model/` and `<task>/<zero_latency|profile_latency>/OpenVLA/`. Dataset model-specific records use `OpenVLA/` and `baseline_OpenVLA/` to distinguish future model families. Directory names describe the environment, condition and stage; record run IDs, clocks and timestamps in metadata rather than folder names. Every downstream artifact records upstream run IDs, file hashes and exact Hub revisions. Preserve relative paths required by profile readers and inference loaders. Avoid mutable `latest` references. Verify uploaded file sizes/hashes and commit IDs before using the upload as evidence that local copies can be removed.
 

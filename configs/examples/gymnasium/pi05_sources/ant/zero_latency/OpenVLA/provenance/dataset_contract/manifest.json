@@ -7,7 +7,7 @@
     "Make the Ant move forward as fast as possible without falling. Predict eight continuous torques in [-1, 1] ordered as back right hip, back right ankle, front left hip, front left ankle, front right hip, front right ankle, back left hip, and back left ankle. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 20 FPS and observations are emitted at 20 FPS. Choose the best next action."
   ],
   "format": "lerobot_v2_image_parquet",
-  "source": "/mnt/data/latency-sensitive-bench/raw_rollouts/Ant/ant_rgb_state_l0_return_gt3000_100ep",
+  "source": "/path/to/mount/placeholder/raw_rollouts/Ant/ant_rgb_state_l0_return_gt3000_100ep",
   "integration_name": "gymnasium",
   "task_name": "ant_rgb_state",
   "action_layout": "gymnasium_continuous_v1",
@@ -130,8 +130,8 @@
     ]
   },
   "robot_type": "rl_games_gymnasium",
-  "latency_prompt_map_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/ant_rgb_state_l0_return_gt3000_100ep/latency_prompt_map.json",
-  "custom_mixtures_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/_generated_mixtures/ant_rgb_state_l0_return_gt3000_100ep.json",
+  "latency_prompt_map_path": "/path/to/mount/placeholder/vla_datasets/rl_games/ant_rgb_state_l0_return_gt3000_100ep/latency_prompt_map.json",
+  "custom_mixtures_path": "/path/to/mount/placeholder/vla_datasets/rl_games/_generated_mixtures/ant_rgb_state_l0_return_gt3000_100ep.json",
   "gymnasium_task": {
     "action_space": {
       "dtype": "float32",

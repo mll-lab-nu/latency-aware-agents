@@ -14,9 +14,9 @@ The small privileged-state PPO teacher used to collect the published
 actions.
 
 The full setting and commands are in the
-[MIKASA cookbook](https://github.com/ZihanWang314/latency-sensitive-bench/blob/master/docs/mikasa/cookbook.md).
+[MIKASA cookbook](https://github.com/placeholder/placeholder/blob/master/docs/mikasa/cookbook.md).
 The matching rollouts are in the
-[dataset repository](https://huggingface.co/datasets/latency-sensitive-bench/mikasa-robo).
+[dataset repository](https://huggingface.co/datasets/placeholder/mikasa-robo).
 
 ## Files
 
@@ -53,7 +53,7 @@ passed `100/100` episodes with mean return `36.819`.
 After cloning the benchmark and installing its MIKASA environment:
 
 ```bash
-hf download latency-sensitive-bench/mikasa-robo \
+hf download placeholder/mikasa-robo \
   oracle_checkpoints/InterceptGrabFast-VLA-v0/final_success_ckpt.pt \
   --local-dir outputs/mikasa/published_teacher
 

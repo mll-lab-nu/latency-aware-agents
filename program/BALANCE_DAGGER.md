@@ -115,7 +115,7 @@ Keep 500 updates, 50/50 sampling, micro-batch 32 on two GPUs, accumulation 2,
 base LR `3e-5`, head LR `1e-4`, and the existing warmup/schedule. Evaluate 100
 episodes at zero latency; also report the first 50 against the original run.
 
-W&B run: [balance-qwenoft-dagger-conditioned-r1-20260909-dagger](https://wandb.ai/saberrr-zju/starvla_tasks/runs/balance-qwenoft-dagger-conditioned-r1-20260909-dagger).
+W&B run: [balance-qwenoft-dagger-conditioned-r1-20260909-dagger](https://wandb.ai/placeholder/starvla_tasks/runs/balance-qwenoft-dagger-conditioned-r1-20260909-dagger).
 The run completed all 500 updates and all 100 zero-latency evaluation episodes.
 Final train loss is `0.0227174610`; held-out action loss is `0.0213983804`
 (old incorrect-label run: `0.1185289919`).

@@ -905,7 +905,7 @@ def main():
     parser.add_argument("--teacher-config", type=Path, default=TEACHER_CONFIG)
     parser.add_argument("--teacher-revision", default=TEACHER_REVISION)
     parser.add_argument("--teacher-sha256", default=TEACHER_SHA256)
-    parser.add_argument("--wandb-entity", default="saberrr-zju")
+    parser.add_argument("--wandb-entity", default="placeholder")
     parser.add_argument("--profile-path", type=Path)
     parser.add_argument("--collect-bootstrap-only", action="store_true")
     parser.add_argument("--model", choices=MODELS, default="qwenpi_v3")

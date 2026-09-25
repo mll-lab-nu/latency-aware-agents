@@ -21,11 +21,11 @@
 | `34.131.91.104` | Profile PI | Profile GR00T | Fixed-2 PI | GPU 6、7 |
 
 正式输出根为两台机器各自的
-`/home/ubuntu/codex/mikasa-h8/outputs/starvla/runs/mikasa_intercept_grab_fast/h8-conditioned-dagger-20260923/`。
+`/path/to/user/codex/mikasa-h8/outputs/starvla/runs/mikasa_intercept_grab_fast/h8-conditioned-dagger-20260923/`。
 单路入口是 `scripts/tasks/mikasa_intercept_grab_fast/launch_h8_dagger_arm.sh`；
 六路启动与恢复入口是 `launch_h8_dagger_six_way.sh`。每路 `controller.pid`、
 `controller.log`、`dagger.log`、`evaluations/`、`deltas/` 和 `training/dagger/checkpoints/`
-保存在各自目录。训练 W&B 项目为 `saberrr-zju/starvla_tasks`，凭据从远端 `.env` 读取。
+保存在各自目录。训练 W&B 项目为 `placeholder/starvla_tasks`，凭据从远端 `.env` 读取。
 
 ## 上线验证与启动
 
@@ -40,7 +40,7 @@
 - 六路正式 step-0 评测均完成 100 局并通过 H8 execution audit；六份首轮
   student 数据均达到至少 16,000 个有效 suffix head，复用 SFT normalization 完成打包。
   六路双卡 trainer 均已从各自 SFT step-5000 模型权重加载并启动，W&B run 均连接
-  `saberrr-zju/starvla_tasks`。完整 500-step 边界与终评尚待核验，届时再更新
+  `placeholder/starvla_tasks`。完整 500-step 边界与终评尚待核验，届时再更新
   `program/PROGRESS.md`。
 - Codex task 的 `mikasa-h8-dagger-15` 监控每 15 分钟检查六路状态与可恢复边界，
   仅在故障、恢复行动或完成时通知。

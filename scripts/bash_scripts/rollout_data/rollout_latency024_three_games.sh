@@ -5,7 +5,7 @@ set -euo pipefail
 # small-model teachers used to build mixed-latency data.
 #
 # New machine usage:
-#   cd /path/to/latency-sensitive-bench
+#   cd /path/to/placeholder
 #   conda activate latency
 #   export HF_TOKEN=hf_...
 #   bash scripts/bash_scripts/rollout_data/rollout_latency024_three_games.sh all
@@ -30,9 +30,9 @@ set -euo pipefail
 #   DEVICE=cuda
 #   FILTER_PRESET=none
 #   EPISODE_RETURN_GT=<override per-task gate>
-#   HF_MODEL_REPO=latency-sensitive-bench/paper-experiment-models
+#   HF_MODEL_REPO=placeholder/paper-experiment-models
 #   HF_ROLLOUT_REPO=<override one shared upload repo>
-#   HF_ROLLOUT_REPO_PREFIX=latency-sensitive-bench
+#   HF_ROLLOUT_REPO_PREFIX=placeholder
 #
 # Default teacher seeds are one selected small model per env/latency:
 #   asterix:  l0=s11, l2=s14, l4=s14
@@ -41,18 +41,18 @@ set -euo pipefail
 # Defend-the-Line l0 is copied from the existing 1000ep memory-rollouts
 # dataset because no l0 small-model checkpoint is uploaded in HF_MODEL_REPO.
 
-export HF_MODEL_REPO="${HF_MODEL_REPO:-latency-sensitive-bench/paper-experiment-models}"
+export HF_MODEL_REPO="${HF_MODEL_REPO:-placeholder/paper-experiment-models}"
 export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-}"
-export HF_ROLLOUT_REPO_PREFIX="${HF_ROLLOUT_REPO_PREFIX:-latency-sensitive-bench}"
-export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-/mnt/local/talha/latency024_small_model_ckpts}"
-export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-/mnt/local/talha/latency024_rollout_datasets}"
-export DEFEND_L0_SOURCE_REPO="${DEFEND_L0_SOURCE_REPO:-latency-sensitive-bench/memory-rollouts}"
+export HF_ROLLOUT_REPO_PREFIX="${HF_ROLLOUT_REPO_PREFIX:-placeholder}"
+export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-/path/to/mount/placeholder/latency024_small_model_ckpts}"
+export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-/path/to/mount/placeholder/latency024_rollout_datasets}"
+export DEFEND_L0_SOURCE_REPO="${DEFEND_L0_SOURCE_REPO:-placeholder/memory-rollouts}"
 export DEFEND_L0_SOURCE_CONFIG="${DEFEND_L0_SOURCE_CONFIG:-defend_the_line_fixed_latency_0_1000ep_7k2steps}"
 export DEFEND_L0_SOURCE_REVISION="${DEFEND_L0_SOURCE_REVISION:-main}"
 
 need_repo_root() {
   if [[ ! -f scripts/bash_scripts/run_sf_teacher_dataset_export.sh ]]; then
-    echo "[error] run this from the latency-sensitive-bench repo root." >&2
+    echo "[error] run this from the placeholder repo root." >&2
     return 1
   fi
 }
@@ -593,7 +593,7 @@ Targets:
 
 Note:
   defend-the-line-l0 is derived from
-  latency-sensitive-bench/memory-rollouts/defend_the_line_fixed_latency_0_1000ep_7k2steps
+  placeholder/memory-rollouts/defend_the_line_fixed_latency_0_1000ep_7k2steps
   by streaming the requested number of episodes into this repo's standard 200ep
   rollout destination.
 

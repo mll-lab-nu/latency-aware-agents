@@ -1,6 +1,6 @@
 output_dir: outputs/latency_rl/mikasa/qwenoft_rtx3090_h1_v1
 teacher_source:
-  repo_id: latency-sensitive-bench/benchmark-models
+  repo_id: placeholder/benchmark-models
   revision: fb727810a71a21e02c84635ce44e9c889763b236
   path: latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/checkpoint.pt
 latency_config: configs/training/latency/mikasa_qwenoft_rtx3090_scratch.yaml
@@ -15,7 +15,7 @@ collection:
   train_split: "train[:250]"
   val_split: "train[250:275]"
 vla:
-  python: /pfs/users/lxy/conda/envs/starvla_rl_games_openvla/bin/python
+  python: /path/to/user/conda/envs/starvla_rl_games_openvla/bin/python
   run_id: mikasa_qwenoft_rtx3090_h1_v1
   num_gpus: 2
   micro_batch: 64

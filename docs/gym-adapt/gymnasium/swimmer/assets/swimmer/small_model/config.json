@@ -3,7 +3,7 @@
   "algo": "APPO",
   "env": "latency_gymnasium",
   "experiment": "gymnasium_swimmer_rgb_state_zero_latency_10m",
-  "train_dir": "/mnt/checkpoints/latency-sensitive-bench/small_models/swimmer",
+  "train_dir": "/path/to/mount/placeholder/small_models/swimmer",
   "restart_behavior": "overwrite",
   "device": "gpu",
   "seed": 2222,
@@ -161,13 +161,13 @@
   "eval_max_steps": 1000,
   "eval_deterministic": true,
   "eval_raw_reward": false,
-  "episode_metrics_path": "/mnt/checkpoints/latency-sensitive-bench/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/episode_metrics.jsonl",
-  "command_line": "--mode train --algo APPO --env latency_gymnasium --experiment gymnasium_swimmer_rgb_state_zero_latency_10m --train_dir /mnt/checkpoints/latency-sensitive-bench/small_models/swimmer --restart_behavior overwrite --device gpu --seed 2222 --episode_metrics_path /mnt/checkpoints/latency-sensitive-bench/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/episode_metrics.jsonl --train_for_env_steps 10000000 --num_workers 8 --num_envs_per_worker 8 --num_policies 1 --batch_size 1024 --rollout 64 --recurrence 1 --num_epochs 2 --num_batches_per_epoch 4 --worker_num_splits 2 --max_policy_lag 10000 --num_batches_to_accumulate 2 --policy_workers_per_policy 1 --learning_rate 0.00295 --kl_loss_coeff 0.1 --lr_schedule_kl_threshold 0.008 --nonlinearity tanh --policy_initialization torch_default --initial_stddev 1.0 --gamma 0.99 --gae_lambda 0.95 --ppo_clip_ratio 0.2 --ppo_clip_value 1.0 --exploration_loss entropy --exploration_loss_coeff 0.0 --reward_scale 1.0 --reward_clip 1000.0 --value_loss_coeff 1.3 --max_grad_norm 3.5 --decorrelate_experience_max_seconds 10 --save_every_sec 600 --keep_checkpoints 3 --save_best_every_sec 60 --save_best_after 100000 --async_rl True --batched_sampling False --serial_mode False --use_rnn False --normalize_returns True --normalize_input True --adaptive_stddev False --shuffle_minibatches False --value_bootstrap False --with_vtrace False --decorrelate_envs_on_one_worker True --set_workers_cpu_affinity True --force_envs_single_thread True --actor_critic_share_weights True --encoder_mlp_layers 64 64 --latency-type zero --add-latency-info False --eval-episodes 10 --eval-parallel-envs 1 --eval-max-steps 1000 --eval-deterministic True --gym-task-name swimmer_rgb_state --gym-env-id LatencyBench/SwimmerContinuous-v0 --gym-make-kwargs-json {\"render_mode\": \"rgb_array\", \"base_make_kwargs\": {\"exclude_current_positions_from_observation\": true}} --gym-registration-imports-json [\"latency_bench.envs.gymnasium_swimmer\"] --gym-action-space-json {\"type\": \"box\", \"labels\": [\"first_rotor_torque\", \"second_rotor_torque\"], \"low\": [-1.0, -1.0], \"high\": [1.0, 1.0], \"dtype\": \"float32\"} --gym-noop-action-json [0.0, 0.0] --gym-base-prompt Make the Swimmer move forward as fast as possible. Predict two continuous torques in [-1, 1] ordered as the first rotor and the second rotor. --gym-state-labels-json [\"front_tip_angle\", \"first_rotor_angle\", \"second_rotor_angle\", \"front_tip_x_velocity\", \"front_tip_y_velocity\", \"front_tip_angular_velocity\", \"first_rotor_angular_velocity\", \"second_rotor_angular_velocity\"] --env-fps 25.0 --obs-fps 25.0 --frame-stack 4 --hold-policy hold --ordering-policy issue_order_fifo --use_env_info_cache False",
+  "episode_metrics_path": "/path/to/mount/placeholder/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/episode_metrics.jsonl",
+  "command_line": "--mode train --algo APPO --env latency_gymnasium --experiment gymnasium_swimmer_rgb_state_zero_latency_10m --train_dir /path/to/mount/placeholder/small_models/swimmer --restart_behavior overwrite --device gpu --seed 2222 --episode_metrics_path /path/to/mount/placeholder/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/episode_metrics.jsonl --train_for_env_steps 10000000 --num_workers 8 --num_envs_per_worker 8 --num_policies 1 --batch_size 1024 --rollout 64 --recurrence 1 --num_epochs 2 --num_batches_per_epoch 4 --worker_num_splits 2 --max_policy_lag 10000 --num_batches_to_accumulate 2 --policy_workers_per_policy 1 --learning_rate 0.00295 --kl_loss_coeff 0.1 --lr_schedule_kl_threshold 0.008 --nonlinearity tanh --policy_initialization torch_default --initial_stddev 1.0 --gamma 0.99 --gae_lambda 0.95 --ppo_clip_ratio 0.2 --ppo_clip_value 1.0 --exploration_loss entropy --exploration_loss_coeff 0.0 --reward_scale 1.0 --reward_clip 1000.0 --value_loss_coeff 1.3 --max_grad_norm 3.5 --decorrelate_experience_max_seconds 10 --save_every_sec 600 --keep_checkpoints 3 --save_best_every_sec 60 --save_best_after 100000 --async_rl True --batched_sampling False --serial_mode False --use_rnn False --normalize_returns True --normalize_input True --adaptive_stddev False --shuffle_minibatches False --value_bootstrap False --with_vtrace False --decorrelate_envs_on_one_worker True --set_workers_cpu_affinity True --force_envs_single_thread True --actor_critic_share_weights True --encoder_mlp_layers 64 64 --latency-type zero --add-latency-info False --eval-episodes 10 --eval-parallel-envs 1 --eval-max-steps 1000 --eval-deterministic True --gym-task-name swimmer_rgb_state --gym-env-id LatencyBench/SwimmerContinuous-v0 --gym-make-kwargs-json {\"render_mode\": \"rgb_array\", \"base_make_kwargs\": {\"exclude_current_positions_from_observation\": true}} --gym-registration-imports-json [\"latency_bench.envs.gymnasium_swimmer\"] --gym-action-space-json {\"type\": \"box\", \"labels\": [\"first_rotor_torque\", \"second_rotor_torque\"], \"low\": [-1.0, -1.0], \"high\": [1.0, 1.0], \"dtype\": \"float32\"} --gym-noop-action-json [0.0, 0.0] --gym-base-prompt Make the Swimmer move forward as fast as possible. Predict two continuous torques in [-1, 1] ordered as the first rotor and the second rotor. --gym-state-labels-json [\"front_tip_angle\", \"first_rotor_angle\", \"second_rotor_angle\", \"front_tip_x_velocity\", \"front_tip_y_velocity\", \"front_tip_angular_velocity\", \"first_rotor_angular_velocity\", \"second_rotor_angular_velocity\"] --env-fps 25.0 --obs-fps 25.0 --frame-stack 4 --hold-policy hold --ordering-policy issue_order_fifo --use_env_info_cache False",
   "cli_args": {
     "algo": "APPO",
     "env": "latency_gymnasium",
     "experiment": "gymnasium_swimmer_rgb_state_zero_latency_10m",
-    "train_dir": "/mnt/checkpoints/latency-sensitive-bench/small_models/swimmer",
+    "train_dir": "/path/to/mount/placeholder/small_models/swimmer",
     "restart_behavior": "overwrite",
     "device": "gpu",
     "seed": 2222,
@@ -244,11 +244,11 @@
     "eval_parallel_envs": 1,
     "eval_max_steps": 1000,
     "eval_deterministic": true,
-    "episode_metrics_path": "/mnt/checkpoints/latency-sensitive-bench/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/episode_metrics.jsonl",
-    "output_dir": "/mnt/results/latency-sensitive-bench/tasks/swimmer/small_model_train"
+    "episode_metrics_path": "/path/to/mount/placeholder/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/episode_metrics.jsonl",
+    "output_dir": "/path/to/mount/placeholder/tasks/swimmer/small_model_train"
   },
   "git_hash": "3f03092c8dfe0df455873b71bfd306588c55bfcb",
-  "git_repo_name": "https://github.com/ZihanWang314/latency-sensitive-bench.git",
+  "git_repo_name": "https://github.com/placeholder/placeholder.git",
   "eval_env_frameskip": 1,
-  "output_dir": "/mnt/results/latency-sensitive-bench/tasks/swimmer/small_model_train"
+  "output_dir": "/path/to/mount/placeholder/tasks/swimmer/small_model_train"
 }

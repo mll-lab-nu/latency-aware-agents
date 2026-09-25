@@ -28,7 +28,7 @@ policy:
   checkpoint_path: results/Checkpoints/openvla_deadly_corridor_single_factorized11/final_model
   device: cuda
   unnorm_key: new_embodiment
-  latency_prompt_map_path: /mnt/data/latency_data/playground/Datasets/rl_games/deadly_corridor_train_factorized11/latency_prompt_map.json
+  latency_prompt_map_path: /path/to/mount/latency_data/playground/Datasets/rl_games/deadly_corridor_train_factorized11/latency_prompt_map.json
   actions:
     - MOVE_FORWARD
     - MOVE_BACKWARD

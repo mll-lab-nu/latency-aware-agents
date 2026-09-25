@@ -108,5 +108,5 @@ Historical source repositories remain unchanged: MIKASA dataset revision
 `28312021c634fa97f8068077dfd6eb0efe6d45ce` and Balance dataset revision
 `dbb954842942196e127c9acc0d776b62aa679990`.
 
-See the repository [artifact registry](https://github.com/ZihanWang314/latency-sensitive-bench/blob/master/docs/artifacts.md)
+See the repository [artifact registry](https://github.com/placeholder/placeholder/blob/master/docs/artifacts.md)
 for exact task contracts and reproduction commands.

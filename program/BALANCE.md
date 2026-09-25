@@ -9,17 +9,17 @@
 让 GR00T VLA 在 `g1_sonic_balance_simple` 上直接拟合 teacher，把 closed-loop return 稳定提高到 500 以上（teacher 约 900–1000）。当前保持最简单的 direct VLA；不同时引入 SONIC、residual、分层控制或新 action head。
 
 复现入口见 [`docs/humanoidbench/cookbook.md`](../docs/humanoidbench/cookbook.md)；新的集中式
-artifact 路径见 [`docs/artifacts.md`](../docs/artifacts.md)。历史公开的 [dataset repo](https://huggingface.co/datasets/latency-sensitive-bench/humanoidbench)
-和 [model repo](https://huggingface.co/latency-sensitive-bench/humanoidbench) 保持不变。
+artifact 路径见 [`docs/artifacts.md`](../docs/artifacts.md)。历史公开的 [dataset repo](https://huggingface.co/datasets/placeholder/humanoidbench)
+和 [model repo](https://huggingface.co/placeholder/humanoidbench) 保持不变。
 
 ## Current status
 
 - 新一轮 fresh 10k 正式训练已经完成，W&B 状态为 `finished`，当前没有训练进程，GPU 已释放。
 - 下一轮 fresh 15k 尚未运行；canonical W&B run/name 和输出目录均为 `g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k`。
-- dataset 远端布局为 `latency-sensitive-bench/humanoidbench` 的 `balance_simple/lerobot` 与 `balance_simple/lerobot__val`，固定 revision 为 `dbb954842942196e127c9acc0d776b62aa679990`；场景资源复用 `latency-sensitive-bench/g1-sonic-assets@7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d`。
+- dataset 远端布局为 `placeholder/humanoidbench` 的 `balance_simple/lerobot` 与 `balance_simple/lerobot__val`，固定 revision 为 `dbb954842942196e127c9acc0d776b62aa679990`；场景资源复用 `placeholder/g1-sonic-assets@7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d`。
 - 历史 model repo 的 `balance_simple/checkpoint-10000/` 保持不变；同一 10k inference bundle、
   FastTD3 teacher 和 zero-delay eval 已复制到
-  [`latency-sensitive-bench/benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
+  [`placeholder/benchmark-models`](https://huggingface.co/placeholder/benchmark-models)
   revision `204be41b83c892a1c5d0b37a1dd0d628dd2c6a46`。15k 尚未运行，后续结果仍须在训练和评估完成后显式上传。
 - 10-seed 最佳/最终结果来自 checkpoint-10000：return `353.532 ± 133.571`，mean length `371.0`；相比历史 5k 最佳 `211.844` 明显提高，但仍未达到目标 500。
 - checkpoint-9500 和 checkpoint-10000 是当前仅保留的权重；10k cosine schedule 已耗尽，末次 LR 为 `2.5956e-12`，不要直接 resume 这个 optimizer/scheduler。
@@ -49,7 +49,7 @@ artifact 路径见 [`docs/artifacts.md`](../docs/artifacts.md)。历史公开的
 
 以下 10k/5k 路径是已落盘的历史目录名，保留原名仅用于定位现有文件；新的 15k W&B run、输出目录和发布路径统一使用上面的 canonical 名称。
 
-- W&B：https://wandb.ai/saberrr-zju/finetune-gr00t-n1d7/runs/fp10k1e4
+- W&B：https://wandb.ai/placeholder/finetune-gr00t-n1d7/runs/fp10k1e4
 - Output：`outputs/official_gr00t/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_10k_periodic500`
 - Checkpoints：上述目录中的 `checkpoint-9500`、`checkpoint-10000`。
 - 主日志：`outputs/official_gr00t/logs/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_10k_periodic500.log`
@@ -94,7 +94,7 @@ Checkpoint-10000 的逐 seed return 为：
 
 历史 run 使用相同 peak LR 和 250 warmup steps，但 cosine horizon 只有 5k；因此不能只按相同步数与新 run 横向比较。
 
-- W&B：https://wandb.ai/saberrr-zju/finetune-gr00t-n1d7/runs/fp5k1e4
+- W&B：https://wandb.ai/placeholder/finetune-gr00t-n1d7/runs/fp5k1e4
 - Output：`outputs/official_gr00t/archive/experiments/g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_frompretrained_bs128_lr1e4_5k_periodic500`
 - 最佳 checkpoint-4500：return `211.844 ± 49.587`，body MAE `0.053877`，mean length `232.5`。
 - checkpoint-5000：return `206.709 ± 58.818`，body MAE `0.053731`，mean length `221.8`；末次 LR `1.09e-11`。
@@ -159,7 +159,7 @@ single-GPU launcher completed `global_step=2` with `train_loss=1.5560086` and
 not a quality result. The complete checkpoint is:
 
 ```text
-/home/xinyuan/balance-latency-smoke/outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/vla_final/g1_balance_corrected_vla_final_2updates/checkpoint-2
+/path/to/user/balance-latency-smoke/outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/vla_final/g1_balance_corrected_vla_final_2updates/checkpoint-2
 ```
 
 It contains model shards, `optimizer.pt` (14,610,010,451 bytes),
@@ -185,12 +185,12 @@ drops), profile slot 0, one simulated worker, and 1,000 maximum steps:
 | fresh `checkpoint-2` | real profile | 11.023 | 0.435 | 23.5 |
 
 Durable outputs are under
-`/home/xinyuan/balance-latency-smoke/outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/evals/final_revalidated/{baseline_zero,new_zero,baseline_profile,new_profile}`.
+`/path/to/user/balance-latency-smoke/outputs/tasks/humanoidbench_balance_simple/real_profile_corrected/evals/final_revalidated/{baseline_zero,new_zero,baseline_profile,new_profile}`.
 The profile was measured on a 2x-GPU machine; this one-visible-GPU remote run
 uses slot 0/capacity 1 and is not a 2x-topology reproduction.
 
 Native provenance for this dataset is the corrected run at
-`/home/xinyuan/balance-latency-smoke/`: the initial 4,096-environment-frame
+`/path/to/user/balance-latency-smoke/`: the initial 4,096-environment-frame
 run saved `real_profile_corrected/native/checkpoints/g1_sonic_balance_simple_raw_ramp_fasttd3_real_profile_corrected_s1/checkpoint_p0/checkpoint_000000178_4128.pth`,
 and the resumed 8,192-frame run saved the final
 `checkpoint_000000434_8224.pth`. The corresponding logs are

@@ -4,7 +4,7 @@ set -euo pipefail
 # Fix training-time absolute paths on a fresh eval box (e.g. vast.ai).
 #
 # The trained checkpoints bake in absolute paths from the TRAINING machine:
-#   * task-model checkpoints:  /mnt/data/latency_data/<model>/checkpoints/...
+#   * task-model checkpoints:  /path/to/mount/latency_data/<model>/checkpoints/...
 #       (referenced by the repo eval YAMLs' policy.checkpoint_path)
 #   * starVLA base VLM:        /workspace/starVLA/playground/Pretrained_models/...
 #       (referenced by each downloaded model's config.yaml framework.qwenvl.base_vlm)
@@ -17,11 +17,11 @@ set -euo pipefail
 #   bash scripts/bash_scripts/download/link_eval_paths.sh
 # Overrides:
 #   SRC_ROOT (default /workspace)            where models were downloaded
-#   DATA_ROOT (default /mnt/data/latency_data) where eval YAMLs expect task models
+#   DATA_ROOT (default /path/to/mount/latency_data) where eval YAMLs expect task models
 #   BASE_VLM_DIR (default /workspace/starVLA/playground/Pretrained_models/Qwen3-VL-4B-Instruct)
 
 SRC_ROOT="${SRC_ROOT:-/workspace}"
-DATA_ROOT="${DATA_ROOT:-/mnt/data/latency_data}"
+DATA_ROOT="${DATA_ROOT:-/path/to/mount/latency_data}"
 BASE_VLM_DIR="${BASE_VLM_DIR:-/workspace/starVLA/playground/Pretrained_models/Qwen3-VL-4B-Instruct}"
 
 echo "== link_eval_paths =="

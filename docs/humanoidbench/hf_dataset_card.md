@@ -17,9 +17,9 @@ HumanoidBench. The task prompt is:
 Keep the G1 humanoid balanced on the support board.
 ```
 
-This dataset is published in the `latency-sensitive-bench/humanoidbench`
+This dataset is published in the `placeholder/humanoidbench`
 dataset repository. HumanoidBench scene assets are not duplicated here; use
-`latency-sensitive-bench/g1-sonic-assets` at revision
+`placeholder/g1-sonic-assets` at revision
 `7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d`.
 
 ## Dataset contents

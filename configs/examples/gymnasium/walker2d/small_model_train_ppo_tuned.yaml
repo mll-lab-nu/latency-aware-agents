@@ -38,4 +38,4 @@ training:
   normalize_returns: true
 
 logging:
-  output_dir: /mnt/data/latency-sensitive-bench/walker2d/continuous_ppo_tuned_1m_candidate_train
+  output_dir: /path/to/mount/placeholder/walker2d/continuous_ppo_tuned_1m_candidate_train

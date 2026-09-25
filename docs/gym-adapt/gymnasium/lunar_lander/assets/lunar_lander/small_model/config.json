@@ -209,7 +209,7 @@
     "episode_metrics_path": "outputs/examples/gymnasium_lunar_lander/checkpoints/gymnasium_lunar_lander_discrete_fixed_l1/episode_metrics.jsonl"
   },
   "git_hash": "e044fcd7ba392e4e06d14c5a93269338d754e70f",
-  "git_repo_name": "https://github.com/ZihanWang314/latency-sensitive-bench.git",
+  "git_repo_name": "https://github.com/placeholder/placeholder.git",
   "eval_env_frameskip": 1,
   "output_dir": "outputs/examples/gymnasium_lunar_lander/train"
 }

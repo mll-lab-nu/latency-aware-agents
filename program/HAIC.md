@@ -54,10 +54,10 @@ bootstrap/DAgger 已停止。2026-09-04 已删除远端旧 run 的 checkpoint �
 双卡 40-iteration profile 后，90 个 parameters、2 个 buffers 和 9 个 VecNorm state tensors 在两 rank 间逐元素完全一致（max diff 0）。另一个双卡 finetune smoke 从 teacher checkpoint 加载，完成 2 次 PPO update、周期/最终 checkpoint 和两 rank 的 1000-step final eval，退出码 0。运行证据：
 
 ```text
-/pfs/users/lxy/runs/haic/profile_single_4096
-/pfs/users/lxy/runs/haic/profile_dual_2048
-/pfs/users/lxy/runs/haic/ddp_smoke_v6
-/pfs/users/lxy/runs/haic/ddp_finetune_load_smoke
+/path/to/user/runs/haic/profile_single_4096
+/path/to/user/runs/haic/profile_dual_2048
+/path/to/user/runs/haic/ddp_smoke_v6
+/path/to/user/runs/haic/ddp_finetune_load_smoke
 ```
 
 正式双卡命令：
@@ -100,11 +100,11 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py \
 远端运行证据：
 
 ```text
-/home/xinyuan/haic_runs/profile_rollout_original_remote
-/home/xinyuan/haic_runs/profile_rollout_opt_remote
-/home/xinyuan/haic_runs/profile_contact_ankle_remote
-/home/xinyuan/haic_runs/profile_partitions4_remote
-/home/xinyuan/haic_runs/profile_replicate_upper_remote
+/path/to/user/haic_runs/profile_rollout_original_remote
+/path/to/user/haic_runs/profile_rollout_opt_remote
+/path/to/user/haic_runs/profile_contact_ankle_remote
+/path/to/user/haic_runs/profile_partitions4_remote
+/path/to/user/haic_runs/profile_replicate_upper_remote
 ```
 
 ## 3. 远端环境和固定命令
@@ -112,10 +112,10 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py \
 远端：`xinyuan@204.12.163.107`；计划使用一张 GPU。外部 checkout 和运行输出放在：
 
 ```text
-/home/xinyuan/HAIC
-/home/xinyuan/haic_runs
-/home/xinyuan/latency-sensitive-bench-mikasa-h1
-/home/xinyuan/latency-sensitive-bench-mikasa-h1/third_party/Isaac-GR00T/.venv
+/path/to/user/HAIC
+/path/to/user/haic_runs
+/path/to/user/placeholder-mikasa-h1
+/path/to/user/placeholder-mikasa-h1/third_party/Isaac-GR00T/.venv
 ```
 
 要求：Python 3.11、Isaac Sim 5.1.0、IsaacLab v2.3.2、Git LFS；Phase 1 原生 teacher 的 `HAIC` 外部 checkout 保持 fork commit `73976dbaf42494fa20d385599758eced7f7a16ce`，Phase 2 VLA 使用当前父仓库中的 HAIC submodule commit `c29b667`，两者不可混用。
@@ -157,7 +157,7 @@ timeout --signal=TERM --kill-after=20s 120s "$HAIC_PY" scripts/play.py \
   task.command.replay_motion=true task.num_envs=1 \
   task.action.min_delay=0 task.action.max_delay=0 task.action.alpha=1.0 \
   seed=0 wandb.mode=disabled \
-  hydra.run.dir=/home/xinyuan/haic_runs/phase0_motion_replay
+  hydra.run.dir=/path/to/user/haic_runs/phase0_motion_replay
 ```
 
 通过条件：进程成功退出或按明确的运行时长安全停止；没有 CUDA architecture、USD/LFS、Isaac import、Vulkan 或 NaN 错误；reset/step 和 motion 资源可用。系统 GL/Vulkan 栈已通过 `vulkaninfo --summary` 和 runtime smoke；此前不完整 userspace 产生的 `ERROR_INCOMPATIBLE_DRIVER` 仅保留在历史失败日志，不作为通过结果。
@@ -172,46 +172,46 @@ timeout --signal=TERM --kill-after=30s 7200s "$HAIC_PY" scripts/train.py \
   task.num_envs=256 total_frames=5000000 seed=0 \
   task.action.min_delay=0 task.action.max_delay=0 task.action.alpha=1.0 \
   wandb.mode=offline \
-  hydra.run.dir=/home/xinyuan/haic_runs/phase1_smoke_v2
+  hydra.run.dir=/path/to/user/haic_runs/phase1_smoke_v2
 ```
 
 在上述命令前设置：
 
 ```bash
 export WANDB_NAME=haic-phase1-smoke-v2
-export WANDB_DIR=/home/xinyuan/haic_runs/phase1_smoke_v2
+export WANDB_DIR=/path/to/user/haic_runs/phase1_smoke_v2
 ```
 
-上游 `scripts/train.py` 在 `wandb.mode=disabled` 下仍无条件把 `cfg` 保存到 W&B `run.dir/files/cfg.yaml`，而 disabled run 不创建该目录；首次严格命令因此在 Isaac 初始化后于 `OmegaConf.save` 失败。`wandb.mode=offline` 默认虽创建本地 run 目录，但上游随后依赖 `run.name`，默认 offline run 返回 `None`，在 `scripts/train.py:57` 失败。为保持不在线同步且完整走原生 trainer，smoke 额外显式设置 `WANDB_NAME=haic-phase1-smoke-v2` 和 `WANDB_DIR=/home/xinyuan/haic_runs/phase1_smoke_v2`；该组合已用 standalone probe 验证 `run.name` 非空、`run.dir/files` 存在。失败证据和本次修复后的结果见下表，不把失败尝试记作训练通过。smoke 只证明 rollout/update 持续运行、checkpoint 可写且 checkpoint 张量 finite，不作为最终 teacher。
+上游 `scripts/train.py` 在 `wandb.mode=disabled` 下仍无条件把 `cfg` 保存到 W&B `run.dir/files/cfg.yaml`，而 disabled run 不创建该目录；首次严格命令因此在 Isaac 初始化后于 `OmegaConf.save` 失败。`wandb.mode=offline` 默认虽创建本地 run 目录，但上游随后依赖 `run.name`，默认 offline run 返回 `None`，在 `scripts/train.py:57` 失败。为保持不在线同步且完整走原生 trainer，smoke 额外显式设置 `WANDB_NAME=haic-phase1-smoke-v2` 和 `WANDB_DIR=/path/to/user/haic_runs/phase1_smoke_v2`；该组合已用 standalone probe 验证 `run.name` 非空、`run.dir/files` 存在。失败证据和本次修复后的结果见下表，不把失败尝试记作训练通过。smoke 只证明 rollout/update 持续运行、checkpoint 可写且 checkpoint 张量 finite，不作为最终 teacher。
 
 正式 phase 1、finetune 与 eval 的精确命令如下；代码经用户 review/commit 后再执行。正式训练使用现有远端 `.env` 的 W&B 凭据，token 不写入日志：
 
 ```bash
 set -a
-source /home/xinyuan/latency-sensitive-bench-mikasa-h1/.env
+source /path/to/user/placeholder-mikasa-h1/.env
 set +a
 export WANDB_NAME=haic-phase1-teacher
-export WANDB_DIR=/home/xinyuan/haic_runs/phase1_teacher
+export WANDB_DIR=/path/to/user/haic_runs/phase1_teacher
 timeout --signal=TERM --kill-after=60s 172800s "$HAIC_PY" scripts/train.py \
   algo=ppo_haic_train task=G1/haic/pull_cart \
   task.num_envs=4096 total_frames=500000000 seed=0 \
   task.action.min_delay=0 task.action.max_delay=0 task.action.alpha=1.0 \
   wandb.mode=online \
-  hydra.run.dir=/home/xinyuan/haic_runs/phase1_teacher
+  hydra.run.dir=/path/to/user/haic_runs/phase1_teacher
 ```
 
 训练完成后以原生 `scripts/eval.py` 验收 teacher；`latest-run` symlink 指向当前 W&B run，
 `TEACHER_CKPT` 指向其 `files/checkpoint_final.pt`，stdout 与原生 YAML 都要保留：
 
 ```bash
-export TEACHER_CKPT=/home/xinyuan/haic_runs/phase1_teacher/wandb/latest-run/files/checkpoint_final.pt
-mkdir -p /home/xinyuan/haic_runs/phase1_eval_teacher
+export TEACHER_CKPT=/path/to/user/haic_runs/phase1_teacher/wandb/latest-run/files/checkpoint_final.pt
+mkdir -p /path/to/user/haic_runs/phase1_eval_teacher
 timeout --signal=TERM --kill-after=60s 3600s "$HAIC_PY" scripts/eval.py \
   algo=ppo_haic_train task=G1/haic/pull_cart task.num_envs=2048 seed=0 \
   checkpoint_path="$TEACHER_CKPT" \
   task.action.min_delay=0 task.action.max_delay=0 task.action.alpha=1.0 \
-  hydra.run.dir=/home/xinyuan/haic_runs/phase1_eval_teacher \
-  > /home/xinyuan/haic_runs/phase1_eval_teacher/stdout.log 2>&1
+  hydra.run.dir=/path/to/user/haic_runs/phase1_eval_teacher \
+  > /path/to/user/haic_runs/phase1_eval_teacher/stdout.log 2>&1
 ```
 
 原生 `ppo_haic_finetune` 的历史启动条件是 teacher 的 `eval/success == 1.0`、finite metrics、记录的
@@ -219,15 +219,15 @@ timeout --signal=TERM --kill-after=60s 3600s "$HAIC_PY" scripts/eval.py \
 
 ```bash
 export WANDB_NAME=haic-finetune
-export WANDB_DIR=/home/xinyuan/haic_runs/finetune
-export TEACHER_CKPT=/home/xinyuan/haic_runs/phase1_teacher/wandb/latest-run/files/checkpoint_final.pt
+export WANDB_DIR=/path/to/user/haic_runs/finetune
+export TEACHER_CKPT=/path/to/user/haic_runs/phase1_teacher/wandb/latest-run/files/checkpoint_final.pt
 timeout --signal=TERM --kill-after=60s 172800s "$HAIC_PY" scripts/train.py \
   algo=ppo_haic_finetune task=G1/haic/pull_cart \
   task.num_envs=4096 total_frames=500000000 seed=0 \
   checkpoint_path="$TEACHER_CKPT" \
   task.action.min_delay=0 task.action.max_delay=0 task.action.alpha=1.0 \
   wandb.mode=online \
-  hydra.run.dir=/home/xinyuan/haic_runs/finetune
+  hydra.run.dir=/path/to/user/haic_runs/finetune
 ```
 
 student 使用相同的 `scripts/eval.py` 命令，改为 `algo=ppo_haic_finetune`、student
@@ -235,16 +235,16 @@ student 使用相同的 `scripts/eval.py` 命令，改为 `algo=ppo_haic_finetun
 
 ```bash
 set -a
-source /home/xinyuan/latency-sensitive-bench-mikasa-h1/.env
+source /path/to/user/placeholder-mikasa-h1/.env
 set +a
-export STUDENT_CKPT=/home/xinyuan/haic_runs/finetune/wandb/latest-run/files/checkpoint_final.pt
-mkdir -p /home/xinyuan/haic_runs/phase1_eval_student
+export STUDENT_CKPT=/path/to/user/haic_runs/finetune/wandb/latest-run/files/checkpoint_final.pt
+mkdir -p /path/to/user/haic_runs/phase1_eval_student
 timeout --signal=TERM --kill-after=60s 3600s "$HAIC_PY" scripts/eval.py \
   algo=ppo_haic_finetune task=G1/haic/pull_cart task.num_envs=2048 seed=0 \
   checkpoint_path="$STUDENT_CKPT" \
   task.action.min_delay=0 task.action.max_delay=0 task.action.alpha=1.0 \
-  hydra.run.dir=/home/xinyuan/haic_runs/phase1_eval_student \
-  > /home/xinyuan/haic_runs/phase1_eval_student/stdout.log 2>&1
+  hydra.run.dir=/path/to/user/haic_runs/phase1_eval_student \
+  > /path/to/user/haic_runs/phase1_eval_student/stdout.log 2>&1
 ```
 
 teacher/student 的 YAML 由原生 `scripts/eval.py` 写入其 `scripts/eval/G1PullCart/`，stdout
@@ -318,7 +318,7 @@ launcher 将这两个名字显式传给 GR00T 的 `--experiment-name`，因此�
 
 ```bash
 HF_TOKEN=...
-HAIC_VLA_FFMPEG_PREFIX=/home/xinyuan/.cache/latency-sensitive-bench/ffmpeg7
+HAIC_VLA_FFMPEG_PREFIX=/path/to/user/.cache/placeholder/ffmpeg7
 ```
 
 入口不读取 `.env`；调用前由当前 shell 提供 W&B/Hugging Face 凭据，并把该 prefix 的
@@ -341,19 +341,19 @@ round-complete marker；用同一 `--start-round N` 重试未完成轮次时，�
 
 | 阶段 | 状态 | PID/session | 日志 / checkpoint / 结果 |
 |---|---|---|---|
-| Phase 1 4096 env / 500M teacher cap | 已完成，训练退出码 0 | tmux `haic_teacher`，outer PID `4003533`，已自然退出 | `/home/xinyuan/haic_runs/phase1_teacher/stdout.log`；W&B online run `m4s51yy5` / `https://wandb.ai/saberrr-zju/haic/runs/m4s51yy5`；4096 env、499,908,608 实际 global frames、3814 iterations、seed 0、zero delay、`alpha=1.0`；W&B runtime 18,116 s（5:01:56），12 个周期 checkpoint 和 `checkpoint_final.pt` 均已保存；trainer 内置 final eval `success=0.9296875`、`episode_cnt=4626`、metrics finite |
+| Phase 1 4096 env / 500M teacher cap | 已完成，训练退出码 0 | tmux `haic_teacher`，outer PID `4003533`，已自然退出 | `/path/to/user/haic_runs/phase1_teacher/stdout.log`；W&B online run `m4s51yy5` / `https://wandb.ai/placeholder/haic/runs/m4s51yy5`；4096 env、499,908,608 实际 global frames、3814 iterations、seed 0、zero delay、`alpha=1.0`；W&B runtime 18,116 s（5:01:56），12 个周期 checkpoint 和 `checkpoint_final.pt` 均已保存；trainer 内置 final eval `success=0.9296875`、`episode_cnt=4626`、metrics finite |
 | native `ppo_haic_finetune` | 未启动（本轮范围外） | — | teacher final 和全部周期 checkpoint 均未达到 native gate；因此不启动原生 student，Phase 2 VLA 仍使用该 teacher 作为 label source |
-| teacher/student eval gate | teacher 未达到 native gate；VLA label source 已接受；student 未执行 | 所有 eval 已自然退出，退出码均为 0 | 原生 2048-env `scripts/eval.py`：final `success=0.93896484375`、`episode_cnt=2308`；`checkpoint_300` 至 `checkpoint_3600` 的 success 依次为 `0.48193359375, 0.73291015625, 0.82373046875, 0.818359375, 0.8525390625, 0.8701171875, 0.9140625, 0.91162109375, 0.9306640625, 0.92529296875, 0.9345703125, 0.93310546875`；13 次 eval 各 96 个数值 metrics 全部 finite，但没有 `success == 1.0`；汇总 `/home/xinyuan/haic_runs/phase1_eval_teacher/periodic_summary.tsv`，逐 checkpoint stdout 位于同目录 `periodic/checkpoint_*/stdout.log` |
+| teacher/student eval gate | teacher 未达到 native gate；VLA label source 已接受；student 未执行 | 所有 eval 已自然退出，退出码均为 0 | 原生 2048-env `scripts/eval.py`：final `success=0.93896484375`、`episode_cnt=2308`；`checkpoint_300` 至 `checkpoint_3600` 的 success 依次为 `0.48193359375, 0.73291015625, 0.82373046875, 0.818359375, 0.8525390625, 0.8701171875, 0.9140625, 0.91162109375, 0.9306640625, 0.92529296875, 0.9345703125, 0.93310546875`；13 次 eval 各 96 个数值 metrics 全部 finite，但没有 `success == 1.0`；汇总 `/path/to/user/haic_runs/phase1_eval_teacher/periodic_summary.tsv`，逐 checkpoint stdout 位于同目录 `periodic/checkpoint_*/stdout.log` |
 | 旧 VLA bootstrap + DAgger smoke | 已完成但作废 | 所有进程自然退出 | 275D/Actor 联合路径的旧 smoke；与当前 256D output + action-only schema 不兼容，正式训练必须 fresh bootstrap |
 | 旧 Phase 2 latent-only bootstrap SFT | 已完成但作废 | 首次 launcher outer PID `5894`，已退出 | 250 train / 25 val 成功 episode，13,605 / 522 frames；`checkpoint-5000` 已保存；5,000 updates 用时 7,638 s，汇总 `train_loss=0.0113649884`。该 loss 只证明 latent fitting，不能作为 action-only 初始化；W&B run `haic_pull_cart_vla_dagger_latent_5k_sft` 仅保留作历史证据。 |
 | Phase 2 DAgger 首次尝试 | round 0 prepare 失败，退出码 1 | 首次 launcher 已退出 | step-0 eval 已写入主 W&B run；两个 collector 各完成 32,000 rows，但 dataset prepare 子进程没有继承仓库 `PYTHONPATH`，于 2026-09-02 21:54:51 UTC 报 `ModuleNotFoundError: latency_bench`，因此尚未产生 DAgger `train/loss` |
 | Phase 2 DAgger current-only 尝试 | 不作为正式 DAgger 结果；已停止并清理 DAgger 残留 | tmux `haic_vla_5k` 旧会话已停止；outer PID `241017` 已停止 | 2026-09-03 01:29:38 UTC 曾从现有 bootstrap `checkpoint-5000`、dataset 和 `--start-round 0` 恢复；旧 driver 只训练当前 round，缺少 bootstrap/历史 round 聚合，因此不能作为正式聚合 DAgger resume 根目录；2026-09-03 已删除旧 `round_*`、`training` 和 top-level DAgger stdout/exit_code，保留 `bootstrap/lerobot` 与 `bootstrap/training/checkpoint-5000` |
-| Phase 2 DAgger 聚合修复、旧 eval 口径 | 已停止，结果作废 | tmux `haic_vla_5k` 已停止；driver PID `268530` 已退出 | 2026-09-03 03:34:56 UTC 从保留 bootstrap checkpoint/dataset 和 `--start-round 0 --end-round 10` 重启；W&B run `haic_pull_cart_vla_dagger_latent_5k_aggfix_20260903` 完成 round 0–3 并保存 `checkpoint-2000`，于 round 4 collector rank 1 期间按用户要求停止；该 run 的 eval 在固定 1,000 steps 内重复统计 auto-reset episode，导致 episode 分母不固定，不作为正式 DAgger 结果；旧输出保留在 `/home/xinyuan/haic_runs/haic_pull_cart_vla_dagger` |
-| Phase 2 latent-only 100-full-episode run | 已停止，输出保留，结果作废 | tmux `haic_vla_5k_eval100` 已停止 | 输出 `/home/xinyuan/haic_runs/haic_pull_cart_vla_dagger_eval100`；step 0、round 0、round 1、round 2 均为 `episodes=100`、`successes=0`、`success_rate=0.0`；原 run 在 round 3 期间停止。它仍监督 latent 且使用会逐轮稀释 bootstrap 的聚合比例，不能 resume 到 action-only 流程。 |
+| Phase 2 DAgger 聚合修复、旧 eval 口径 | 已停止，结果作废 | tmux `haic_vla_5k` 已停止；driver PID `268530` 已退出 | 2026-09-03 03:34:56 UTC 从保留 bootstrap checkpoint/dataset 和 `--start-round 0 --end-round 10` 重启；W&B run `haic_pull_cart_vla_dagger_latent_5k_aggfix_20260903` 完成 round 0–3 并保存 `checkpoint-2000`，于 round 4 collector rank 1 期间按用户要求停止；该 run 的 eval 在固定 1,000 steps 内重复统计 auto-reset episode，导致 episode 分母不固定，不作为正式 DAgger 结果；旧输出保留在 `/path/to/user/haic_runs/haic_pull_cart_vla_dagger` |
+| Phase 2 latent-only 100-full-episode run | 已停止，输出保留，结果作废 | tmux `haic_vla_5k_eval100` 已停止 | 输出 `/path/to/user/haic_runs/haic_pull_cart_vla_dagger_eval100`；step 0、round 0、round 1、round 2 均为 `episodes=100`、`successes=0`、`success_rate=0.0`；原 run 在 round 3 期间停止。它仍监督 latent 且使用会逐轮稀释 bootstrap 的聚合比例，不能 resume 到 action-only 流程。 |
 | Phase 2 action-only fresh bootstrap + round 0 首次启动 | bootstrap dataset stats 阶段失败，退出码 1；部分输出已清理 | tmux `haic_vla_action_round0` 已退出；driver PID `382808` | 2026-09-03 12:01:18 UTC 启动；oracle eval 为 `20/100`，250 train + 25 val episode 已采完；远端漏同步定义 `OBJECTIVE_COLUMNS` 的 GR00T loader，导致 stats import 失败；缺失依赖已补齐并通过远端 import 自检，随后从 bootstrap fresh 重启 |
 | Phase 2 action-only fresh bootstrap + round 0 重启 | 历史执行完成，后因 bug 作废并删除 | tmux `haic_vla_action_round0` 已自然退出；driver PID `398191` | 2026-09-03 12:09:55--15:06:09 UTC，耗时 2:56:14；oracle `18/100`；bootstrap 为 250 train / 25 val、13,345 / 549 rows，5,000-step W&B `haic_pull_cart_vla_dagger_action_5k_sft` 的 `train_loss=0.0340958696`；step 0 与 round 0 均为 `0/100`；round 0 为 64,000 rows、500 updates，W&B `haic_pull_cart_vla_dagger_action_5k` 的 `train_loss=0.326223280`；原输出已随本轮 run 于 2026-09-03 16:46 UTC 删除，不得复用 |
-| Phase 2 action-only DAgger round 1--9 resume | 已在 round 3 期间停止；全部产物已删除 | tmux `haic_vla_action_round1_9` 与 driver PID `646045` 已停止 | 2026-09-03 15:10:37 UTC 从 checkpoint-500 启动；round 1、2 曾分别完成 checkpoint-1000/1500 与 100-episode eval，随后因发现 bug 按用户要求停止；2026-09-03 16:46 UTC 已删除整个 92G 输出根目录 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_dagger_round0` 及 stdout/exit 文件，相关进程和 GPU 任务均为空；修复后必须 fresh 重跑 |
+| Phase 2 action-only DAgger round 1--9 resume | 已在 round 3 期间停止；全部产物已删除 | tmux `haic_vla_action_round1_9` 与 driver PID `646045` 已停止 | 2026-09-03 15:10:37 UTC 从 checkpoint-500 启动；round 1、2 曾分别完成 checkpoint-1000/1500 与 100-episode eval，随后因发现 bug 按用户要求停止；2026-09-03 16:46 UTC 已删除整个 92G 输出根目录 `/path/to/user/haic_runs/haic_pull_cart_vla_action_dagger_round0` 及 stdout/exit 文件，相关进程和 GPU 任务均为空；修复后必须 fresh 重跑 |
 | Phase 2 h40 + official sampler 本地验证 | 历史 4-step 训练 smoke 已完成但训练目标作废 | 无运行中进程 | 2026-09-04：`[40,256]` chunk、每 5 个 control steps 重规划并消费 `0..4` 的运行时语义和尾部 padding 验证仍有效；训练期对 4-step Euler 全链反传已确认不是 official flow-matching training，改为 random-t 单次 denoiser加 frozen-actor auxiliary 后必须重新 smoke。per-control-step GT-latent oracle 为 `94/100`，与 50 Hz privileged teacher 的成功率一致。 |
-| Phase 2 h40 flow + actor auxiliary fresh run | 远端训练中 | detached driver PID `1999830` | 2026-09-04 启动；输出 `/home/xinyuan/haic_runs/haic_pull_cart_vla_action_h40_flow_aux_20260904`，日志 `stdout.log`；复用 250/25 bootstrap dataset 与固定 `actor_adapt.pt`，所有 checkpoint 从 GR00T base fresh 训练。旧 `haic_pull_cart_vla_latent_anchor_20260904` 的 checkpoint/round 数据已删除，磁盘从 63% 降到 45%。W&B SFT run `haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k_sft`。 |
-| latency-bench 公共链路远端同步 | **已同步（2026-09-05）** | — | `204.12.163.107:/home/xinyuan/latency-sensitive-bench-mikasa-h1/third_party/HAIC` 的 12 个变更文件（`envs/base.py`、`envs/mdp/*`、`vla/backend.py`、`vla/runtime.py`、`scripts/haic_vla.py`、`tests/test_haic_vla.py`）已从本地 worktree 覆盖。此前远端仅同步了 09-04 14:40 的旧 `backend.py`，`base.py` 仍是 HEAD 版本——即 `AttributeError: SimpleEnv has no attribute set_episode_seed` 的根因；现远端 `set_episode_seed` / `set_active_env_ids` 与 backend 调用俱全。 |
+| Phase 2 h40 flow + actor auxiliary fresh run | 远端训练中 | detached driver PID `1999830` | 2026-09-04 启动；输出 `/path/to/user/haic_runs/haic_pull_cart_vla_action_h40_flow_aux_20260904`，日志 `stdout.log`；复用 250/25 bootstrap dataset 与固定 `actor_adapt.pt`，所有 checkpoint 从 GR00T base fresh 训练。旧 `haic_pull_cart_vla_latent_anchor_20260904` 的 checkpoint/round 数据已删除，磁盘从 63% 降到 45%。W&B SFT run `haic_pull_cart_vla_dagger_action_h40_official_flow_aux_5k_sft`。 |
+| latency-bench 公共链路远端同步 | **已同步（2026-09-05）** | — | `204.12.163.107:/path/to/user/placeholder-mikasa-h1/third_party/HAIC` 的 12 个变更文件（`envs/base.py`、`envs/mdp/*`、`vla/backend.py`、`vla/runtime.py`、`scripts/haic_vla.py`、`tests/test_haic_vla.py`）已从本地 worktree 覆盖。此前远端仅同步了 09-04 14:40 的旧 `backend.py`，`base.py` 仍是 HEAD 版本——即 `AttributeError: SimpleEnv has no attribute set_episode_seed` 的根因；现远端 `set_episode_seed` / `set_active_env_ids` 与 backend 调用俱全。 |
 | latency-bench HAIC native smoke | **待执行**（按 gate：代码经用户 review/commit 后跑正式命令） | — | 本地 HAIC contract tests 15/15 通过；远端 native smoke（100 slots，公共 executor + 冻结 actor backend）尚未跑，`queue_eval_latency_0.json` 未生成，故不声称验证完成。 |

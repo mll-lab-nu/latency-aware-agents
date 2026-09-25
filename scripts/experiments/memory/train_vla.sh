@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 STARVLA_ROOT="${REPO_ROOT}/third_party/starVLA"
 RAW_ROOT="${REPO_ROOT}/teacher_datasets/memory"
-VLA_REPO="latency-sensitive-bench/memory"
+VLA_REPO="placeholder/memory"
 cd "${REPO_ROOT}"
 
 BASE_MODEL_REPO="Qwen/Qwen3-VL-4B-Instruct"

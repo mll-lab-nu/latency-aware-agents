@@ -13,7 +13,7 @@ evaluation:
   eval_latency_values: [0, 1, 2, 3, 4]
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/humanoid/latency_bench_eval
+  output_dir: /path/to/mount/placeholder/tasks/humanoid/latency_bench_eval
   video:
     enabled: false
     num_bins: 1

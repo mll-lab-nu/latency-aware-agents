@@ -4,7 +4,7 @@
 	shallow = true
 [submodule "starVLA"]
 	path = third_party/starVLA
-	url = https://github.com/talha1503/starVLA.git
+	url = https://github.com/placeholder/starVLA.git
 	shallow = true
 [submodule "sample-factory"]
 	path = third_party/sample-factory
@@ -21,7 +21,7 @@
 	shallow = true
 [submodule "third_party/HAIC"]
 	path = third_party/HAIC
-	url = git@github.com:mindorigin150/HAIC.git
+	url = placeholder:mindorigin150/HAIC.git
 	shallow = true
 [submodule "third_party/IsaacLab"]
 	path = third_party/IsaacLab
@@ -29,5 +29,5 @@
 	shallow = true
 [submodule "third_party/Isaaclab_Parkour"]
 	path = third_party/Isaaclab_Parkour
-	url = git@github.com:mindorigin150/Isaaclab_Parkour.git
+	url = placeholder:mindorigin150/Isaaclab_Parkour.git
 	shallow = true

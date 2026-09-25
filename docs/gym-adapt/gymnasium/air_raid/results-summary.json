@@ -280,8 +280,8 @@
     "note": "One training run, matched seed block and realtime contract; descriptive comparison."
   },
   "archive": {
-    "GR00T": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/6dfb05ebfc2dd01fbd64076b1b2f8d78898cc3e8/air_raid/profile_latency/GR00T/gr00t_h1_iid_20260917",
-    "OpenVLA": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/571cb5801720488ed6458b9cfe3f4c595b069cea/air_raid/profile_latency/OpenVLA/native_20260911"
+    "GR00T": "https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/6dfb05ebfc2dd01fbd64076b1b2f8d78898cc3e8/air_raid/profile_latency/GR00T/gr00t_h1_iid_20260917",
+    "OpenVLA": "https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/571cb5801720488ed6458b9cfe3f4c595b069cea/air_raid/profile_latency/OpenVLA/native_20260911"
   },
   "note": "Within-model paired comparisons only; recipes and measured latency distributions differ."
 }

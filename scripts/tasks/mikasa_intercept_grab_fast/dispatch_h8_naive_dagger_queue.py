@@ -13,7 +13,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[3]
 RELATIVE_ROOT = Path("outputs/starvla/runs/mikasa_intercept_grab_fast")
 RUN_NAME = "h8-naive-dagger-20260923"
-REMOTE_ROOT = Path("/home/ubuntu/codex/mikasa-h8")
+REMOTE_ROOT = Path("/path/to/user/codex/mikasa-h8")
 REMOTE_SCRIPT = REMOTE_ROOT / "scripts/tasks/mikasa_intercept_grab_fast/dispatch_h8_naive_dagger_queue.py"
 HOSTS = ("34.131.223.74", "34.131.91.104")
 MODELS = ("qwenoft", "qwenpi_v3", "qwengr00t")
@@ -137,8 +137,8 @@ def _launch(model: str, pair: tuple[int, int], simulator: int, port: int) -> dic
     if (output / "controller.pid").exists():
         raise RuntimeError(f"{model} controller stopped before result: {output}")
     launcher = REMOTE_ROOT / "scripts/tasks/mikasa_intercept_grab_fast/launch_h8_naive_dagger_arm.sh"
-    uv = ("/home/ubuntu/.local/bin/uv" if os.uname().nodename == "h200-8-asia-test-1"
-          else "/home/ubuntu/miniconda3/envs/starvla_rl_games_openvla/bin/uv")
+    uv = ("/path/to/user/.local/bin/uv" if os.uname().nodename == "h200-8-asia-test-1"
+          else "/path/to/user/miniconda3/envs/starvla_rl_games_openvla/bin/uv")
     command = ["bash", str(launcher), model, f"{pair[0]},{pair[1]}",
                str(simulator), str(port), str(output)]
     with (output / "controller.log").open("a", encoding="utf-8") as log:

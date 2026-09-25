@@ -10,11 +10,11 @@ env:
   obs_resize: [224, 224]
 
 policy:
-  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/air_raid_fixed_latency_1_return_gt2000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/air_raid_fixed_latency_1_return_gt2000_100ep_openvla_native_sft_5k/config.full.yaml
-  task_manifest_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/air_raid_fixed_latency_1_return_gt2000_100ep/manifest.json
+  checkpoint_path: /path/to/mount/placeholder/openvla_runs/air_raid_fixed_latency_1_return_gt2000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
+  model_config_path: /path/to/mount/placeholder/openvla_runs/air_raid_fixed_latency_1_return_gt2000_100ep_openvla_native_sft_5k/config.full.yaml
+  task_manifest_path: /path/to/mount/placeholder/vla_datasets/rl_games/air_raid_fixed_latency_1_return_gt2000_100ep/manifest.json
   device: cuda:0
-  latency_prompt_map_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/air_raid_fixed_latency_1_return_gt2000_100ep/latency_prompt_map.json
+  latency_prompt_map_path: /path/to/mount/placeholder/vla_datasets/rl_games/air_raid_fixed_latency_1_return_gt2000_100ep/latency_prompt_map.json
   latency_prompt_key: 1
 
 evaluation:
@@ -22,4 +22,4 @@ evaluation:
   eval_latency_values: [1]
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/air_raid/fixed_latency_1_trained_starvla_fixed_latency_1_eval
+  output_dir: /path/to/mount/placeholder/tasks/air_raid/fixed_latency_1_trained_starvla_fixed_latency_1_eval

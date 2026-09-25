@@ -93,7 +93,7 @@ logging:
 provenance:
   model_provenance:
     source: local
-    repo_id: latency-sensitive-bench/extra-envs-checkpoints
+    repo_id: placeholder/extra-envs-checkpoints
     path_in_repo: OpenVLA/zero-latency/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k
     checkpoint: checkpoints/steps_2000_pytorch_model.pt
     model_config: config.full.yaml

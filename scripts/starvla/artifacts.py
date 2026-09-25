@@ -9,8 +9,8 @@ from huggingface_hub import HfApi
 from latency_bench.utils.hf import resolve_token
 
 
-MODEL_REPO_ID = "latency-sensitive-bench/benchmark-models"
-DATASET_REPO_ID = "latency-sensitive-bench/benchmark-datasets"
+MODEL_REPO_ID = "placeholder/benchmark-models"
+DATASET_REPO_ID = "placeholder/benchmark-datasets"
 MODEL_FILES = [
     "checkpoints/model.pt", "config.yaml", "dataset_statistics.json",
     "task_contract.json", "eval_l0.json", "eval_profile.json", "provenance.json", "README.md",

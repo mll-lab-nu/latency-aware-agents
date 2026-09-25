@@ -166,11 +166,11 @@ transition 数重新计算并记录。
 
 ### 3.1 已知服务器事实
 
-用户原先给出的 `/pfs/users/lxy/latency-sensitive-vla` 在当前节点不存在。实际可见文件是：
+用户原先给出的 `/path/to/user/latency-sensitive-vla` 在当前节点不存在。实际可见文件是：
 
-- `/pfs/users/lxy/latency-sensitive-bench/servers.md`：只记录
+- `/path/to/user/placeholder/servers.md`：只记录
   `ssh xinyuan@204.12.163.107`；
-- `/pfs/users/lxy/latency-sensitive-bench/.env`：包含 `WANDB_API_KEY`、`WANDB_ENTITY`、
+- `/path/to/user/placeholder/.env`：包含 `WANDB_API_KEY`、`WANDB_ENTITY`、
   `HF_TOKEN` 等变量。
 
 服务器地址已更正为 `204.12.163.107`，当前节点可以直接 SSH 连接；硬件与环境实测结果见
@@ -181,9 +181,9 @@ transition 数重新计算并记录。
 在能连接服务器的源机器上执行：
 
 ```bash
-LOCAL_ROOT=/pfs/users/lxy/latency-sensitive-bench-mikasa-h1
+LOCAL_ROOT=/path/to/user/placeholder-mikasa-h1
 REMOTE_HOST=xinyuan@204.12.163.107
-REMOTE_DIR=latency-sensitive-bench-mikasa-h1
+REMOTE_DIR=placeholder-mikasa-h1
 
 git -C "${LOCAL_ROOT}" submodule update --init \
   third_party/flappy-bird-gymnasium \
@@ -204,7 +204,7 @@ rsync -a --info=progress2 \
   --exclude='wandb' \
   "${LOCAL_ROOT}/" "${REMOTE_HOST}:~/${REMOTE_DIR}/"
 
-scp /pfs/users/lxy/latency-sensitive-bench/.env \
+scp /path/to/user/placeholder/.env \
   "${REMOTE_HOST}:~/${REMOTE_DIR}/.env"
 ssh "${REMOTE_HOST}" "chmod 600 ~/${REMOTE_DIR}/.env"
 ```
@@ -226,7 +226,7 @@ git submodule update --init third_party/MIKASA-Robo third_party/starVLA
 
 ```bash
 ssh xinyuan@204.12.163.107
-cd ~/latency-sensitive-bench-mikasa-h1
+cd ~/placeholder-mikasa-h1
 export REMOTE_ROOT="$PWD"
 
 set -a
@@ -782,16 +782,16 @@ canonical zero-delay eval。底层命令仍保留在上文，便于定位环境�
 | 远端 hostname / GPU / driver | `computeinstance-u00mv1dams6a8gc51r`；1× NVIDIA RTX PRO 6000 Blackwell Server Edition 97,887 MiB；driver `580.173.02`；CUDA 13.0；磁盘可用 469 GB |
 | MIKASA runtime smoke | passed；Python 3.10.21，Torch `2.7.1+cu128`，capability `(12,0)`，user-space Vulkan `580.173.02`，reset + one step OK |
 | StarVLA import/model smoke | passed；Torch `2.11.0+cu128`，DeepSpeed `0.16.9`，Accelerate `1.5.2`，FlashAttention `2.8.3.post1`，capability `(12,0)`；Qwen3-VL-4B base 与 Bridge/RT-1 initialization（含 `steps_5000_pytorch_model.pt`）下载完整 |
-| PPO 5M W&B run | passed；`EXIT_STATUS=0`，约 16.4k SPS，显存稳定，末次 16-episode eval `success_once=0.0625`；W&B run [`o67hxo1f`](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/o67hxo1f)；smoke checkpoint 不作 teacher |
-| PPO 正式配置与 W&B run | default run；`150M` 上限、seed 123、1024 envs、batch 61,440、无 checkpoint；在 24,576,000 steps 触发官方早停；W&B run [`ek4jtsoc`](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/ek4jtsoc) |
+| PPO 5M W&B run | passed；`EXIT_STATUS=0`，约 16.4k SPS，显存稳定，末次 16-episode eval `success_once=0.0625`；W&B run [`o67hxo1f`](https://wandb.ai/placeholder/MIKASA-Robo-dataset-collectors/runs/o67hxo1f)；smoke checkpoint 不作 teacher |
+| PPO 正式配置与 W&B run | default run；`150M` 上限、seed 123、1024 envs、batch 61,440、无 checkpoint；在 24,576,000 steps 触发官方早停；W&B run [`ek4jtsoc`](https://wandb.ai/placeholder/MIKASA-Robo-dataset-collectors/runs/ek4jtsoc) |
 | trainer `16/16` checkpoint | tuned final passed at epoch 201 / 12,288,000 steps；`oracle_checkpoints/ppo_memtasks/state/normalized_dense/InterceptGrabFast-VLA-v0/ppo-mlp-state-dense-intercept-grab-fast-vla-v0__123__state__20260831_203629/20260831_203629/final_success_ckpt.pt` |
 | PPO canonical 100-episode SR | tuned final passed `100/100`，mean return `36.819`；fixed seeds `4242424242..4242424341`；`outputs/mikasa/ppo_teacher_strict_eval_tuned_final/summary.json`（default candidate was `72/100`） |
-| PPO tuning screens | `learning_rate=1e-4` candidate at 15,360,000 steps，canonical `97/100`、mean return `32.400`，W&B [`4jyud8v7`](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/4jyud8v7)，summary `outputs/mikasa/ppo_teacher_strict_eval_lr1e4/summary.json`；`6e-4` candidate at 27,648,000 steps，canonical `91/100`、mean return `27.547`，W&B [`xwn3xyk2`](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/xwn3xyk2)，summary `outputs/mikasa/ppo_teacher_strict_eval_lr6e4/summary.json`；`1e-4` + `update_epochs=8` candidate at 12,288,000 steps，canonical `100/100`、mean return `36.819`，W&B [`7c89wxd8`](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/7c89wxd8)，summary `outputs/mikasa/ppo_teacher_strict_eval_lr1e4_ep8/summary.json`；best config `1e-4` + 8 epochs |
-| PPO tuned final run | passed；from scratch，`learning_rate=1e-4`，`update_epochs=8`，12,288,000 steps early stop；W&B [`a789mz9i`](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/a789mz9i) |
+| PPO tuning screens | `learning_rate=1e-4` candidate at 15,360,000 steps，canonical `97/100`、mean return `32.400`，W&B [`4jyud8v7`](https://wandb.ai/placeholder/MIKASA-Robo-dataset-collectors/runs/4jyud8v7)，summary `outputs/mikasa/ppo_teacher_strict_eval_lr1e4/summary.json`；`6e-4` candidate at 27,648,000 steps，canonical `91/100`、mean return `27.547`，W&B [`xwn3xyk2`](https://wandb.ai/placeholder/MIKASA-Robo-dataset-collectors/runs/xwn3xyk2)，summary `outputs/mikasa/ppo_teacher_strict_eval_lr6e4/summary.json`；`1e-4` + `update_epochs=8` candidate at 12,288,000 steps，canonical `100/100`、mean return `36.819`，W&B [`7c89wxd8`](https://wandb.ai/placeholder/MIKASA-Robo-dataset-collectors/runs/7c89wxd8)，summary `outputs/mikasa/ppo_teacher_strict_eval_lr1e4_ep8/summary.json`；best config `1e-4` + 8 epochs |
+| PPO tuned final run | passed；from scratch，`learning_rate=1e-4`，`update_epochs=8`，12,288,000 steps early stop；W&B [`a789mz9i`](https://wandb.ai/placeholder/MIKASA-Robo-dataset-collectors/runs/a789mz9i) |
 | dataset episodes/transitions/length | NPZ audit passed；275 episodes，9,859 transitions，mean/min/max length `35.851/24/57`，275 unique seeds，all success，actions clipped to `[-1,1]` |
 | LeRobot train/val counts | Phase 2 gate passed；train 250 episodes / 8,911 frames，val 25 / 948 frames，20 FPS；两套 `info/stats/modality.json` 与 `mikasa_intercept_grab_fast_h1.json` mixture verified |
 | SFT microbatch/accumulation/global batch | OOM profile selected `8/8/64` with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；mb64/32 true forward OOM，mb16 later OOM at step 88；selected mb8 run passed beyond that point |
-| SFT W&B run / final checkpoint | passed；run id `mikasa_grabfast_h1_gb64_mb8_ga8_expandable`；W&B [`3qt4k7nc`](https://wandb.ai/saberrr-zju/starvla_mikasa/runs/3qt4k7nc) 已同步；5,000 steps，actual epochs `35.91`；resolved config 与 stdout 共同确认 `per_device_batch_size=8`、accumulation `8`、total/global batch `64` |
+| SFT W&B run / final checkpoint | passed；run id `mikasa_grabfast_h1_gb64_mb8_ga8_expandable`；W&B [`3qt4k7nc`](https://wandb.ai/placeholder/starvla_mikasa/runs/3qt4k7nc) 已同步；5,000 steps，actual epochs `35.91`；resolved config 与 stdout 共同确认 `per_device_batch_size=8`、accumulation `8`、total/global batch `64` |
 | SFT completed runtime | `5000/5000`，elapsed `7:36:30`，mean `5.48 s/step`；训练日志 `logs/mikasa/sft_mb8_ga8_expandable.log` 以 `EXIT_STATUS=0` 结束，无 OOM、Traceback 或 ERROR |
 | SFT held-out action loss | step `500..5000` 每 500 steps 均完成 800-sample action-loss 与 classification eval；train loss `0.072997/0.063220/0.045567/0.040993/0.037294/0.026909/0.023618/0.018658/0.012922/0.008939`；eval loss `0.115920/0.111115/0.105102/0.092906/0.095080/0.091598/0.094032/0.098793/0.095458/0.093039`；所有值 finite |
 | SFT final artifacts | passed；`third_party/starVLA/results/Checkpoints/mikasa_grabfast_h1_gb64_mb8_ga8_expandable/config.full.yaml`、同目录 `checkpoints/steps_5000_state/` 与 `checkpoints/steps_5000_pytorch_model.pt`（9,785,060,075 bytes）均存在 |

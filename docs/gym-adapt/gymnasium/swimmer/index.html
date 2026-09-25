@@ -10,7 +10,7 @@
   <a class="skip-link" href="#content">Skip to content</a>
   <header class="hero">
     <div class="hero-inner">
-      <p class="eyebrow">latency-sensitive-bench / verified Gymnasium adaptation</p>
+      <p class="eyebrow">placeholder / verified Gymnasium adaptation</p>
       <h1>Swimmer: native two-torque control with four-frame state</h1>
       <p class="lede">A task-owned wrapper preserves Swimmer-v4's native continuous action and ordered eight-dimensional state while removing one obsolete MuJoCo 2 XML option. The runtime and latency pipeline work, but the completed APPO policy converges to a low-return solution.</p>
       <div class="badges">
@@ -75,7 +75,7 @@
             <ul class="steps">
               <li>All-zero two-dimensional pending action.</li>
               <li>25 Hz environment and observation clocks; latency remains measured in raw control frames.</li>
-              <li>Sustained torque uses <code>hold</code> with FIFO action ordering.</li>
+              <li>placeholderained torque uses <code>hold</code> with FIFO action ordering.</li>
               <li>The Gymnasium-v4 XML is preserved except for the removed <code>collision="predefined"</code> option rejected by MuJoCo 3.</li>
               <li>Future rollout will save one current RGB image per row even though the teacher policy consumes four state frames.</li>
             </ul>
@@ -98,7 +98,7 @@
         </div>
         <details>
           <summary>Training command and checkpoints</summary>
-          <pre><code>PATH=/home/lzj/miniconda3/envs/latency/bin:$PATH \
+          <pre><code>PATH=/path/to/user/miniconda3/envs/latency/bin:$PATH \
 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
 python -m training.train \
   --config configs/examples/gymnasium/swimmer/small_model_train.yaml</code></pre>
@@ -124,11 +124,11 @@ python -m training.train \
         </div>
         <details>
           <summary>Evaluation command</summary>
-          <pre><code>PATH=/home/lzj/miniconda3/envs/latency/bin:$PATH \
+          <pre><code>PATH=/path/to/user/miniconda3/envs/latency/bin:$PATH \
 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
 python -m latency_bench.run \
   --config configs/examples/gymnasium/swimmer/small_model_eval.yaml \
-  --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/checkpoint_p0/best_000005288_2707456_reward_17.123.pth</code></pre>
+  --checkpoint-path /path/to/mount/placeholder/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/checkpoint_p0/best_000005288_2707456_reward_17.123.pth</code></pre>
         </details>
       </section>
 

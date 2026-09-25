@@ -8,9 +8,9 @@
 
 中央仓库：
 
-- 模型：[`latency-sensitive-bench/benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
-- 数据：[`latency-sensitive-bench/benchmark-datasets`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
-- Profile：[`latency-sensitive-bench/profiles`](https://huggingface.co/datasets/latency-sensitive-bench/profiles)
+- 模型：[`placeholder/benchmark-models`](https://huggingface.co/placeholder/benchmark-models)
+- 数据：[`placeholder/benchmark-datasets`](https://huggingface.co/datasets/placeholder/benchmark-datasets)
+- Profile：[`placeholder/profiles`](https://huggingface.co/datasets/placeholder/profiles)
 
 ## 交接总表
 
@@ -31,10 +31,10 @@ checkpoint 的新评测 JSON。不同模型族并列报告，不按模型族之�
 
 | 环境 | 源仓库与 revision | 源路径 | 中央路径 | 当前状态 |
 |---|---|---|---|---|
-| Flappy Bird | `latency-sensitive-bench/paper-experiment-models@8d576e64dd9f7370e06abfebff37b3d50dfdf8d1` | `jitter_destructiveness/real_profile/latency0/teachers/flappy/flappy_teacher_fixed_l0_obs30_seed0/`，选择 `best_000047376_24281088_reward_2078.738.pth` | `zero-latency/flappy/small-policy/sample-factory-v1/` | Published；100 局 mean 444.600；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
+| Flappy Bird | `placeholder/paper-experiment-models@8d576e64dd9f7370e06abfebff37b3d50dfdf8d1` | `jitter_destructiveness/real_profile/latency0/teachers/flappy/flappy_teacher_fixed_l0_obs30_seed0/`，选择 `best_000047376_24281088_reward_2078.738.pth` | `zero-latency/flappy/small-policy/sample-factory-v1/` | Published；100 局 mean 444.600；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
 | Demon Attack | 同上 | `jitter_destructiveness/real_profile/latency0/teachers/demon_attack/demon_attack_teacher_fixed_l0_obs15_seed0/`，选择 `best_000048704_24936448_reward_27118.050.pth` | `zero-latency/demon-attack/small-policy/sample-factory-v1/` | Published；14400-step 100 局 raw game-score mean 8727.150；central eval/README readback `7a6d7af88f921c6244aafe03078f1d30d94cc9b7`；provenance `dd81908094a43d9c68e9c1349ad0a7cb697d5cf5` |
 | Deadly Corridor | 同上 | `jitter_destructiveness/real_profile/latency0/teachers/deadly_corridor/deadly_corridor_teacher_fixed_l0_obs8p75_seed0/`，选择 `best_000040896_20938752_reward_2260.797.pth` | `zero-latency/deadly-corridor/small-policy/sample-factory-v1/` | Published；100 局 mean 2116.794；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
-| Atlantis | `latency-sensitive-bench/benchmark-models@56b2c095d76ea5b10dd304e6e03c2ca81801630b` | `zero-latency/atlantis/small-policy/sample-factory-v1/` | 原路径补齐正式 bundle | Published；100 局 mean 29271.000；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
+| Atlantis | `placeholder/benchmark-models@56b2c095d76ea5b10dd304e6e03c2ca81801630b` | `zero-latency/atlantis/small-policy/sample-factory-v1/` | 原路径补齐正式 bundle | Published；100 局 mean 29271.000；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
 | Asterix | 同上 | `zero-latency/asterix/small-policy/sample-factory-v1/` | 原路径补齐正式 bundle | Published；100 局 mean 4099.000；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
 
 Small bundle 只包含所选 checkpoint、原始 `config.json`、`eval_l0.json` 或
@@ -45,11 +45,11 @@ retained checkpoints。
 
 | 环境 | O 源 | G 源 | π 源 | 中央目标 |
 |---|---|---|---|---|
-| Flappy Bird | `latency-sensitive-bench/openvla_flappy_fix_latency_0@06f64d1a03905ad0f04a447c57afb970c29a559e` | `talha15032/gr00t_bridge_flappy_single_latency_clean_data_exp2@4e9f72bc7f74384a1155caecc62f1dab380dcd24` | `latency-sensitive-bench/pi05_fix_latency@ae2c1f25b927b27debb8db2ca5903ef4f3910321` 下 `pi05_flappy_fix_latency_0_200ep/checkpoints/steps_5000_state` | `zero-latency/flappy/vla/starvla-{openvla,gr00t,pi05}-v1/` |
-| Demon Attack | `latency-sensitive-bench/openvla_demon_attack_200ep@04fece441aa5b6f5a6a015264a6aa5df3dc4c29a` 下 `demon_attack_fix_latency_0_200ep/` | `latency-sensitive-bench/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6@fb0b8c4ef4d76b8c7ad97edf4990341f2b93cf70` | `latency-sensitive-bench/pi05_demon_attack_fix_latency_0@c797dd4d141e48fee2af1ae4fa1801d1aa307ed6` | `zero-latency/demon-attack/vla/starvla-{openvla,gr00t,pi05}-v1/` |
-| Deadly Corridor | `talha15032/openvla_bridge_deadly_corridor_single_latency_clean_data_bce_exp2@31983a233371ba1e755e28b38de3b0b72ded39f7` | `talha15032/gr00t_bridge_deadly_corridor_single_latency_clean_data_bce_exp2@e93458b10c98dd1f4c712071a74f46dda2fa905d` | `talha15032/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2@4d80b52ab5160e20327c843d7737c25ecfcb5ec7` | `zero-latency/deadly-corridor/vla/starvla-{openvla,gr00t,pi05}-v1/` |
-| Atlantis | `latency-sensitive-bench/openvla_bridge_atlantis_single_latency_clean_data_exp1_1gpu_r1@08662fc9b1c181e3a96895e66de76a66525bb4e5` | `latency-sensitive-bench/gr00t_bridge_atlantis_single_latency_clean_data_exp1_1gpu_r1@d3fe75a8671b1819598339a23a9277b5e6211b78` | `latency-sensitive-bench/pi05_bridge_atlantis_single_latency_clean_data_exp1_1gpu_r1@7a5026531a0128c9d071e7a7e9a26f7ce88b94e3` | `zero-latency/atlantis/vla/starvla-{openvla,gr00t,pi05}-v1/` |
-| Asterix | `latency-sensitive-bench/openvla_bridge_asterix_factorized6_single_latency_clean_data_exp1_1gpu_r1@cacfa287a2c36d96ffe8601874d9ae3ba0a7ba59` | `latency-sensitive-bench/gr00t_bridge_asterix_factorized6_single_latency_clean_data_exp1_1gpu_r1@c9185c81f689413079e59556d68747172568dc7f` | `latency-sensitive-bench/pi05_bridge_asterix_factorized6_single_latency_clean_data_exp1_1gpu_r1@5aa5ec259c0f16e7b6ccaff3b12c478cf7cbd2bb` | `zero-latency/asterix/vla/starvla-{openvla,gr00t,pi05}-v1/` |
+| Flappy Bird | `placeholder/openvla_flappy_fix_latency_0@06f64d1a03905ad0f04a447c57afb970c29a559e` | `placeholder/gr00t_bridge_flappy_single_latency_clean_data_exp2@4e9f72bc7f74384a1155caecc62f1dab380dcd24` | `placeholder/pi05_fix_latency@ae2c1f25b927b27debb8db2ca5903ef4f3910321` 下 `pi05_flappy_fix_latency_0_200ep/checkpoints/steps_5000_state` | `zero-latency/flappy/vla/starvla-{openvla,gr00t,pi05}-v1/` |
+| Demon Attack | `placeholder/openvla_demon_attack_200ep@04fece441aa5b6f5a6a015264a6aa5df3dc4c29a` 下 `demon_attack_fix_latency_0_200ep/` | `placeholder/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6@fb0b8c4ef4d76b8c7ad97edf4990341f2b93cf70` | `placeholder/pi05_demon_attack_fix_latency_0@c797dd4d141e48fee2af1ae4fa1801d1aa307ed6` | `zero-latency/demon-attack/vla/starvla-{openvla,gr00t,pi05}-v1/` |
+| Deadly Corridor | `placeholder/openvla_bridge_deadly_corridor_single_latency_clean_data_bce_exp2@31983a233371ba1e755e28b38de3b0b72ded39f7` | `placeholder/gr00t_bridge_deadly_corridor_single_latency_clean_data_bce_exp2@e93458b10c98dd1f4c712071a74f46dda2fa905d` | `placeholder/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2@4d80b52ab5160e20327c843d7737c25ecfcb5ec7` | `zero-latency/deadly-corridor/vla/starvla-{openvla,gr00t,pi05}-v1/` |
+| Atlantis | `placeholder/openvla_bridge_atlantis_single_latency_clean_data_exp1_1gpu_r1@08662fc9b1c181e3a96895e66de76a66525bb4e5` | `placeholder/gr00t_bridge_atlantis_single_latency_clean_data_exp1_1gpu_r1@d3fe75a8671b1819598339a23a9277b5e6211b78` | `placeholder/pi05_bridge_atlantis_single_latency_clean_data_exp1_1gpu_r1@7a5026531a0128c9d071e7a7e9a26f7ce88b94e3` | `zero-latency/atlantis/vla/starvla-{openvla,gr00t,pi05}-v1/` |
+| Asterix | `placeholder/openvla_bridge_asterix_factorized6_single_latency_clean_data_exp1_1gpu_r1@cacfa287a2c36d96ffe8601874d9ae3ba0a7ba59` | `placeholder/gr00t_bridge_asterix_factorized6_single_latency_clean_data_exp1_1gpu_r1@c9185c81f689413079e59556d68747172568dc7f` | `placeholder/pi05_bridge_asterix_factorized6_single_latency_clean_data_exp1_1gpu_r1@5aa5ec259c0f16e7b6ccaff3b12c478cf7cbd2bb` | `zero-latency/asterix/vla/starvla-{openvla,gr00t,pi05}-v1/` |
 
 每个 VLA bundle 使用现有正式格式：`checkpoints/model.safetensors`、`config.yaml`、
 `config.full.yaml`、`dataset_statistics.json`、`task_contract.json`、`eval_l0.json`、
@@ -61,7 +61,7 @@ Flappy π 使用上表已确认公开的 5000-step state。3000/5000 step 不拆
 
 ### RTX 3090 latency profile：9 项
 
-全部来自 `latency-sensitive-bench/profiles@48d13d3dfa2b77c2d10fbbbcc5210d8af9fc8749`
+全部来自 `placeholder/profiles@48d13d3dfa2b77c2d10fbbbcc5210d8af9fc8749`
 并保留原目录：
 
 | 环境 | O mean/p95 ms | G mean/p95 ms | π mean/p95 ms |
@@ -80,7 +80,7 @@ Flappy π 使用上表已确认公开的 5000-step state。3000/5000 step 不拆
 本节九项旧 checkpoint 和旧评测仅保留作审计证据，已因训练/评测 worker-capacity
 契约不一致而失效，不能继续作为正式结果或发布候选。除下表 Flappy O/G 的
 2026-09-22 replacement 外，源仓库均为
-`latency-sensitive-bench/paper-experiment-models@8d576e64dd9f7370e06abfebff37b3d50dfdf8d1`。
+`placeholder/paper-experiment-models@8d576e64dd9f7370e06abfebff37b3d50dfdf8d1`。
 
 | 环境 | O checkpoint | G checkpoint | π checkpoint |
 |---|---|---|---|
@@ -126,7 +126,7 @@ Corrected 协议为全新 `capacity1_seed42` 实验：Flappy 使用 temporal pro
 - Flappy profiled O 只有在 exact config、dataset statistics 和 task contract 全部找回后
   才做 matching-profile 评测；不以相似配置代替。
 - Demon Attack 新数据发布后另立交接项；现在不以旧数据模型冒充新数据结果。
-- [`profile-rollouts-v2`](https://huggingface.co/datasets/latency-sensitive-bench/profile-rollouts-v2)
+- [`profile-rollouts-v2`](https://huggingface.co/datasets/placeholder/profile-rollouts-v2)
   已知导致差结果，不复制到中央 dataset 仓库。
 - 不建立 `experimental/` 或 `legacy/` 模型目录。
 

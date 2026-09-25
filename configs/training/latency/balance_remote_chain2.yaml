@@ -17,7 +17,7 @@ executor:
 
 latency:
   method: temporal
-  profile_path: /home/xinyuan/balance-latency-smoke/smoke_profile_session0/profile.json
+  profile_path: /path/to/user/balance-latency-smoke/smoke_profile_session0/profile.json
   profile_worker_slot: 0
   seed: 123
   add_latency_info: true

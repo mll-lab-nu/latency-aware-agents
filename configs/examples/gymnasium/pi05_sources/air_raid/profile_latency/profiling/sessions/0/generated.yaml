@@ -140,7 +140,7 @@ logging:
 provenance:
   model_provenance:
     source: local
-    repo_id: latency-sensitive-bench/extra-envs-checkpoints
+    repo_id: placeholder/extra-envs-checkpoints
     path_in_repo: OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
     checkpoint: checkpoints/steps_5000_pytorch_model.pt
     model_config: config.full.yaml

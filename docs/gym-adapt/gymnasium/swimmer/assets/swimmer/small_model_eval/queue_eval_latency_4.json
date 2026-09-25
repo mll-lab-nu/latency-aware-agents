@@ -1,6 +1,6 @@
 {
   "checkpoint_kind": "best",
-  "checkpoint_path": "/mnt/checkpoints/latency-sensitive-bench/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/checkpoint_p0/best_000005288_2707456_reward_17.123.pth",
+  "checkpoint_path": "/path/to/mount/placeholder/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/checkpoint_p0/best_000005288_2707456_reward_17.123.pth",
   "configured_latency_ms": 160.0,
   "eval_latency_steps": 4,
   "experiment_name": "gymnasium_swimmer_rgb_state_zero_latency_10m",

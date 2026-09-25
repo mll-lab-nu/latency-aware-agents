@@ -8,7 +8,7 @@ observation, while formal evaluation used `simulated_worker_capacity: 1` and
 dropped observations while the inference worker was busy. Historical HF
 revisions remain unchanged for audit, but are not accepted results.
 
-W&B authentication against `saberrr-zju/starvla_tasks` succeeded. Checkpoint
+W&B authentication against `placeholder/starvla_tasks` succeeded. Checkpoint
 selection and W&B credentials were excluded as primary causes. With capacity
 disabled only for diagnosis, the original Flappy checkpoints recovered
 20-episode deterministic means of 2185.485 (GR00T), 1565.540 (OFT), and 261.725

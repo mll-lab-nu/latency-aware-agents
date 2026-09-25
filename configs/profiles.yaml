@@ -1,5 +1,5 @@
 artifact_root: results/profiling
-hf_repo: latency-sensitive-bench/profiles
+hf_repo: placeholder/profiles
 
 gpu_models:
   a100-sxm4-80gb:
@@ -52,7 +52,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/openvla_demon_attack_fix_latency_0_200ep
           checkpoint: checkpoints/steps_7000_state/model.safetensors
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/openvla_demon_attack_200ep
+          hf_repo: placeholder/openvla_demon_attack_200ep
           hf_path: demon_attack_fix_latency_0_200ep
         checkpoint_kind: best
         session_count: 5
@@ -70,7 +70,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/openvla_flappy_fix_latency_0
           checkpoint: checkpoints/steps_5000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/openvla_flappy_fix_latency_0
+          hf_repo: placeholder/openvla_flappy_fix_latency_0
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -90,7 +90,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/openvla_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
           checkpoint: checkpoints/steps_500_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: talha15032/openvla_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
+          hf_repo: placeholder/openvla_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -108,7 +108,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/openvla_bridge_defend_the_line_single_latency_clean_data_exp1
           checkpoint: checkpoints/steps_7000_model.safetensors
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/openvla_bridge_defend_the_line_single_latency_clean_data_exp1
+          hf_repo: placeholder/openvla_bridge_defend_the_line_single_latency_clean_data_exp1
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -128,7 +128,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/wan_oft_flappy_fix_latency_3_context5_standard_sft_2000_effbs128_224_currentce
           checkpoint: checkpoints/steps_2000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/wan_oft_flappy_fix_latency_3_context5_standard_sft_2000_effbs128_224_currentce
+          hf_repo: placeholder/wan_oft_flappy_fix_latency_3_context5_standard_sft_2000_effbs128_224_currentce
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -148,7 +148,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_0_context5_standard_sft_2000_effbs128_224_currentce
           checkpoint: checkpoints/steps_2000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/demon_attack_200ep
+          hf_repo: placeholder/demon_attack_200ep
           hf_path: wan_oft_demon_attack_fix_latency_0_context5_standard_sft_2000_effbs128_224_currentce
         checkpoint_kind: best
         session_count: 5
@@ -166,7 +166,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce
           checkpoint: checkpoints/steps_1000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: talha15032/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce
+          hf_repo: placeholder/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -184,7 +184,7 @@ models:
           local_root: outputs/starvla/runs/mikasa_intercept_grab_fast/wanoft/mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z
         checkpoint_kind: best
         eval_entrypoint: scripts/mikasa/evaluate.py
@@ -202,7 +202,7 @@ models:
           local_root: outputs/starvla/runs/humanoidbench_balance_simple/wanoft/humanoidbench_balance_simple_wanoft_formal_latest/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/humanoidbench-balance-simple/vla/starvla-wanoft-h1/humanoidbench_balance_simple_wanoft_formal_latest
         checkpoint_kind: best
         session_count: 5
@@ -220,7 +220,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/pi05_flappy_fix_latency_0_200ep
           checkpoint: checkpoints/steps_5000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/pi05_flappy_fix_latency_0_200ep
+          hf_repo: placeholder/pi05_flappy_fix_latency_0_200ep
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -240,7 +240,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/pi05_demon_attack_fix_latency_0
           checkpoint: checkpoints/steps_5000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/pi05_demon_attack_fix_latency_0
+          hf_repo: placeholder/pi05_demon_attack_fix_latency_0
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -258,7 +258,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2
           checkpoint: checkpoints/steps_500_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: talha15032/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2
+          hf_repo: placeholder/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -276,7 +276,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/pi05_bridge_defend_the_line_single_latency_clean_data_exp1
           checkpoint: checkpoints/steps_7000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: talha15032/pi05_bridge_defend_the_line_single_latency_clean_data_exp1
+          hf_repo: placeholder/pi05_bridge_defend_the_line_single_latency_clean_data_exp1
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -296,7 +296,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_flappy_single_latency_clean_data_exp2
           checkpoint: checkpoints/steps_5000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/gr00t_bridge_flappy_single_latency_clean_data_exp2
+          hf_repo: placeholder/gr00t_bridge_flappy_single_latency_clean_data_exp2
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -316,7 +316,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
           checkpoint: checkpoints/steps_5000_model.safetensors
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
+          hf_repo: placeholder/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -334,7 +334,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
           checkpoint: checkpoints/steps_500_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: talha15032/gr00t_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
+          hf_repo: placeholder/gr00t_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -352,7 +352,7 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_defend_the_line_single_latency_clean_data_exp1
           checkpoint: checkpoints/steps_7000_model.safetensors
           model_config: config.full.yaml
-          hf_repo: talha15032/gr00t_bridge_defend_the_line_single_latency_clean_data_exp1
+          hf_repo: placeholder/gr00t_bridge_defend_the_line_single_latency_clean_data_exp1
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -372,7 +372,7 @@ models:
           local_root: outputs/models/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
           checkpoint: checkpoints/steps_5000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/extra-envs-checkpoints
+          hf_repo: placeholder/extra-envs-checkpoints
           hf_path: OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
         checkpoint_kind: best
         session_count: 5
@@ -388,7 +388,7 @@ models:
           local_root: outputs/models/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k
           checkpoint: checkpoints/steps_2000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/extra-envs-checkpoints
+          hf_repo: placeholder/extra-envs-checkpoints
           hf_path: OpenVLA/zero-latency/inverted_pendulum_rgb_state_l0_return_gt900_100ep_openvla_native_sft_2k
         checkpoint_kind: best
         session_count: 5
@@ -404,7 +404,7 @@ models:
           local_root: outputs/starvla/runs/mikasa_intercept_grab_fast/qwenoft/mikasa_intercept_grab_fast_qwenoft_formal_latest_r8gpu8_20260907T082154Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h1/mikasa_intercept_grab_fast_qwenoft_formal_latest_r8gpu8_20260907T082154Z
         checkpoint_kind: best
         eval_entrypoint: scripts/mikasa/evaluate.py
@@ -422,12 +422,12 @@ models:
           local_root: outputs/starvla/runs/extreme_parkour_go2/qwenoft/20260912T072315-nocache32v2/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/extreme-parkour-go2/vla/starvla-qwenoft-h1/20260912T072315-nocache32v2
         runtime_artifact:
           local_root: third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k
           checkpoint: model_14999.pt
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/extreme-parkour-go2/small-policy/ppo-v1
         checkpoint_kind: best
         eval_entrypoint: third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py
@@ -445,12 +445,12 @@ models:
           local_root: outputs/starvla/runs/haic_pull_cart/qwenoft/haic-qwenoft-50hz-fresh-20260913T035850Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/haic-pull-cart/vla/starvla-qwenoft-h1/haic-qwenoft-50hz-fresh-20260913T035850Z
         runtime_artifact:
           local_root: outputs/haic/phase1_teacher
           checkpoint: checkpoint_final.pt
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/haic-pull-cart/small-policy/ppo-v1
         checkpoint_kind: best
         eval_entrypoint: third_party/HAIC/scripts/haic_vla.py
@@ -468,7 +468,7 @@ models:
           local_root: outputs/starvla/runs/humanoidbench_balance_simple/qwenoft/humanoidbench_balance_simple_qwenoft_formal_latest/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/humanoidbench-balance-simple/vla/starvla-qwenoft-h1/humanoidbench_balance_simple_qwenoft_formal_latest
         checkpoint_kind: best
         session_count: 5
@@ -486,7 +486,7 @@ models:
           local_root: outputs/starvla/runs/mikasa_intercept_grab_fast/qwenpi_v3/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z
         checkpoint_kind: best
         eval_entrypoint: scripts/mikasa/evaluate.py
@@ -504,12 +504,12 @@ models:
           local_root: outputs/starvla/runs/extreme_parkour_go2/qwenpi_v3/20260912T175510/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/extreme-parkour-go2/vla/starvla-qwenpi_v3-h1/20260912T175510
         runtime_artifact:
           local_root: third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k
           checkpoint: model_14999.pt
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/extreme-parkour-go2/small-policy/ppo-v1
         checkpoint_kind: best
         eval_entrypoint: third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py
@@ -527,7 +527,7 @@ models:
           local_root: outputs/starvla/runs/humanoidbench_balance_simple/qwenpi_v3/humanoidbench_balance_simple_qwenpi_v3_formal_latest/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/humanoidbench-balance-simple/vla/starvla-qwenpi_v3-h1/humanoidbench_balance_simple_qwenpi_v3_formal_latest
         checkpoint_kind: best
         session_count: 5
@@ -545,7 +545,7 @@ models:
           local_root: outputs/starvla/runs/mikasa_intercept_grab_fast/qwengr00t/mikasa_intercept_grab_fast_qwengr00t_formal_latest_r8gpu7_20260907T075003Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h1/mikasa_intercept_grab_fast_qwengr00t_formal_latest_r8gpu7_20260907T075003Z
         checkpoint_kind: best
         eval_entrypoint: scripts/mikasa/evaluate.py
@@ -563,12 +563,12 @@ models:
           local_root: outputs/starvla/runs/extreme_parkour_go2/qwengr00t/20260912T180303/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/extreme-parkour-go2/vla/starvla-qwengr00t-h1/20260912T180303
         runtime_artifact:
           local_root: third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k
           checkpoint: model_14999.pt
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/extreme-parkour-go2/small-policy/ppo-v1
         checkpoint_kind: best
         eval_entrypoint: third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py
@@ -586,7 +586,7 @@ models:
           local_root: outputs/starvla/runs/humanoidbench_balance_simple/qwengr00t/humanoidbench_balance_simple_qwengr00t_formal_latest/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: placeholder/benchmark-models
           hf_path: zero-latency/humanoidbench-balance-simple/vla/starvla-qwengr00t-h1/humanoidbench_balance_simple_qwengr00t_formal_latest
         checkpoint_kind: best
         session_count: 5

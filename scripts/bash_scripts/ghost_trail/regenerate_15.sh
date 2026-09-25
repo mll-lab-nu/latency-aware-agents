@@ -7,13 +7,13 @@ set -euo pipefail
 # On a new machine, edit only this variable if your workspace root differs.
 WORKSPACE="${WORKSPACE:-/workspace}"
 
-SOURCE_GHOST_HF_REPO="latency-sensitive-bench/demon_attack_ghost30_200ep"
-CHECKPOINT_HF_REPO="latency-sensitive-bench/latency-checkpoints"
+SOURCE_GHOST_HF_REPO="placeholder/demon_attack_ghost30_200ep"
+CHECKPOINT_HF_REPO="placeholder/latency-checkpoints"
 CHECKPOINT_HF_INCLUDE="checkpoints_old/demon_attack_sf_same_latency_l6_seed0/**"
 CHECKPOINT_LOCAL_DIR="${WORKSPACE}/small_model"
 CHECKPOINT_ROOT="${WORKSPACE}/small_model/checkpoints_old/demon_attack_sf_same_latency_l6_seed0"
 OUTPUT_DIR="${WORKSPACE}/outputs/teacher_datasets/demon_attack_ghost15_same_episodes_200ep"
-UPLOAD_HF_REPO="latency-sensitive-bench/demon_attack_ghost15_200ep"
+UPLOAD_HF_REPO="placeholder/demon_attack_ghost15_200ep"
 UPLOAD_HF_PATH="demon_latency_6"
 
 MAX_EPISODES=200

@@ -3,9 +3,9 @@
 This is the human-readable index for the supported task pipelines, including
 profile-based latency training. New artifacts use these central Hugging Face repositories:
 
-- models: [`latency-sensitive-bench/benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
-- datasets: [`latency-sensitive-bench/benchmark-datasets`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
-- profiles: [`latency-sensitive-bench/profiles`](https://huggingface.co/datasets/latency-sensitive-bench/profiles)
+- models: [`placeholder/benchmark-models`](https://huggingface.co/placeholder/benchmark-models)
+- datasets: [`placeholder/benchmark-datasets`](https://huggingface.co/datasets/placeholder/benchmark-datasets)
+- profiles: [`placeholder/profiles`](https://huggingface.co/datasets/placeholder/profiles)
 
 Paths below are stable task prefixes. The task-owned scripts write local files;
 publishing is an explicit developer operation. A status of `planned` means the
@@ -88,11 +88,11 @@ layout.
 
 | Task | Historical artifact | Source repository |
 | --- | --- | --- |
-| MIKASA | PPO teacher | [`latency-sensitive-bench/mikasa-robo`](https://huggingface.co/latency-sensitive-bench/mikasa-robo) |
-| MIKASA | Teacher rollouts | [`latency-sensitive-bench/mikasa-robo`](https://huggingface.co/datasets/latency-sensitive-bench/mikasa-robo) |
-| Balance Simple | Official GR00T 10k bundle | [`latency-sensitive-bench/humanoidbench`](https://huggingface.co/latency-sensitive-bench/humanoidbench) |
-| Balance Simple | Teacher rollouts | [`latency-sensitive-bench/humanoidbench`](https://huggingface.co/datasets/latency-sensitive-bench/humanoidbench) |
-| Balance Simple | Scene assets | [`latency-sensitive-bench/g1-sonic-assets`](https://huggingface.co/datasets/latency-sensitive-bench/g1-sonic-assets) |
+| MIKASA | PPO teacher | [`placeholder/mikasa-robo`](https://huggingface.co/placeholder/mikasa-robo) |
+| MIKASA | Teacher rollouts | [`placeholder/mikasa-robo`](https://huggingface.co/datasets/placeholder/mikasa-robo) |
+| Balance Simple | Official GR00T 10k bundle | [`placeholder/humanoidbench`](https://huggingface.co/placeholder/humanoidbench) |
+| Balance Simple | Teacher rollouts | [`placeholder/humanoidbench`](https://huggingface.co/datasets/placeholder/humanoidbench) |
+| Balance Simple | Scene assets | [`placeholder/g1-sonic-assets`](https://huggingface.co/datasets/placeholder/g1-sonic-assets) |
 
 ## StarVLA models and shared data
 

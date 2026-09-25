@@ -79,8 +79,8 @@ SSH and remote host selection remain outside the runner.
 The canonical specs upload to:
 
 ```text
-latency-sensitive-bench/paper-experiment-models
-latency-sensitive-bench/paper-experiment-evals
+placeholder/paper-experiment-models
+placeholder/paper-experiment-evals
 ```
 
 Remote paths are namespaced by paper experiment, environment, horizon variant,

@@ -529,7 +529,7 @@ Suggested request:
 
 ```text
 Read docs/gymnasium_adapter.md and docs/gym-adapt/gymnasium/README.md. Adapt [ENV_ID] from
-[PACKAGE + PINNED VERSION] into latency-sensitive-bench through the separate
+[PACKAGE + PINNED VERSION] into placeholder through the separate
 env.name=gymnasium path. My task objective is: [OBJECTIVE]. Target latency is
 [LATENCY]. Please first probe the exact Gymnasium API and report: constructor
 arguments, action/observation spaces, reset/step/render behavior, native timing,

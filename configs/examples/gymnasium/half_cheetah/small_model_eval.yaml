@@ -18,7 +18,7 @@ evaluation:
   eval_latency_values: [0, 1, 2, 3, 4]
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah/small_model_eval
+  output_dir: /path/to/mount/placeholder/tasks/half_cheetah/small_model_eval
   video:
     enabled: true
     num_bins: 1

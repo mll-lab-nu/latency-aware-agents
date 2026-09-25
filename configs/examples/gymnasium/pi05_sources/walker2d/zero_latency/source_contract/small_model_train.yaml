@@ -5,7 +5,7 @@ backend:
   type: sample_factory
   algo: APPO
   device: cuda
-  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/walker2d
+  train_dir: /path/to/mount/placeholder/small_models/walker2d
   restart_behavior: overwrite
   run_mode: train
 executor:
@@ -107,7 +107,7 @@ evaluation:
   eval_max_steps: 1000
   eval_deterministic: true
 logging:
-  output_dir: /mnt/data/latency-sensitive-bench/walker2d/train
+  output_dir: /path/to/mount/placeholder/walker2d/train
   video:
     enabled: false
     num_bins: 1

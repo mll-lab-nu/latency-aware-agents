@@ -16,11 +16,11 @@ bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh \
 #   REPLAY_RAW_FROM_HF=1 bash scripts/bash_scripts/generate_ghost_trail_data.sh
 #
 # Optional overrides:
-#   GHOST_HF_REPO=latency-sensitive-bench/demon_attack_ghost30_200ep
+#   GHOST_HF_REPO=placeholder/demon_attack_ghost30_200ep
 #   RAW_REPLAY_OUTPUT_DIR=/workspace/outputs/teacher_datasets/demon_attack_raw_same_episodes_200ep
 #   RAW_REPLAY_CHECKPOINT_ROOT=/workspace/small_model/checkpoints_old/demon_attack_sf_same_latency_l6_seed0
 if [[ "${REPLAY_RAW_FROM_HF:-0}" == "1" ]]; then
-GHOST_HF_REPO="${GHOST_HF_REPO:-latency-sensitive-bench/demon_attack_ghost30_200ep}"
+GHOST_HF_REPO="${GHOST_HF_REPO:-placeholder/demon_attack_ghost30_200ep}"
 RAW_REPLAY_OUTPUT_DIR="${RAW_REPLAY_OUTPUT_DIR:-/workspace/outputs/teacher_datasets/demon_attack_raw_same_episodes_200ep}"
 RAW_REPLAY_CHECKPOINT_ROOT="${RAW_REPLAY_CHECKPOINT_ROOT:-/workspace/small_model/checkpoints_old/demon_attack_sf_same_latency_l6_seed0}"
 

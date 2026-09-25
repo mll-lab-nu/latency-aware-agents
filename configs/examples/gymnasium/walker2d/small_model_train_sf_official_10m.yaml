@@ -7,4 +7,4 @@ training:
   train_for_env_steps: 10000000
 
 logging:
-  output_dir: /mnt/data/latency-sensitive-bench/walker2d/continuous_sf_official_10m_train
+  output_dir: /path/to/mount/placeholder/walker2d/continuous_sf_official_10m_train

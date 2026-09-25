@@ -2,7 +2,7 @@
 
 ## Historical L0 teacher result — corrected 2026-09-18
 
-**6331.47 ± 407.20**, 20 episodes; population SD (`ddof=0`). This is the original APPO teacher evaluation, not a new 5 FPS evaluation. The [formal September 13 evaluation](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model/evaluation/small_model_l0_eval_20260913/summary.json) supersedes the earlier **5571.30** threshold-probe mean in summary tables. The probe remains a separate historical cohort in the HTML report.
+**6331.47 ± 407.20**, 20 episodes; population SD (`ddof=0`). This is the original APPO teacher evaluation, not a new 5 FPS evaluation. The [formal September 13 evaluation](https://huggingface.co/datasets/placeholder/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model/evaluation/small_model_l0_eval_20260913/summary.json) supersedes the earlier **5571.30** threshold-probe mean in summary tables. The probe remains a separate historical cohort in the HTML report.
 
 
 [Open the report](index.html#gr00t-results). Audited 18 September 2026.
@@ -32,7 +32,7 @@ The >5000 gate filters teacher demonstrations, not VLA acceptance. Episode stati
 - Fresh original APPO profile teacher: seed 2222, 10M target (Final 10,002,432 frames / step 19,536); selected best 9,875,456 frames / step 19,288. Selection uses 20 seeds 104771–104790 per checkpoint, higher mean/tieFinal. E10 reuses 104771–104780 exactly.
 - The continuation preserved the initial probe's accepted specs, reset seeds and counters, adjusting only split labels to the 100-episode plan. It did not increase the 120-attempt budget or lower the strict gate.
 
-[Final dataset evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/a260732e0bce9771ca62a3c336bb446ecd0ea5df/humanoid/profile_latency/GR00T/h1_5fps_20260917) · [Teacher checkpoints](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/9379b6c0cd6c2c95dd8a176130c12b4a608f4d92/humanoid/profile_latency/small_model/GR00T) · [L0 model / simulation](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/7aa5afb6f20d52509849e8d8156b5d8583ea288f/humanoid/zero_latency/GR00T) · [Teacher plot, full size](gr00t-teacher-returns.svg) · [Results JSON](results-summary.json) · [Publication index](gr00t-publication.json).
+[Final dataset evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/a260732e0bce9771ca62a3c336bb446ecd0ea5df/humanoid/profile_latency/GR00T/h1_5fps_20260917) · [Teacher checkpoints](https://huggingface.co/placeholder/Standard-Pipeline/tree/9379b6c0cd6c2c95dd8a176130c12b4a608f4d92/humanoid/profile_latency/small_model/GR00T) · [L0 model / simulation](https://huggingface.co/placeholder/Standard-Pipeline/tree/7aa5afb6f20d52509849e8d8156b5d8583ea288f/humanoid/zero_latency/GR00T) · [Teacher plot, full size](gr00t-teacher-returns.svg) · [Results JSON](results-summary.json) · [Publication index](gr00t-publication.json).
 
 Teacher model revision `9379b6c0cd6c2c95dd8a176130c12b4a608f4d92`; final small-evidence revision `a260732e0bce9771ca62a3c336bb446ecd0ea5df`. These publications contain evidence of the stop, not a new replayed dataset. Full B traces remain server-side; compact B episode/config/audit evidence is published.
 
@@ -94,18 +94,18 @@ item access, not total training throughput.
 Fresh v9 formal training started on September17 at00:52:34UTC: 5000 updates,
 seed42, global64, original learning rates/warmup, trainworkers4, and explicit
 evalworkers0 with validation every500 updates for200 batches. The
-[W&B run](https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/humanoid-zero-gr00t-h8-v9-host75-20260917)
-and [published preflight/launch evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/38219a6da33c2873e77ddb1bc06226bd0bb388a3/humanoid/zero_latency/GR00T/native_h8_15fps_20260917/vla)
+[W&B run](https://wandb.ai/placeholder99-placeholder-university/placeholder/runs/humanoid-zero-gr00t-h8-v9-host75-20260917)
+and [published preflight/launch evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/38219a6da33c2873e77ddb1bc06226bd0bb388a3/humanoid/zero_latency/GR00T/native_h8_15fps_20260917/vla)
 record the exact configuration and retained failures. Training completion,
 closed-loop acceptance, and P/B/E/F remain pending.
 
-The [selected teacher bundle](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/a63adee9284c1295df8e2be002f55e06a8fd5a2c/humanoid/zero_latency/small_model/GR00T)
-and [training, evaluation, and probe evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/4eafdd783eacb44b798371a2176e9518c97a7a63/humanoid/zero_latency/GR00T/native_h8_15fps_20260917)
+The [selected teacher bundle](https://huggingface.co/placeholder/Standard-Pipeline/tree/a63adee9284c1295df8e2be002f55e06a8fd5a2c/humanoid/zero_latency/small_model/GR00T)
+and [training, evaluation, and probe evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/4eafdd783eacb44b798371a2176e9518c97a7a63/humanoid/zero_latency/GR00T/native_h8_15fps_20260917)
 are published at fixed revisions. All 21 files matched remote sizes and
 Git blob SHA1/LFS SHA256. These revisions contain no formal demonstrations;
-the [raw dataset](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/90f36e651dc6a021de01d783618660388821c7f8/humanoid/zero_latency/GR00T/native_h8_15fps_20260917/demonstrations/raw)
+the [raw dataset](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/90f36e651dc6a021de01d783618660388821c7f8/humanoid/zero_latency/GR00T/native_h8_15fps_20260917/demonstrations/raw)
 is published separately: 105 files, 3,974,064,100 bytes, with all remote sizes
-and blob/LFS hashes verified. The [latest experiment and conversion evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/2b5da32db2904e7539a560fb1f109bb6e4870894/humanoid/zero_latency/GR00T/native_h8_15fps_20260917)
+and blob/LFS hashes verified. The [latest experiment and conversion evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/2b5da32db2904e7539a560fb1f109bb6e4870894/humanoid/zero_latency/GR00T/native_h8_15fps_20260917)
 records completed conversion and loader validation; converted dataset bulk
 stays on the training server.
 
@@ -113,11 +113,11 @@ Open [`index.html`](index.html) for the completed Humanoid-v4 native 17D continu
 
 ## September 13 profile-latency pipeline
 
-[Final run ledger](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/profile_latency/provenance/pipeline/status.md): **terminated after teacher quality assessment**, at 10 / 10 FPS. The 10M-frame teacher completed normally. Fixed-seed evaluation averaged 1,036.93 return and 196.9 steps; the bounded exporter probe averaged 1,275.39 return and 244.42 steps. All episodes ended early and reward was dominated by the alive bonus. No lower gate was selected; R/C/V/F were not started. Profiling and the complete small model are published and hash-verified; diagnostic evidence and sampling limitations are retained in the report. The monitor was deleted.
+[Final run ledger](https://huggingface.co/datasets/placeholder/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/profile_latency/provenance/pipeline/status.md): **terminated after teacher quality assessment**, at 10 / 10 FPS. The 10M-frame teacher completed normally. Fixed-seed evaluation averaged 1,036.93 return and 196.9 steps; the bounded exporter probe averaged 1,275.39 return and 244.42 steps. All episodes ended early and reward was dominated by the alive bonus. No lower gate was selected; R/C/V/F were not started. Profiling and the complete small model are published and hash-verified; diagnostic evidence and sampling limitations are retained in the report. The monitor was deleted.
 
 ## Standard Pipeline archive
 
-[Complete experiment archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
+[Complete experiment archive](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
 
 </details>
 

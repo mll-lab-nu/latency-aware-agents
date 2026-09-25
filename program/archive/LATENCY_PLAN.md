@@ -309,7 +309,7 @@ B 最终 32 局均未达到 100 帧，接纳率为 100%。相对初始平均改�
 
 ### 时序和信用对照
 
-- GPU、在线 W&B 重新采集一个 16,384-transition fixed1 rollout。更新前 teacher 为 35.48 帧，一次原生 PPO 更新后为 35.20 帧；同一更新后模型在零延迟下为 745.08 帧。W&B run：`https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/snapshot_s1`。
+- GPU、在线 W&B 重新采集一个 16,384-transition fixed1 rollout。更新前 teacher 为 35.48 帧，一次原生 PPO 更新后为 35.20 帧；同一更新后模型在零延迟下为 745.08 帧。W&B run：`https://wandb.ai/placeholder/placeholder/runs/snapshot_s1`。
 - 真实 G1 五步 trace 的 `applied_source_obs_id` 为 `[-1, 0, 1, 2, 3]`：首行 reward 来自 reset noop，之后每行来自上一 observation 发出的 action。所有 action 均被接纳且等待一帧，因此没有平移 reward。
 - 从保存的 returns/advantages 重建 value，λ=.95 GAE 与原 batch 的最大误差为 `4.77e-6`。447 个自然终止 segment 覆盖 13,823 个完整 MC steps；没有 timeout。
 - λ=.95 与 λ=1 在同一 snapshot、同一 batch 上以 actor LR `1.5e-7` 重放四个 epoch，实际 mean KL 分别为 `0.003936` 和 `0.004083`，均落在 `0.004±5%`。

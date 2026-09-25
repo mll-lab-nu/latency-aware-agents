@@ -20,7 +20,7 @@ Intercept the rolling ball and grasp it to stop it.
 
 The task uses the H1 embodiment, a 7D `pd_ee_delta_pose` action, top and wrist
 RGB observations, and a native 20 Hz control rate. The full reproduction guide
-is the [MIKASA cookbook](https://github.com/ZihanWang314/latency-sensitive-bench/blob/master/docs/mikasa/cookbook.md).
+is the [MIKASA cookbook](https://github.com/placeholder/placeholder/blob/master/docs/mikasa/cookbook.md).
 
 ## Contents
 

@@ -7,7 +7,7 @@
     "Protect both buildings from flying saucers. Choose exactly one action from: noop, fire, right, left, rightfire, leftfire. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 50 FPS and observations are emitted at 12.5 FPS. Choose the best next action."
   ],
   "format": "starvla_lerobot_v2_image_parquet",
-  "source": "/mnt/data/latency-sensitive-bench/raw_rollouts/Air_Raid/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep",
+  "source": "/path/to/mount/placeholder/raw_rollouts/Air_Raid/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep",
   "integration_name": "gymnasium",
   "task_name": "air_raid",
   "action_layout": "gymnasium_discrete_v1",
@@ -41,7 +41,7 @@
   "state_normalization": null,
   "robot_type": "rl_games_gymnasium",
   "latency_prompt_map_path": "/workspace/tasks/20260911T023128Z-p-only4/air_raid/bundle/latency_prompt_map.json",
-  "custom_mixtures_path": "/mnt/data/latency-sensitive-bench/vla_datasets/rl_games/_generated_mixtures/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep.json",
+  "custom_mixtures_path": "/path/to/mount/placeholder/vla_datasets/rl_games/_generated_mixtures/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep.json",
   "gymnasium_task": {
     "action_labels": [
       "noop",

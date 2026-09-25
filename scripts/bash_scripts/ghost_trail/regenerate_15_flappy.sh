@@ -10,16 +10,16 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 # On a new machine, override WORKSPACE if you want downloads/outputs elsewhere.
 WORKSPACE="${WORKSPACE:-${REPO_ROOT}}"
 
-SOURCE_HF_REPO="latency-sensitive-bench/memory-rollouts"
+SOURCE_HF_REPO="placeholder/memory-rollouts"
 SOURCE_HF_CONFIG="flappy_fixed_latency_3_200ep_7k2steps"
 SOURCE_HF_REVISION="6875117373bb24255a07653b65501b53a35dc2d4"
 
-CHECKPOINT_HF_REPO="latency-sensitive-bench/paper-experiment-models"
+CHECKPOINT_HF_REPO="placeholder/paper-experiment-models"
 CHECKPOINT_HF_INCLUDE="memory/rollout_teachers/flappy/train/memory_rollout_teacher:flappy:teacher:fixed_l3:fs4:obs30:stride1:seed0/**"
 CHECKPOINT_LOCAL_DIR="${WORKSPACE}/paper_experiment_models"
 CHECKPOINT_ROOT="${CHECKPOINT_LOCAL_DIR}/memory/rollout_teachers/flappy/train/memory_rollout_teacher:flappy:teacher:fixed_l3:fs4:obs30:stride1:seed0"
 OUTPUT_DIR="${WORKSPACE}/outputs/teacher_datasets/flappy_fixed_latency_3_200ep_7k2steps_ghost15_2"
-UPLOAD_HF_REPO="latency-sensitive-bench/memory-rollouts"
+UPLOAD_HF_REPO="placeholder/memory-rollouts"
 UPLOAD_HF_PATH="flappy_fixed_latency_3_200ep_7k2steps_ghost15_2"
 
 MAX_EPISODES=200

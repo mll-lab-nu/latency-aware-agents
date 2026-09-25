@@ -200,9 +200,9 @@ OFT 使用相同延迟 profile、单卡 3,072 env，每轮完整执行 24 次决
 运行检查：
 
 ```bash
-PYTHONPATH=/pfs/users/lxy/latency-sensitive-bench:/pfs/users/lxy/latency-sensitive-bench/third_party/Isaaclab_Parkour/scripts/rsl_rl \
+PYTHONPATH=/path/to/user/placeholder:/path/to/user/placeholder/third_party/Isaaclab_Parkour/scripts/rsl_rl \
 OMP_NUM_THREADS=1 \
-/pfs/users/lxy/conda/envs/extreme-parkour/bin/python -B -m pytest -p no:cacheprovider \
+/path/to/user/conda/envs/extreme-parkour/bin/python -B -m pytest -p no:cacheprovider \
   third_party/Isaaclab_Parkour/parkour_test/test_command_ppo.py \
   tests/scripts/test_parkour_latency_pipeline.py -q
 ```

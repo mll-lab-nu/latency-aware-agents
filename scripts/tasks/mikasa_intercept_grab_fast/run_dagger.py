@@ -181,7 +181,7 @@ def _trainer_config(args, resume_state: Path | None) -> Path:
     config["run_id"] = "dagger"
     config["run_root_dir"] = str(args.output / "training")
     config["wandb_name"] = f"mikasa-h8-dagger-{args.condition}-{args.model}"
-    config["wandb_entity"] = "saberrr-zju"
+    config["wandb_entity"] = "placeholder"
     config["wandb_project"] = "starvla_tasks"
     config["wandb_group"] = args.output.name
     config["wandb_tags"] = ["mikasa", "naive-h8" if args.condition == "zero-latency"

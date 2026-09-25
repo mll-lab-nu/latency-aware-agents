@@ -8,4 +8,4 @@ env:
   obs_fps: 10.0
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/rtx3090_profile_10fps_small_model_train
+  output_dir: /path/to/mount/placeholder/tasks/ant/rtx3090_profile_10fps_small_model_train

@@ -2,13 +2,13 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-PYTHON=/mnt/ssd/miniconda3/envs/starvla_rl_games_openvla/bin/python
-CONDA_LIB=/mnt/ssd/miniconda3/envs/starvla_rl_games_openvla/lib
+PYTHON=/path/to/mount/miniconda3/envs/starvla_rl_games_openvla/bin/python
+CONDA_LIB=/path/to/mount/miniconda3/envs/starvla_rl_games_openvla/lib
 LANE="$1"
 GPU="$2"
 
-export CUDA_HOME=/mnt/ssd/fanqi-lcb-formal/runtime/miles-rootfs/usr/local/cuda-12.9
-export PATH="/mnt/ssd/miniconda3/envs/starvla_rl_games_openvla/bin:${CUDA_HOME}/bin:${PATH}"
+export CUDA_HOME=/path/to/mount/fanqi-lcb-formal/runtime/miles-rootfs/usr/local/cuda-12.9
+export PATH="/path/to/mount/miniconda3/envs/starvla_rl_games_openvla/bin:${CUDA_HOME}/bin:${PATH}"
 export LIBRARY_PATH="${CONDA_LIB}:${LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="${CONDA_LIB}:${CUDA_HOME}/lib64:${LD_LIBRARY_PATH:-}"
 export TORCH_CUDA_ARCH_LIST=9.0
@@ -18,7 +18,7 @@ export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/third_party/sample-factory:${REPO_R
 set -a
 source "${REPO_ROOT}/.env"
 set +a
-export WANDB_ENTITY=saberrr-zju
+export WANDB_ENTITY=placeholder
 export WANDB_MODE=online
 export WANDB_RESUME=allow
 

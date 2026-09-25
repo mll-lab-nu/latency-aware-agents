@@ -26,7 +26,7 @@ FILTER_PRESET="${FILTER_PRESET:-contiguous_v1}"   # KV-memory needs contiguous r
 SEED_STRIDE="${SEED_STRIDE:-100000000}"
 
 # HF dataset target (collection repo + config). Leave HF_REPO_ID empty to skip upload.
-HF_REPO_ID="${HF_REPO_ID:-latency-sensitive-bench/flappy_200ep}"
+HF_REPO_ID="${HF_REPO_ID:-placeholder/flappy_200ep}"
 HF_CONFIG_NAME="${HF_CONFIG_NAME:-flappy_fixed_latency_2_200ep_7k2steps}"
 
 # ---- paths / knobs ----
@@ -37,7 +37,7 @@ MERGE_PY="$REPO_ROOT/scripts/rollout_data/merge_probe_shards.py"
 
 # Immutable published teacher checkpoint; this external path predates the
 # paper-facing memory/small_model name.
-CKPT_HF_REPO="latency-sensitive-bench/factor-sweeps-models"
+CKPT_HF_REPO="placeholder/factor-sweeps-models"
 CKPT_SUBPATH="factor_sweeps/flappy/context_window/train/factor_sweep:flappy:frame_stack:fixed_l2:fs1:obs30:stride1:seed10"
 CKPT_DOWNLOAD_ROOT="${CKPT_DOWNLOAD_ROOT:-$REPO_ROOT/playground/published_teacher_ckpts}"
 CHECKPOINT_ROOT="$CKPT_DOWNLOAD_ROOT/$CKPT_SUBPATH"

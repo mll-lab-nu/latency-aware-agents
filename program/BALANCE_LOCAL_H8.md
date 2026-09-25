@@ -49,11 +49,11 @@ RL 每 1M 保留 checkpoint，既有 observer 在 RL 结束后处理周期评测
 
 正式训练和评测使用 W&B online；smoke 只在本地验证，W&B disabled，不发布 HF。正式实验共用 fresh group、zero/profile 使用不同 run ID：
 
-- RL / teacher eval：`saberrr-zju/latency-sensitive-bench`。
-- VLA / student eval：`zihanwang-ai-northwestern-university/starvla_tasks`。
+- RL / teacher eval：`placeholder/placeholder`。
+- VLA / student eval：`placeholder/starvla_tasks`。
 
 各阶段 log、checkpoint、seed protocol 和发布 revision 随运行目录保存。
 验证后更新 [PROGRESS](PROGRESS.md)，训练完成、评测完成、acceptance、publication 分别记录。
 
 
-2026-09-15 W&B 周期评测修复已验证：本轮 [zero RL](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenoft-h8-20260914T143829Z-zero-rl) / [profile RL](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/balance-qwenoft-h8-20260914T143829Z-profile-rl) 各回填 10 个 checkpoint 评测点（共 20），`eval/*` 横轴为实际 checkpoint 的 `global_step`，保留 `eval/global_steps`。远端已逐点核对。两份冻结实现均已改为由原训练进程上传周期评测，子评测不再新建独立 run。旧的 20 条独立 run 标记 `[migrated]` 并移到 `balance-qwenoft-h8-20260914T143829Z-periodic-eval-archive` 分组；这些源 run 可删除，父 run 已独立保存回填结果。[完整审计](PROGRESS.md)、[数值核对](../outputs/tasks/humanoidbench_balance_simple/local_h8/balance-qwenoft-h8-20260914T143829Z/wandb_repair/verification.json)、[迁移核对](../outputs/tasks/humanoidbench_balance_simple/local_h8/balance-qwenoft-h8-20260914T143829Z/wandb_repair/archive_verification.json)。本修复未改变训练计划。
+2026-09-15 W&B 周期评测修复已验证：本轮 [zero RL](https://wandb.ai/placeholder/placeholder/runs/balance-qwenoft-h8-20260914T143829Z-zero-rl) / [profile RL](https://wandb.ai/placeholder/placeholder/runs/balance-qwenoft-h8-20260914T143829Z-profile-rl) 各回填 10 个 checkpoint 评测点（共 20），`eval/*` 横轴为实际 checkpoint 的 `global_step`，保留 `eval/global_steps`。远端已逐点核对。两份冻结实现均已改为由原训练进程上传周期评测，子评测不再新建独立 run。旧的 20 条独立 run 标记 `[migrated]` 并移到 `balance-qwenoft-h8-20260914T143829Z-periodic-eval-archive` 分组；这些源 run 可删除，父 run 已独立保存回填结果。[完整审计](PROGRESS.md)、[数值核对](../outputs/tasks/humanoidbench_balance_simple/local_h8/balance-qwenoft-h8-20260914T143829Z/wandb_repair/verification.json)、[迁移核对](../outputs/tasks/humanoidbench_balance_simple/local_h8/balance-qwenoft-h8-20260914T143829Z/wandb_repair/archive_verification.json)。本修复未改变训练计划。

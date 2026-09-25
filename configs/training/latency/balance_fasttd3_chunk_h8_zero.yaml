@@ -7,7 +7,7 @@ backend:
   restart_behavior: restart
   initial_model_path: null
   extra_args:
-  - --wandb_user=saberrr-zju
+  - --wandb_user=placeholder
 
 latency:
   add_latency_info: true

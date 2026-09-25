@@ -585,7 +585,7 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  wandb_project: latency-sensitive-bench
+  wandb_project: placeholder
   wandb_group: demon-attack-fs8-fixed_l2
   wandb_name: demon-attack-fs8-fixed_l2-s42
   wandb_user: entity
@@ -643,7 +643,7 @@ logging:
     ]
     assert init_calls == [
         {
-            "project": "latency-sensitive-bench",
+            "project": "placeholder",
             "entity": "entity",
             "id": "demon-attack-fs8-fixed_l2-s42",
             "name": "demon-attack-fs8-fixed_l2-s42",
@@ -653,7 +653,7 @@ logging:
             "tags": ["observation_stride", "demon-attack"],
         },
         {
-            "project": "latency-sensitive-bench",
+            "project": "placeholder",
             "entity": "entity",
             "id": "demon-attack-fs8-fixed_l2-s42",
             "name": "demon-attack-fs8-fixed_l2-s42",
@@ -748,7 +748,7 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  wandb_project: latency-sensitive-bench
+  wandb_project: placeholder
   wandb_group: demon-attack-fs8-fixed_l2
   wandb_name: demon-attack-fs8-fixed_l2-s42
   wandb_user: entity

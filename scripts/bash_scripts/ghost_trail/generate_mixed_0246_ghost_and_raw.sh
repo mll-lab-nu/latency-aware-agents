@@ -10,7 +10,7 @@ set -euo pipefail
 # On a new machine, edit only this variable if your workspace root differs.
 WORKSPACE="${WORKSPACE:-/workspace}"
 
-CHECKPOINT_HF_REPO="latency-sensitive-bench/latency-checkpoints"
+CHECKPOINT_HF_REPO="placeholder/latency-checkpoints"
 CHECKPOINT_HF_INCLUDE="checkpoints_old/demon_attack_sf_same_latency_l6_seed0/**"
 CHECKPOINT_LOCAL_DIR="${WORKSPACE}/small_model"
 CHECKPOINT_ROOT="${WORKSPACE}/small_model/checkpoints_old/demon_attack_sf_same_latency_l6_seed0"
@@ -19,8 +19,8 @@ RUN_ROOT="${WORKSPACE}/outputs/teacher_datasets/demon_attack_mixed_0246_seed_cac
 GHOST_OUTPUT_ROOT="${WORKSPACE}/outputs/teacher_datasets/demon_attack_mixed_0246_ghost30_200ep"
 RAW_OUTPUT_ROOT="${WORKSPACE}/outputs/teacher_datasets/demon_attack_mixed_0246_raw_200ep"
 
-GHOST_UPLOAD_HF_REPO="latency-sensitive-bench/demon_attack_mixed_0246_ghost30_200ep"
-RAW_UPLOAD_HF_REPO="latency-sensitive-bench/demon_attack_mixed_0246_raw_200ep"
+GHOST_UPLOAD_HF_REPO="placeholder/demon_attack_mixed_0246_ghost30_200ep"
+RAW_UPLOAD_HF_REPO="placeholder/demon_attack_mixed_0246_raw_200ep"
 
 LATENCIES=(0 2 4 6)
 EPISODES_PER_LATENCY=50

@@ -219,8 +219,8 @@ native 验证：
   `queue_eval_latency_0.json` / `queue_eval_results.jsonl` 已生成：逐步 100 episodes、
   mean_length 848.43、mean_return 10.57、`normalized_waypoint_progress` mean 0.385、
   `edge_violation` count 84,843。该 run 是 smoke，不评价策略质量。
-- **HAIC remote 已同步完整 change set**（2026-09-05）：远端 `204.12.163.107:/home/xinyuan/
-  latency-sensitive-bench-mikasa-h1/third_party/HAIC` 的 12 个变更文件已从本地 worktree
+- **HAIC remote 已同步完整 change set**（2026-09-05）：远端 `204.12.163.107:/path/to/user/
+  placeholder-mikasa-h1/third_party/HAIC` 的 12 个变更文件已从本地 worktree
   覆盖（此前远端只有 09-04 14:40 的旧 `backend.py`，缺 matching base-env 改动，即
   `AttributeError: SimpleEnv has no attribute set_episode_seed` 的根因）。远端 native
   smoke **尚未执行**：按 HAIC.md 的 gate，代码经用户 review/commit 后再跑正式命令。

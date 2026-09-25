@@ -4,7 +4,7 @@ experiment:
   name: gymnasium_air_raid_qwenoft_rtx3090_profile
 
 backend:
-  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/air_raid
+  train_dir: /path/to/mount/placeholder/small_models/air_raid
 
 latency:
   method: iid
@@ -15,4 +15,4 @@ latency:
   add_latency_info: false
 
 logging:
-  output_dir: /mnt/data/latency-sensitive-bench/air_raid/rtx3090_profile_small_model_train
+  output_dir: /path/to/mount/placeholder/air_raid/rtx3090_profile_small_model_train

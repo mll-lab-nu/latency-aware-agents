@@ -7,7 +7,7 @@ evaluation:
   eval_episodes: 1
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/air_raid/rtx3090_profile_small_model_rollout
+  output_dir: /path/to/mount/placeholder/tasks/air_raid/rtx3090_profile_small_model_rollout
   video:
     enabled: true
     num_bins: 1

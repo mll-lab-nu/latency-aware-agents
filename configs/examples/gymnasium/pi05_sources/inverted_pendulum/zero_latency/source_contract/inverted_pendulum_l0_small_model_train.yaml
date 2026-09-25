@@ -6,7 +6,7 @@ backend:
   type: sample_factory
   algo: APPO
   device: cuda
-  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models
+  train_dir: /path/to/mount/placeholder/small_models
   restart_behavior: overwrite
   run_mode: train
 
@@ -96,7 +96,7 @@ evaluation:
   eval_deterministic: true
 
 logging:
-  output_dir: /mnt/data/latency-sensitive-bench/inverted_pendulum/l0_small_model_train
+  output_dir: /path/to/mount/placeholder/inverted_pendulum/l0_small_model_train
   video:
     enabled: false
     num_bins: 1

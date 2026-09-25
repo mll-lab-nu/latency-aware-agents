@@ -140,24 +140,24 @@ def write_configs(config_dir: Path, env_config: dict[str, Any]) -> None:
     }
     train = configs["small_model_train.yaml"]
     train["experiment"]["name"] = "gymnasium_walker2d_continuous_zero_latency"
-    train["backend"]["train_dir"] = "/mnt/checkpoints/latency-sensitive-bench/small_models/walker2d"
+    train["backend"]["train_dir"] = "/path/to/mount/placeholder/small_models/walker2d"
     train["env"] = deepcopy(env_config)
     train["latency"] = {"method": "zero", "add_latency_info": False}
     train["policy"].pop("actions", None)
     train["training"]["train_for_env_steps"] = 10_000_000
-    train["logging"]["output_dir"] = "/mnt/data/latency-sensitive-bench/walker2d/train"
+    train["logging"]["output_dir"] = "/path/to/mount/placeholder/walker2d/train"
 
     small_eval = configs["small_model_eval.yaml"]
     small_eval["policy"]["checkpoint_path"] = ""
     small_eval["evaluation"]["eval_episodes"] = 10
     small_eval["evaluation"]["eval_latency_values"] = [0, 1, 2, 3, 4]
-    small_eval["logging"]["output_dir"] = "/mnt/data/latency-sensitive-bench/walker2d/continuous_small_model_eval"
+    small_eval["logging"]["output_dir"] = "/path/to/mount/placeholder/walker2d/continuous_small_model_eval"
 
     bench_eval = configs["latency_bench_eval.yaml"]
     bench_eval["experiment"]["name"] = "gymnasium_walker2d_continuous_latency_bench_eval"
     bench_eval["evaluation"]["eval_episodes"] = 10
     bench_eval["evaluation"]["eval_latency_values"] = [0, 1, 2, 3, 4]
-    bench_eval["logging"]["output_dir"] = "/mnt/data/latency-sensitive-bench/walker2d/latency_bench_eval"
+    bench_eval["logging"]["output_dir"] = "/path/to/mount/placeholder/walker2d/latency_bench_eval"
 
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "small_model_train.yaml").write_text(yaml.safe_dump(train, sort_keys=False))

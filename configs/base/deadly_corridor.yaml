@@ -98,7 +98,7 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  wandb_project: latency-sensitive-bench
+  wandb_project: placeholder
   wandb_group: deadly_corridor-new(remove training episode limit)
   wandb_job_type: sample_factory
   wandb_tags: ""

@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 STARVLA_ROOT="${REPO_ROOT}/third_party/starVLA"
 CHECKPOINT_ROOT="${STARVLA_ROOT}/results/Checkpoints"
-VLA_REPO="latency-sensitive-bench/memory"
+VLA_REPO="placeholder/memory"
 cd "${REPO_ROOT}"
 
 BASE_MODEL_REPO="Qwen/Qwen3-VL-4B-Instruct"
@@ -168,7 +168,7 @@ eval_method() {
     --override "rl_games.env_eval.latency.prompt_map_path=${prompt_map}" \
     --wandb-enabled true \
     --wandb-project starVLA_rl_games \
-    --wandb-entity zihanwang-ai-northwestern-university \
+    --wandb-entity placeholder \
     --wandb-run-name "${wandb_run_name}"; then
     eval_status=0
   else

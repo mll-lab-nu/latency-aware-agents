@@ -5,11 +5,11 @@ experiment:
 
 policy:
   type: starvla
-  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/ant_rgb_state_l0_return_gt3000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/ant_rgb_state_l0_return_gt3000_100ep_openvla_native_sft_5k/config.full.yaml
-  task_manifest_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/ant_rgb_state_l0_return_gt3000_100ep/manifest.json
+  checkpoint_path: /path/to/mount/placeholder/openvla_runs/ant_rgb_state_l0_return_gt3000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
+  model_config_path: /path/to/mount/placeholder/openvla_runs/ant_rgb_state_l0_return_gt3000_100ep_openvla_native_sft_5k/config.full.yaml
+  task_manifest_path: /path/to/mount/placeholder/vla_datasets/rl_games/ant_rgb_state_l0_return_gt3000_100ep/manifest.json
   device: cuda
-  latency_prompt_map_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/ant_rgb_state_l0_return_gt3000_100ep/latency_prompt_map.json
+  latency_prompt_map_path: /path/to/mount/placeholder/vla_datasets/rl_games/ant_rgb_state_l0_return_gt3000_100ep/latency_prompt_map.json
   latency_prompt_key: 0
 
 evaluation:
@@ -17,4 +17,4 @@ evaluation:
   eval_latency_values: [0, 2]
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/starvla_eval
+  output_dir: /path/to/mount/placeholder/tasks/ant/starvla_eval

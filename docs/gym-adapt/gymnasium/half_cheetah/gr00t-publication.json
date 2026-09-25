@@ -160,7 +160,7 @@
   "dataset_revision": "223f2106c10b264b820963391ec546d8dce039a5",
   "gate_dataset_revision": "6391d8254f2b9d38d6f4a8c5d5168cfd5f10e30a",
   "baseline_publication": {
-    "repo": "latency-sensitive-bench/Standard-Pipeline",
+    "repo": "placeholder/Standard-Pipeline",
     "repo_type": "dataset",
     "prefix": "half_cheetah/profile_latency/GR00T/h1_5fps_20260917",
     "revision": "223f2106c10b264b820963391ec546d8dce039a5",
@@ -230,7 +230,7 @@
     "verified_at": "2026-09-17T21:34:09.924529+00:00",
     "verification": "All pinned sizes and LFS SHA256/Git blob SHA1 match",
     "scope": "P and B completed; B recovery missingmetadataexplicit; profileteacher scientificgatefailed; F notrun",
-    "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/223f2106c10b264b820963391ec546d8dce039a5/half_cheetah/profile_latency/GR00T/h1_5fps_20260917"
+    "url": "https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/223f2106c10b264b820963391ec546d8dce039a5/half_cheetah/profile_latency/GR00T/h1_5fps_20260917"
   },
   "initial_teacher_model_revision": "999e59c2063cf59235ee6f25b1ee3ecc7676d8c2",
   "evaluated_L0_model_revision": "543d6d4ab81112a0307af9f0a5c9cf4d6cd355de",
@@ -267,9 +267,9 @@
   "scope": "Verified profile teacher and gate-failure evidence. No profile VLA or new demonstration dataset was produced. B20 is complete; its recovery provenance and missing aggregate metadata are explicit.",
   "source_summary_sha256": "0be6e09539097e5894d8a75a4f3d7656dd153572b53cf225390b94acf821366f",
   "links": {
-    "L0_model": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/zero_latency/GR00T",
-    "L0_data": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/324664672c0d45666d6aded0b81af0c900ca1d28/half_cheetah/zero_latency/GR00T/h1_5fps_20260917",
-    "teacher": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/profile_latency/small_model/GR00T",
-    "profile_evidence": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/223f2106c10b264b820963391ec546d8dce039a5/half_cheetah/profile_latency/GR00T/h1_5fps_20260917"
+    "L0_model": "https://huggingface.co/placeholder/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/zero_latency/GR00T",
+    "L0_data": "https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/324664672c0d45666d6aded0b81af0c900ca1d28/half_cheetah/zero_latency/GR00T/h1_5fps_20260917",
+    "teacher": "https://huggingface.co/placeholder/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/profile_latency/small_model/GR00T",
+    "profile_evidence": "https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/223f2106c10b264b820963391ec546d8dce039a5/half_cheetah/profile_latency/GR00T/h1_5fps_20260917"
   }
 }

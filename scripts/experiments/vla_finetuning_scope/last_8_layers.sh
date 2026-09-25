@@ -22,7 +22,7 @@ else
 fi
 
 # --- download data (latency_2) ---
-hf download latency-sensitive-bench/flappy_200ep \
+hf download placeholder/flappy_200ep \
   --repo-type dataset \
   --include "flappy_fix_latency_2_200ep/**" \
   --local-dir "${REPO_ROOT}/third_party/starVLA/data/raw/flappy_fix_latency_2_200ep"
@@ -50,7 +50,7 @@ CHECKPOINT_DIR="${RUN_DIR}/checkpoints"
 compgen -G "${CHECKPOINT_DIR}/steps_*_model.safetensors" > /dev/null
 find "${CHECKPOINT_DIR}" -maxdepth 1 -type d -name "steps_*_state" -exec rm -rf {} +
 
-hf upload latency-sensitive-bench/memory \
+hf upload placeholder/memory \
   "${RUN_DIR}" \
   ./flappy_fix_latency_2_200ep_last_8_layers_corrected_v2 \
   --exclude "wandb/**" \

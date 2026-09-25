@@ -12,4 +12,4 @@ latency:
   add_latency_info: false
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/rtx3090_profile_small_model_train
+  output_dir: /path/to/mount/placeholder/tasks/ant/rtx3090_profile_small_model_train

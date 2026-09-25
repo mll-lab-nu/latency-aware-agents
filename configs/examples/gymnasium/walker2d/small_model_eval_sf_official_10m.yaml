@@ -18,7 +18,7 @@ evaluation:
   eval_latency_values: [0, 1, 2, 3, 4]
 
 logging:
-  output_dir: /mnt/data/latency-sensitive-bench/walker2d/continuous_sf_official_10m_best_eval
+  output_dir: /path/to/mount/placeholder/walker2d/continuous_sf_official_10m_best_eval
   video:
     enabled: true
     num_bins: 1

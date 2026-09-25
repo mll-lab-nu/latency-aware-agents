@@ -3,7 +3,7 @@
   "algo": "APPO",
   "env": "latency_gymnasium",
   "experiment": "gymnasium_walker2d_rgb_state_zero_latency_sf_official_10m",
-  "train_dir": "/mnt/checkpoints/latency-sensitive-bench/walker2d",
+  "train_dir": "/path/to/mount/placeholder/walker2d",
   "restart_behavior": "overwrite",
   "device": "gpu",
   "seed": 0,
@@ -152,13 +152,13 @@
   "eval_max_steps": 1000,
   "eval_deterministic": true,
   "eval_raw_reward": false,
-  "episode_metrics_path": "/mnt/checkpoints/latency-sensitive-bench/walker2d/gymnasium_walker2d_continuous_zero_latency_sf_official_10m/episode_metrics.jsonl",
-  "command_line": "--mode train --algo APPO --env latency_gymnasium --experiment gymnasium_walker2d_continuous_zero_latency_sf_official_10m --train_dir /mnt/checkpoints/latency-sensitive-bench/walker2d --restart_behavior overwrite --device gpu --seed 0 --episode_metrics_path /mnt/checkpoints/latency-sensitive-bench/walker2d/gymnasium_walker2d_continuous_zero_latency_sf_official_10m/episode_metrics.jsonl --train_for_env_steps 10000000 --num_workers 8 --num_envs_per_worker 8 --num_policies 1 --batch_size 1024 --rollout 64 --recurrence 1 --num_epochs 2 --num_batches_per_epoch 4 --worker_num_splits 2 --max_policy_lag 300 --learning_rate 0.00295 --kl_loss_coeff 0.1 --lr_schedule linear_decay --nonlinearity tanh --policy_initialization torch_default --initial_stddev 1.0 --gamma 0.99 --gae_lambda 0.95 --ppo_clip_ratio 0.2 --ppo_clip_value 0.2 --exploration_loss_coeff 0.0 --value_loss_coeff 1.3 --max_grad_norm 3.5 --save_every_sec 600 --keep_checkpoints 5 --async_rl False --batched_sampling False --serial_mode False --use_rnn False --normalize_returns True --normalize_input True --adaptive_stddev False --shuffle_minibatches False --value_bootstrap True --encoder_mlp_layers 64 64 --latency-type zero --add-latency-info False --eval-episodes 5 --eval-parallel-envs 1 --eval-max-steps 1000 --eval-deterministic True --gym-task-name walker2d_continuous_torque --gym-env-id LatencyBench/Walker2dContinuous-v0 --gym-make-kwargs-json {\"base_env_id\": \"Walker2d-v4\", \"render_mode\": \"rgb_array\", \"base_make_kwargs\": {\"forward_reward_weight\": 1.0, \"ctrl_cost_weight\": 0.001, \"healthy_reward\": 1.0, \"terminate_when_unhealthy\": true, \"reset_noise_scale\": 0.005, \"exclude_current_positions_from_observation\": true}} --gym-registration-imports-json [\"latency_bench.envs.gymnasium_walker2d\"] --gym-action-space-json {\"type\": \"box\", \"labels\": [\"right_thigh_torque\", \"right_leg_torque\", \"right_foot_torque\", \"left_thigh_torque\", \"left_leg_torque\", \"left_foot_torque\"], \"low\": [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0], \"high\": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0], \"dtype\": \"float32\", \"openvla_carrier_dim\": 7, \"openvla_padding\": [0.0]} --gym-noop-action-json [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] --gym-base-prompt Move the Walker2d robot forward while keeping its torso upright. Predict six continuous torques in [-1, 1] ordered as right thigh, right leg, right foot, left thigh, left leg, and left foot. --env-fps 125.0 --obs-fps 125.0 --frame-stack 1 --hold-policy hold --ordering-policy issue_order_fifo --use_env_info_cache False",
+  "episode_metrics_path": "/path/to/mount/placeholder/walker2d/gymnasium_walker2d_continuous_zero_latency_sf_official_10m/episode_metrics.jsonl",
+  "command_line": "--mode train --algo APPO --env latency_gymnasium --experiment gymnasium_walker2d_continuous_zero_latency_sf_official_10m --train_dir /path/to/mount/placeholder/walker2d --restart_behavior overwrite --device gpu --seed 0 --episode_metrics_path /path/to/mount/placeholder/walker2d/gymnasium_walker2d_continuous_zero_latency_sf_official_10m/episode_metrics.jsonl --train_for_env_steps 10000000 --num_workers 8 --num_envs_per_worker 8 --num_policies 1 --batch_size 1024 --rollout 64 --recurrence 1 --num_epochs 2 --num_batches_per_epoch 4 --worker_num_splits 2 --max_policy_lag 300 --learning_rate 0.00295 --kl_loss_coeff 0.1 --lr_schedule linear_decay --nonlinearity tanh --policy_initialization torch_default --initial_stddev 1.0 --gamma 0.99 --gae_lambda 0.95 --ppo_clip_ratio 0.2 --ppo_clip_value 0.2 --exploration_loss_coeff 0.0 --value_loss_coeff 1.3 --max_grad_norm 3.5 --save_every_sec 600 --keep_checkpoints 5 --async_rl False --batched_sampling False --serial_mode False --use_rnn False --normalize_returns True --normalize_input True --adaptive_stddev False --shuffle_minibatches False --value_bootstrap True --encoder_mlp_layers 64 64 --latency-type zero --add-latency-info False --eval-episodes 5 --eval-parallel-envs 1 --eval-max-steps 1000 --eval-deterministic True --gym-task-name walker2d_continuous_torque --gym-env-id LatencyBench/Walker2dContinuous-v0 --gym-make-kwargs-json {\"base_env_id\": \"Walker2d-v4\", \"render_mode\": \"rgb_array\", \"base_make_kwargs\": {\"forward_reward_weight\": 1.0, \"ctrl_cost_weight\": 0.001, \"healthy_reward\": 1.0, \"terminate_when_unhealthy\": true, \"reset_noise_scale\": 0.005, \"exclude_current_positions_from_observation\": true}} --gym-registration-imports-json [\"latency_bench.envs.gymnasium_walker2d\"] --gym-action-space-json {\"type\": \"box\", \"labels\": [\"right_thigh_torque\", \"right_leg_torque\", \"right_foot_torque\", \"left_thigh_torque\", \"left_leg_torque\", \"left_foot_torque\"], \"low\": [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0], \"high\": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0], \"dtype\": \"float32\", \"openvla_carrier_dim\": 7, \"openvla_padding\": [0.0]} --gym-noop-action-json [0.0, 0.0, 0.0, 0.0, 0.0, 0.0] --gym-base-prompt Move the Walker2d robot forward while keeping its torso upright. Predict six continuous torques in [-1, 1] ordered as right thigh, right leg, right foot, left thigh, left leg, and left foot. --env-fps 125.0 --obs-fps 125.0 --frame-stack 1 --hold-policy hold --ordering-policy issue_order_fifo --use_env_info_cache False",
   "cli_args": {
     "algo": "APPO",
     "env": "latency_gymnasium",
     "experiment": "gymnasium_walker2d_continuous_zero_latency_sf_official_10m",
-    "train_dir": "/mnt/checkpoints/latency-sensitive-bench/walker2d",
+    "train_dir": "/path/to/mount/placeholder/walker2d",
     "restart_behavior": "overwrite",
     "device": "gpu",
     "seed": 0,
@@ -221,11 +221,11 @@
     "eval_parallel_envs": 1,
     "eval_max_steps": 1000,
     "eval_deterministic": true,
-    "episode_metrics_path": "/mnt/checkpoints/latency-sensitive-bench/walker2d/gymnasium_walker2d_continuous_zero_latency_sf_official_10m/episode_metrics.jsonl"
+    "episode_metrics_path": "/path/to/mount/placeholder/walker2d/gymnasium_walker2d_continuous_zero_latency_sf_official_10m/episode_metrics.jsonl"
   },
   "git_hash": "6f691b7d5e27102654adf6b72f069f959b496cb6",
-  "git_repo_name": "https://github.com/ZihanWang314/latency-sensitive-bench.git",
+  "git_repo_name": "https://github.com/placeholder/placeholder.git",
   "eval_env_frameskip": 1,
-  "output_dir": "/mnt/data/latency-sensitive-bench/walker2d/continuous_sf_official_10m_train",
+  "output_dir": "/path/to/mount/placeholder/walker2d/continuous_sf_official_10m_train",
   "gym_state_labels_json": "[\"torso_height\", \"torso_angle\", \"right_thigh_angle\", \"right_leg_angle\", \"right_foot_angle\", \"left_thigh_angle\", \"left_leg_angle\", \"left_foot_angle\", \"torso_x_velocity\", \"torso_z_velocity\", \"torso_angular_velocity\", \"right_thigh_angular_velocity\", \"right_leg_angular_velocity\", \"right_foot_angular_velocity\", \"left_thigh_angular_velocity\", \"left_leg_angular_velocity\", \"left_foot_angular_velocity\"]"
 }

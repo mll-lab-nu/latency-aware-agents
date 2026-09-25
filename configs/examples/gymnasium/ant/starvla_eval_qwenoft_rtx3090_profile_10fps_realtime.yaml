@@ -32,5 +32,5 @@ evaluation:
   eval_latency_values: null
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/rtx3090_profile_10fps_starvla_realtime_eval
+  output_dir: /path/to/mount/placeholder/tasks/ant/rtx3090_profile_10fps_starvla_realtime_eval
   realtime_pipeline_profile: true

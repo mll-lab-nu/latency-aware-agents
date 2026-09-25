@@ -17,4 +17,4 @@ evaluation:
   eval_latency_values: [0, 2]
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/swimmer/starvla_eval
+  output_dir: /path/to/mount/placeholder/tasks/swimmer/starvla_eval

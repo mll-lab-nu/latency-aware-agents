@@ -5,7 +5,7 @@ SESSION_NAME="${SESSION_NAME:-hfd_openvla_flappy_latency2}"
 LOG_DIR="${LOG_DIR:-/workspace/logs}"
 LOG_FILE="${LOG_FILE:-$LOG_DIR/${SESSION_NAME}.log}"
 
-MODEL_ID="${MODEL_ID:-latency-sensitive-bench/openvla_flappy_fix_latency_2}"
+MODEL_ID="${MODEL_ID:-placeholder/openvla_flappy_fix_latency_2}"
 DOWNLOAD_DIR="${DOWNLOAD_DIR:-/workspace}"
 HFD_SCRIPT="${HFD_SCRIPT:-/workspace/hfd.sh}"
 DOWNLOAD_RETRY_DELAY_S="${DOWNLOAD_RETRY_DELAY_S:-10}"

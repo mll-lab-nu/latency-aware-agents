@@ -6,8 +6,8 @@
 
 ```bash
 git lfs install
-git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-bench.git
-cd latency-sensitive-bench
+git clone --filter=blob:none https://github.com/placeholder/placeholder.git
+cd placeholder
 git submodule update --init --depth 1 --jobs 8
 export BENCH_ROOT="$PWD"
 nvidia-smi

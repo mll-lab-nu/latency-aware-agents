@@ -5,7 +5,7 @@ train_dir: results/checkpoints/observation_stride/flappy
 output_root: outputs/observation_stride/flappy/capped
 device: cuda
 restart_behavior: resume
-eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+eval_upload_repo_id: placeholder/paper-experiment-evals
 eval_upload_repo_type: dataset
 eval_upload_path_prefix: observation_stride/flappy/capped
 seeds:

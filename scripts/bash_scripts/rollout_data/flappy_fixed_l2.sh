@@ -13,7 +13,7 @@ DEVICE=gpu
 IMAGE_WRITER_WORKERS=32
 # HF dataset target: HF_REPO_ID is the collection repo, HF_CONFIG_NAME the specific
 # dataset (config) inside it. Leave HF_REPO_ID empty to skip the upload.
-HF_REPO_ID=latency-sensitive-bench/flappy_200ep
+HF_REPO_ID=placeholder/flappy_200ep
 HF_CONFIG_NAME=flappy_fixed_latency_2_200ep_7k2steps
 
 # ---- paths / knobs (override via env) ----
@@ -23,7 +23,7 @@ FILTER_PRESET="${FILTER_PRESET:-contiguous_v1}"   # KV-memory needs contiguous r
 
 # Immutable published teacher checkpoint; this external path predates the
 # paper-facing memory/small_model name.
-CKPT_HF_REPO="latency-sensitive-bench/factor-sweeps-models"
+CKPT_HF_REPO="placeholder/factor-sweeps-models"
 CKPT_SUBPATH="factor_sweeps/flappy/context_window/train/factor_sweep:flappy:frame_stack:fixed_l2:fs1:obs30:stride1:seed10"
 CKPT_DOWNLOAD_ROOT="${CKPT_DOWNLOAD_ROOT:-$REPO_ROOT/playground/published_teacher_ckpts}"
 CHECKPOINT_ROOT="$CKPT_DOWNLOAD_ROOT/$CKPT_SUBPATH"

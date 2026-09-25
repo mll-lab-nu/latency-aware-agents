@@ -32,9 +32,9 @@ StarVLA 原始模型的本地零延迟评估结果如下，均为 50 局：
 
 历史 W&B 项目：
 
-- [official GR00T](https://wandb.ai/saberrr-zju/finetune-gr00t-n1d7)
-- [StarVLA 原始实验](https://wandb.ai/zihanwang-ai-northwestern-university/starvla_tasks)
-- [本次 DAgger 实验](https://wandb.ai/saberrr-zju/starvla_tasks)
+- [official GR00T](https://wandb.ai/placeholder/finetune-gr00t-n1d7)
+- [StarVLA 原始实验](https://wandb.ai/placeholder/starvla_tasks)
+- [本次 DAgger 实验](https://wandb.ai/placeholder/starvla_tasks)
 
 必须区分两个问题：
 
@@ -206,7 +206,7 @@ StarVLA 原始模型的本地零延迟评估结果如下，均为 50 局：
 - 错误标签轮：`outputs/starvla/runs/humanoidbench_balance_simple/qwenoft/dagger-r1-20260908/`；离线重标来源是其 `dagger/round-00/raw/`。
 - 错误标签轮下还保留 `training/dagger-microbatch1-aborted-step187/` 和 `batch-probe/probe-mb8/`，不是本次修正轮的训练起点。
 
-[修正轮 W&B](https://wandb.ai/saberrr-zju/starvla_tasks/runs/balance-qwenoft-dagger-conditioned-r1-20260909-dagger) 已记录训练指标，并写入和回读确认了 100 局 eval summary：`eval_corrected/fixed/latency_0/{mean_return,std_return,mean_length,completed_episodes}`。
+[修正轮 W&B](https://wandb.ai/placeholder/starvla_tasks/runs/balance-qwenoft-dagger-conditioned-r1-20260909-dagger) 已记录训练指标，并写入和回读确认了 100 局 eval summary：`eval_corrected/fixed/latency_0/{mean_return,std_return,mean_length,completed_episodes}`。
 
 当前修正轮已经完整结束。不要对这个 run 直接加 `--resume` 并以为会开始新实验：现有完整 step-500 state 会使训练阶段跳过。下一次获准的新实验应使用独立 run ID，保留现有结果，不覆盖原始较优模型。
 
@@ -637,7 +637,7 @@ done
 
 验证单轮下降是否会在持续刷新数据后恢复：scratch 从原始 Qwen3-VL 加随机动作头和 state projector 开始，checkpoint 从原始 formal QwenOFT 开始。两组都跳过本次 SFT，各自从新的 AdamW 开始；在 `81.85.0.163`、`81.85.1.68` 的单张 RTX PRO 6000 96GB 上分别执行。
 
-实验根目录为 `outputs/starvla/experiments/balance-dagger10-20260910/`；远端仓库根目录均为 `/home/xinyuan/balance-dagger10`。两组通过两轮真实 smoke 后，于 **08:35:44 UTC** 启动首轮采集，各自完成 64,000 行。checkpoint 组在完成 87 次更新后遇到优化器显存分配 OOM，scratch 组在第 84 步主动暂停。两组于约 **09:15 UTC** 统一改用 micro-batch 8、accumulation 16，从各自原始起点、新 optimizer 重新训练，复用首轮数据；原尝试单独归档。截至 **17:35 UTC**，两组均完成 3000/5000 updates 与对应 50 局评估，正在采集第七轮；重启后没有再发生 OOM。
+实验根目录为 `outputs/starvla/experiments/balance-dagger10-20260910/`；远端仓库根目录均为 `/path/to/user/balance-dagger10`。两组通过两轮真实 smoke 后，于 **08:35:44 UTC** 启动首轮采集，各自完成 64,000 行。checkpoint 组在完成 87 次更新后遇到优化器显存分配 OOM，scratch 组在第 84 步主动暂停。两组于约 **09:15 UTC** 统一改用 micro-batch 8、accumulation 16，从各自原始起点、新 optimizer 重新训练，复用首轮数据；原尝试单独归档。截至 **17:35 UTC**，两组均完成 3000/5000 updates 与对应 50 局评估，正在采集第七轮；重启后没有再发生 OOM。
 
 **2026-09-11 02:16 UTC 更新：尚未完成。** 两组第七轮数据采集完成后，分别在前一天 **17:49:28 / 17:56:32 UTC** 的训练启动阶段 OOM，未产生第 3001 步更新。错误中还记录了两个额外 GPU 进程，分别占用约 22.04 GiB 和 686 MiB；当时训练进程自身已占用约 72.2 GiB。额外进程的归属尚未确认。自动回传仅等待后续轮次，没有及时识别训练退出，导致中断期间一直没有新更新。02:14 左右确认两张 GPU 已空闲后，两组使用既有第七轮数据和 `steps_3000_state` 重新启动；02:21 UTC 已分别推进至 3030 / 3033 步。已核对首个恢复更新为 3001，head/base LR 为 `3.788479513026289e-5 / 1.1365438539078866e-5`，与原 5000-step cosine 完全一致，未重置 warmup；继续使用 micro-batch 8、accumulation 16。失败日志与配置存于 `ARM/attempt-round07-gpu-contention/`。回传等待现已读取 launcher 退出码，非零退出会立即报错；新增进程级显存记录，以便定位再次发生的并发占用。
 
@@ -682,11 +682,11 @@ done
 
 实际部署代码保存在 `deployed-code/`；两台远端的训练入口已核对一致，并与原 `code-overlay.tar.gz` 对应。工作区后来加入的 OOM 自动减小 micro-batch 逻辑没有同步到这两组运行，实验仍保持固定 micro-batch 8。`code-overlay-current.tar.gz` 保留实际部署的入口与测试快照，并补入最新的实验等待、回传和验证脚本；配合 `code.tar.gz` 和 `source-revisions.json` 复现，详见 `deployed-code/source-manifest.json`。
 
-W&B 使用 `saberrr-zju/starvla_tasks`。最初批量试跑为 disabled，已由 `backfill_probes.py` 补传完整逐步历史，并明确标记 `backfilled: true`；后续训练、smoke 和闭环评估使用 online。每组的训练和逐轮评估接续同一个 run，评估横轴为 `global_step`：
+W&B 使用 `placeholder/starvla_tasks`。最初批量试跑为 disabled，已由 `backfill_probes.py` 补传完整逐步历史，并明确标记 `backfilled: true`；后续训练、smoke 和闭环评估使用 online。每组的训练和逐轮评估接续同一个 run，评估横轴为 `global_step`：
 
-- [部署基线](https://wandb.ai/saberrr-zju/starvla_tasks/runs/balance-dagger10-20260910-setup)
-- [scratch 重启组](https://wandb.ai/saberrr-zju/starvla_tasks/runs/balance-qwenoft-balance-dagger10-20260910-scratch-dagger-mb8)
-- [checkpoint 重启组](https://wandb.ai/saberrr-zju/starvla_tasks/runs/balance-qwenoft-balance-dagger10-20260910-checkpoint-dagger-mb8)
+- [部署基线](https://wandb.ai/placeholder/starvla_tasks/runs/balance-dagger10-20260910-setup)
+- [scratch 重启组](https://wandb.ai/placeholder/starvla_tasks/runs/balance-qwenoft-balance-dagger10-20260910-scratch-dagger-mb8)
+- [checkpoint 重启组](https://wandb.ai/placeholder/starvla_tasks/runs/balance-qwenoft-balance-dagger10-20260910-checkpoint-dagger-mb8)
 
 原尝试保留在上述 ID 去掉 `-mb8` 后对应的 run 中；短暂的 checkpoint 重试使用 `-expandable` 后缀。正式比较使用 `-mb8` 重启组，避免把旧尝试的前 84/87 步与重新训练后的曲线拼接。
 

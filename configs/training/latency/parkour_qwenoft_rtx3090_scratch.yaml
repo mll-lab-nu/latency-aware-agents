@@ -3,4 +3,4 @@ experiment:
   name: extreme_parkour_go2_qwenoft_scratch
   seed: 1
 latency:
-  profile_path: /pfs/users/lxy/latency-sensitive-bench/results/profiling/profiles/qwenoft/1x-rtx3090/extreme_parkour_go2/instance_6e332477bffea7da/profile.json
+  profile_path: /path/to/user/placeholder/results/profiling/profiles/qwenoft/1x-rtx3090/extreme_parkour_go2/instance_6e332477bffea7da/profile.json

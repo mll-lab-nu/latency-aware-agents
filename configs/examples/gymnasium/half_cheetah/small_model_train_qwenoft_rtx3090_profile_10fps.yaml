@@ -16,4 +16,4 @@ latency:
   add_latency_info: false
 
 logging:
-  output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah/rtx3090_profile_10fps_small_model_train
+  output_dir: /path/to/mount/placeholder/tasks/half_cheetah/rtx3090_profile_10fps_small_model_train

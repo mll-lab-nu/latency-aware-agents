@@ -80,7 +80,7 @@ root is absent, the launcher downloads the exact
 `zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-v1` artifact.
 Logical `cuda:0` runs MIKASA; `cuda:1..` run inference. Add `--resume RUN_ID` to
 continue a partial five-session run or `--publish` to upload the completed run
-and profile to `latency-sensitive-bench/profiles`.
+and profile to `placeholder/profiles`.
 
 ## Manual stage gates
 
@@ -140,15 +140,15 @@ The completed reference run produced:
 
 The historical public sources are retained for provenance:
 
-- teacher/model: [`latency-sensitive-bench/mikasa-robo`](https://huggingface.co/latency-sensitive-bench/mikasa-robo),
+- teacher/model: [`placeholder/mikasa-robo`](https://huggingface.co/placeholder/mikasa-robo),
   revision `38327e16f9b33cf5f827b54a606cb4c22d4dfbfc`;
-- dataset: [`latency-sensitive-bench/mikasa-robo`](https://huggingface.co/datasets/latency-sensitive-bench/mikasa-robo),
+- dataset: [`placeholder/mikasa-robo`](https://huggingface.co/datasets/placeholder/mikasa-robo),
   revision `28312021c634fa97f8068077dfd6eb0efe6d45ce`.
 
 The accepted artifacts are also published in the central
-[`benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
+[`benchmark-models`](https://huggingface.co/placeholder/benchmark-models)
 repository at revision `204be41b83c892a1c5d0b37a1dd0d628dd2c6a46` and
-[`benchmark-datasets`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
+[`benchmark-datasets`](https://huggingface.co/datasets/placeholder/benchmark-datasets)
 at revision `82b99e2f238d2e1be46e435d5b1ca7a9b9a411a5`. Exact paths are listed in
 the [artifact registry](../artifacts.md). The model copy excludes optimizer
 state and W&B files; the dataset copy includes both raw NPZ and the fixed

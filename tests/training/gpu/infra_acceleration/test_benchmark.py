@@ -68,7 +68,7 @@ def _base_config(env_name: str, tmp_path: Path) -> dict:
             "save_step_records": True,
             "save_action_records": True,
             "save_latency_records": True,
-            "wandb_project": "latency-sensitive-bench",
+            "wandb_project": "placeholder",
         },
     }
     if env_name == "flappy":

@@ -570,9 +570,9 @@ def test_default_uploader_prefers_env_token_over_dotenv(monkeypatch, tmp_path):
 
     _default_uploader(
         {
-            "train_upload_repo_id": "latency-sensitive-bench/sweep-models",
+            "train_upload_repo_id": "placeholder/sweep-models",
             "train_upload_repo_type": "model",
-            "eval_upload_repo_id": "latency-sensitive-bench/sweep-evals",
+            "eval_upload_repo_id": "placeholder/sweep-evals",
             "eval_upload_repo_type": "dataset",
             "train_artifact_dir": str(tmp_path / "train_artifacts"),
             "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
@@ -582,9 +582,9 @@ def test_default_uploader_prefers_env_token_over_dotenv(monkeypatch, tmp_path):
     )
 
     assert calls[0] == ("init", "env-token")
-    assert calls[1] == ("create_repo", "latency-sensitive-bench/sweep-evals")
+    assert calls[1] == ("create_repo", "placeholder/sweep-evals")
     assert calls[2] == ("upload_folder", "eval/job1")
-    assert calls[3] == ("create_repo", "latency-sensitive-bench/sweep-models")
+    assert calls[3] == ("create_repo", "placeholder/sweep-models")
     assert calls[4] == ("upload_folder", "train/job1")
 
 
@@ -614,9 +614,9 @@ def test_default_uploader_falls_back_to_dotenv_token(monkeypatch, tmp_path):
 
     _default_uploader(
         {
-            "train_upload_repo_id": "latency-sensitive-bench/sweep-models",
+            "train_upload_repo_id": "placeholder/sweep-models",
             "train_upload_repo_type": "model",
-            "eval_upload_repo_id": "latency-sensitive-bench/sweep-evals",
+            "eval_upload_repo_id": "placeholder/sweep-evals",
             "eval_upload_repo_type": "dataset",
             "train_artifact_dir": str(tmp_path / "train_artifacts"),
             "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
@@ -653,9 +653,9 @@ def test_default_uploader_uses_cached_login_when_no_token_available(monkeypatch,
 
     _default_uploader(
         {
-            "train_upload_repo_id": "latency-sensitive-bench/sweep-models",
+            "train_upload_repo_id": "placeholder/sweep-models",
             "train_upload_repo_type": "model",
-            "eval_upload_repo_id": "latency-sensitive-bench/sweep-evals",
+            "eval_upload_repo_id": "placeholder/sweep-evals",
             "eval_upload_repo_type": "dataset",
             "train_artifact_dir": str(tmp_path / "train_artifacts"),
             "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
@@ -692,9 +692,9 @@ def test_default_uploader_splits_model_and_dataset_repos_and_filters_noise(monke
 
     _default_uploader(
         {
-            "train_upload_repo_id": "latency-sensitive-bench/sweep-models",
+            "train_upload_repo_id": "placeholder/sweep-models",
             "train_upload_repo_type": "model",
-            "eval_upload_repo_id": "latency-sensitive-bench/sweep-evals",
+            "eval_upload_repo_id": "placeholder/sweep-evals",
             "eval_upload_repo_type": "dataset",
             "train_artifact_dir": str(tmp_path / "train_artifacts"),
             "eval_artifact_dir": str(tmp_path / "eval_artifacts"),
@@ -705,19 +705,19 @@ def test_default_uploader_splits_model_and_dataset_repos_and_filters_noise(monke
 
     assert uploads[0] == {
         "kind": "create_repo",
-        "repo_id": "latency-sensitive-bench/sweep-evals",
+        "repo_id": "placeholder/sweep-evals",
         "repo_type": "dataset",
     }
-    assert uploads[1]["repo_id"] == "latency-sensitive-bench/sweep-evals"
+    assert uploads[1]["repo_id"] == "placeholder/sweep-evals"
     assert uploads[1]["repo_type"] == "dataset"
     assert uploads[1]["path_in_repo"] == "eval/job1"
     assert uploads[1]["ignore_patterns"] == run_manifest_jobs.UPLOAD_IGNORE_PATTERNS
     assert uploads[2] == {
         "kind": "create_repo",
-        "repo_id": "latency-sensitive-bench/sweep-models",
+        "repo_id": "placeholder/sweep-models",
         "repo_type": "model",
     }
-    assert uploads[3]["repo_id"] == "latency-sensitive-bench/sweep-models"
+    assert uploads[3]["repo_id"] == "placeholder/sweep-models"
     assert uploads[3]["repo_type"] == "model"
     assert uploads[3]["path_in_repo"] == "train/job1"
     assert uploads[3]["ignore_patterns"] == run_manifest_jobs.UPLOAD_IGNORE_PATTERNS

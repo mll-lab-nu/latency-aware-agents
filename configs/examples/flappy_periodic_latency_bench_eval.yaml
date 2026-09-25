@@ -82,7 +82,7 @@ evaluation:
 
 logging:
   output_dir: outputs/train/flappy/latency_0/seed_0_periodic_eval
-  wandb_project: latency-sensitive-bench
+  wandb_project: placeholder
   wandb_group: flappy-new(remove training episode limit)
   wandb_job_type: sample_factory
   wandb_name: flappy-bird-l0-s0-periodic-eval

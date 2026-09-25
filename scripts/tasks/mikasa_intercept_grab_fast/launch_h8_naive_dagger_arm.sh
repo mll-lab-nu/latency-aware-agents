@@ -15,9 +15,9 @@ TASK_PY="${ROOT}/third_party/MIKASA-Robo/.venv/bin/python"
 INFERENCE_GPU="${TRAIN_DEVICES%%,*}"
 
 case "${MODEL}" in
-  qwenoft) VLA_PY=/home/ubuntu/miniconda3/envs/starvla_rl_games_openvla/bin/python ;;
-  qwenpi_v3) VLA_PY=/home/ubuntu/miniconda3/envs/starvla_rl_games_pi05/bin/python ;;
-  qwengr00t) VLA_PY=/home/ubuntu/miniconda3/envs/starvla_rl_games_gr00t/bin/python ;;
+  qwenoft) VLA_PY=/path/to/user/miniconda3/envs/starvla_rl_games_openvla/bin/python ;;
+  qwenpi_v3) VLA_PY=/path/to/user/miniconda3/envs/starvla_rl_games_pi05/bin/python ;;
+  qwengr00t) VLA_PY=/path/to/user/miniconda3/envs/starvla_rl_games_gr00t/bin/python ;;
   *) exit 2 ;;
 esac
 
@@ -25,9 +25,9 @@ cd "${ROOT}"
 set -a
 . ./.env
 set +a
-export WANDB_ENTITY=saberrr-zju
+export WANDB_ENTITY=placeholder
 export PYTHONPATH="${ROOT}:${ROOT}/third_party/starVLA"
-UV_EXEC="${UV:-/home/ubuntu/.local/bin/uv}"
+UV_EXEC="${UV:-/path/to/user/.local/bin/uv}"
 
 exec "${VLA_PY}" -m scripts.tasks.mikasa_intercept_grab_fast.run_dagger \
   --model "${MODEL}" --condition zero-latency \
