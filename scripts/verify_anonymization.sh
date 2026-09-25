@@ -13,7 +13,7 @@ FAIL=0
 
 IDENTITY_PATTERN='talha|chafekar|talha1503|talha15032|zihan|zihanwang|zihanwang314|northwestern|zhejiang|dongqianyu|lixinyuan|mindorigin150|saberrr|zju|\blxy\b|jinhui|junqiu|fangjing|zhijie|gaoning|yejinhui|jye624|hkust|fudan|sust|pku\.edu|gmail\.com|outlook\.com|163\.com'
 PATH_PATTERN='(/Users/|/home/[A-Za-z0-9_.-]+|/mnt/[A-Za-z0-9_.-]+|/gpfs/|/project/|/pfs/users/)'
-PUBLIC_LINK_PATTERN='latency-sensitive-bench|anonymous-latency-bench|anonymous-iclr|github\.com/ZihanWang314|git@github\.com:ZihanWang314|wandb\.ai/saberrr-zju|starvla\.github\.io|huggingface\.co/StarVLA|arxiv\.org/abs/2604'
+PUBLIC_LINK_PATTERN='latency-sensitive-bench|anonymous-latency-bench|anonymous-iclr|github\.com/ZihanWang314|git@github\.com:ZihanWang314|wandb\.ai/saberrr-zju|starvla\.github\.io|huggingface\.co/[^[:space:]\)\"<>]*starvla|huggingface\.co/StarVLA|arxiv\.org/abs/2604'
 EMAIL_PATTERN='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 
 run_search() {

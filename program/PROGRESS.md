@@ -8,7 +8,7 @@
 - zero-latency 模型：[benchmark-models@e05ca26](https://huggingface.co/placeholder/benchmark-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)
 - RTX 3090 profiles：[profiles@e8be1e5](https://huggingface.co/datasets/placeholder/profiles/tree/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles)
 - Parkour latency small：[benchmark-models@6348f44](https://huggingface.co/placeholder/benchmark-models/tree/6348f44ce65c1414dbc4f2ec46e0d5eb525ab770/latency-aware/extreme-parkour-go2/small-policy)
-- MIKASA WanOFT latency-aware VLA：[benchmark-models@ad40d57](https://huggingface.co/placeholder/benchmark-models/tree/ad40d57c5747761705770aa557db0f287888f727/latency-aware/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_wanoft_latency_3090_20260916T094307Z)
+- MIKASA WanOFT latency-aware VLA：[benchmark-models@ad40d57](https://huggingface.co/placeholder/benchmark-models/tree/ad40d57c5747761705770aa557db0f287888f727/latency-aware/mikasa-intercept-grab-fast/vla/placeholder-wanoft-h1/mikasa_wanoft_latency_3090_20260916T094307Z)
 
 ## 阅读口径
 
