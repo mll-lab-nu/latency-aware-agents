@@ -187,7 +187,7 @@ trainer:
 workspace_dir: WORKSPACE_DIR
 run_root_dir: /path/to/mount/placeholder/openvla_runs
 seed: 42
-wandb_entity: placeholder99-placeholder-university
+wandb_entity: placeholder
 wandb_project: placeholder
 auth:
   env_file: null

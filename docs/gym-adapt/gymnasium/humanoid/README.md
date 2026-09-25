@@ -94,7 +94,7 @@ item access, not total training throughput.
 Fresh v9 formal training started on September17 at00:52:34UTC: 5000 updates,
 seed42, global64, original learning rates/warmup, trainworkers4, and explicit
 evalworkers0 with validation every500 updates for200 batches. The
-[W&B run](https://wandb.ai/placeholder99-placeholder-university/placeholder/runs/humanoid-zero-gr00t-h8-v9-host75-20260917)
+[W&B run](https://wandb.ai/placeholder/placeholder/runs/humanoid-zero-gr00t-h8-v9-host75-20260917)
 and [published preflight/launch evidence](https://huggingface.co/datasets/placeholder/Standard-Pipeline/tree/38219a6da33c2873e77ddb1bc06226bd0bb388a3/humanoid/zero_latency/GR00T/native_h8_15fps_20260917/vla)
 record the exact configuration and retained failures. Training completion,
 closed-loop acceptance, and P/B/E/F remain pending.
