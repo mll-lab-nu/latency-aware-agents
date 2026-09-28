@@ -238,6 +238,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
         "policy_workers_per_policy",
         "learning_rate",
         "lr_schedule",
+        "lr_schedule_min_lr",
         "kl_loss_coeff",
         "lr_schedule_kl_threshold",
         "nonlinearity",

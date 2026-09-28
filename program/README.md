@@ -40,6 +40,7 @@
 | [logs/mikasa-h8-zero-latency-2026-09-20](logs/mikasa-h8-zero-latency-2026-09-20.md) | MIKASA H8 数据审计、相关测试、三模型 smoke 与正式运行时间线 | 运行记录；完成状态和结果只以 PROGRESS 为准 |
 | [logs/atari-gpu-training-gate-2026-09-22](logs/atari-gpu-training-gate-2026-09-22.md) | Atlantis/Asterix CuLE 接入、2048/4096 H100 吞吐与 100 局 GPU/CPU 兼容评测 | 2048 候选通过吞吐与兼容门；三 seed 同帧数质量 A/B 尚未完成 |
 | [logs/worker-capacity-contract-2026-09-23](logs/worker-capacity-contract-2026-09-23.md) | Flappy/Demon/Deadly 训练评测容量不一致的诊断、统一实现、H100 验证与 corrected 重训协议 | 九项旧 profile-small 结果失效；corrected 产物只留挂载盘，未经批准不更新 HF |
+| [logs/flappy-capacity1-profile-learning-2026-09-23](logs/flappy-capacity1-profile-learning-2026-09-23.md) | Flappy 帧堆叠评测修复、OFT/GR00T 修正基线、18k horizon 回报上限与 APPO 单变量实验 | GR00T 25D 历史在两组评测场景明显增益；忙碌位对照未完成，后续转入九条 24D/跨游戏训练；[旧 25D 配方归档](archive/flappy-capacity1-20260923/README.md) |
 | [logs/decision-action-history-nine-profile-2026-09-23](logs/decision-action-history-nine-profile-2026-09-23.md) | Flappy/Demon/Deadly 共用 8 次决策历史与 3090 temporal 配方；Deadly 时钟修正与重跑 | 九条训练及 final/best 各 100 局已完成；[结果汇总](../outputs/tasks/decision_history_nine_profile_20260923/summary.md) |
 | [logs/mikasa-h8-conditioned-2026-09-21](logs/mikasa-h8-conditioned-2026-09-21.md) | MIKASA conditioned H8 的实现、四路 collector、六路训练与三条终评流水线 | 运行记录；未经核验的正式结果不写入 PROGRESS |
 | [logs/mikasa-prefix63-failure-2026-09-25](logs/mikasa-prefix63-failure-2026-09-25.md) | 三路DAgger失败与第一台Local SSD只读排查 | 原始trainer异常待取证；第一台阵列元数据缺失且抽样全零 |

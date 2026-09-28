@@ -263,6 +263,33 @@ def test_flappy_sf_cli_maps_explicit_env_max_episode_steps():
     assert args[args.index("--max_episode_steps") + 1] == "1800"
 
 
+def test_flappy_sf_cli_actor_mask_is_opt_in():
+    from training.flappy_sf.integration import build_cli_args_from_config
+
+    cfg = load_config("configs/base/flappy.yaml")
+    args = build_cli_args_from_config(cfg)
+    assert args[args.index("--mask-unadmitted-actor") + 1] == "False"
+
+    cfg["training"]["mask_unadmitted_actor"] = True
+    args = build_cli_args_from_config(cfg)
+    assert args[args.index("--mask-unadmitted-actor") + 1] == "True"
+
+
+def test_flappy_sf_cli_passes_learning_rate_schedule():
+    from training.flappy_sf.integration import SAMPLE_FACTORY_CONFIG_PARSER, build_cli_args_from_config
+
+    cfg = load_config("configs/base/flappy.yaml")
+    cfg["training"]["lr_schedule"] = "linear_decay_floor"
+    cfg["training"]["lr_schedule_min_lr"] = 5e-5
+    args = build_cli_args_from_config(cfg)
+
+    assert args[args.index("--lr_schedule") + 1] == "linear_decay_floor"
+    assert args[args.index("--lr_schedule_min_lr") + 1] == "5e-05"
+    parsed = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(args)
+    assert parsed.lr_schedule == "linear_decay_floor"
+    assert parsed.lr_schedule_min_lr == 5e-5
+
+
 def test_flappy_linear_lr_resume_uses_checkpoint_optimizer_step():
     from sample_factory.algo.learning.learner import get_lr_scheduler
     from sample_factory.utils.attr_dict import AttrDict
@@ -281,6 +308,26 @@ def test_flappy_linear_lr_resume_uses_checkpoint_optimizer_step():
     assert get_lr_scheduler(cfg, saved_step).update(saved_lr, []) == pytest.approx(
         cfg.learning_rate * (1 - (saved_step + 1) / updates)
     )
+
+
+def test_flappy_linear_lr_floor_preserves_early_schedule():
+    from sample_factory.algo.learning.learner import get_lr_scheduler
+    from sample_factory.utils.attr_dict import AttrDict
+
+    cfg = AttrDict(
+        lr_schedule="linear_decay_floor",
+        lr_schedule_min_lr=5e-5,
+        train_for_env_steps=25_000_000,
+        batch_size=4096,
+        num_epochs=8,
+        learning_rate=2.5e-4,
+    )
+    regular = get_lr_scheduler(AttrDict({**cfg, "lr_schedule": "linear_decay"}), 19_584)
+    floored = get_lr_scheduler(cfg, 19_584)
+    assert floored.update(0, []) == pytest.approx(regular.update(0, []))
+
+    updates = cfg.train_for_env_steps // cfg.batch_size * cfg.num_epochs
+    assert get_lr_scheduler(cfg, updates - 1).update(0, []) == cfg.lr_schedule_min_lr
 
 
 def test_deadly_tuple_action_history_uses_decision_boundary_action():

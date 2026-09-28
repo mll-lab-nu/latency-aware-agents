@@ -482,7 +482,9 @@ def add_flappy_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--gpu-render-batch-size", dest="gpu_render_batch_size", type=int, default=1)
     parser.add_argument("--gpu-render-profile", dest="gpu_render_profile", type=str2bool, default=False)
     parser.add_argument("--gpu-render-profile-interval", dest="gpu_render_profile_interval", type=int, default=1000)
+    parser.add_argument("--mask-unadmitted-actor", dest="mask_unadmitted_actor", type=str2bool, default=False)
     parser.add_argument("--action-history-decisions", dest="action_history_decisions", type=int, default=None)
+    parser.add_argument("--lr_schedule_min_lr", type=float, default=0.0)
     parser.add_argument("--pipe_gap", type=int, default=100)
     parser.add_argument("--bird_color", type=str, default="yellow")
     parser.add_argument("--pipe_color", type=str, default="green")
@@ -570,6 +572,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--gpu-render-device", env_cfg.get("gpu_render_device", "auto"))
     append_cli_arg(args, "--gpu-render-profile", env_cfg.get("gpu_render_profile", False))
     append_cli_arg(args, "--gpu-render-profile-interval", env_cfg.get("gpu_render_profile_interval", 1000))
+    append_cli_arg(args, "--mask-unadmitted-actor", config["training"].get("mask_unadmitted_actor", False))
     if "action_history_decisions" in env_cfg:
         append_cli_arg(args, "--action-history-decisions", env_cfg["action_history_decisions"])
     append_cli_arg(args, "--pipe_gap", env_cfg.get("pipe_gap", 100))

@@ -536,6 +536,10 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
             "truncated": torch.from_numpy(truncated),
             "dones": torch.from_numpy(np.logical_or(terminated, truncated)),
         }
+        if getattr(self.cfg, "mask_unadmitted_actor", False):
+            admitted = fused_result.command_admitted if use_cuda_latency else latency_result.command_admitted
+            # Use the pre-reset active mask so terminal decisions keep their admission status.
+            self.sample_factory_step_cpu_tensors["command_admitted"] = torch.from_numpy(admitted & active)
         return self._obs(obs), rewards_out, terminated_out, truncated_out, infos
 
     def _reset_env_raw_rgb_frames(self, raw_rgb: torch.Tensor, agent_indices: Sequence[int] | None = None) -> None:

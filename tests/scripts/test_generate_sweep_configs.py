@@ -11,6 +11,8 @@ from scripts.sweeps.generate_sweep_configs import (
     _build_latency_bench_eval_config,
     main as generate_sweep_configs,
 )
+from scripts.tasks.flappy.run_profile_controls import write_control_configs
+from latency_bench.eval.config import _episode_seed
 
 from helpers import REPO_ROOT
 
@@ -68,9 +70,9 @@ def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tm
     rows = _read_manifest(generated_root / "manifest.tsv")
     assert len(rows) == 3
     assert {row["latency_label"] for row in rows} == {
-        "qwenoft_rtx3090_temporal_25m_capacity1",
-        "qwengr00t_rtx3090_temporal_25m_capacity1",
-        "qwenpi_v3_rtx3090_temporal_25m_capacity1",
+        "qwenoft_rtx3090_temporal_25m_capacity1_20260923",
+        "qwengr00t_rtx3090_temporal_25m_capacity1_20260923",
+        "qwenpi_v3_rtx3090_temporal_25m_capacity1_20260923",
     }
     assert {row["seed"] for row in rows} == {"42"}
     assert {row["frame_stack"] for row in rows} == {"4"}
@@ -84,6 +86,7 @@ def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tm
         assert train_cfg["env"]["env_fps"] == 10
         assert train_cfg["env"]["obs_fps"] == 10
         assert train_cfg["training"]["train_for_env_steps"] == 25_000_000
+        assert train_cfg["evaluation"]["eval_interval_steps"] == 5_000_000
         assert train_cfg["logging"]["wandb_project"] == "starvla_tasks"
         assert train_cfg["executor"]["simulated_worker_capacity"] == 1
         assert train_cfg["latency"]["method"] == "temporal"
@@ -102,6 +105,27 @@ def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tm
         assert eval_cfg["executor"]["simulated_worker_capacity"] == 1
         assert eval_cfg["evaluation"]["eval_episodes"] == 100
         assert eval_cfg["evaluation"]["eval_max_steps"] == 18_000
+        assert "eval_interval_steps" not in eval_cfg["evaluation"]
+
+        control_root = tmp_path / "controls" / row["latency_label"]
+        control_paths = write_control_configs(Path(row["eval_config"]), control_root)
+        for name, path in control_paths.items():
+            control = yaml.safe_load(path.read_text(encoding="utf-8"))
+            assert control["policy"] == (
+                {"type": "constant", "action": "noop"} if name == "noop"
+                else {"type": "random", "actions": ["noop", "flap"]}
+            )
+            assert control["logging"]["output_dir"] == str(control_root / name)
+            assert not any(key.startswith("wandb_") for key in control["logging"])
+            assert control["evaluation"]["eval_suites"] == eval_cfg["evaluation"]["eval_suites"]
+            assert control["evaluation"]["eval_episodes"] == 100
+            assert control["evaluation"]["eval_max_steps"] == 18_000
+            assert control["evaluation"]["eval_parallel_envs"] == 100
+            assert control["env"]["env_fps"] == control["env"]["obs_fps"] == 10
+            assert control["executor"]["simulated_worker_capacity"] == 1
+            assert [_episode_seed(control, episode_id) for episode_id in (0, 99)] == [
+                _episode_seed(eval_cfg, episode_id) for episode_id in (0, 99)
+            ]
 
 
 def test_deadly_native35_history_spec_uses_game_clock_and_best_checkpoint(tmp_path):

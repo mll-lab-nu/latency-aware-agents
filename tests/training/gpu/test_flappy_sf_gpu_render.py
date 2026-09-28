@@ -129,6 +129,54 @@ def test_flappy_decision_history_matches_cpu_and_cuda():
         cuda.close()
 
 
+def test_flappy_gpu_actor_mask_tensor_tracks_dropped_command_without_latency_info():
+    pytest.importorskip("torch")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(
+            mask_unadmitted_actor=True,
+            latency_type="fixed",
+            fixed_latency_ms=100.0,
+            simulated_worker_capacity=1,
+            add_latency_info=False,
+        ),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+        env.step(np.array([1]))
+        assert env.sample_factory_step_cpu_tensors["command_admitted"].tolist() == [True]
+        env.step(np.array([1]))
+        assert env.sample_factory_step_cpu_tensors["command_admitted"].tolist() == [False]
+    finally:
+        env.close()
+
+
+def test_flappy_gpu_actor_mask_keeps_terminal_admission_and_masks_inactive_agent():
+    pytest.importorskip("torch")
+    from training.flappy_sf.integration import make_flappy_sf_env
+
+    env = make_flappy_sf_env(
+        "latency_flappy",
+        cfg=_flappy_gpu_cfg(mask_unadmitted_actor=True, max_episode_steps=1, simulated_worker_capacity=None),
+        env_config=_env_config(),
+    )
+    try:
+        env.reset(seed=123)
+        _, _, _, truncated, infos = env.step(np.array([0]))
+        assert truncated.tolist() == [True]
+        assert "reset_info" in infos[0]
+        assert env.sample_factory_step_cpu_tensors["command_admitted"].tolist() == [True]
+
+        env.set_active_agents([False])
+        env.step(np.array([0]))
+        assert env.sample_factory_step_cpu_tensors["command_admitted"].tolist() == [False]
+    finally:
+        env.close()
+
+
 def test_flappy_sf_gpu_render_export_reports_raw_rgb_stack_before_resize():
     torch = pytest.importorskip("torch")
 

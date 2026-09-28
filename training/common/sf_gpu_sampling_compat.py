@@ -74,6 +74,8 @@ def _patch_batched_advance_rollouts(BatchedVectorEnvRunner: Any, env_name: str) 
                 time_outs=truncated,
                 policy_id=self.policy_id_buffer,
             )
+            if getattr(self.cfg, "mask_unadmitted_actor", False):
+                self.curr_step["command_admitted"][:] = cpu_tensors["command_admitted"]
 
             not_done = (1.0 - self.curr_step["dones"].float()).unsqueeze(-1)
             self.last_rnn_state = self.policy_output_tensors["new_rnn_states"] * not_done

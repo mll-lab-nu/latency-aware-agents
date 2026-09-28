@@ -1,0 +1,47 @@
+__base__: ../../base/flappy.yaml
+experiment_family: flappy_capacity1_oft_entropy01_s42_v1
+generated_root: configs/train/flappy/oft_capacity1_entropy01_s42_v1
+train_dir: results/checkpoints/flappy/oft_capacity1_entropy01_s42_v1
+output_root: outputs/tasks/flappy/oft_capacity1_entropy01_s42_v1
+device: cuda
+restart_behavior: resume
+
+env:
+  env_fps: 10
+  obs_fps: 10
+
+executor:
+  simulated_worker_capacity: 1
+
+seeds:
+  - 42
+
+training:
+  train_for_env_steps: 25000000
+  learning_rate: 0.00025
+  lr_schedule: linear_decay
+  exploration_loss_coeff: 0.01
+  mask_unadmitted_actor: false
+
+evaluation:
+  eval_interval_steps: 5000000
+  eval_episodes: 100
+  eval_parallel_envs: 100
+  eval_max_steps: 18000
+
+logging:
+  wandb_project: starvla_tasks
+  wandb_job_type: flappy_capacity1_oft_entropy01
+
+latency_settings:
+  qwenoft_rtx3090_temporal_25m_capacity1_entropy01_s42_v1:
+    kind: temporal
+    profile_path: results/profiling/profiles/openvla/1x-rtx3090/flappy/instance_a5037b165aa0cedc/profile.json
+    profile_worker_slot: 0
+
+sweeps:
+  profile:
+    frame_stack:
+      - 4
+    obs_fps:
+      - 10
