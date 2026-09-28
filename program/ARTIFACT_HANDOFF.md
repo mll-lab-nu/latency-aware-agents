@@ -33,9 +33,9 @@ QwenPI v3 × zero/profile 共 18 个新版模型已发布。固定中央 revisio
 
 | 环境 | 0-latency small | 0-latency VLA | Latency profile | Profiled small | Profiled VLA |
 |---|---|---|---|---|---|
-| Flappy Bird | 正式 100 局 mean 444.600；Published | 三族保留；历史 O 438.7、π 252.3、G 221.7；全部重评 | 三族 canonical 文件完整；mean/p95 ms：O 75.9/81.3、G 137.7/147.2、π 200.6/213.9 | 历史已发布；训练/评测容量不一致，成绩失效 | O 缺完整正式评测/配置，保持待评；G、π 已知差；当前均不发布 |
-| Demon Attack | 正式 100 局 raw game-score mean 8727.150（14400 steps）；Published | 历史 O 6557.8、π 3848.8、G 3612.8；全部重评 | 三族完整；O 71.6/75.2、G 129.2/136.2、π 192.8/203.2 | 历史已发布；训练/评测容量不一致，成绩失效 | 旧数据 O 为 255.25/200 episodes，明确差；新数据未发布；G/π 无新模型 |
-| Deadly Corridor | 正式 100 局 mean 2116.794；Published | 历史 O 686.5、π 252.6、G 241.9；全部重评 | 三族完整；O 73.7/78.0、G 131.7/139.5、π 193.9/206.2 | 历史已发布；训练/评测容量不一致，成绩失效 | 现有三族均明确差：G 约 380.4、O 约 305.8、π约 198.6；不发布 |
+| Flappy Bird | 正式 100 局 mean 444.600；Published | 三族保留；历史 O 438.7、π 252.3、G 221.7；全部重评 | 三族 canonical 文件完整；mean/p95 ms：O 75.9/81.3、G 137.7/147.2、π 200.6/213.9 | 旧三项已从 main 删除；H8 三项 checkpoint 已发布 | O 缺完整正式评测/配置，保持待评；G、π 已知差；当前均不发布 |
+| Demon Attack | 正式 100 局 raw game-score mean 8727.150（14400 steps）；Published | 历史 O 6557.8、π 3848.8、G 3612.8；全部重评 | 三族完整；O 71.6/75.2、G 129.2/136.2、π 192.8/203.2 | 旧三项已从 main 删除；H8 三项 checkpoint 已发布 | 旧数据 O 为 255.25/200 episodes，明确差；新数据未发布；G/π 无新模型 |
+| Deadly Corridor | 正式 100 局 mean 2116.794；Published | 历史 O 686.5、π 252.6、G 241.9；全部重评 | 三族完整；O 73.7/78.0、G 131.7/139.5、π 193.9/206.2 | 旧三项已从 main 删除；H8 三项 checkpoint 已发布 | 现有三族均明确差：G 约 380.4、O 约 305.8、π约 198.6；不发布 |
 | Atlantis | 正式 100 局 mean 29271.000；Published | 三族公开候选齐全；历史 π 19700/20、G 18456/80、O 17727.5/80；全部重评 | 无 | 无 | 无 |
 | Asterix | 正式 100 局 mean 4099.000；Published | 三族公开候选齐全；历史 G 3152.5/20、O 1816.9/80、π 1801.9/80；全部重评 | 无 | 无 | 无 |
 
@@ -115,7 +115,11 @@ Flappy π 使用上表已确认公开的 5000-step state。3000/5000 step 不拆
 ### Profiled small：9 项
 
 本节九项旧 checkpoint 和旧评测仅保留作审计证据，已因训练/评测 worker-capacity
-契约不一致而失效，不能继续作为正式结果或发布候选。除下表 Flappy O/G 的
+契约不一致而失效，不能继续作为正式结果或发布候选。九个旧 bundle 已从中央模型仓库
+main 删除，提交为 [`a837166`](https://huggingface.co/latency-sensitive-bench/benchmark-models/commit/a837166929198f76092198ba1ef86efcad45d2ea)；
+[删除前清单](../outputs/tasks/decision_history_temporal_25m_seed42/legacy_small_policy_predelete.json)
+记录了九个目录内的 45 个文件及哈希，删除前 revision 为 `3d24469718eaddc9db876796c102ec6e8184c777`。
+除下表 Flappy O/G 的
 2026-09-22 replacement 外，源仓库均为
 `latency-sensitive-bench/paper-experiment-models@8d576e64dd9f7370e06abfebff37b3d50dfdf8d1`。
 
@@ -127,7 +131,7 @@ Flappy π 使用上表已确认公开的 5000-step state。3000/5000 step 不拆
 
 表中 `...` 是同一行模型的
 `memory/small_model/<task>/<model>_rtx3090_profile_{25m|10m}_fs4_1min_eval/train/`
-前缀。`provenance.json` 保存完整源路径，不能用省略写法。中央路径为
+前缀。历史 `provenance.json` 保存完整源路径，不能用省略写法。原中央路径为
 `latency-aware/<task>/small-policy/sample-factory-{openvla|gr00t|pi05}-rtx3090-v1/`。
 九项历史 reward 只用于审计，不设置淘汰门槛，也不据此选择 corrected checkpoint。
 
@@ -137,8 +141,8 @@ mean length 分别为 O 1177.629/803.195/9519.83、G 6.687/3.507/71.21。由于�
 `capacity=1` observation admission，这两个结果和旧 Flappy π、Demon Attack、Deadly
 Corridor 三族结果一起失效。原子替换回读
 revision 为 `d9034095ab140c1bf1369c3dc236499518e343d2`，最终 provenance revision 为
-`fa25969ae7db7bc7f42fb6d19eccbbcfb18ab6c7`。Flappy π 本轮未上传，中央路径仍保留
-此前 IID bundle（mean 2.000）。其余正式 100 局 profile replay 结果中，Demon Attack
+`fa25969ae7db7bc7f42fb6d19eccbbcfb18ab6c7`。Flappy π 当时未替换，删除前中央路径保留
+此前 IID bundle（mean 2.000）。其余历史 100 局 profile replay 结果中，Demon Attack
 的 14400-step raw game-score mean 为
 O 5632.750、G 3168.300、π 1097.850；Deadly Corridor mean 为 O 686.030、
 G 566.550、π 347.668。
@@ -153,8 +157,25 @@ Corrected 协议为全新 `capacity1_seed42` 实验：Flappy 使用 temporal pro
 25M steps 和 18000 horizon；Demon Attack 使用 IID profile、60/15 FPS、25M steps 和
 14400 horizon；Deadly Corridor 使用 IID profile、60/15 FPS、10M steps 和 3600 horizon。
 三族都固定训练 seed 42，评测 deterministic 100 局、`capacity=1`，并绑定各自训练内部
-产生的 `best_*.pth`。corrected checkpoint、日志与评测只写挂载盘；明确审阅批准前不修改
-任何 HF bundle。
+产生的 `best_*.pth`。训练 checkpoint、日志与评测先写挂载盘。用户随后指定九条已完成的
+temporal H8 run 发布 best checkpoint：先五条在
+[`benchmark-models@9880201`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/988020114cc8201d529992031bc0fe5d41934b2b/latency-aware)，
+再三条在
+[`benchmark-models@3d24469`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/3d24469718eaddc9db876796c102ec6e8184c777/latency-aware)
+发布，Demon Attack π0.5 最后在
+[`benchmark-models@46a33b1`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/46a33b18a2db8feb5cc6b520a95c2e96662c5e5b/latency-aware/demon-attack/small-policy)
+发布。九项均使用独立的 `sample-factory-*-rtx3090-temporal-hist8-capacity1*-s42-v1` 目录。
+完整路径和哈希见[首批回执](../outputs/tasks/decision_history_temporal_25m_seed42/hf_publish_receipt.json)
+、[追加回执](../outputs/tasks/decision_history_temporal_25m_seed42/hf_publish_receipt_three.json)
+与 [Demon π 回执](../outputs/tasks/decision_history_temporal_25m_seed42/hf_publish_receipt_demon_pi05.json)。
+九项均已通过中央文件与权重哈希回读；当次核验仅覆盖 checkpoint 发布。
+当时 Flappy 三项外部 100 局报告绑定 latest，Deadly native35
+OFT 的 100 局报告绑定 best，Demon Attack OFT 的 best 独立评测尚未核对。追加的
+Deadly native35 GR00T/π0.5 与 Demon Attack GR00T/π0.5 的外部 100 局 JSON 均绑定 best。
+
+后续九条 final/best 均已完成各 100 局正式终评；Flappy 的 latest 重复评测已纠正为
+实际 best checkpoint。最终成绩和逐局身份见[九条正式结果](../outputs/tasks/decision_history_nine_profile_20260923/nine_profile_results.json)，
+训练、评测与发布状态分别记录。
 
 ## 不进入正式模型路径的资产
 

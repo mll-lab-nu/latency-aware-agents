@@ -28,8 +28,6 @@ configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 | Extreme Parkour Go2 | Privileged PPO teacher | `third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k/model_14999.pt` | `zero-latency/extreme-parkour-go2/small-policy/ppo-v1/` | Teacher verified; publication pending VLA pipeline |
 | HAIC Pull Cart G1 | Native PPO teacher | `outputs/haic/phase1_teacher/checkpoint_final.pt` | `zero-latency/haic-pull-cart/small-policy/ppo-v1/` | Teacher verified; publication pending VLA pipeline |
 | Flappy Bird | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/flappy/small-policy/sample-factory-v1/` | Published; 100-episode mean 444.600; central readback passed |
-| Flappy Bird | Sample Factory with QwenOFT RTX 3090 temporal latency | `results/checkpoints/flappy/profiled_small_qwen_10fps_25m/flappy_profile_qwenoft_rtx3090_temporal_25m_obs10_seed42/checkpoint_p0/best_000046048_23592960_reward_1867.668.pth` | `latency-aware/flappy/small-policy/sample-factory-openvla-rtx3090-v1/` | Historical publication retained for audit; invalid train/eval worker-capacity contract; readback `d9034095ab140c1bf1369c3dc236499518e343d2` |
-| Flappy Bird | Sample Factory with QwenGR00T RTX 3090 temporal latency | `results/checkpoints/flappy/profiled_small_qwen_10fps_25m/flappy_profile_qwengr00t_rtx3090_temporal_25m_obs10_seed42/checkpoint_p0/best_000048624_24903680_reward_1812.752.pth` | `latency-aware/flappy/small-policy/sample-factory-gr00t-rtx3090-v1/` | Historical publication retained for audit; invalid train/eval worker-capacity contract; readback `d9034095ab140c1bf1369c3dc236499518e343d2` |
 | Demon Attack | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/demon-attack/small-policy/sample-factory-v1/` | Published; soft-reset-corrected 14400-step 100-episode raw game-score mean 8727.150; central readback `7a6d7af88f921c6244aafe03078f1d30d94cc9b7` |
 | Deadly Corridor | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/deadly-corridor/small-policy/sample-factory-v1/` | Published; 100-episode mean 2116.794; central readback passed |
 | Atlantis | Sample Factory zero-latency teacher | Existing central checkpoint/config | `zero-latency/atlantis/small-policy/sample-factory-v1/` | Published; 100-episode mean 29271.000; central readback passed |
@@ -39,19 +37,19 @@ configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 
 The five historical Atari-like tasks additionally reserve three zero-latency
 VLA paths per task, named
-`zero-latency/<task>/vla/starvla-{openvla|gr00t|pi05}-v1/`. Flappy Bird,
-Demon Attack, and Deadly Corridor reserve three matching latency-aware small
-policy paths named
-`latency-aware/<task>/small-policy/sample-factory-{openvla|gr00t|pi05}-rtx3090-v1/`.
-The five zero-latency small-policy bundles remain valid. The nine published
-latency-aware small-policy artifacts are retained only for audit: their training
-did not enforce the worker-capacity admission contract used by evaluation, so
-their checkpoints and scores are not accepted formal results. The historical
-Flappy replacement remains readable at revision
-`fa25969ae7db7bc7f42fb6d19eccbbcfb18ab6c7`, with atomic content readback at
-`d9034095ab140c1bf1369c3dc236499518e343d2`. Corrected `capacity1_seed42`
-training and evaluation stay local until explicit review approval; no central
-bundle is replaced as part of that run.
+`zero-latency/<task>/vla/starvla-{openvla|gr00t|pi05}-v1/`.
+The five zero-latency small-policy bundles remain valid. The nine old
+latency-aware small-policy bundles for Flappy Bird, Demon Attack, and Deadly
+Corridor were removed from the model repo's main branch at
+[`a837166`](https://huggingface.co/latency-sensitive-bench/benchmark-models/commit/a837166929198f76092198ba1ef86efcad45d2ea):
+their training did not enforce the worker-capacity admission contract used by
+evaluation. Their exact paths and file hashes are in the
+[deletion manifest](../outputs/tasks/decision_history_temporal_25m_seed42/legacy_small_policy_predelete.json),
+and the bundles remain readable at the parent revision `3d24469718eaddc9db876796c102ec6e8184c777`.
+Nine new temporal-H8 best checkpoints use distinct directories; see the
+[first publication receipt](../outputs/tasks/decision_history_temporal_25m_seed42/hf_publish_receipt.json)
+[second publication receipt](../outputs/tasks/decision_history_temporal_25m_seed42/hf_publish_receipt_three.json),
+and [Demon Attack π0.5 receipt](../outputs/tasks/decision_history_temporal_25m_seed42/hf_publish_receipt_demon_pi05.json).
 The 15 VLA paths remain pending until their corresponding evaluation and central
 revision readback pass. Exact sources, checkpoint selections, results, exclusions,
 and the parallel evaluation protocol are maintained in
@@ -82,6 +80,33 @@ model cards and episode-level results. Deadly uses sf-render-v4.
 See the [published model index and scores](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)
 and [publication receipt](../outputs/tasks/decision_history_vla_hist8_v2/hf_publication/README.md).
 These are distinct from the historical VLA paths still marked pending above.
+
+## Standard-Pipeline import: seven Gymnasium tasks
+
+The 65 selected bundles from `Standard-Pipeline@2208875f92b21e3f8ec2363a30a6705dfe56cc04`
+are **Published**, with the index and verification report at central revision
+`ad37dff2ec7ea0adea072024330d19b5e7099e21`.
+AirRaid, Ant, HalfCheetah, Hopper, Humanoid, InvertedPendulum and Walker2d contribute
+37 H1 VLAs and 28 Sample Factory APPO policies. The source archive labels
+`OpenVLA`, `GR00T` and `Pi05` map to `qwenoft`, `qwengr00t` and `qwenpi_v3`.
+Gymnasium Humanoid is distinct from HumanoidBench Balance Simple.
+
+Each bundle contains one selected checkpoint. The 37 VLA weights retain their
+source bytes; all 28 small-policy bundles passed tensor equality checks, with
+23 exported to inference-only state and five copied directly. All 819 imported
+files passed identity verification, and 269 core metadata files passed downloaded
+readback. The source revision and all 1,773 pre-existing target files were
+unchanged by the model import; the final publication appends the root index.
+
+The source has no latency-aware HalfCheetah QwenGR00T/QwenPI v3 VLA or Humanoid
+VLA. Seven zero-latency QwenOFT bundles lack standalone `manifest.json` and
+`latency_prompt_map.json`; their task contracts are extracted from the original
+full configurations, and those missing files remain explicitly recorded.
+Evaluation and acceptance states remain those recorded by the source evidence.
+Dataset repositories remain at their recorded source locations.
+
+See the [complete model inventory and copy verification](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/ad37dff2ec7ea0adea072024330d19b5e7099e21/reports/standard-pipeline-2208875f92b2/README.md)
+and [local publication receipt](../outputs/hf_migrations/standard-pipeline-2208875f92b2/publication.json).
 
 ## Dataset artifacts
 
