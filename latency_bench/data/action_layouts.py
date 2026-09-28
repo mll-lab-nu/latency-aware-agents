@@ -22,7 +22,6 @@ ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6 = "defend_the_line_joint_6"
 ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1 = "gymnasium_discrete_v1"
 ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1 = "gymnasium_continuous_v1"
 ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1 = "g1_sonic_absolute_joint_target_v1"
-ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1 = "go2_parkour_terrain_latent_yaw_v1"
 
 FLAPPY_ACTION_LABELS = ("NOOP", "FLAP")
 DEMON_ATTACK_ACTION_LABELS = ("NOOP", "FIRE", "RIGHT", "LEFT", "RIGHTFIRE", "LEFTFIRE")
@@ -138,18 +137,6 @@ G1_SONIC_ACTION_SPEC = ActionSpec(
     reward_semantics="raw_reward",
 )
 
-GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC = ActionSpec(
-    layout=ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1,
-    labels=(
-        *(f"terrain_latent_{index}" for index in range(32)),
-        "yaw_current",
-        "yaw_next",
-    ),
-    row_fields=("action", "action_text"),
-    reward_field="raw_reward",
-    episode_return_field="episode_raw_return",
-    reward_semantics="raw_reward",
-)
 
 
 def action_spec_for_env(env_name: str) -> ActionSpec:
@@ -164,8 +151,6 @@ def action_spec_for_env(env_name: str) -> ActionSpec:
     name = str(env_name)
     if name.startswith("g1_sonic_"):
         return G1_SONIC_ACTION_SPEC
-    if name == "extreme_parkour_go2":
-        return GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC
     return ACTION_SPECS_BY_ENV[name]
 
 
@@ -355,7 +340,6 @@ def encode_action_for_env(
     if resolved_action_spec.layout in (
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
         ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
-        ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1,
     ):
         action = [float(item) for item in _to_python_action(raw_action)]
         return {

@@ -33,8 +33,8 @@ def test_publication_uploads_only_inference_bundle_and_incremental_data(tmp_path
     (dataset / 'lerobot/data/episode.parquet').write_bytes(b'row')
     (dataset / 'raw').mkdir()
     (dataset / 'raw/temp.npz').write_bytes(b'raw')
-    shared_revision = artifacts.publish_dataset(dataset, task='haic_pull_cart')
-    round_revision = artifacts.publish_dataset(dataset, task='haic_pull_cart', model='qwenoft',
+    shared_revision = artifacts.publish_dataset(dataset, task='mikasa_intercept_grab_fast')
+    round_revision = artifacts.publish_dataset(dataset, task='mikasa_intercept_grab_fast', model='qwenoft',
                                                run_id='run-1', round_number=0)
     assert uploads[0][0]['repo_id'] == artifacts.DATASET_REPO_ID
     assert uploads[0][0]['path_in_repo'].endswith('/teacher-rollouts-h1-state-v1')
@@ -50,7 +50,7 @@ def test_publication_uploads_only_inference_bundle_and_incremental_data(tmp_path
     (bundle / 'checkpoints/optimizer.pt').write_bytes(b'optimizer')
     (bundle / 'wandb').mkdir()
     (bundle / 'wandb/run.json').write_text('{}')
-    assert artifacts.publish_model(bundle, task='haic_pull_cart', model='qwenoft', run_id='run-1') == 'commit-3'
+    assert artifacts.publish_model(bundle, task='mikasa_intercept_grab_fast', model='qwenoft', run_id='run-1') == 'commit-3'
     assert set(uploads[2][1]) == set(artifacts.MODEL_FILES)
     assert json.loads(uploads[2][1]['provenance.json'])['datasets'] == ['commit-1', 'commit-2']
 
@@ -60,20 +60,20 @@ def test_upload_failure_surfaces_and_smoke_never_contacts_hub(tmp_path, monkeypa
         raise ConnectionError('hub unavailable')
 
     monkeypatch.setattr(artifacts, 'HfApi', fail)
-    train_task.main(['--task', 'haic', '--model', 'qwenoft', '--output-dir', str(tmp_path),
+    train_task.main(['--task', 'mikasa', '--model', 'qwenoft', '--output-dir', str(tmp_path),
                      '--smoke', '--publish-only'])
     with pytest.raises(ConnectionError, match='hub unavailable'):
-        artifacts.publish_dataset(tmp_path, task='haic_pull_cart')
+        artifacts.publish_dataset(tmp_path, task='mikasa_intercept_grab_fast')
 
 
 def test_publication_replaces_files_when_another_publish_advances_branch(tmp_path, monkeypatch):
     dataset = tmp_path / 'dataset'
     (dataset / 'lerobot/data').mkdir(parents=True)
     (dataset / 'lerobot/data/episode.parquet').write_bytes(b'new row')
-    path = artifacts.dataset_path('haic_pull_cart')
+    path = artifacts.dataset_path('mikasa_intercept_grab_fast')
     remote = {
         f'{path}/lerobot/data/episode.parquet': b'old row',
-        'zero-latency/extreme-parkour-go2/other-run/data.parquet': b'parkour row',
+        'zero-latency/humanoidbench-balance-simple/other-run/data.parquet': b'balance row',
     }
 
     def upload_folder(**kwargs):
@@ -97,8 +97,8 @@ def test_publication_replaces_files_when_another_publish_advances_branch(tmp_pat
         ),
     )
 
-    assert artifacts.publish_dataset(dataset, task='haic_pull_cart') == 'new'
+    assert artifacts.publish_dataset(dataset, task='mikasa_intercept_grab_fast') == 'new'
     assert remote == {
         f'{path}/lerobot/data/episode.parquet': b'new row',
-        'zero-latency/extreme-parkour-go2/other-run/data.parquet': b'parkour row',
+        'zero-latency/humanoidbench-balance-simple/other-run/data.parquet': b'balance row',
     }

@@ -160,7 +160,7 @@ def prepare_lerobot(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=("balance", "haic", "mikasa", "parkour"), required=True)
+    parser.add_argument("--task", choices=("balance", "mikasa"), required=True)
     parser.add_argument("--source-train", type=Path, required=True)
     parser.add_argument("--source-val", type=Path)
     parser.add_argument("--output-train", type=Path, required=True)

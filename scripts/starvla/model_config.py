@@ -20,7 +20,6 @@ def make_model_config(
     action_dim: int,
     backbone_path: str,
     action_horizon: int = 1,
-    task_objective: Any = None,
     gradient_checkpointing: bool = True,
 ) -> dict[str, Any]:
     """Return the framework section for one continuous StarVLA model."""
@@ -33,7 +32,6 @@ def make_model_config(
         "action_horizon": action_horizon,
         "future_action_window_size": action_horizon - 1,
         "past_action_window_size": 0,
-        "task_objective": task_objective,
     }
     if model in {"qwenoft", "qwenpi_v3", "wanoft"}:
         action_model["state_encoding"] = "continuous_projector"

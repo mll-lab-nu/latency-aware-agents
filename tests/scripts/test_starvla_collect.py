@@ -644,10 +644,10 @@ def test_collect_bootstrap_uses_smoke_budget_and_returns_canonical_paths(tmp_pat
     def fake_collect(**kwargs):
         captured.update(kwargs)
 
-    monkeypatch.setattr(collect, "_collect_parkour", fake_collect)
+    monkeypatch.setattr(collect, "_collect_mikasa", fake_collect)
 
     train, val = collect.collect_bootstrap(
-        "extreme_parkour_go2",
+        "mikasa_intercept_grab_fast",
         teacher,
         tmp_path / "bootstrap",
         "task-python",
@@ -806,31 +806,6 @@ def test_balance_dagger_relabels_saved_absolute_actions_without_loading_models(t
     assert (output / "metadata.json").read_bytes() == (source / "metadata.json").read_bytes()
 
 
-def test_haic_collection_runs_train_and_val_at_teacher_50hz(tmp_path, monkeypatch):
-    teacher = tmp_path / "teacher.pt"
-    teacher.write_bytes(b"teacher")
-    commands = []
-    monkeypatch.setattr(collect, "_run", lambda command, **kwargs: commands.append(command))
-    monkeypatch.setattr(collect, "_prepare_converted", lambda task, raw, output: commands.append([task, str(raw), str(output)]))
-
-    collect._collect_haic(
-        teacher_checkpoint=teacher,
-        output_root=tmp_path / "haic",
-        task_python="task-python",
-        train_episodes=250,
-        val_episodes=25,
-        keep_failed=False,
-        device="cuda:1",
-    )
-
-    assert commands[0][2:4] == ["teacher-collect", "--teacher-checkpoint"]
-    assert commands[0][commands[0].index("--split") + 1] == "train"
-    assert commands[0][commands[0].index("--episode-budget") + 1] == "250"
-    assert commands[0][commands[0].index("--seed") + 1] == "0"
-    assert commands[1][commands[1].index("--split") + 1] == "val"
-    assert commands[1][commands[1].index("--episode-budget") + 1] == "25"
-    assert commands[1][commands[1].index("--seed") + 1] == "1"
-    assert commands[-1][-2:] == [str(teacher.resolve()), str((tmp_path / "haic/actor_adapt.pt").resolve())]
 
 
 def test_mikasa_collection_uses_converter_task_directory_name(tmp_path, monkeypatch):

@@ -36,18 +36,12 @@ def test_task_presets_define_model_and_runtime_artifact_coordinates():
     balance = load_profile_spec(
         "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
     )
-    parkour = load_profile_spec(
-        "configs/profiles.yaml", "qwengr00t", "extreme_parkour_go2"
-    )
-    haic = load_profile_spec("configs/profiles.yaml", "qwenoft", "haic_pull_cart")
 
     assert inverted_pendulum["model_artifact"]["checkpoint"] == (
         "checkpoints/steps_2000_pytorch_model.pt"
     )
     assert mikasa["model_artifact"]["checkpoint"] == "checkpoints/model.pt"
     assert "starvla-qwengr00t" in balance["model_artifact"]["hf_path"]
-    assert parkour["runtime_artifact"]["checkpoint"] == "model_14999.pt"
-    assert haic["runtime_artifact"]["checkpoint"] == "checkpoint_final.pt"
 
 
 @pytest.mark.parametrize(
@@ -194,7 +188,7 @@ def test_root_hf_artifact_downloads_from_snapshot_root(tmp_path, monkeypatch):
 def test_profile_run_rejects_conflicting_artifact_sources():
     with pytest.raises(SystemExit):
         protocol.main([
-            "run", "--model", "qwengr00t", "--workload", "extreme_parkour_go2",
+            "run", "--model", "qwengr00t", "--workload", "g1_sonic_balance_simple",
             "--model-path", "/models/local", "--hf-artifacts",
         ])
 

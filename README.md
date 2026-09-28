@@ -42,8 +42,6 @@ teacher-to-VLA pipelines. Each guide starts with the task-owned entrypoints in
 | --- | --- | --- |
 | [MIKASA Intercept Grab Fast (H1)](docs/mikasa/cookbook.md) | `bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh` | Baseline reproduced; teacher, dataset, and VLA published |
 | [HumanoidBench Balance Simple (G1)](docs/humanoidbench/cookbook.md) | `bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --model-path MODEL_PATH` | Teacher and four StarVLA baselines published |
-| [Extreme Parkour (Go2)](docs/extreme_parkour/cookbook.md) | `bash scripts/profile.sh run --model qwenoft --workload extreme_parkour_go2 --model-path MODEL_PATH` | Teacher verified; three StarVLA baselines published |
-| [HAIC Pull Cart (G1)](docs/haic/cookbook.md) | `bash scripts/profile.sh run --model qwenoft --workload haic_pull_cart --model-path MODEL_PATH` | Teacher and QwenOFT baseline verified |
 
 Game benchmarks and generic model adapters are also supported through their
 existing entrypoints: [historical game workflows](docs/standard_pipeline.md#older-game-and-generic-adapter-paths),
@@ -72,7 +70,7 @@ separate repository; it is not required by the benchmark runtime.
 
 For setup across all simulators, model runtimes, and dataset converters, follow
 [环境配置快速指南](docs/QUICK_START.md). `--model all` installs all model
-environments; MIKASA, HAIC, and Parkour require the separate setup steps there.
+environments; MIKASA requires the separate setup steps there.
 
 Clone this repository with submodules:
 

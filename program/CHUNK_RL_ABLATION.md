@@ -14,7 +14,7 @@ transition 的重复更新次数。以下结果保留为修复前历史证据，
 ## 第一版固定协议
 
 - 固定既有 QwenOFT recorded temporal profile、capacity=1、128 env，不重新测延迟，不调超参数，不重跑 H1。
-- 每个配置使用相同的 training seed1/2/3/4，各训练约 10M raw frames。Seed1/2 在本地，seed3 在 parkour，seed4 在 HAIC；机器与 seed 绑定，跨机器差异不能只归因于随机 seed。
+- 每个配置使用相同的 training seed1/2/3/4，各训练约 10M raw frames。四个 seed 分布在三台机器上；机器与 seed 绑定，跨机器差异不能只归因于随机 seed。
 - 每个最终 checkpoint 评估相同的 25 env reset seeds × 4 latency seeds，共 100 个场景。Actor 直接输出均值动作；保留环境 reset 扰动和按 seed 采样的 profile 延迟。
 - 以四 seed 最终平均存活 / 同四 seed full ≥0.95 作均值筛选，同时报告各 seed、样本 SD、return 和存活 ≥100 的比例。“通过”仅表示达到筛选门槛，不证明等价或每项模块分别无效。
 - 保持 lr=3e-4、tau=0.1、target noise=0.001、clip=0.5、AdamW weight_decay=0.1、policy_delay=2、batch=32768、replay=1M，更新预算按 raw frames 计算。
@@ -25,7 +25,7 @@ transition 的重复更新次数。以下结果保留为修复前历史证据，
 
 下面的字母表示**删除的模块**；± 为四个 training seeds 之间的样本标准差。
 
-| 删除模块 | Seed1 | Seed2 | Seed3（parkour） | Seed4（HAIC） | 均值 ± SD | 平均 return | ≥100 | / full | 筛选 |
+| 删除模块 | Seed1 | Seed2 | Seed3 | Seed4 | 均值 ± SD | 平均 return | ≥100 | / full | 筛选 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | full | 71.90 | 554.35 | 145.90 | 446.76 | 304.73 ± 232.32 | 269.956 | 0.742 | 1.0000 | 基线 |
 | ABCDEHJ | 152.93 | 92.33 | 95.07 | 68.00 | 102.08 ± 36.02 | 85.134 | 0.410 | 0.3350 | 失败 |

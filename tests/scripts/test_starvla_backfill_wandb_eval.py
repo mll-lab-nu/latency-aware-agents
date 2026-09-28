@@ -82,7 +82,7 @@ def test_train_task_eval_config_accepts_fifty_episode_override(tmp_path, monkeyp
     assert args.eval_seed == train_task.TASK_SETTINGS[task]["seed"]
     args.eval_seed = 1234
     config = train_task.eval_config(
-        args, tmp_path / "bundle", tmp_path / "teacher", tmp_path / "eval",
+        args, tmp_path / "bundle", tmp_path / "eval",
         eval_episodes=50,
     )
     assert config["evaluation"]["eval_episodes"] == 50

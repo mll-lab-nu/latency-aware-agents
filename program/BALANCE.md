@@ -6,7 +6,7 @@
 
 ## Goal and scope
 
-让 GR00T VLA 在 `g1_sonic_balance_simple` 上直接拟合 teacher，把 closed-loop return 稳定提高到 500 以上（teacher 约 900–1000）。当前保持最简单的 direct VLA；不同时引入 SONIC、residual、分层控制或新 action head。
+让 GR00T VLA 在 `g1_sonic_balance_simple` 上直接拟合 teacher，把 closed-loop return 稳定提高到 500 以上（teacher 约 900–1000）。当前使用 direct VLA，直接预测关节目标。
 
 复现入口见 [`docs/humanoidbench/cookbook.md`](../docs/humanoidbench/cookbook.md)；新的集中式
 artifact 路径见 [`docs/artifacts.md`](../docs/artifacts.md)。历史公开的 [dataset repo](https://huggingface.co/datasets/latency-sensitive-bench/humanoidbench)
@@ -135,7 +135,6 @@ Checkpoint-10000 的逐 seed return 为：
 - 不使用 all-zero latent；train/inference 固定同一 Gaussian 并 mask padding。
 - 不再试 min/max normalization、全局关闭 clipping、startup50 mix 或 body-only 29D。
 - 旧 LR `1e-5` warm-start 是混杂实验，不能据此断言 `1e-5` 普遍无效。
-- SONIC/residual、分层控制和 regression-head replacement 不属于近期下一步。
 - recovery data 不再无条件延后，但必须由更大 seed eval 和代表性跨 episode validation 的结果触发。
 - eval 每次保留一个 clip 即可用于人工 debug；不需要为所有 episode 生成视频。
 

@@ -56,8 +56,6 @@ def test_write_episode_preserves_prefix_and_loss_masks(tmp_path):
         action_dim=2,
         state_dim=2,
         include_state=True,
-        actor_observation_shape=None,
-        termination_shape=None,
     )
 
     written = pq.read_table(path).to_pylist()[0]

@@ -31,8 +31,6 @@ CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh pi05 [MODEL
 CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh gr00t [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
 CUDA_VISIBLE_DEVICES=1 bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --model-path MODEL_PATH
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run --model qwenoft --workload extreme_parkour_go2 --model-path MODEL_PATH
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run --model qwenoft --workload haic_pull_cart --model-path MODEL_PATH
 ```
 
 The Demon Attack launchers use the model-specific StarVLA environment active in

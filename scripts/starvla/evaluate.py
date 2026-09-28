@@ -18,7 +18,7 @@ from scripts.starvla.train_task import TASK_SETTINGS, environment, evaluation_co
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--task", choices=("balance", "mikasa", "parkour", "haic"), required=True)
+    parser.add_argument("--task", choices=("balance", "mikasa"), required=True)
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--environment", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

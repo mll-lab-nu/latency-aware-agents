@@ -1,13 +1,12 @@
 # Benchmark 核心进展
 
-最后核查：**2026-09-20**。本文只记录四个主任务的已核验结果、关键决策、当前缺口和下一步；清理前的完整时间线见
+最后核查：**2026-09-20**。本文只记录 Balance 与 MIKASA 的已核验结果、关键决策、当前缺口和下一步；清理前的完整时间线见
 [历史快照](logs/PROGRESS-pre-cleanup-2026-09-17.md)，运行手册和专题记录见 [program 索引](README.md)。
 
 固定公共版本：
 
 - zero-latency 模型：[benchmark-models@e05ca26](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)
 - RTX 3090 profiles：[profiles@e8be1e5](https://huggingface.co/datasets/latency-sensitive-bench/profiles/tree/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles)
-- Parkour latency small：[benchmark-models@6348f44](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/6348f44ce65c1414dbc4f2ec46e0d5eb525ab770/latency-aware/extreme-parkour-go2/small-policy)
 - MIKASA WanOFT latency-aware VLA：[benchmark-models@ad40d57](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ad40d57c5747761705770aa557db0f287888f727/latency-aware/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_wanoft_latency_3090_20260916T094307Z)
 - MIKASA H1 corrected latency-aware VLAs：[benchmark-models@ae81bdb3](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla)
 
@@ -20,14 +19,12 @@
 - smoke 只证明流水线可运行，不作为策略质量结果；旧 running 消息不代表当前进程状态。
 - 缺失指标写“未记录”，不从其他指标或模型推断。
 
-## 四任务总览
+## 任务总览
 
 | 任务 | Zero VLA | RTX 3090 profile | Latency small | Latency VLA | 当前结论 |
 |---|---|---|---|---|---|
 | Balance Simple | 4/4 完成 | 4/4 完成 | H8/H16 专题实验完成多组，尚无统一正式产物 | 正式四模型终点未完成 | 延迟控制可由 oracle/BC 部分恢复，但现有 RL/PPO 未超过 BC；新 DAgger 矩阵待终点结果 |
 | MIKASA InterceptGrabFast | 4/4 完成；H8 zero SFT 与三路 naive DAgger 已发布 | 4/4 完成；H8 六路 conditioned DAgger 终评与发布完成 | 4/4 达标并发布 | H1 三路纠正评测完成；H8 九路 DAgger 均完成训练、终评与发布 | Figure 2 的 H1（Hub `56b2c095`）与 zero-latency H8 DAgger（Hub `5b533937`）完成 L0–L4 各 200 局：H1 三路在 L2 均为 0/200，H8 三路在 L2 为 115/123/101/200。[结果与证据](RESULTS.md) |
-| Extreme Parkour Go2 | 3/4 完成 | 3/4 完成 | 3/4 训练、评测、发布完成 | 未找到正式产物 | 三个 small policy 在 profile 下均完成正式评测；未预设 acceptance threshold |
-| HAIC PullCart | 1/4 完成 | 1/4 完成 | 正式终点未核验 | 未找到正式产物 | 当前只有 QwenOFT 正式 VLA 结果，任务覆盖仍不完整 |
 
 ## 公共 zero-latency small policy
 
@@ -35,8 +32,6 @@
 |---|---|---|---|
 | Balance | `checkpoint.pth`；25M 预算，选中 20,864,000 步 | 独立 L0 return/SR/n 未记录 | 已发布；checkpoint 名中的 702.976 不是独立 eval；[BALANCE](BALANCE.md) |
 | MIKASA | `checkpoint.pt`；12,288,000 步 | strict success 100%；canonical 100/100 | 已发布；[MIKASA](MIKASA.md) |
-| Parkour | `model_14999.pt`；15k iterations | reward 23.14±6.02；length 907.95±296.15；progress 1.00±0.01 | n/seed 未记录；[EXTREME_PARKOUR](EXTREME_PARKOUR.md) |
-| HAIC | `checkpoint_final.pt`；499,908,608 frames | native success 93.8965%；源 `episode_cnt=2308` | 未达到 native 100% gate；[HAIC](HAIC.md) |
 
 ## 正式 zero-latency VLA 与 profile
 
@@ -237,23 +232,6 @@ SFT 5k + DAgger 5k；DAgger step 0 及每 500 steps 五档各 100 局，仍只�
 最新报告口径：用户决定采用四路63D Fixed-1/2/3/4的共同 **DAgger step-3500** W&B快照填充论文grid；各列matched成功率为 **94/100、86/100、65/100、57/100**。每格100局development，seeds `4242424442–4242424541`、20/20Hz、60 transitions；Zero列仍为已发布step-5000的200局held-out结果，不视为同预算、同评测集的终评。附录保留完整SFT5k loss及DAgger至3500的loss/五档成功率曲线。[冻结数据与run来源](../paper/figures/fig20_mikasa_fixed_latency_learning_curves/README.md)。
 W&B记录四路SFT完成；Fixed-1/2/3 DAgger记录至5000，Fixed-4训练loss至4000、最后完整五档评测为3500。新终评及模型发布状态本轮未核验，不由开发快照推断完成。
 
-### Extreme Parkour Go2
-
-50Hz control、10Hz decision；L0 各 100 episodes。
-
-| 模型 | 训练 | L0 return ± SD | waypoint progress | profile mean |
-|---|---:|---:|---:|---:|
-| QwenOFT | SFT 5k + DAgger 5k | 23.3283±7.7106 | 0.9075 | 103.426ms |
-| QwenGR00T | SFT 5k + DAgger 5k | 22.3789±6.7888 | 0.9163 | 157.357ms |
-| QwenPI v3 | SFT 5k + DAgger 5k | 21.8744±7.9515 | 0.8500 | 238.729ms |
-| WanOFT | 未完成 | — | — | — |
-
-### HAIC PullCart
-
-50/50Hz。QwenOFT 完成 SFT 5k + DAgger 5k；100-episode L0 return
-13.3497±8.2155、mean length 187.09、task success 56%，RTX 3090 profile mean 126.288ms。
-其余三模型未找到正式 zero VLA、profile 或 latency-aware 产物。
-
 ## Latency-aware small policy
 
 ### MIKASA
@@ -269,20 +247,6 @@ W&B记录四路SFT完成；Fixed-1/2/3 DAgger记录至5000，Fixed-4训练loss�
 | WanOFT 10Hz | 23,040,000 | 93.75% | 98.44% | 30.8664 | 达标、已发布 |
 
 完整训练/eval 配置和 profile 固定版本见各发布 bundle；旧 WanOFT 20Hz 结果不替代当前 10Hz 版本。
-
-### Parkour
-
-三个模型均训练 3,000 PPO iterations，并在各自 RTX 3090 profile 与 fixed 0ms 下各评测 100 episodes；
-协议为 50Hz control、10Hz decision、seed 1、1500 raw-frame cap。
-
-| 模型 | Profile return ± SD / progress | Zero return ± SD / progress | 状态 |
-|---|---|---|---|
-| QwenOFT | 16.2985±5.8936 / 0.8314 | 16.7771±6.1831 / 0.8329 | 已发布 |
-| QwenPI v3 | 17.1554±4.3398 / 0.9214 | 11.8676±4.5410 / 0.6757 | 已发布 |
-| QwenGR00T | 18.6098±3.5573 / 0.9814 | 12.7761±4.3001 / 0.7900 | 已发布 |
-
-原始结果与 checkpoint 审计见 [completion audit](../outputs/latency_rl/parkour/h200_20260916_completion_audit.md)。
-该项目没有预设 acceptance threshold，因此这里只声明训练、评测和发布完成。
 
 ## Balance 关键实验与决策
 
@@ -353,5 +317,3 @@ QwenOFT 两臂的逐 seed return/length 与旧结果完全一致。
 
 - **Balance**：固定均值 prefix / no-prefix 六组因果评测完成，以新协议比较为准；已决定新训练数据与所有学生推理统一使用 profile 均值固定 K；公共合同迁移及相关测试已验证（[证据](../outputs/tasks/humanoidbench_balance_simple/fixed_k_unification_20260920/README.md)），尚未重训；下一步决定是否按新标签合同重训。D/E 消融仍是独立待办。
 - **MIKASA**：论文采用63D四路共同DAgger3500开发快照与既有Zero列；终评、发布与开发快照分别记录。后续若恢复实验，再核验剩余预算、共同held-out终评及产物发布，不以当前grid替代。[快照协议](../paper/figures/fig6_latency_robustness/mikasa/README.md)。
-- **Parkour**：补 WanOFT H1/profile/latency-small；在新的质量声明前先定义 acceptance threshold。
-- **HAIC**：核验其余三模型、RTX 3090 profiles、latency-small 终点和正式 latency-aware VLA；不以 smoke 代替质量结果。

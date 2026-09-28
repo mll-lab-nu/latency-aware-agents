@@ -629,7 +629,6 @@ def test_mikasa_h8_training_config(
         bootstrap=bootstrap.parent,
         deltas=[],
         backbone=tmp_path / "Qwen3-VL-4B-Instruct",
-        actor_checkpoint=None,
         run_id="bootstrap",
         steps=5000,
         stop_step=5000,
@@ -1045,7 +1044,6 @@ def test_mikasa_h8_eval_uses_20hz_rtx3090_profile_capacity_one(tmp_path, monkeyp
     config = train_task.eval_config(
         args,
         tmp_path / "bundle",
-        tmp_path / "teacher",
         tmp_path / "evaluation",
         eval_episodes=50,
     )
@@ -1069,7 +1067,6 @@ def test_mikasa_h8_eval_uses_20hz_rtx3090_profile_capacity_one(tmp_path, monkeyp
     zero_config = train_task.eval_config(
         args,
         tmp_path / "bundle",
-        tmp_path / "teacher",
         tmp_path / "evaluation-zero",
         eval_episodes=50,
         eval_latency_frames=0,
@@ -1117,12 +1114,11 @@ def test_mikasa_conditioned_eval_keeps_causal_action_context_in_all_settings(
     )
 
     profile = train_task.eval_config(
-        args, bundle, tmp_path / "teacher", tmp_path / "profile", eval_episodes=50
+        args, bundle, tmp_path / "profile", eval_episodes=50
     )
     zero = train_task.eval_config(
         args,
         bundle,
-        tmp_path / "teacher",
         tmp_path / "zero",
         eval_episodes=50,
         eval_latency_frames=0,
@@ -1130,7 +1126,6 @@ def test_mikasa_conditioned_eval_keeps_causal_action_context_in_all_settings(
     fixed = train_task.eval_config(
         args,
         bundle,
-        tmp_path / "teacher",
         tmp_path / "fixed",
         eval_episodes=50,
         eval_latency_frames=2,
@@ -1161,7 +1156,7 @@ def test_mikasa_h8_eval_reorders_physical_simulator_and_inference_gpus(tmp_path,
         lambda command, log, *, env: calls.append((command, log, env)),
     )
 
-    train_task.evaluate(args, tmp_path / "bundle", tmp_path / "teacher", label="final")
+    train_task.evaluate(args, tmp_path / "bundle", label="final")
 
     assert calls[0][2]["CUDA_VISIBLE_DEVICES"] == "0,3"
 

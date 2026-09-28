@@ -19,7 +19,6 @@ from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
     ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
     ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
-    ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1,
     action_spec_for_env,
 )
 from latency_bench.data.filters import density_weights_clean_v1
@@ -556,8 +555,6 @@ def _write_episode(
     action_dim: int,
     state_dim: int,
     include_state: bool,
-    actor_observation_shape: tuple[int, int] | None,
-    termination_shape: int | None,
 ) -> None:
     """Write one LeRobot episode parquet file.
 
@@ -631,19 +628,6 @@ def _write_episode(
             ],
             type=pa.list_(image_type),
         )
-    if actor_observation_shape is not None:
-        columns["actor_observation"] = pa.array(
-            [row["actor_observation"] for row in rows],
-            type=pa.list_(
-                pa.list_(pa.float32(), actor_observation_shape[1]),
-                actor_observation_shape[0],
-            ),
-        )
-    if termination_shape is not None:
-        columns["termination"] = pa.array(
-            [row["termination"] for row in rows],
-            type=pa.list_(pa.bool_(), termination_shape),
-        )
     table = pa.table(columns)
     pq.write_table(table, path)
 
@@ -669,8 +653,6 @@ def _write_metadata(
     state_dim: int,
     state_labels: list[str],
     context_image_count: int | None,
-    actor_observation_shape: tuple[int, int] | None,
-    termination_shape: int | None,
 ) -> None:
     """Write minimal LeRobot metadata files for a split dataset.
 
@@ -710,20 +692,6 @@ def _write_metadata(
             "shape": [context_image_count, height, width, channels],
             "names": ["time", "height", "width", "channel"],
             "video_info": {"video.fps": fps},
-        }
-    if actor_observation_shape is not None:
-        features["actor_observation"] = {
-            "dtype": "float32",
-            "shape": list(actor_observation_shape),
-            "names": [
-                [f"actor_observation_{index}" for index in range(actor_observation_shape[1])]
-                for _ in range(actor_observation_shape[0])
-            ],
-        }
-    if termination_shape is not None:
-        features["termination"] = {
-            "dtype": "bool",
-            "shape": [termination_shape],
         }
     (meta_dir / "info.json").write_text(
         json.dumps(
@@ -811,8 +779,6 @@ def _convert_split(
     state_normalization: dict[str, Any] | None,
     include_state: bool,
     density_weighting: bool = False,
-    actor_observation_shape: tuple[int, int] | None = None,
-    termination_shape: int | None = None,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
 
@@ -838,7 +804,7 @@ def _convert_split(
         density_weights = (
             density_weights_clean_v1(env_name, episode_rows)
             if density_weighting
-            and integration_name not in {"gymnasium", "isaaclab_parkour"}
+            and integration_name != "gymnasium"
             else [1.0] * len(episode_rows)
         )
         out_rows = []
@@ -884,14 +850,6 @@ def _convert_split(
                 out_row["context_image_bytes"] = [
                     _png_bytes(image) for image in row["context_images"]
                 ]
-            if actor_observation_shape is not None:
-                out_row["actor_observation"] = np.asarray(
-                    row["actor_observation"], dtype=np.float32
-                ).tolist()
-            if termination_shape is not None:
-                out_row["termination"] = np.asarray(
-                    row["termination"], dtype=bool
-                ).tolist()
             out_rows.append(out_row)
         episode_lengths.append(len(out_rows))
         episode_chunk = new_episode_idx // LE_ROBOT_CHUNK_SIZE
@@ -902,8 +860,6 @@ def _convert_split(
             action_dim=len(action_labels),
             state_dim=state_dim,
             include_state=include_state,
-            actor_observation_shape=actor_observation_shape,
-            termination_shape=termination_shape,
         )
     _write_metadata(
         output_dir,
@@ -915,8 +871,6 @@ def _convert_split(
         state_dim=state_dim,
         state_labels=state_labels,
         context_image_count=context_image_count,
-        actor_observation_shape=actor_observation_shape,
-        termination_shape=termination_shape,
     )
     if rows and "issued_command_chunk" in rows[0]:
         info_path = output_dir / "meta/info.json"
@@ -977,7 +931,7 @@ def convert_canonical_rollout_to_lerobot(
         return _convert_history_game_export(
             raw_export_dir, output_dir, metadata=metadata, force=force
         )
-    if integration_name not in {"gymnasium", "isaaclab_parkour"}:
+    if integration_name != "gymnasium":
         return _convert_legacy_export(
             raw_export_dir,
             output_dir,
@@ -986,47 +940,39 @@ def convert_canonical_rollout_to_lerobot(
         )
     action_layout = metadata["action_layout"]
     active_action_labels = list(metadata["action_labels"])
-    gymnasium_task = None
-    if integration_name == "gymnasium":
-        if action_layout not in (
-            ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
-            ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-            ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
-        ):
-            raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
-        gymnasium_task = metadata["gymnasium_task"]
-        if env_name != gymnasium_task["task_name"]:
-            raise ValueError(
-                "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
-            )
-        continuous = action_layout in (
-            ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
-            ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
+    if action_layout not in (
+        ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1,
+        ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+        ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
+    ):
+        raise ValueError(f"Unsupported Gymnasium action_layout={action_layout!r}")
+    gymnasium_task = metadata["gymnasium_task"]
+    if env_name != gymnasium_task["task_name"]:
+        raise ValueError(
+            "Canonical Gymnasium env_name does not match gymnasium_task.task_name"
         )
-        if continuous and action_carrier == "native":
-            gymnasium_task = {
-                **gymnasium_task,
-                "action_space": {
-                    key: value
-                    for key, value in gymnasium_task["action_space"].items()
-                    if key not in {"openvla_carrier_dim", "openvla_padding"}
-                },
-            }
-        task_action_labels = (
-            gymnasium_task["action_space"]["labels"]
-            if continuous
-            else gymnasium_task["action_labels"]
+    continuous = action_layout in (
+        ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
+        ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
+    )
+    if continuous and action_carrier == "native":
+        gymnasium_task = {
+            **gymnasium_task,
+            "action_space": {
+                key: value
+                for key, value in gymnasium_task["action_space"].items()
+                if key not in {"openvla_carrier_dim", "openvla_padding"}
+            },
+        }
+    task_action_labels = (
+        gymnasium_task["action_space"]["labels"]
+        if continuous
+        else gymnasium_task["action_labels"]
+    )
+    if active_action_labels != task_action_labels:
+        raise ValueError(
+            "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
         )
-        if active_action_labels != task_action_labels:
-            raise ValueError(
-                "Canonical Gymnasium action_labels do not match gymnasium_task action-space labels"
-            )
-    else:
-        if action_layout != ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1:
-            raise ValueError(
-                f"Unsupported IsaacLab Parkour action_layout={action_layout!r}"
-            )
-        continuous = True
     action_labels, active_action_dim, state_dim, state_labels = _action_carrier_spec(
         active_action_labels,
         action_carrier,
@@ -1036,24 +982,17 @@ def convert_canonical_rollout_to_lerobot(
     raw_train_rows = train_rows
     raw_val_rows = val_rows
     admission_filtered = (
-        integration_name == "gymnasium"
-        and action_layout == ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
+        action_layout == ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
         and any("command_admitted" in row for row in [*train_rows, *val_rows])
     )
     if admission_filtered:
         train_rows = [row for row in train_rows if row["command_admitted"]]
         val_rows = [row for row in val_rows if row["command_admitted"]]
-    if integration_name == "isaaclab_parkour":
-        uses_state = True
-    else:
-        uses_state = "state_space" in gymnasium_task
+    uses_state = "state_space" in gymnasium_task
     if not normalize_state:
         uses_state = any("state" in row for row in [*train_rows, *val_rows])
     if uses_state:
-        if integration_name == "isaaclab_parkour":
-            state_labels = list(metadata["state_labels"])
-            state_dim = len(state_labels)
-        elif "state_space" in gymnasium_task:
+        if "state_space" in gymnasium_task:
             state_labels = list(gymnasium_task["state_space"]["labels"])
             state_dim = len(state_labels)
         else:
@@ -1089,32 +1028,6 @@ def convert_canonical_rollout_to_lerobot(
         if "context_images" in first_row and first_row["context_images"] is not None
         else None
     )
-    actor_observation_row = next(
-        (
-            row
-            for row in [*raw_train_rows, *raw_val_rows]
-            if "actor_observation" in row
-        ),
-        None,
-    )
-    actor_observation_shape = (
-        tuple(np.asarray(actor_observation_row["actor_observation"]).shape)
-        if actor_observation_row is not None
-        else None
-    )
-    termination_row = next(
-        (
-            row
-            for row in [*raw_train_rows, *raw_val_rows]
-            if "termination" in row
-        ),
-        None,
-    )
-    termination_shape = (
-        int(np.asarray(termination_row["termination"]).shape[0])
-        if termination_row is not None
-        else None
-    )
     train_manifest = _convert_split(
         train_rows,
         output_dir,
@@ -1131,8 +1044,6 @@ def convert_canonical_rollout_to_lerobot(
         state_normalization=state_normalization,
         include_state=uses_state,
         density_weighting=True,
-        actor_observation_shape=actor_observation_shape,
-        termination_shape=termination_shape,
     )
     val_manifest = _convert_split(
         val_rows,
@@ -1150,8 +1061,6 @@ def convert_canonical_rollout_to_lerobot(
         state_normalization=state_normalization,
         include_state=uses_state,
         density_weighting=False,
-        actor_observation_shape=actor_observation_shape,
-        termination_shape=termination_shape,
     )
     if "label_provenance" in metadata:
         train_info = json.loads((output_dir / "meta/info.json").read_text())
@@ -1194,10 +1103,6 @@ def convert_canonical_rollout_to_lerobot(
                 "raw_validation_frames": len(raw_val_rows),
             }
         )
-    if actor_observation_shape is not None:
-        handoff_contract["actor_observation_shape"] = list(actor_observation_shape)
-    if termination_shape is not None:
-        handoff_contract["termination_shape"] = [termination_shape]
     if write_starvla_handoff:
         handoff_contract["robot_type"] = _robot_type_for_env(env_name, integration_name)
         prompt_map_path, mixture_path = _write_starvla_handoff_files(

@@ -189,10 +189,6 @@ def test_gpu_simulator_requires_a_separate_inference_gpu(monkeypatch):
     "model,workload,env_fps,obs_fps",
     [
         ("qwenoft", "mikasa_intercept_grab_fast", 20, 20),
-        ("qwenoft", "extreme_parkour_go2", 50, 10),
-        ("qwenpi_v3", "extreme_parkour_go2", 50, 10),
-        ("qwengr00t", "extreme_parkour_go2", 50, 10),
-        ("qwenoft", "haic_pull_cart", 50, 50),
     ],
 )
 def test_measure_config_resolves_task_contract_for_model_bundle(
@@ -205,10 +201,6 @@ def test_measure_config_resolves_task_contract_for_model_bundle(
     spec["checkpoint_path"] = str(tmp_path / "bundle/checkpoints/model.pt")
     spec["model_config_path"] = str(model_config_path)
     spec["backbone_path"] = "/models/backbone/snapshots/recorded-commit"
-    if workload == "extreme_parkour_go2":
-        spec["runtime_checkpoint_path"] = "/models/parkour/model_14999.pt"
-    elif workload == "haic_pull_cart":
-        spec["runtime_checkpoint_path"] = "/models/haic/checkpoint_final.pt"
 
     config = measure_config(
         spec,
@@ -226,36 +218,6 @@ def test_measure_config_resolves_task_contract_for_model_bundle(
     assert config["policy"]["task_contract_path"] == str(
         model_config_path.parent / "task_contract.json"
     )
-    if workload in ("extreme_parkour_go2", "haic_pull_cart"):
-        assert config["policy"]["worker_python_executable"] == (
-            "/venv/starvla_rl_games_openvla/bin/python"
-        )
-        assert spec["session_count"] == 5
-        assert config["evaluation"]["eval_episodes"] == 50
-        assert config["evaluation"]["eval_parallel_envs"] == 1
-        assert config["executor"]["inference_devices"] == ["cuda:0"]
-        assert config["env"]["simulator_device"] == "cuda:0"
-        assert config["env"]["runtime_checkpoint_path"] == spec["runtime_checkpoint_path"]
-        assert config["env"]["env_fps"] == env_fps
-        assert config["env"]["obs_fps"] == obs_fps
-    if workload == "extreme_parkour_go2":
-        run_id = {
-            "qwenoft": "20260912T072315-nocache32v2",
-            "qwenpi_v3": "20260912T175510",
-            "qwengr00t": "20260912T180303",
-        }[model]
-        assert spec["model_artifact"]["hf_path"] == (
-            f"zero-latency/extreme-parkour-go2/vla/starvla-{model}-h1/{run_id}"
-        )
-        assert config["evaluation"]["eval_max_steps"] == 1500
-        assert len(config["env"]["noop_action"]) == 34
-    elif workload == "haic_pull_cart":
-        assert spec["model_artifact"]["hf_path"] == (
-            "zero-latency/haic-pull-cart/vla/starvla-qwenoft-h1/"
-            "haic-qwenoft-50hz-fresh-20260913T035850Z"
-        )
-        assert config["evaluation"]["eval_max_steps"] == 1000
-        assert config["policy"]["state_info_key"] == "haic_state"
 
 
 def test_measure_config_strips_eval_suites_for_realtime_demon_attack(tmp_path):

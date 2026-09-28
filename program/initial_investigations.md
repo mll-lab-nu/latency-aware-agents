@@ -24,130 +24,27 @@
 
 ## 2. 结论
 
-除 MIKASA `InterceptGrab` 外，目前最值得投入的三个正交方向是：
+除 MIKASA `InterceptGrab` 外，历史调研保留的候选方向是：
 
-1. **HAIC PullCart**：持续接触、物体惯性、全身平衡和受力耦合。
-2. **Robot Parkour Learning Leap**：视觉预测、起跳时机、落脚和高速 locomotion。
-3. **Click-and-Traverse G1CatPri**：全身避碰、跨越、下蹲和侧身穿越。
+1. **Click-and-Traverse G1CatPri**：全身避碰、跨越、下蹲和侧身穿越。
 
 如果接受飞行机器人，再加入：
 
-4. **FlightBench maze/racing**：高速 ego-vision navigation 和碰撞规避。
+2. **FlightBench maze/racing**：高速 ego-vision navigation 和碰撞规避。
 
-这四类任务的 latency failure mode 与 `InterceptGrab` 基本正交。
+这些候选任务的 latency failure mode 与 `InterceptGrab` 基本正交。
 
 | 梯队 | Benchmark / task | Latency 失效机制 | Online teacher / demo | 立即可用性 |
 | --- | --- | --- | --- | --- |
-| 第一 | HAIC PullCart / PushCart | 持续接触力、物体惯性、全身失衡 | Privileged PPO，可重训 | 高 |
-| 第一 | Robot Parkour Leap / Climb / Crawl | 起跳与落脚决策过期、视觉状态滞后 | PPO specialist → DAgger depth student | 高 |
 | 第一 | Click-and-Traverse G1CatPri | 碰撞、错过落脚点、姿态切换过晚 | Privileged PPO specialists → DAgger generalist | 高 |
 | 第一 | FlightBench maze/racing | 航迹误差、高速碰撞 | State MAPPO teacher → visual DAgger student | 中，工程栈较重 |
 | 第二 | VIRAL / GR00T-VisualSim2Real | delayed RGB 管线完整，但任务时间压力偏弱 | PPO teacher → RGB DAgger student | 高 |
 | 第二 | KinDER | 动态物理推理，但现成 3D PPO 覆盖有限 | PPO / SAC state baseline | 中 |
 | 第二 | SkillBench | whole-body 稳定与搬运，但缺少强时间约束 | PPO / SkillBlender | 中 |
-| 第二 | Neverwhere | 视觉 parkour evaluation 很强 | teacher training 依赖外部组件 | 中低 |
 | 第二 | DynamicVLA / DOM、DOMINO | 与 InterceptGrab 的移动目标定位重合 | 以 scripted / imitation 数据为主 | 高 |
 | 第二 | HumanoidArena | whole-body VLA 完整 | 依赖 teleop demonstration | 高，但不适配 latency teacher |
 
 ## 3. 第一梯队
-
-### 3.1 HAIC：首选的新 benchmark
-
-HAIC 是 RSS 2026 的 Unitree G1 whole-body object interaction 项目，包含：
-
-- `pull_cart`
-- `push_cart`
-- `push_wheelchair`
-- `box_slope` / `box_stair`
-- `skateboard`
-
-官方直接提供 PPO teacher 和 student/adaptation 训练入口：
-
-```bash
-python scripts/train.py algo=ppo_haic_train task=G1/haic/skateboard
-python scripts/train.py algo=ppo_haic_finetune task=G1/haic/skateboard checkpoint_path=...
-```
-
-PullCart 的 privileged observation 包含物体关节位置、速度、力矩、接触几何和动力学参数。其核心难点是机器人、接触物和下肢平衡之间的持续动力学耦合，而不是一次性的抓取时机。
-
-HAIC 论文确实考虑了 delay，但其定位是 **sim-to-real domain randomization**，不是论文的主要研究变量：
-
-- “Sim-to-Real Transfer”部分说明使用大规模 domain randomization 缩小 reality gap。
-- 附录 Table XI 在 Actuation 类别中列出 `Action Delay ~ U[40, 120] ms`。
-- 论文没有把不同 latency 下的性能或 latency-aware teacher 作为独立实验；这里的 delay 主要用于提高真机泛化和鲁棒性。
-- 附录还报告 HAIC 方法本身的平均 inference latency 只有 0.17 ms，低于 20 ms control period 的 1%，强调 world model 没有引入显著计算延迟。
-
-公开代码也已经实现 action-delay buffer：
-
-- policy step：20 ms；
-- Isaac physics step：5 ms；
-- release 配置为 `min_delay=2, max_delay=6`，并包含 action smoothing；
-- buffer 支持跨 control-step 的 delay，可扩大到更高 latency 档位。
-
-需要注意，当前 release 配置的 `2–6` 与论文报告的 `40–120 ms` 不能直接按字面对应；正式实验前需要核对代码版本和 delay 单位。尽管如此，论文和代码都证明该 PPO teacher pipeline 已经把 action delay 放在 environment 内训练。我们的区别是将 latency 从 sim-to-real nuisance randomization 提升为显式研究变量，并据此训练 latency-aware teacher 和生成 demonstrations。
-
-推荐顺序：
-
-1. `pull_cart`
-2. `push_cart`
-3. `box_stair` / `box_slope`
-
-风险与缺口：
-
-- 使用 motion/reference data，但策略仍是在线 PPO，因此 reference 本身不需要重新采集 latency demonstration。
-- 没有现成 RGB VLA 数据层，需要从 latency-aware teacher rollout 中渲染 RGB 并建立数据接口。
-- 仓库根目录目前未看到明确 license 文件，正式复用前需要确认。
-
-来源：
-
-- [HAIC 官方仓库](https://github.com/ldt29/HAIC)
-- [HAIC 论文 PDF](https://haic-humanoid.github.io/static/haic.pdf)
-- [PullCart task 配置](https://github.com/ldt29/HAIC/blob/main/cfg/task/G1/haic/pull_cart.yaml)
-- [默认 latency 配置](https://github.com/ldt29/HAIC/blob/main/cfg/task/base/tracking-base.yaml)
-- [Action delay 实现](https://github.com/ldt29/HAIC/blob/main/active_adaptation/envs/mdp/action.py)
-- [项目主页](https://haic-humanoid.github.io/)
-
-### 3.2 Robot Parkour Learning：最贴合 latency 假设的 locomotion benchmark
-
-Robot Parkour Learning 的任务包括：
-
-- Climb
-- Leap over gaps
-- Crawl beneath barriers
-- Tilt / squeeze through slits
-- Run
-
-训练管线为：
-
-1. 使用 privileged terrain 和 physics information，通过 PPO 训练多个 specialist。
-2. 使用 DAgger 将 specialist 蒸馏为单一 egocentric depth policy。
-3. 在真机上仅使用 onboard perception 和 proprioception。
-
-它不依赖 reference motion 或 teleoperation。论文原生随机化：
-
-- forward depth latency：200–260 ms；
-- proprioception latency：37.5–47.5 ms；
-- camera pose、FOV、friction 和 motor strength。
-
-这已经直接验证了高感知延迟下的 locomotion。我们的改造只需进一步在 environment 中加入 inference/action FIFO，并在同样的 delayed dynamics 下重新训练 privileged PPO teacher。
-
-推荐顺序：
-
-1. `Leap`：延迟改变何时起跳，无法仅靠放慢动作规避。
-2. `Climb`：延迟影响接近、前肢接触和后肢推进之间的相位。
-3. `Crawl`：延迟影响高度调整和前进速度的闭环协调。
-
-风险与缺口：
-
-- 项目是 CoRL 2023，不是最新 simulator stack。
-- 原生 latency 主要覆盖视觉和 proprioception；action queue 需要自行加入。
-- 基于 Isaac Gym，后续维护成本高于 Isaac Lab。
-
-来源：
-
-- [Robot Parkour Learning 项目页](https://robot-parkour.github.io/)
-- [训练代码与 checkpoints](https://github.com/ZiwenZhuang/parkour)
-- [论文 PDF](https://robot-parkour.github.io/resources/Robot_Parkour_Learning.pdf)
 
 ### 3.3 Click-and-Traverse：新的 humanoid traversal 候选
 
@@ -292,7 +189,7 @@ SkillBench 包含 H1、G1 和 H1-2，以及八个 whole-body task：
 
 ### 4.4 Neverwhere
 
-Neverwhere 是 IROS 2026 hyper-realistic visual parkour benchmark，包含 60+ Gaussian Splatting scenes 和四类任务：hurdle、gap、stairs、ramp。
+Neverwhere 是 IROS 2026 hyper-realistic visual locomotion benchmark，包含 60+ Gaussian Splatting scenes 和四类任务：hurdle、gap、stairs、ramp。
 
 它提供 Gaussian Splat、collision mesh、waypoint、RGB/depth/point-cloud/segmentation wrapper。evaluation script 已经暴露独立的 visual delay 和 action delay，并使用 action/visual buffer。
 
@@ -300,8 +197,6 @@ Neverwhere 是 IROS 2026 hyper-realistic visual parkour benchmark，包含 60+ G
 
 - 项目主要定位为 closed-loop evaluation。
 - 当前 teacher/student learning code 依赖 LucidSim、`cxx` policy modules 和分布式训练组件，仓库本身不是完整、独立的 PPO teacher pipeline。
-- 更适合后期为 Robot Parkour policy 增加 photorealistic visual evaluation。
-
 来源：
 
 - [Neverwhere 项目页](https://ziyc.github.io/neverwhere-bench/)
@@ -321,7 +216,7 @@ Neverwhere 是 IROS 2026 hyper-realistic visual parkour benchmark，包含 60+ G
 - HOPE / PACE humanoid table tennis
 - Bi-DexHands catching tasks
 
-这些项目可以作为第二组 related-work 或补充实验，但不应该抢占 HAIC / Parkour / CAT 的首轮工程资源。
+这些项目可以作为第二组 related-work 或补充实验，但不应该抢占 CAT 的首轮工程资源。
 
 ### 4.6 HumanoidArena
 
@@ -335,21 +230,6 @@ HumanoidArena 有完整 whole-body VLA、LeRobot dataset、checkpoint 和 evalua
 - [项目主页](https://humanoidarena.github.io/)
 
 ## 5. 值得跟踪但暂时不能直接用
-
-### Light-Loco-Parkour
-
-Light-Loco-Parkour 几乎满足理想条件：privileged teachers、multi-expert DAgger、recurrent depth student、climb/step down/vault，以及 27–33 Hz camera、camera noise、dropout 和 30–60 ms latency。
-
-但截至 2026-09-01，官方只发布项目页和论文，没有完整训练代码，因此不能列入可立即开工的第一梯队。
-
-来源：[Light-Loco-Parkour 项目页](https://light-loco-parkour.github.io/)
-
-### RPL / Perceptive Humanoid Parkour
-
-两者都有 privileged expert → depth student 的强 pipeline，也显式考虑 sensor latency 或硬件时序，但官方训练代码仍为 coming soon，暂时只跟踪：
-
-- [RPL](https://rpl-humanoid.github.io/)
-- [Perceptive Humanoid Parkour](https://php-parkour.github.io/)
 
 ### FALCON
 
@@ -368,23 +248,13 @@ FALCON 的 payload transport、cart pulling 和 door opening 与 latency 下的�
    - 代表 moving-object interception。
    - 已经验证 teacher 训练效果好。
 
-2. **HAIC PullCart**
-   - 代表 sustained contact、object inertia 和 humanoid balance。
-   - 直接复用已有 action-delay buffer，并在高 latency 下重训 PPO teacher。
-
-3. **Robot Parkour Leap**
-   - 代表 visual anticipation、commit timing 和 locomotion。
-   - 复用已有 perception-latency randomization，再加入 action queue。
-
-若第三个 simulator stack 不易复现，则用 **Click-and-Traverse G1CatPri** 替代 Robot Parkour；如果需要额外的高速非接触机器人场景，再加入 **FlightBench maze/racing**。
+可继续评估 **Click-and-Traverse G1CatPri**；额外的高速非接触场景可考虑 **FlightBench maze/racing**。
 
 这个组合覆盖三种不同的 latency failure mode：
 
 | Task | 延迟造成的主要失败 |
 | --- | --- |
 | InterceptGrab | 对移动目标估计过期，错过拦截与抓取窗口 |
-| HAIC PullCart | 持续接触控制滞后，产生力振荡、轨迹误差或失衡 |
-| Robot Parkour Leap | 起跳决策过期，错过落脚点或无法跨越 gap |
 | Click-and-Traverse | 全身避碰和姿态切换过晚，发生碰撞 |
 | FlightBench | 高速航迹修正滞后，碰撞或偏离航路 |
 

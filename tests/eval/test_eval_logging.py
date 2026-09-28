@@ -394,7 +394,7 @@ def test_task_metric_moments_preserve_step_weighted_statistics():
 
     summary = build_queue_eval_summary(
         metrics,
-        experiment_name="parkour",
+        experiment_name="evaluation",
         seed=2,
         latency="zero",
     )

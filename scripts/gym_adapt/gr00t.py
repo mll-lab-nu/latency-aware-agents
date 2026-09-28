@@ -116,7 +116,6 @@ def export_bundle(task: str, trained: Path, checkpoint: Path, dataset: Path, des
     config = yaml.safe_load((trained / "config.full.yaml").read_text())
     inference = {key: deepcopy(config[key]) for key in ("framework", "version_id")}
     inference["framework"]["qwenvl"]["base_vlm"] = "${oc.env:GR00T_BACKBONE_DIR}"
-    inference["framework"]["action_model"]["task_objective"] = None
     inference["datasets"] = {"vla_data": {key: config["datasets"]["vla_data"][key]
         for key in ("include_state", "obs_image_size", "image_mode", "stitch_grid", "num_obs_frames")}}
     inference["trainer"] = {"pretrained_checkpoint": None,

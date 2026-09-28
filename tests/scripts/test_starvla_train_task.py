@@ -12,7 +12,7 @@ from scripts.starvla import train_task
 @pytest.mark.parametrize(
     ('task', 'model', 'phase', 'condition', 'wandb_condition'),
     [('balance', 'qwenoft', 'bootstrap', 'zero-latency', 'zero-latency'),
-     ('parkour', 'wanoft', 'dagger', 'latency-aware', 'profile-latency')],
+     ('balance', 'wanoft', 'dagger', 'latency-aware', 'profile-latency')],
 )
 def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
         tmp_path, monkeypatch, task, model, phase, condition, wandb_condition):
@@ -33,7 +33,7 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
 
     config = train_task.training_config(
         args, bootstrap=bootstrap.parent, deltas=[], backbone=tmp_path / 'backbone',
-        actor_checkpoint=None, run_id=phase, steps=2, stop_step=2,
+        run_id=phase, steps=2, stop_step=2,
         pretrained=None, resume=False,
     )
 
@@ -54,7 +54,7 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
 
     continuous = train_task.training_config(
         args, bootstrap=bootstrap.parent, deltas=[], backbone=tmp_path / 'backbone',
-        actor_checkpoint=None, run_id=phase, steps=2, stop_step=None,
+        run_id=phase, steps=2, stop_step=None,
         pretrained=None, resume=False,
     )
     assert 'stop_after_steps' not in continuous['trainer']
@@ -159,8 +159,7 @@ def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_pat
     monkeypatch.setattr(train_task, 'run_command', run)
     monkeypatch.setattr(train_task, '_log_corrected_eval_summaries_to_wandb',
                         lambda config, values: summaries.extend(values))
-    result = train_task.evaluate(args, tmp_path / 'bundle', tmp_path / 'teacher',
-                                 label='checkpoint', wandb_checkpoint=('run', 500))
+    result = train_task.evaluate(args, tmp_path / 'bundle', label='checkpoint', wandb_checkpoint=('run', 500))
 
     assert result == output
     assert commands == [[args.task_python, '-m', 'latency_bench.run', '--config', output / 'eval_config.yaml']]
@@ -200,6 +199,7 @@ def test_resume_rejects_a_different_training_latency(tmp_path):
 
 def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path, monkeypatch):
     monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
+    monkeypatch.setenv('WANDB_RUN_GROUP', 'test-group')
     dataset = tmp_path / 'dataset'
     metadata = dataset / 'lerobot/meta'
     metadata.mkdir(parents=True)
@@ -224,7 +224,7 @@ def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path
     partial_delta.mkdir(parents=True)
     (partial_delta / 'stale').write_text('partial')
     run = {
-        'task': 'haic',
+        'task': 'balance',
         'model': 'qwenpi_v3',
         'run_id': 'formal-1',
         'condition': 'zero-latency',
@@ -264,7 +264,7 @@ def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path
 
     with pytest.raises(RuntimeError, match='restarted partial round 1'):
         train_task.main([
-            '--task', 'haic',
+            '--task', 'balance',
             '--model', 'qwenpi_v3',
             '--run-id', 'formal-1',
             '--output-dir', str(tmp_path),
@@ -292,7 +292,7 @@ def test_mixture_retains_half_bootstrap_and_independent_validation(tmp_path):
 
 def test_publish_retry_preserves_dataset_revisions_and_rejects_smoke(tmp_path, monkeypatch):
     (tmp_path / 'inference').mkdir()
-    run = {'task': 'haic', 'model': 'qwenoft', 'run_id': 'run', 'smoke': False,
+    run = {'task': 'balance', 'model': 'qwenoft', 'run_id': 'run', 'smoke': False,
            'condition': 'zero-latency',
            'teacher': {}, 'backbone': {}, 'code_revisions': {}, 'seed': 0,
            'training': {'sft_updates': 2, 'dagger_updates': 2},
@@ -348,7 +348,7 @@ def test_balance_teacher_and_bootstrap_use_their_own_condition(tmp_path, monkeyp
     assert dataset["path"] == f"{condition}/humanoidbench-balance-simple/teacher-rollouts-h8-state-v2"
 
 
-@pytest.mark.parametrize('task', ['balance', 'mikasa', 'parkour', 'haic'])
+@pytest.mark.parametrize('task', ['balance', 'mikasa'])
 def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_path, monkeypatch, task):
     """Long-lived evaluation contract: CLI emits complete task inputs and fixed K."""
     import sys
@@ -390,8 +390,7 @@ def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_pat
     assert config['experiment']['seed'] == 810001
     assert config['evaluation']['eval_episodes'] == 2
     command = ' '.join(map(str, calls[0]))
-    assert {'balance': 'latency_bench.run', 'mikasa': 'scripts/mikasa/evaluate.py',
-            'parkour': 'parkour_vla.py', 'haic': 'haic_vla.py'}[task] in command
+    assert {'balance': 'latency_bench.run', 'mikasa': 'scripts/mikasa/evaluate.py'}[task] in command
     if task == 'balance':
         prepare_starvla_checkpoint_input_config(config)
         assert config['env']['name'] == 'balance_profile'

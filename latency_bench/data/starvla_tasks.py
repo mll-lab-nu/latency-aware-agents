@@ -69,18 +69,6 @@ TASK_SPECS: dict[str, StarVLATaskSpec] = {
         fps=50.0,
         video_keys=("video.ego_view",),
     ),
-    "parkour": StarVLATaskSpec(
-        name="extreme_parkour_go2",
-        robot_type="latency_parkour_h1",
-        state_dim=53,
-        action_dim=34,
-        fps=10.0,
-        video_keys=("video.ego_view",),
-        auxiliary_shapes=(
-            ("actor_observation", (5, 753)),
-            ("termination", (5,)),
-        ),
-    ),
     "mikasa": StarVLATaskSpec(
         name="mikasa_intercept_grab_fast",
         robot_type="latency_mikasa_h1",
@@ -108,19 +96,6 @@ TASK_SPECS: dict[str, StarVLATaskSpec] = {
         video_keys=("video.top", "video.wrist"),
         auxiliary_shapes=(("action_prefix_mask", (8,)), ("action_loss_mask", (8,))),
         action_horizon=8,
-    ),
-    "haic": StarVLATaskSpec(
-        name="haic_pull_cart",
-        robot_type="latency_haic_h1",
-        state_dim=605,
-        action_dim=256,
-        fps=50.0,
-        video_keys=("video.ego_view",),
-        auxiliary_shapes=(
-            ("actor_input", (605,)),
-            ("teacher_action", (23,)),
-            ("termination", (1,)),
-        ),
     ),
 }
 

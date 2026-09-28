@@ -1,6 +1,6 @@
 # program 文档索引
 
-核心进展入口为 [PROGRESS](PROGRESS.md)，只保留四任务的已核验结果、关键决策、最新状态和下一步。
+核心进展入口为 [PROGRESS](PROGRESS.md)，只记录 Balance 与 MIKASA 的已核验结果、关键决策、最新状态和下一步。
 运行时间线放在 `logs/`，原始证据放在 `outputs/`，可执行方法和实验合同放在对应任务文档。
 使用仓库实际模型名 `qwenpi_v3`；历史运行消息不代表当前进程状态。
 
@@ -14,9 +14,7 @@
 | [MIKASA_FIXED_LATENCY_GRID](MIKASA_FIXED_LATENCY_GRID.md) | QwenOFT H8 固定 prefix 与 5×5 成功率矩阵的原方案 | 旧 Fixed-2 五档完成；因 71D 输入缺陷先转入合同修复 |
 | [MIKASA_PREFIX63_RESTART](MIKASA_PREFIX63_RESTART.md) | 四路从零重跑、matched periodic、最终五档与阶段结束直接发布 | 当前执行协议；新一轮采集已启动 |
 | [MIKASA_FIXED2_PREFIX_REPAIR](MIKASA_FIXED2_PREFIX_REPAIR.md) | 63D prefix、Fixed-2 SFT 5k + DAgger 5k、五档 periodic eval 与 L2 选优 | 本轮正式重训合同 |
-| [EXTREME_PARKOUR](EXTREME_PARKOUR.md) | Go2 teacher/student 与早期 NVIDIA GR00T action+yaw/DAgger 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
-| [HAIC](HAIC.md) | PullCart 原生 PPO 与早期 NVIDIA GR00T H40 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
-| [SCALE_MODELS](SCALE_MODELS.md) | 四任务×qwenoft/qwengr00t/qwenpi_v3/wanoft 的 H1 公共入口与 16 组 smoke | 活跃公共运行手册；正式训练不能用两步 smoke 代替 |
+| [SCALE_MODELS](SCALE_MODELS.md) | Balance/MIKASA×qwenoft/qwengr00t/qwenpi_v3/wanoft 的 H1 公共入口与历史 smoke | 活跃公共运行手册；正式训练不能用两步 smoke 代替 |
 | [PROFILE](PROFILE.md) | MIKASA/QwenOFT 早期实机测量、五场采样、发布与回放结果 | 保留测量事实；当前 RTX 3090 覆盖与版本见 PROGRESS |
 | [ATLANTIS_ASTERIX_H8](ATLANTIS_ASTERIX_H8.md) | 两游戏 H8 zero/profile VLA、CPU teacher、3090 profiling 和三组评测合同 | 已完成：12 个 VLA、6 个 profile teacher、6 份 profiles 均发布回读；18/18 组、1800 局正式评测已核验；[完整结果](../outputs/tasks/atari_hist8_v1/evaluation_progress.md) / [执行记录](logs/atlantis-asterix-h8-2026-09-24.md) |
 
@@ -31,11 +29,11 @@
 | [CHUNK_RL_ABLATION](CHUNK_RL_ABLATION.md) | H8 五配置×四 training seeds 的最终评测、D/E 简化选择 | 第一版 20 run 完成；D/E 组合及单独消融待验证 |
 | [BALANCE_DAGGER](BALANCE_DAGGER.md) | QwenOFT DAgger 标签修复短交接、十轮结果及终点验收待办 | 活跃交接；详版历史在 archive/DAGGER |
 | [BALANCE_CAUSAL_EVAL](BALANCE_CAUSAL_EVAL.md) | 现有 Balance 模型补评测协议、历史结果与统一入口用法 | 因果评测协议；正式结果见 PROGRESS 与实验报告 |
-| [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 四任务 evaluator、固定均值 prefix、sampler/worker 与 seed/reset 合同 | 保留合同记录；实现验证与正式训练分别记录 |
+| [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 保留任务 evaluator、固定均值 prefix、sampler/worker 与 seed/reset 合同 | 保留合同记录；实现验证与正式训练分别记录 |
 | [ARTIFACT_HANDOFF](ARTIFACT_HANDOFF.md) | Flappy/Demon/Deadly/Atlantis/Asterix 的 5 类历史资产、统一 100 局评测与中央 HF 路径 | 活跃交接；只有正式评测与远端回读通过后才在 PROGRESS 标记发布 |
 | [DECISION_HISTORY_VLA_H8](DECISION_HISTORY_VLA_H8.md) | Flappy/Demon/Deadly × 三架构 × profile/zero 条件，共 18 路 H8 VLA 与 27 组交叉评测合同 | 18/18 模型已发布 HF 并回读；27/27 新版及 9/9 旧权重重评完成；[最终报告](../outputs/tasks/decision_history_vla_hist8_v2/final_report.md) |
 | [logs/decision-history-vla-v2-2026-09-23](logs/decision-history-vla-v2-2026-09-23.md) | history01 修复、PI LR 选优、18 路训练、zero teacher 采集与旧权重纠正评测 | Deadly 渲染合同已修正；全部结果核验完毕，监控正常退出 |
-| [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 四任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
+| [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 保留任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
 | [logs/starvla-resident-dagger-migration-2026-09-19](logs/starvla-resident-dagger-migration-2026-09-19.md) | StarVLA DAgger 常驻训练权重推理、smoke 验证与正式迁移 | 运行记录；未经核验的正式结果不写入 PROGRESS |
 | [logs/mikasa-h8-zero-latency-2026-09-20](logs/mikasa-h8-zero-latency-2026-09-20.md) | MIKASA H8 数据审计、相关测试、三模型 smoke 与正式运行时间线 | 运行记录；完成状态和结果只以 PROGRESS 为准 |
 | [logs/atari-gpu-training-gate-2026-09-22](logs/atari-gpu-training-gate-2026-09-22.md) | Atlantis/Asterix CuLE 接入、2048/4096 H100 吞吐与 100 局 GPU/CPU 兼容评测 | 2048 候选通过吞吐与兼容门；三 seed 同帧数质量 A/B 尚未完成 |
@@ -49,16 +47,14 @@
 | [logs/mikasa-fixed-grid-2026-09-24](logs/mikasa-fixed-grid-2026-09-24.md) | Fixed-1/3/4 正式采集、SFT/DAgger 与 5×5 grid 的启动和运行记录 | 当前完成状态以 PROGRESS 为准 |
 | [logs/mikasa-h8-dagger-2026-09-23](logs/mikasa-h8-dagger-2026-09-23.md) | 六路 conditioned H8 从 SFT step-5000 接续 DAgger 的运行、终评与发布记录 | 九路汇总结论见 PROGRESS |
 | [logs/mikasa-h8-naive-dagger-2026-09-23](logs/mikasa-h8-naive-dagger-2026-09-23.md) | 三路 zero-latency naive H8 DAgger 的运行、终评与发布记录 | 九路汇总结论见 PROGRESS |
-| [parkour/OPTIMIZE](parkour/OPTIMIZE.md) | CPU 调度收益、预算对齐及已回退的 PhysX/cache 实验 | 保留性能记录；训练吞吐与 VLA inference latency profile 分开解释 |
 
 ## 研究资料
 
 | 文档 | 内容 / 主要用途 | 重叠与阅读关系 |
 |---|---|---|
-| [PROPOSAL](PROPOSAL.md) | 以 MIKASA 为核心的可解性→延迟退化→恢复研究论证 | 研究方针；与 HumanoidBench proposal 关注范围不同 |
-| [HUMANOIDBENCH_PROPOSAL](HUMANOIDBENCH_PROPOSAL.md) | HumanoidBench teacher→VLA→profile→latency-aware 路线与 gates | 历史研究方针；当前任务为 Balance Simple |
+| [PROPOSAL](PROPOSAL.md) | 以 MIKASA 为核心的可解性→延迟退化→恢复研究论证 | 研究方针 |
 | [LATENCY_RL](LATENCY_RL.md) | causal history、推理等待及信息可见性的概念说明 | 与 related_works/note、综述相关；保留解释性资料 |
-| [initial_investigations](initial_investigations.md) | 初始 benchmark 筛选、HAIC/Parkour/飞行等候选与工程缺口 | 初始调研资料；后续选定任务的事实见任务手册 |
+| [initial_investigations](initial_investigations.md) | 初始 benchmark 筛选、机器人与飞行候选及工程缺口 | 初始调研资料；后续选定任务的事实见任务手册 |
 | [related_works/README](related_works/README.md) | 延迟 RL、critic、teacher/student 信息差、chunk、DAgger 综述 | 主要研究综述入口；与概念文档和 proposals 有重叠，全文保留 |
 | [related_works/note](related_works/note.md) | 请求未完成时可见的 observation、动作与等待状态 | 短研究笔记，与 LATENCY_RL/综述重叠 |
 

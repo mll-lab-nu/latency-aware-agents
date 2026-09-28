@@ -19,15 +19,3 @@
 	path = third_party/MIKASA-Robo
 	url = https://github.com/mindorigin150/MIKASA-Robo.git
 	shallow = true
-[submodule "third_party/HAIC"]
-	path = third_party/HAIC
-	url = git@github.com:mindorigin150/HAIC.git
-	shallow = true
-[submodule "third_party/IsaacLab"]
-	path = third_party/IsaacLab
-	url = https://github.com/isaac-sim/IsaacLab.git
-	shallow = true
-[submodule "third_party/Isaaclab_Parkour"]
-	path = third_party/Isaaclab_Parkour
-	url = git@github.com:mindorigin150/Isaaclab_Parkour.git
-	shallow = true

@@ -753,7 +753,7 @@ def _training_launch(
 ):
     training_phase = "bootstrap" if phase == "bootstrap" else "dagger"
     config = training_config(args, bootstrap=bootstrap, deltas=deltas, backbone=args.backbone,
-                             actor_checkpoint=None, run_id=training_phase, steps=steps, stop_step=stop_step,
+                             run_id=training_phase, steps=steps, stop_step=stop_step,
                              pretrained=pretrained, resume=resume)
     config["wandb_name"] = f"{args.task}-{args.label_mode}-{args.model}"
     config["trainer"]["save_interval"] = save_interval

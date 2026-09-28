@@ -101,9 +101,6 @@ Accepted zero-latency teacher rollouts for the supported benchmark tasks.
 - `zero-latency/humanoidbench-balance-simple/teacher-rollouts-v1/lerobot` and
   `lerobot__val`: published 90/10 split, videos, and metadata.
 
-Extreme Parkour and HAIC datasets are intentionally not published until their
-current VLA pipelines pass their documented gates.
-
 Historical source repositories remain unchanged: MIKASA dataset revision
 `28312021c634fa97f8068077dfd6eb0efe6d45ce` and Balance dataset revision
 `dbb954842942196e127c9acc0d776b62aa679990`.

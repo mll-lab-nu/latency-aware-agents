@@ -43,7 +43,7 @@ def build_config(args, bundle: Path, output: Path) -> dict:
         eval_seed=START_SEED, inference_device="cuda:1", simulator_device="cuda:0",
         smoke=False, vla_python=args.vla_python, backbone_path=args.backbone_path,
     )
-    return eval_config(runtime, bundle, Path("unused"), output,
+    return eval_config(runtime, bundle, output,
                        eval_episodes=EPISODES, eval_latency_frames=args.eval_latency)
 
 

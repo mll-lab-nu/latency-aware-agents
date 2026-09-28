@@ -25,8 +25,6 @@ configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 | MIKASA Intercept Grab Fast | Small-policy PPO with WanOFT RTX 3090 temporal latency | `outputs/latency_rl/mikasa/wanoft_rtx3090_recipe_25m/20260910T093825Z/best_policy.pt` | `latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/` | Published; selected at 69,120,000 steps; independent 256-episode final success 122/256 (47.66%) |
 | MIKASA Intercept Grab Fast | QwenOFT VLA inference bundle | `third_party/starVLA/results/Checkpoints/mikasa_grabfast_h1_gb64_mb8_ga8_expandable/` | `zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-v1/` | Published; 5k SFT and eval accepted |
 | Balance Simple | FastTD3 teacher | `results/humanoidbench_g1_balance_control_comparison_fasttd3_25m/checkpoints/g1_sonic_balance_simple_raw_ramp_0p1s_fasttd3_25000000steps_s1/checkpoint_p0/best_000325980_20864000_reward_702.976.pth` | `zero-latency/humanoidbench-balance-simple/small-policy/fasttd3-v1/` | Published |
-| Extreme Parkour Go2 | Privileged PPO teacher | `third_party/Isaaclab_Parkour/logs/rsl_rl/unitree_go2_parkour/2026-09-02_00-49-22_teacher_zero_delay_fixed_lr_ddp_seed1_15k/model_14999.pt` | `zero-latency/extreme-parkour-go2/small-policy/ppo-v1/` | Teacher verified; publication pending VLA pipeline |
-| HAIC Pull Cart G1 | Native PPO teacher | `outputs/haic/phase1_teacher/checkpoint_final.pt` | `zero-latency/haic-pull-cart/small-policy/ppo-v1/` | Teacher verified; publication pending VLA pipeline |
 | Flappy Bird | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/flappy/small-policy/sample-factory-v1/` | Published; 100-episode mean 444.600; central readback passed |
 | Demon Attack | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/demon-attack/small-policy/sample-factory-v1/` | Published; soft-reset-corrected 14400-step 100-episode raw game-score mean 8727.150; central readback `7a6d7af88f921c6244aafe03078f1d30d94cc9b7` |
 | Deadly Corridor | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/deadly-corridor/small-policy/sample-factory-v1/` | Published; 100-episode mean 2116.794; central readback passed |
@@ -159,16 +157,12 @@ provenance. The 12 migrated bundles are available at
 [the verified layout revision](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla).
 
 Each task shares `zero-latency/<task>/teacher-rollouts-h<horizon>-state-v1/`
-across all four models. Balance, Parkour, and HAIC additionally publish
+across all four models. Balance additionally publishes
 model-specific DAgger deltas at
 `zero-latency/<task>/dagger/starvla-<model>-h<horizon>/<run-id>/round-NN/`.
-HAIC data contains a fresh 50 Hz image, state, and teacher latent at each
-control step.
 The dataset README and task contract describe fields and fixed train/validation
 normalization. Model provenance references the exact shared and delta revisions.
 
-Teacher checkpoint downloads for all four tasks use the model repository's
-default branch in the H1 pipeline, including the Parkour and HAIC teachers.
 Published artifacts record the resolved publication revision where applicable.
 
 ## Prepare a backbone for evaluation

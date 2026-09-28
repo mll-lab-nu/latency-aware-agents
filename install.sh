@@ -224,9 +224,6 @@ init_model_submodules() {
             if [[ "${INIT_PRIVATE_SUBMODULES}" == "true" ]]; then
                 submodules+=(
                     third_party/MIKASA-Robo
-                    third_party/IsaacLab
-                    third_party/Isaaclab_Parkour
-                    third_party/HAIC
                 )
             fi
             ;;

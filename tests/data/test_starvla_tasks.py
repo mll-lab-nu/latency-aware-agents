@@ -199,7 +199,7 @@ def test_normalize_matches_min_max_boundaries_and_constant_dimensions(monkeypatc
                     "action": {"target": {"absolute": True, "shape": (1,), "continuous": True}}},
         embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
     )
-    transform = LatencyBenchH1DataConfig({"robot_type": "latency_haic_h1", "video_keys": []}).transform()
+    transform = LatencyBenchH1DataConfig({"robot_type": "latency_mikasa_h1", "video_keys": []}).transform()
     transform.set_metadata(metadata)
     for training in (True, False):
         transform.train() if training else transform.eval()

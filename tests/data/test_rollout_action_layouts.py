@@ -58,29 +58,3 @@ def test_discrete_env_action_layout_keeps_action_id():
         "action": [0.0, 1.0],
         "action_text": "FLAP",
     }
-
-
-def test_extreme_parkour_uses_the_34d_terrain_latent_and_yaw_layout():
-    from latency_bench.data.action_layouts import (
-        ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1,
-        GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC,
-        action_spec_for_env,
-        encode_action_for_env,
-    )
-
-    spec = action_spec_for_env("extreme_parkour_go2")
-    action = [float(index) for index in range(34)]
-
-    assert spec is GO2_PARKOUR_TERRAIN_LATENT_YAW_ACTION_SPEC
-    assert spec.layout == ACTION_LAYOUT_GO2_PARKOUR_TERRAIN_LATENT_YAW_V1
-    assert spec.labels == (
-        *(f"terrain_latent_{index}" for index in range(32)),
-        "yaw_current",
-        "yaw_next",
-    )
-    assert encode_action_for_env("extreme_parkour_go2", action) == {
-        "action": action,
-        "action_text": "["
-        + ", ".join(f"{value:.6f}" for value in action)
-        + "]",
-    }

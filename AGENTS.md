@@ -42,7 +42,7 @@ Testing guidance:
 # program Progress Maintenance
 
 `program/PROGRESS.md` is the concise source of truth for HumanoidBench Balance
-Simple, MIKASA InterceptGrabFast, Extreme Parkour Go2, and HAIC PullCart. Update it
+Simple and MIKASA InterceptGrabFast. Update it
 only after a verified result, decision, or latest task status changes.
 
 Keep in `PROGRESS.md`:

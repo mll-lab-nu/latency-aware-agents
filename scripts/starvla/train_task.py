@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
-from functools import partial
 import fcntl
 import json
 import os
@@ -60,21 +59,9 @@ TASK_SETTINGS = {
         'state_info_key': 'gymnasium_state', 'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
     },
-    'parkour': {
-        'teacher': 'ppo-v1/model_14999.pt', 'conda_env': 'extreme-parkour',
-        'eval_config': 'configs/examples/extreme_parkour/official_starvla_profile.yaml',
-        'state_info_key': 'parkour_proprio', 'global_batch': 128, 'sft_steps': 5000,
-        'max_episode_steps': 1500, 'seed': 2,
-    },
     'mikasa': _MIKASA_SETTINGS,
     'mikasa_h8': _MIKASA_SETTINGS,
     'mikasa_conditioned_h8': _MIKASA_SETTINGS,
-    'haic': {
-        'teacher': 'ppo-v1/checkpoint_final.pt', 'conda_env': 'haic',
-        'eval_config': 'configs/examples/haic/official_starvla_profile.yaml',
-        'state_info_key': 'haic_state', 'global_batch': 128, 'sft_steps': 5000,
-        'max_episode_steps': 1000, 'seed': 0,
-    },
 }
 
 
@@ -203,16 +190,16 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
             provenance['code_revisions'] = code_revisions(args.task)
             write_json(shared / 'provenance.json', provenance)
         if args.task == 'balance' and not contract_file.exists():
-            from scripts.starvla.collect import _prepare_converted
+            from scripts.starvla.collect import _prepare_balance_bootstrap
             policy_path = args.output_dir / 'bootstrap_policy.yaml'
-            policy_path.write_text(yaml.safe_dump(eval_config(args, args.output_dir / 'inference', teacher, shared), sort_keys=False))
+            policy_path.write_text(yaml.safe_dump(eval_config(args, args.output_dir / 'inference', shared), sort_keys=False))
             command = [task_python, '-m', 'scripts.starvla.balance_dagger', '--bootstrap',
                        '--policy-config', policy_path, '--teacher-config', args.teacher_config,
                        '--teacher-checkpoint', teacher, '--output-dir', shared / 'raw']
             if args.smoke:
                 command.append('--smoke')
             run_command(command, args.output_dir / 'bootstrap_collect.log')
-            _prepare_converted(task_spec(args.task).name, shared / 'raw', shared / 'lerobot')
+            _prepare_balance_bootstrap(shared / 'raw', shared / 'lerobot')
             raw_metadata = json.loads((shared / 'raw/metadata.json').read_text())
             write_json(shared / 'provenance.json', {'teacher': teacher_reference,
                        'label_provenance': raw_metadata['label_provenance'],
@@ -251,7 +238,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                                                     'path': source_path}
                 else:
                     provenance = {'task': task_spec(args.task).name, 'teacher': teacher_reference,
-                                  'seed': 2 if args.task == 'parkour' else 0, 'split_seed': 0,
+                                  'seed': 0, 'split_seed': 0,
                                   'kind': 'bootstrap', 'code_revisions': code_revisions(args.task),
                                   'collection': {
                                       'train_episodes': 2 if args.smoke else 250,
@@ -261,8 +248,6 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                                   }}
                     collect_bootstrap(task_spec(args.task).name, teacher, shared, task_python,
                                       smoke=args.smoke, device=args.simulator_device)
-                    if args.task == 'haic':
-                        provenance['validation_seed'] = 1
                 write_json(shared / 'provenance.json', provenance)
                 (shared / 'README.md').write_text(
                     f'# {task_spec(args.task).name} H1 teacher data\n\n'
@@ -289,17 +274,11 @@ def write_mixture(path: Path, bootstrap: Path, deltas: list[Path], robot_type: s
 
 
 def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path,
-                    actor_checkpoint: Path | None, run_id: str, steps: int, stop_step: int | None,
+                    run_id: str, steps: int, stop_step: int | None,
                     pretrained: Path | None, resume: bool) -> dict:
     contract = read_task_contract(bootstrap / 'lerobot')
-    objective = None
-    if args.task in ('haic', 'parkour'):
-        objective = {'name': args.task, 'actor_checkpoint': str(actor_checkpoint),
-                     'output_min': contract['normalization']['action']['min'],
-                     'output_max': contract['normalization']['action']['max']}
     framework = make_model_config(args.model, state_dim=contract['state_dim'], action_dim=contract['action_dim'],
                                   backbone_path=str(backbone), action_horizon=contract["action_horizon"],
-                                  task_objective=objective,
                                   gradient_checkpointing=args.gradient_checkpointing)
     mixture_path = args.output_dir / f'{run_id}_mixture.json'
     write_mixture(mixture_path, bootstrap, deltas, contract['robot_type'])
@@ -421,9 +400,8 @@ def inference_bundle(trained: Path, checkpoint: Path, destination: Path, *,
         target.unlink()
     os.link(checkpoint, target)
     config = yaml.safe_load((trained / 'config.full.yaml').read_text())
-    # The worker only needs inference settings. Training paths and the actor loss stay local.
+    # The worker only needs the framework and version settings.
     inference = {key: config[key] for key in ('framework', 'version_id')}
-    inference['framework']['action_model']['task_objective'] = None
     inference['framework']['qwenvl']['base_vlm'] = backbone['repo_id']
     if 'world_model' in inference['framework']:
         inference['framework']['world_model']['base_wm'] = backbone['repo_id']
@@ -437,7 +415,7 @@ def inference_bundle(trained: Path, checkpoint: Path, destination: Path, *,
     return destination
 
 
-def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
+def eval_config(args, bundle: Path, output_dir: Path, *,
                 eval_episodes: int | None = None,
                 eval_latency_frames: int | None = None) -> dict:
     settings = TASK_SETTINGS[args.task]
@@ -448,8 +426,6 @@ def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
                           'inference_devices': [args.inference_device], 'inference_batch_size': 2 if args.smoke else 8}
     config['latency'] = {'method': 'zero', 'sync_cuda': False}
     config['env'].update({'obs_fps': spec.fps, 'frame_stack': 1, 'simulator_device': args.simulator_device})
-    if args.task in ('parkour', 'haic'):
-        config['env']['runtime_checkpoint_path'] = str(teacher)
     config['policy'] = {
         'type': 'starvla', 'action_prefix': {'mode': 'none'}, 'checkpoint_path': str(bundle / 'checkpoints/model.pt'),
         'model_config_path': str(bundle / 'config.yaml'), 'task_contract_path': str(bundle / 'task_contract.json'),
@@ -461,7 +437,7 @@ def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
     config['scheduler'] = {'hold_policy': 'hold', 'ordering_policy': 'latest_ready', 'hold_last_chunk_action': True}
     config['evaluation'] = {'eval_episodes': (2 if args.smoke else 100)
                             if eval_episodes is None else eval_episodes,
-                            'eval_parallel_envs': 2 if args.smoke else (50 if args.task == 'parkour' else 10),
+                            'eval_parallel_envs': 2 if args.smoke else 10,
                             'eval_max_steps': settings['max_episode_steps'], 'eval_deterministic': True}
     if args.task in ('mikasa_h8', 'mikasa_conditioned_h8'):
         config['executor']['simulated_worker_capacity'] = 1
@@ -496,23 +472,17 @@ def evaluation_command(args, config_path):
         command = [args.task_python, '-m', 'latency_bench.run', '--config', config_path]
     elif args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8'):
         command = [args.task_python, ROOT / 'scripts/mikasa/evaluate.py', 'latency-eval', '--eval-config', config_path]
-    elif args.task == 'parkour':
-        command = [args.task_python, ROOT / 'third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py',
-                   'latency-eval', '--headless', '--eval-config', config_path]
-    else:
-        command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py', 'latency-eval',
-                   '--headless', '--eval-config', config_path]
     return command
 
 
-def evaluate(args, bundle: Path, teacher: Path, *, label: str,
+def evaluate(args, bundle: Path, *, label: str,
              wandb_checkpoint: tuple[str, int] | None = None,
              eval_latency_frames: int | None = None) -> Path:
     """Run native eval and optionally log its checkpoint metrics to the training run."""
     output_dir = args.output_dir / 'evals' / label
     output_dir.mkdir(parents=True, exist_ok=True)
     config_path = output_dir / 'eval_config.yaml'
-    config = eval_config(args, bundle, teacher, output_dir,
+    config = eval_config(args, bundle, output_dir,
                          eval_episodes=args.eval_episodes, eval_latency_frames=eval_latency_frames)
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     command = evaluation_command(args, config_path)
@@ -646,11 +616,11 @@ def mikasa_h8_execution_audit(evaluation: Path) -> dict:
     return audit
 
 
-def _evaluate_dagger_checkpoint(args, bundle: Path, teacher: Path, step: int) -> Path:
+def _evaluate_dagger_checkpoint(args, bundle: Path, step: int) -> Path:
     output = args.output_dir / 'evals' / f'steps_{step}'
     completion = output / 'complete.json'
     if not completion.exists():
-        evaluate(args, bundle, teacher, label=f'steps_{step}',
+        evaluate(args, bundle, label=f'steps_{step}',
                  wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-dagger', step))
         write_json(completion, {'checkpoint': str(bundle / 'checkpoints/model.pt'),
                                 'seed': args.eval_seed, 'episodes': args.eval_episodes})
@@ -676,80 +646,26 @@ def _balance_dagger_collection(args, teacher, policy_path, directory, round_numb
     return [(command, directory / 'collect.log')], collection
 
 
-def _parkour_dagger_collection(args, teacher, policy_path, directory, round_number):
-    command = [args.task_python, ROOT / 'third_party/Isaaclab_Parkour/scripts/rsl_rl/parkour_vla.py',
-        'dagger-collect', '--headless', '--device', args.simulator_device, '--checkpoint', teacher,
-        '--policy_config', policy_path, '--output_dir', directory / 'raw', '--num_envs', 2 if args.smoke else 192,
-        '--inference_device', args.inference_device, '--inference_batch_size', 2 if args.smoke else 32,
-        '--dagger_round', round_number, '--dagger_row_budget', 4 if args.smoke else 64000,
-        '--seed', round_number + 1, '--action_horizon', 1]
-    collection = {'collector': 'parkour_vla.py', 'seeds': [round_number + 1],
-                  'row_budget': 4 if args.smoke else 64000,
-                  'num_envs': 2 if args.smoke else 192,
-                  'inference_batch_size': 2 if args.smoke else 32,
-                  'vla_cadence': 5, 'action_horizon': 1}
-    return [(command, directory / 'collect.log')], collection
-
-
-def _haic_dagger_collection(args, teacher, policy_path, directory, round_number):
-    commands = []
-    for rank in range(1 if args.smoke else 2):
-        command = [args.task_python, ROOT / 'third_party/HAIC/scripts/haic_vla.py',
-            'dagger-collect', '--headless', '--device', args.simulator_device, '--teacher-checkpoint', teacher,
-            '--policy-config', policy_path, '--output-dir', directory / 'raw' / f'rank-{rank}',
-            '--num-envs', 2 if args.smoke else 96, '--inference-device', args.inference_device,
-            '--inference-batch-size', 2 if args.smoke else 32, '--dagger-round', round_number,
-            '--row-budget', 4 if args.smoke else 32000, '--seed', rank + 1,
-            '--vla-cadence', 1, '--action-horizon', 1]
-        commands.append((command, directory / f'collect-{rank}.log'))
-    collection = {'collector': 'haic_vla.py', 'seeds': [1] if args.smoke else [1, 2],
-                  'row_budget': 4 if args.smoke else 32000,
-                  'num_envs': 2 if args.smoke else 96,
-                  'inference_batch_size': 2 if args.smoke else 32,
-                  'vla_cadence': 1, 'action_horizon': 8}
-    return commands, collection
-
-
-def _convert_haic_dagger(raw, converted, *, round_index, force):
-    from latency_bench.data.haic_dagger import convert_haic_dagger_shards_to_lerobot
-    from scripts.starvla.collect import canonicalize_haic_dataset
-
-    convert_haic_dagger_shards_to_lerobot(raw, converted, force=force, round_index=round_index)
-    canonicalize_haic_dataset(converted)
-    converted_val = converted.with_name(f'{converted.name}__val')
-    if converted_val.exists():
-        canonicalize_haic_dataset(converted_val)
-
-
 def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict,
                    round_number: int, bootstrap: Path, bootstrap_reference: dict) -> Path:
     from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
-    from latency_bench.data.parkour_dagger import convert_parkour_dagger_shards_to_lerobot
     from scripts.starvla.prepare_dataset import prepare_lerobot
-
-    # Task-native entrypoints register here; the collection core never imports task/model scripts.
-    collect, convert = {
-        'balance': (_balance_dagger_collection, partial(
-            convert_canonical_rollout_to_lerobot, action_carrier='native',
-            normalize_state=False, write_starvla_handoff=False)),
-        'parkour': (_parkour_dagger_collection, partial(
-            convert_parkour_dagger_shards_to_lerobot, round_index=round_number)),
-        'haic': (_haic_dagger_collection, partial(_convert_haic_dagger, round_index=round_number)),
-    }[args.task]
 
     directory = args.output_dir / 'dagger' / f'round-{round_number:02d}'
     directory.mkdir(parents=True, exist_ok=True)
     policy_path = directory / 'policy.yaml'
     policy_path.write_text(yaml.safe_dump(policy, sort_keys=False))
-    commands, collection = collect(args, teacher, policy_path, directory, round_number)
+    commands, collection = _balance_dagger_collection(args, teacher, policy_path, directory, round_number)
     for command, log in commands:
         run_command(command, log)
-    if args.task == 'balance':
-        metadata = json.loads((directory / 'raw/metadata.json').read_text())
-        collection.update({key: metadata[key] for key in
-                           ('label_provenance', 'student_raw_frames', 'teacher_branch_raw_frames')})
+    metadata = json.loads((directory / 'raw/metadata.json').read_text())
+    collection.update({key: metadata[key] for key in
+                       ('label_provenance', 'student_raw_frames', 'teacher_branch_raw_frames')})
     converted = directory / '_converted'
-    convert(directory / 'raw', converted, force=True)
+    convert_canonical_rollout_to_lerobot(
+        directory / 'raw', converted, force=True, action_carrier='native',
+        normalize_state=False, write_starvla_handoff=False,
+    )
 
     converted_val = converted.with_name(f'{converted.name}__val')
     prepare_lerobot(
@@ -805,11 +721,9 @@ def _training_record(args, config, *, steps: int, dagger_updates: int, has_delta
 def code_revisions(task: str) -> dict:
     task_repo = {
         'balance': ('humanoid_bench', ROOT / 'third_party/humanoid-bench'),
-        'parkour': ('parkour', ROOT / 'third_party/Isaaclab_Parkour'),
         'mikasa': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
         'mikasa_h8': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
         'mikasa_conditioned_h8': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
-        'haic': ('haic', ROOT / 'third_party/HAIC'),
     }[task]
     return {name: {'revision': subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip(),
                    'dirty': bool(subprocess.check_output(['git', '-C', str(path), 'status', '--porcelain'], text=True))}
@@ -934,15 +848,6 @@ def main(argv=None) -> None:
         bootstrap_ref = run['datasets'][0]
         bootstrap = Path(bootstrap_ref['local_dir'])
         read_task_contract(bootstrap / 'lerobot')
-    actor_checkpoint = None
-    if args.task == 'parkour':
-        actor_checkpoint = teacher
-    elif args.task == 'haic':
-        actor_checkpoint = args.output_dir / 'actor_adapt.pt'
-        env = environment()
-        env['PYTHONPATH'] += os.pathsep + str(ROOT / 'third_party/HAIC')
-        run_command([args.task_python, ROOT / 'third_party/HAIC/active_adaptation/learning/ppo/haic_actor.py',
-                     teacher, actor_checkpoint], args.output_dir / 'export_actor.log', env=env)
     if run is None:
         run = {'task': args.task, 'model': args.model, 'run_id': args.run_id, 'smoke': args.smoke,
                'teacher': teacher_ref, 'backbone': backbone_ref, 'code_revisions': code_revisions(args.task),
@@ -957,7 +862,7 @@ def main(argv=None) -> None:
     if args.dagger_from is None:
         steps = 2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps']
         config = training_config(args, bootstrap=bootstrap, deltas=[], backbone=backbone_path,
-                    actor_checkpoint=actor_checkpoint, run_id='bootstrap', steps=steps, stop_step=steps,
+                    run_id='bootstrap', steps=steps, stop_step=steps,
                     pretrained=bootstrap_state, resume=args.resume)
         trained, checkpoint = train(args, config)
         bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
@@ -977,15 +882,12 @@ def main(argv=None) -> None:
         return
     deltas = [Path(ref['local_dir']) for ref in run['datasets'][1:]]
     evaluation = None
-    if args.task in ('balance', 'parkour', 'haic'):
+    if args.task == 'balance':
         rounds = args.dagger_rounds
         updates = 2 if args.smoke else 500
         if args.eval_every_round:
-            if args.task == 'balance':
-                evaluate(args, bundle, teacher, label=f'sft_{steps}',
-                         wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-bootstrap', steps))
-            else:
-                _evaluate_dagger_checkpoint(args, bundle, teacher, 0)
+            evaluate(args, bundle, label=f'sft_{steps}',
+                     wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-bootstrap', steps))
         dagger_states = _training_states(args.output_dir / 'training/dagger/checkpoints') if args.resume else []
         dagger_step, dagger_state = dagger_states[-1] if dagger_states else (0, None)
         if dagger_state is not None:
@@ -1005,7 +907,7 @@ def main(argv=None) -> None:
                                         policy=eval_config(args,
                                             args.output_dir / 'rounds' / f'steps_{round_number * updates}'
                                             if args.eval_every_round and round_number else bundle,
-                                            teacher, args.output_dir / 'evals'),
+                                            args.output_dir / 'evals'),
                                         round_number=round_number, bootstrap=bootstrap,
                                         bootstrap_reference=bootstrap_ref)
                 deltas.append(delta)
@@ -1018,7 +920,7 @@ def main(argv=None) -> None:
                 write_json(args.output_dir / 'run.json', run)
             stop_step = (round_number + 1) * updates
             config = training_config(args, bootstrap=bootstrap, deltas=deltas, backbone=backbone_path,
-                        actor_checkpoint=actor_checkpoint, run_id='dagger', steps=rounds * updates,
+                        run_id='dagger', steps=rounds * updates,
                         stop_step=stop_step, pretrained=dagger_state or checkpoint,
                         resume=dagger_state is not None)
             if dagger_step < stop_step:
@@ -1041,7 +943,7 @@ def main(argv=None) -> None:
                         trained, trained / 'checkpoints' / f'steps_{stop_step}_pytorch_model.pt',
                         round_bundle, bootstrap=bootstrap, backbone=backbone_ref,
                     )
-                evaluation = _evaluate_dagger_checkpoint(args, round_bundle, teacher, stop_step)
+                evaluation = _evaluate_dagger_checkpoint(args, round_bundle, stop_step)
     if args.task in ('mikasa_h8', 'mikasa_conditioned_h8'):
         phase = 'dagger' if deltas else 'bootstrap'
         eval_step = len(deltas) * (2 if args.smoke else 500) if deltas else steps
@@ -1061,7 +963,6 @@ def main(argv=None) -> None:
             evaluation = evaluate(
                 args,
                 bundle,
-                teacher,
                 label=f'final_{setting}',
                 wandb_checkpoint=(
                     f'{args.task}-{args.model}-{args.run_id}-{phase}', eval_step
@@ -1118,7 +1019,7 @@ def main(argv=None) -> None:
     elif evaluation is None:
         phase = 'dagger' if deltas else 'bootstrap'
         eval_step = len(deltas) * (2 if args.smoke else 500) if deltas else steps
-        evaluation = evaluate(args, bundle, teacher, label='final',
+        evaluation = evaluate(args, bundle, label='final',
                               wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-{phase}', eval_step))
     if args.task not in ('mikasa_h8', 'mikasa_conditioned_h8'):
         summary = evaluation_summary(evaluation)
