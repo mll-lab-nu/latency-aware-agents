@@ -58,6 +58,53 @@ VLA return rows are still incomplete. They do not fill missing result cells.
 | Flappy Bird | 10/10 |
 | Deadly Corridor | 35/8.75 |
 
+## Atlantis and Asterix — H1 VLA with H8 decision history
+
+All twelve zero- and profile-trained VLA checkpoints completed 5,000 optimizer
+steps. Each VLA cell is mean raw return over 100 episodes on the same actual seeds
+`1,000,000–1,000,099`, using a GPU simulator, 32 parallel environments, worker
+capacity 1, 60/15 environment/observation Hz, and a 7,200-raw-frame cap.
+The input is current RGB plus eight binary decision-history windows; Atlantis
+uses 4 actions / 56D history and Asterix uses native 9 actions / 136D history.
+Each model's two profile-environment evaluations use the same fixed RTX 3090
+temporal profile. Profiling uses CPU simulation/rendering and one visible GPU;
+the scores here come from separate GPU evaluations. These are single-training-seed
+comparisons, not estimates of training-seed variability.
+
+| Game | Model | Small model L0 → L0 † | VLA L0 → L0 | VLA L0 → Profile | Small model profile → profile † | VLA profile → Profile |
+|---|---|---:|---:|---:|---:|---:|
+| Atlantis | QwenOFT | 88,613.00 | 39,560.00 | 18,588.00 | 38,411.00 | 39,229.00 |
+| Atlantis | QwenGR00T | 88,613.00 | 39,662.00 | 8,167.00 | 29,064.00 | 28,488.00 |
+| Atlantis | QwenPI v3 | 88,613.00 | 39,615.00 | 4,369.00 | 27,780.00 | 26,447.00 |
+| Asterix | QwenOFT | 6,041.00 | 5,803.50 | 374.50 | 3,941.00 | 3,653.50 |
+| Asterix | QwenGR00T | 6,041.00 | 5,714.00 | 182.00 | 1,852.50 | 1,440.00 |
+| Asterix | QwenPI v3 | 6,041.00 | 5,758.50 | 143.50 | 1,141.00 | 1,015.00 |
+
+† The shared zero teacher for each game is `sample-factory-hist8-cpu15m-s0-v1`;
+its archived L0 evaluation uses 100 episodes, seeds `104771–104870`, 60/15 Hz,
+and a **14,400**-frame cap. It is not matched to the VLA's 7,200-frame cap.
+The six profile-teacher cells use the training-selected best checkpoints from
+15M-step, seed-0 runs and the corrected 100-episode GPU evaluations: seeds
+`1,000,000–1,000,099`, 60/15 Hz, parallel 32, capacity 1, 7,200 frames and each
+model's RTX 3090 temporal profile. Zero and profile teacher columns therefore
+must not be interpreted as a paired latency-effect estimate.
+
+Zero-teacher evidence: [Atlantis](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json) · [Asterix](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json).
+[Six verified profile-teacher means and pinned checkpoints](../outputs/tasks/atari_hist8_v1/teachers.complete.json).
+
+All 18 VLA evaluations (1,800 episodes) are complete and published. Episode records,
+action audits, protocol/checkpoint/profile identities and W&B summaries passed
+verification. All six profile-trained models improve over their zero-trained
+counterparts under the same profile, while only Atlantis OFT approaches its
+zero-latency baseline. The twelve VLA bundles, six profile-aware teachers and
+six profiles are published and readback-verified; teacher evaluations add 600
+independent episodes. Table 1 and Figure 1 use all 18 VLA means.
+
+[Local complete comparison and checkpoint/profile identities](../outputs/tasks/atari_hist8_v1/evaluation_progress.md) ·
+[Local per-episode results and audits](../outputs/tasks/atari_hist8_v1/evaluation_evidence/) ·
+[Published report and model index](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/ea2ad5a90c28de1297793956a93dd3a7ed605c4b/reports/atlantis-asterix-h8-v1/README.md) ·
+[Post-shutdown Hub checkpoint verification](../outputs/tasks/atari_hist8_v1/paper_update_20260925/hub_checkpoint_verification.json).
+
 ## HumanoidBench Balance Simple
 
 Cells report mean return for zero-trained → zero, zero-trained → profiled, and

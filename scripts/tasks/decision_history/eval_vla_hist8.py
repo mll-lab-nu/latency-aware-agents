@@ -25,9 +25,13 @@ EVAL_CONFIGS = {
     "flappy": "configs/experiments/flappy/starvla_eval_zero_latency.yaml",
     "demon_attack": "configs/experiments/demon_attack/starvla_eval_zero_latency.yaml",
     "deadly_corridor": "configs/experiments/deadly_corridor/starvla_eval_zero_latency.yaml",
+    "atlantis": "configs/experiments/atlantis/starvla_eval_zero_latency.yaml",
+    "asterix": "configs/experiments/asterix/starvla_eval_zero_latency.yaml",
 }
-RATES = {"flappy": (10, 10), "demon_attack": (60, 15), "deadly_corridor": (35, 8.75)}
-HORIZONS = {"flappy": 3600, "demon_attack": 7200, "deadly_corridor": 3600}
+RATES = {"flappy": (10, 10), "demon_attack": (60, 15), "deadly_corridor": (35, 8.75),
+         "atlantis": (60, 15), "asterix": (60, 15)}
+HORIZONS = {"flappy": 3600, "demon_attack": 7200, "deadly_corridor": 3600,
+            "atlantis": 7200, "asterix": 7200}
 EVAL_PROTOCOL = "hist8-history01-par32-v3"
 EVAL_PREFIX = "eval_history01_v2"
 
@@ -85,8 +89,12 @@ def package_bundle(
             for key in ("include_state", "obs_image_size", "image_mode", "num_obs_frames")
         } | {"robot_type": manifest["robot_type"]}},
         "trainer": {"pretrained_checkpoint": None},
+        "backbone": {"repo_id": "Qwen/Qwen3-VL-4B-Instruct",
+                     "revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17"},
     }
     inference["framework"]["qwenvl"]["base_vlm"] = "Qwen/Qwen3-VL-4B-Instruct"
+    if manifest["robot_type"] in {"rl_games_atlantis", "rl_games_asterix"}:
+        inference["rl_games"] = {"env_eval": {"image_size": config["rl_games"]["env_eval"]["image_size"]}}
     (destination / "config.yaml").write_text(yaml.safe_dump(inference, sort_keys=False))
     shutil.copyfile(run_dir / "config.full.yaml", destination / "config.full.yaml")
     shutil.copyfile(run_dir / "dataset_statistics.json", destination / "dataset_statistics.json")
@@ -98,6 +106,9 @@ def package_bundle(
                         destination / "training_code_snapshot.json")
     shutil.copyfile(dataset_dir / "manifest.json", destination / "manifest.json")
     shutil.copyfile(dataset_dir.parent / "quality_report.json", destination / "collection_quality_report.json")
+    history_audit = dataset_dir.parent / "history_audit.json"
+    if history_audit.exists():
+        shutil.copyfile(history_audit, destination / "history_audit.json")
     shutil.copyfile(dataset_dir.parent / "raw/metadata.json", destination / "rollout_metadata.json")
     collection = json.loads(collection_provenance.read_text())
     provenance = {
@@ -153,6 +164,10 @@ def evaluation_config(
     config["policy"].pop("latency_prompt_map_path", None)
     config["policy"].pop("multibinary_threshold", None)
     config["policy"].pop("state_normalization", None)
+    if task in {"atlantis", "asterix"}:
+        config["policy"]["task_manifest_path"] = str(bundle / "manifest.json")
+    if task == "asterix":
+        config["policy"]["action_layout"] = "discrete_9"
     if task == "deadly_corridor":
         config["policy"]["action_layout"] = "multibinary_7"
     config["evaluation"].update({

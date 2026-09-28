@@ -193,6 +193,8 @@ def _resolve_artifact(
             "repo_id": hf_repo,
             "repo_type": "model",
         }
+        if "revision" in artifact:
+            download_kwargs["revision"] = artifact["revision"]
         if hf_path != Path("."):
             download_kwargs["allow_patterns"] = [f"{hf_path.as_posix()}/**"]
         snapshot = Path(snapshot_download(**download_kwargs))
@@ -216,6 +218,8 @@ def _resolve_artifact(
     }
     if "model_config" in artifact:
         artifact_provenance["model_config"] = artifact["model_config"]
+    if source == "hf" and "revision" in artifact:
+        artifact_provenance["revision"] = artifact["revision"]
 
     return {
         "path": resolved_path,

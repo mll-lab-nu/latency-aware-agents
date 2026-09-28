@@ -1,0 +1,20 @@
+__base__: starvla_eval_zero_latency.yaml
+
+env:
+  simulator: cpu
+  frame_stack: 1
+  action_history_decisions: 8
+
+policy:
+  task_manifest_path: manifest.json
+  state_source: transport
+  prompt_mode: latency_neutral
+
+latency:
+  method: measured
+
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  latency_bench_env_backend: serial
+  eval_max_steps: 7200

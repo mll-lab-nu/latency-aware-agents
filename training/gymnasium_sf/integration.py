@@ -355,6 +355,7 @@ def make_gymnasium_sf_env(
         add_latency_info=bool(cfg.add_latency_info),
         max_pending_actions=cfg.max_pending_actions,
         action_history_decisions=cfg.action_history_decisions,
+        profile_seed_by_reset=cfg.rollout_profile_seed_by_reset,
         hold_last_chunk_action=cfg.hold_last_chunk_action,
         release_results_at_observation_boundary=cfg.algo == "PPO",
         noop_action=noop_action,
@@ -426,6 +427,8 @@ def add_gymnasium_env_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--obs-fps", dest="obs_fps", type=float, required=True)
     parser.add_argument("--frame-stack", dest="frame_stack", type=int, required=True)
     parser.add_argument("--action-history-decisions", dest="action_history_decisions", type=int, default=None)
+    parser.add_argument("--rollout-profile-seed-by-reset", type=str2bool, default=False,
+                        help="Use per-reset temporal streams for reproducible offline probe/replay.")
     parser.add_argument("--simulator", type=str, default="cpu", choices=["cpu", "gpu"])
     parser.add_argument("--gpu-env-device", dest="gpu_env_device", type=str, default="auto")
     parser.add_argument("--gpu-env-batch-size", dest="gpu_env_batch_size", type=int, default=1)

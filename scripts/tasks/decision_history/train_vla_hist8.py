@@ -22,8 +22,8 @@ from examples.rl_games.scripts.launch_train import compose_training_config
 
 
 MODEL_GROUPS = {"qwenoft": "openvla", "qwengr00t": "gr00t", "qwenpi_v3": "pi05"}
-HISTORY_DIMS = {"flappy": 24, "demon_attack": 88, "deadly_corridor": 120}
-ACTION_DIMS = {"flappy": 2, "demon_attack": 6, "deadly_corridor": 7}
+HISTORY_DIMS = {"flappy": 24, "demon_attack": 88, "deadly_corridor": 120, "atlantis": 56, "asterix": 136}
+ACTION_DIMS = {"flappy": 2, "demon_attack": 6, "deadly_corridor": 7, "atlantis": 4, "asterix": 9}
 STATE_RE = re.compile(r"steps_(\d+)_state$")
 
 

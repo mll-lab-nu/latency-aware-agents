@@ -18,6 +18,7 @@
 | [HAIC](HAIC.md) | PullCart 原生 PPO 与早期 NVIDIA GR00T H40 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
 | [SCALE_MODELS](SCALE_MODELS.md) | 四任务×qwenoft/qwengr00t/qwenpi_v3/wanoft 的 H1 公共入口与 16 组 smoke | 活跃公共运行手册；正式训练不能用两步 smoke 代替 |
 | [PROFILE](PROFILE.md) | MIKASA/QwenOFT 早期实机测量、五场采样、发布与回放结果 | 保留测量事实；当前 RTX 3090 覆盖与版本见 PROGRESS |
+| [ATLANTIS_ASTERIX_H8](ATLANTIS_ASTERIX_H8.md) | 两游戏 H8 zero/profile VLA、CPU teacher、3090 profiling 和三组评测合同 | 已完成：12 个 VLA、6 个 profile teacher、6 份 profiles 均发布回读；18/18 组、1800 局正式评测已核验；[完整结果](../outputs/tasks/atari_hist8_v1/evaluation_progress.md) / [执行记录](logs/atlantis-asterix-h8-2026-09-24.md) |
 
 ## 实验、合同与活跃交接
 

@@ -11,13 +11,14 @@ import gc
 import multiprocessing as mp
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.decision_action_history import DecisionActionHistory
 from latency_bench.core.types import (
     ActionEvent,
     EpisodeMetrics,
@@ -27,7 +28,7 @@ from latency_bench.core.types import (
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors import realtime_warmup
 from latency_bench.executors.base import EpisodeExecutor
-from latency_bench.executors.env_step_backend import resolve_start_method
+from latency_bench.executors.env_step_backend import env_action_space, resolve_start_method
 from latency_bench.executors.realtime.env_worker import _env_loop_worker
 from latency_bench.executors.realtime.messages import (
     RealtimeObservationTask,
@@ -96,6 +97,45 @@ class RealtimeRuntime:
     clock: EnvClock
 
 
+@dataclass
+class _DecisionWindow:
+    """One submitted or dropped decision awaiting its output and final applied action."""
+    admitted: bool
+    issued: Any = None
+    applied: Any = None
+
+
+class _RealtimeDecisionHistory:
+    """Join single-worker results to their original completed decision windows."""
+
+    def __init__(self, env, clock, decisions):
+        self.history = DecisionActionHistory(env_action_space(env), num_envs=1, decisions=decisions)
+        self.stride = clock.obs_stride_raw_frames
+        self.noop = env.noop_action.value
+        self.windows: dict[int, _DecisionWindow] = {}
+
+    def reset(self):
+        self.history.reset()
+        self.windows.clear()
+
+    def finish_frame(self, frame, action):
+        if (frame + 1) % self.stride == 0:
+            self.windows[frame + 1 - self.stride].applied = action
+
+    def observation(self):
+        # A busy worker can span several windows. Its command belongs to the
+        # source window; flush that row and the intervening drops in order.
+        while self.windows:
+            frame = next(iter(self.windows))
+            window = self.windows[frame]
+            if window.applied is None or (window.admitted and window.issued is None):
+                break
+            self.history.append([0], [window.admitted],
+                                [window.issued if window.admitted else self.noop], [window.applied])
+            del self.windows[frame]
+        return self.history.observation()[0]
+
+
 class RealtimeLatencyExecutor(EpisodeExecutor):
     """Coordinate environment stepping with asynchronous worker inference."""
     def __init__(
@@ -131,6 +171,11 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         self._episode_start_s = 0.0
         self._next_obs_id = 0
         self._next_action_id = 0
+        self._decision_history = None
+        if config is not None and "env" in config and "action_history_decisions" in config["env"]:
+            decisions = config["env"]["action_history_decisions"]
+            if decisions is not None:
+                self._decision_history = _RealtimeDecisionHistory(self.env, self.clock, decisions)
 
     def run_episode(
         self,
@@ -139,6 +184,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         eval_max_steps: int = 10000,
     ) -> EpisodeMetrics:
         pool = self._ensure_inference_pool()
+        if self._decision_history is not None:
+            self._decision_history.reset()
         with _gc_paused_until_episode_end():
             if self.use_env_process:
                 return self._run_episode_with_env_process(
@@ -160,6 +207,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
 
     def _run_warmup_impl(self, artifact_dir: str | Path | None) -> dict[str, Any]:
         pool = self._ensure_inference_pool()
+        if self._decision_history is not None:
+            self._decision_history.reset()
         latency_records = []
         profiles = []
         sample_target = realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES
@@ -419,6 +468,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
 
             env_step_start_ms = monotonic_ms()
             result = self.env.step(active_action)
+            if self._decision_history is not None:
+                self._decision_history.finish_frame(env_step, active_action.value)
             env_step_ms = monotonic_ms() - env_step_start_ms
             for event in new_applied_events:
                 profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
@@ -622,6 +673,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                             target.metadata[REALTIME_PROFILE_METADATA_KEY].merge_dict(payload["profile"])
                 elif tag == "step":
                     record = payload["record"]
+                    if self._decision_history is not None:
+                        self._decision_history.finish_frame(record.env_step, record.active_action.value)
                     annotation = pending_step_info.pop(int(record.env_step), None)
                     if annotation is not None:
                         record.info.update(annotation)
@@ -765,14 +818,16 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             released_events.append(event)
         return released_events
 
-    @staticmethod
     def _record_observation_attempt(
+        self,
         *,
         acc: _EpisodeAccumulators,
         episode_id: int,
         task: RealtimeObservationTask,
         submitted: bool,
     ) -> None:
+        if self._decision_history is not None:
+            self._decision_history.windows[task.submit_env_step] = _DecisionWindow(submitted)
         acc.observation_attempts[task.obs_id] = {
             "episode_id": episode_id,
             "obs_id": task.obs_id,
@@ -780,12 +835,14 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             "submitted": submitted,
         }
 
-    @staticmethod
     def _record_observation_completion(
+        self,
         *,
         completion: RealtimePolicyCompletion,
         observation_attempts: dict[int, dict[str, Any]],
     ) -> None:
+        if self._decision_history is not None:
+            self._decision_history.windows[completion.task.submit_env_step].issued = completion.policy_output.action.value
         observation_attempts[completion.task.obs_id].update(
             {
                 "worker_id": completion.worker_id,
@@ -891,15 +948,19 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             profile=profile,
         )
 
-    @staticmethod
     def _with_episode_metadata(
+        self,
         observation: Observation,
         *,
         episode_id: int,
         episode_seed: int | None,
     ) -> Observation:
+        data = observation.data
+        if self._decision_history is not None:
+            transport = self._decision_history.observation()
+            data = {**data, "transport": transport} if isinstance(data, Mapping) else {"obs": data, "transport": transport}
         return Observation(
-            data=observation.data,
+            data=data,
             env_step=observation.env_step,
             sim_time_ms=observation.sim_time_ms,
             metadata=observation.metadata

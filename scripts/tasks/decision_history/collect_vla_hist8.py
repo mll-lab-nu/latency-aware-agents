@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import time
@@ -29,8 +30,10 @@ TASK_SETTINGS = {
     "flappy": (200, 50, 3600, 256, 256, "gpu"),
     "demon_attack": (200, 50, 7200, 256, 256, "gpu"),
     "deadly_corridor": (2000, 250, 3600, 16, 8, "cpu"),
+    "atlantis": (200, 50, 7200, 256, 256, "gpu"),
+    "asterix": (200, 50, 7200, 256, 256, "gpu"),
 }
-HISTORY_DIMS = {"flappy": 24, "demon_attack": 88, "deadly_corridor": 120}
+HISTORY_DIMS = {"flappy": 24, "demon_attack": 88, "deadly_corridor": 120, "atlantis": 56, "asterix": 136}
 
 
 def _file_sha256(path: Path) -> str:
@@ -112,12 +115,48 @@ def _quality_report(raw_dir: Path, specs: list[dict], metadata: dict) -> dict:
     }
 
 
+def audit_atari_history(raw_dir: Path, task: str) -> dict:
+    """Audit exported pre-decision history against each episode's causal action trace."""
+    dimension = HISTORY_DIMS[task]
+    width = dimension // 8
+    action_bits = (width - 1) // 2
+    basis = np.eye(action_bits + 1)[:, 1:]
+    checked = 0
+    episodes = 0
+    for split in ("train", "val"):
+        previous = {}
+        columns = ["episode_idx", "decision_step", "action_id", "state"]
+        for batch in pq.ParquetFile(raw_dir / f"{split}.parquet").iter_batches(columns=columns):
+            for row in batch.to_pylist():
+                state = np.asarray(row["state"])
+                assert state.shape == (dimension,)
+                assert np.all((state == 0) | (state == 1))
+                windows = state.reshape(8, width)
+                assert np.all(windows[:, 1:1 + action_bits].sum(axis=1) <= 1)
+                assert np.all(windows[:, 1 + action_bits:].sum(axis=1) <= 1)
+                if row["decision_step"] == 0:
+                    assert not np.any(state)
+                    episodes += 1
+                else:
+                    prior, action, step = previous[row["episode_idx"]]
+                    assert step + 1 == row["decision_step"]
+                    np.testing.assert_array_equal(state[:-width], prior[width:])
+                    np.testing.assert_array_equal(windows[-1, 1:1 + action_bits],
+                                                  windows[-1, 0] * basis[action])
+                previous[row["episode_idx"]] = (state, row["action_id"], row["decision_step"])
+                checked += 1
+    return {"task": task, "checked_rows": checked, "episodes": episodes, "status": "passed",
+            "history": "binary H8, zero reset, causal window shifts and admitted teacher commands"}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", choices=TASK_SETTINGS, required=True)
     parser.add_argument("--model", choices=MODEL_LABELS, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--profile-root", type=Path, required=True)
+    parser.add_argument("--teacher-catalog", type=Path,
+                        help="Pinned teacher/profile publication catalog for Atlantis and Asterix")
     parser.add_argument("--deadly-probe-shards", type=int, default=0)
     parser.add_argument("--deadly-shard-episodes", type=int, default=2400)
     args = parser.parse_args()
@@ -125,13 +164,25 @@ def main() -> None:
     output = args.output_root.resolve() / args.task / args.model
     output.mkdir(parents=True, exist_ok=True)
     raw_dir = output / "raw"
-    receipt = _model_receipt(args.task, args.model)
-    profile_receipt = _profile_receipt(args.task, args.model)
-    profile_rel = profile_receipt["profile_path"].split("results/profiling/profiles/", 1)[1]
-    profile_path = args.profile_root.resolve() / "results/profiling/profiles" / profile_rel
+    if args.task in {"atlantis", "asterix"}:
+        catalog = json.loads(args.teacher_catalog.read_text())
+        receipt = catalog["teachers"][args.task][args.model]
+        repo_revision = catalog["revision"]
+        profile_receipt = receipt
+        profile_root = args.profile_root.resolve() / "results/profiling"
+        snapshot_download("latency-sensitive-bench/profiles", repo_type="dataset",
+                          revision=catalog["profile_revision"],
+                          allow_patterns=[str(Path(receipt["profile_path"]).parent / "*")],
+                          local_dir=profile_root)
+        profile_path = profile_root / receipt["profile_path"]
+    else:
+        receipt = _model_receipt(args.task, args.model)
+        profile_receipt = _profile_receipt(args.task, args.model)
+        profile_rel = profile_receipt["profile_path"].split("results/profiling/profiles/", 1)[1]
+        profile_path = args.profile_root.resolve() / "results/profiling/profiles" / profile_rel
+        repo_revision = MODEL_REPO_REVISION
     if _file_sha256(profile_path) != profile_receipt["profile_sha256"]:
         raise RuntimeError(f"Profile content mismatch: {profile_path}")
-    repo_revision = MODEL_REPO_REVISION
     snapshot_download(
         MODEL_REPO, revision=repo_revision, allow_patterns=[f"{receipt['path']}/**"],
         local_dir=output / "models",
@@ -143,14 +194,23 @@ def main() -> None:
     teacher_cfg = json.loads((bundle / "config.json").read_text())
     if teacher_cfg["action_history_decisions"] != 8:
         raise RuntimeError("Teacher checkpoint does not use eight-decision history")
-    if teacher_cfg["simulator"] != ("gpu" if device == "gpu" else "cpu"):
-        raise RuntimeError("Teacher simulator does not match rollout backend")
     if args.task == "flappy" and teacher_cfg["use_gpu_render"] is not True:
         raise RuntimeError("Flappy teacher does not use GPU rendering")
-    if teacher_cfg["latency_profile_path"] != str(profile_path.relative_to(args.profile_root.resolve())):
-        raise RuntimeError("Teacher profile path does not match the pinned profile")
     if teacher_cfg["latency_profile_worker_slot"] != 0:
         raise RuntimeError("Teacher profile worker slot is not zero")
+    if args.task in {"atlantis", "asterix"}:
+        # Preserve the published CPU training recipe; this directory records only
+        # the explicit profile relocation and data-collection seed.
+        shutil.copyfile(bundle / "config.json", output / "teacher_source_config.json")
+        runtime_bundle = output / "teacher_runtime"
+        runtime_bundle.mkdir(exist_ok=True)
+        runtime_checkpoint = runtime_bundle / receipt["checkpoint"]
+        if not runtime_checkpoint.exists():
+            os.link(checkpoint, runtime_checkpoint)
+        checkpoint = runtime_checkpoint
+        (runtime_bundle / "config.json").write_text(json.dumps(
+            teacher_cfg | {"latency_profile_path": str(profile_path), "seed": 42}, indent=2,
+        ) + "\n")
 
     run_env = os.environ.copy()
     run_env["PYTHONPATH"] = os.pathsep.join([
@@ -262,6 +322,8 @@ def main() -> None:
     metadata = json.loads((raw_dir / "metadata.json").read_text())
     if metadata["train_rows"] < 320_000:
         raise RuntimeError("Replay produced fewer labels than the probe budget")
+    if args.task in {"atlantis", "asterix"}:
+        (output / "history_audit.json").write_text(json.dumps(audit_atari_history(raw_dir, args.task), indent=2) + "\n")
     manifest = convert_canonical_rollout_to_lerobot(raw_dir, output / "lerobot")
     if manifest["state_dim"] != HISTORY_DIMS[args.task]:
         raise RuntimeError("Converted history dimension does not match the teacher")
@@ -272,6 +334,12 @@ def main() -> None:
         "teacher_path": receipt["path"], "teacher_checkpoint": receipt["checkpoint"],
         "teacher_sha256": receipt["sha256"], "profile_path": str(profile_path),
         "profile_sha256": profile_receipt["profile_sha256"],
+        **({"profile_repo": "latency-sensitive-bench/profiles", "profile_revision": catalog["profile_revision"],
+            "rollout_overrides": {"latency_profile_path": str(profile_path), "seed": 42,
+                                  "simulator": device, "probe_envs": probe_envs,
+                                  "replay_envs": replay_envs, "policy_inference_batch_size": probe_envs,
+                                  "max_episode_raw_frames": horizon}}
+           if args.task in {"atlantis", "asterix"} else {}),
         "episodes": episodes, "filter_preset": "none", "history": "decision_v1",
     }, indent=2) + "\n")
 

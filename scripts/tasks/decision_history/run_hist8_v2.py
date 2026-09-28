@@ -76,7 +76,7 @@ def prepare_bundle(job: dict) -> Path:
         provenance.update(checkpoint_sha256=sha, eval_protocol_version=EVAL_PROTOCOL, history_encoding="binary_0_1")
         write_json_atomic(bundle / "provenance.json", provenance)
     elif job["kind"] == "eval_ready":
-        bundle = Path(job["bundle_dir"])
+        return Path(job["bundle_dir"])
     else:
         raise KeyError(job["kind"])
     snapshot = json.loads((ROOT / "code_snapshot.json").read_text())
@@ -85,6 +85,28 @@ def prepare_bundle(job: dict) -> Path:
 
 
 def execute(job: dict) -> int:
+    if job["kind"] == "atari_teacher":
+        return subprocess.run([
+            job["python"], "-m", "scripts.tasks.atari_hist8.profile_teacher",
+            "--profile-receipt", job["profile_receipt"], "--stage", job["stage"],
+            "--output-root", job["output_root"],
+        ], cwd=ROOT, check=False).returncode
+    if job["kind"] == "collect_profile":
+        return subprocess.run([
+            job["python"], "-m", "scripts.tasks.decision_history.collect_vla_hist8",
+            "--task", job["task"], "--model", job["model"], "--teacher-catalog", job["teacher_catalog"],
+            "--output-root", job["output_root"], "--profile-root", str(ROOT),
+        ], cwd=ROOT, check=False).returncode
+    if job["kind"] == "publish_vla":
+        command = [
+            job["python"], "-m", "scripts.tasks.atari_hist8.publish_zero",
+            "--task", job["task"], "--model", job["model"], "--stage", job["stage"],
+            "--output-root", job["output_root"],
+        ]
+        if "training_condition" in job:
+            command.extend(["--training-condition", job["training_condition"],
+                            "--eval-condition", job["env_condition"]])
+        return subprocess.run(command, cwd=ROOT, check=False).returncode
     if job["kind"] == "collect_zero":
         command = [job["python"], "-m", "scripts.tasks.decision_history.collect_zero_vla_hist8",
                    "--task", job["task"], "--teacher-catalog", job["teacher_catalog"],
@@ -241,16 +263,17 @@ def run_queue(manifest_path: Path, retry: list[str]) -> None:
             specification = directory / "job.json"
             write_json_atomic(specification, job | {"gpus_required": len(selected)})
             env = os.environ.copy()
+            runtime_root = Path(job["runtime_root"])
             env["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, selected))
-            env["PYTHONPATH"] = os.pathsep.join(str(ROOT / path) for path in (
+            env["PYTHONPATH"] = os.pathsep.join(str(runtime_root / path) for path in (
                 ".", "third_party/starVLA", "third_party/sample-factory", "third_party/flappy-bird-gymnasium", "third_party/cule"))
             env["NO_ALBUMENTATIONS_UPDATE"] = "1"
             env["TOKENIZERS_PARALLELISM"] = "false"
             with (directory / "output.log").open("w") as output:
                 child = subprocess.Popen(
-                    [job["python"], str(Path(__file__).resolve()), "worker", "--job", str(specification),
+                    [job["python"], str(runtime_root / "scripts/tasks/decision_history/run_hist8_v2.py"), "worker", "--job", str(specification),
                      "--result", str(directory / "result.json")],
-                    cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=output,
+                    cwd=runtime_root, env=env, stdin=subprocess.DEVNULL, stdout=output,
                     stderr=subprocess.STDOUT, start_new_session=True,
                 )
             children[job_id] = child

@@ -112,8 +112,11 @@ def test_local_model_root_provenance_has_no_remote_revision(tmp_path):
 
 
 @pytest.mark.parametrize("blob_location", ["repo", "ancestor", "other_repo"])
-def test_missing_local_root_downloads_only_exact_hf_artifact(tmp_path, monkeypatch, blob_location):
+@pytest.mark.parametrize("pinned", [False, True])
+def test_missing_local_root_downloads_only_exact_hf_artifact(tmp_path, monkeypatch, blob_location, pinned):
     spec = _spec(tmp_path)
+    if pinned:
+        spec["model_artifact"]["revision"] = "b" * 40
     cache = tmp_path / "models--org--models"
     snapshot = cache / "snapshots" / ("b" * 40)
     blob = {
@@ -151,6 +154,9 @@ def test_missing_local_root_downloads_only_exact_hf_artifact(tmp_path, monkeypat
         "zero-latency/task/vla/model-v1/**"
     ]
     assert resolved["model_provenance"]["source"] == "hf"
+    if pinned:
+        assert calls["snapshot"]["revision"] == "b" * 40
+        assert resolved["model_provenance"]["revision"] == "b" * 40
     # Long-lived artifact boundary: evaluation must retain the snapshot filename
     # and bundle directory used by checkpoint/config loaders.
     config = {

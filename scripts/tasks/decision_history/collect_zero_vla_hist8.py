@@ -25,7 +25,7 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
     raw = output / "raw"
     initial, increment, horizon, probe_envs, replay_envs, device = TASK_SETTINGS[args.task]
     if args.smoke:
-        initial, horizon = 10, 32
+        initial, horizon = (20, 256) if args.task in {"atlantis", "asterix"} else (10, 32)
     snapshot_download(catalog["repo_id"], revision=catalog["revision"],
                       allow_patterns=[teacher["path"] + "/**"], local_dir=output / "models")
     bundle = output / "models" / teacher["path"]
@@ -38,7 +38,7 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
     source_config = json.loads((bundle / "config.json").read_text())
     write_json_atomic(output / "teacher_source_config.json", source_config)
     overrides = {"env_fps": teacher["env_fps"], "obs_fps": teacher["obs_fps"],
-                 "latency_type": "fixed", "fixed_latency_ms": 0.0}
+                 "latency_type": "fixed", "fixed_latency_ms": 0.0, "seed": 42}
     write_json_atomic(runtime_bundle / "config.json", source_config | overrides)
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(str(ROOT / path) for path in (
@@ -58,7 +58,8 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
         command = _export_command(checkpoint=checkpoint, output_dir=raw, episodes=episodes,
                                   horizon=horizon, probe_envs=probe_envs, replay_envs=replay_envs,
                                   device=device, probe_only=probe_only)
-        command.extend(["--export-zero-action-history", "8"])
+        if args.task not in {"atlantis", "asterix"}:
+            command.extend(["--export-zero-action-history", "8"])
         subprocess.run(command, cwd=ROOT, env=env, check=True)
 
     while True:
@@ -79,7 +80,8 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
                   "teacher_path": teacher["path"], "teacher_checkpoint": teacher["checkpoint"],
                   "teacher_sha256": teacher["checkpoint_sha256"], "rollout_overrides": overrides,
                   "training_latency_condition": "zero", "history": "decision_v1", "history_decisions": 8,
-                  "history_source": "zero_latency_issued_equals_applied", "student_image_frames": 1,
+                  "history_source": "teacher_transport" if args.task in {"atlantis", "asterix"}
+                  else "zero_latency_issued_equals_applied", "student_image_frames": 1,
                   "max_episode_raw_frames": horizon,
                   "episodes": episodes, "train_labels": metadata["train_rows"], "filter_preset": "none"}
     write_json_atomic(output / "rollout.complete.json", provenance)

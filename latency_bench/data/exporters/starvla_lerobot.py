@@ -32,8 +32,10 @@ _ROBOT_TYPES_BY_ENV = {
     "flappy": "rl_games_flappy",
     "demon_attack": "rl_games_demon_attack",
     "deadly_corridor": "rl_games_deadly_corridor",
+    "atlantis": "rl_games_atlantis",
+    "asterix": "rl_games_asterix",
 }
-_HISTORY_STATE_DIMS = {"flappy": 24, "demon_attack": 88, "deadly_corridor": 120}
+_HISTORY_STATE_DIMS = {"flappy": 24, "demon_attack": 88, "deadly_corridor": 120, "atlantis": 56, "asterix": 136}
 _DEADLY_MULTIBINARY_LABELS = [
     "MOVE_FORWARD", "MOVE_BACKWARD", "MOVE_LEFT", "MOVE_RIGHT",
     "TURN_LEFT", "TURN_RIGHT", "ATTACK",
@@ -531,6 +533,11 @@ def _convert_history_game_export(
         "latency_prompt_map_path": str(prompt_map_path),
         "custom_mixtures_path": str(mixture_path),
     }
+    if env_name in {"atlantis", "asterix"}:
+        # The exported student image is current RGB; four-frame stacking belongs
+        # to the teacher and remains recorded in the raw collection metadata.
+        contract.update(integration_name="gymnasium",
+                        gymnasium_task={**metadata["gymnasium_task"], "frame_stack": 1})
     manifest = {**train_manifest, **contract,
                 "validation_dataset_name": val_output_dir.name,
                 "validation_episodes": val_manifest["episodes"],

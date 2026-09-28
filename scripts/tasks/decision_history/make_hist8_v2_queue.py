@@ -27,7 +27,8 @@ def build_manifest(catalog: list[dict], *, host: str, runtime_root: Path, python
     jobs = []
 
     def add(job, *, required, priority, depends=()):
-        jobs.append({**job, "gpus_required": required, "priority": priority, "depends_on": list(depends)})
+        jobs.append({**job, "runtime_root": str(runtime_root), "gpus_required": required,
+                     "priority": priority, "depends_on": list(depends)})
 
     for task_index, task in enumerate(TASKS):
         for model_index, model in enumerate(MODELS):
@@ -105,6 +106,7 @@ def add_zero_controls(manifest: dict, catalog: list[dict], *, python_root: Path,
                 gpu = stage == "rollout" and task != "deadly_corridor"
                 manifest["jobs"].append({
                     "id": job_id, "kind": "collect_zero", "task": task, "stage": stage,
+                    "runtime_root": str(root),
                     "python": eval_python, "teacher_catalog": str(teacher_catalog),
                     "output_root": str(data_root), "mirror_host": H200_SECOND if task == "demon_attack" else None,
                     "gpus_required": 1 if gpu else 0, "gpu_pool": [7] if gpu else [],
@@ -122,6 +124,7 @@ def add_zero_controls(manifest: dict, catalog: list[dict], *, python_root: Path,
             profile = old_root / Path(entry["profile_path"]).relative_to(entry["old_root"])
             manifest["jobs"].append({
                 "id": train_id, "kind": "train", "source": "v2", "task": task, "model": model,
+                "runtime_root": str(root),
                 "training_condition": "zero", "resume": False, "run_id": run_id, "vlm_lr": 3e-6,
                 "python": str(python_root / ENVIRONMENTS[model] / "bin/python"), "backbone": str(backbone),
                 "dataset_dir": str(dataset / "lerobot"), "collection_provenance": str(dataset / "provenance.json"),
@@ -134,6 +137,7 @@ def add_zero_controls(manifest: dict, catalog: list[dict], *, python_root: Path,
             package_id = f"package_zero__{run_id}"
             manifest["jobs"].append({
                 "id": package_id, "kind": "package_checkpoint", "source": "v2", "python": eval_python,
+                "runtime_root": str(root),
                 "run_dir": str(output / "train" / run_id), "step": 5000,
                 "dataset_dir": str(dataset / "lerobot"), "collection_provenance": str(dataset / "provenance.json"),
                 "bundle_dir": str(output / "bundles" / run_id),
@@ -143,6 +147,7 @@ def add_zero_controls(manifest: dict, catalog: list[dict], *, python_root: Path,
             for condition in ("zero", "profile"):
                 manifest["jobs"].append({
                     "id": f"eval_zero_to_{condition}__{run_id}", "kind": "eval_ready", "source": "v2",
+                    "runtime_root": str(root),
                     "task": task, "model": model, "python": eval_python, "backbone": str(backbone),
                     "bundle_dir": str(output / "bundles" / run_id), "profile_path": str(profile),
                     "env_condition": condition, "parallel_envs": 32,

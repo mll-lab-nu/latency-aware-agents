@@ -59,6 +59,25 @@ def test_registry_has_one_openvla_flappy_preset():
     assert spec["artifact_root"] == "results/profiling"
 
 
+@pytest.mark.parametrize("task", ["atlantis", "asterix"])
+@pytest.mark.parametrize("model", ["qwenoft", "qwengr00t", "qwenpi_v3"])
+def test_atari_profile_keeps_cpu_simulation_and_history_manifest(tmp_path, task, model):
+    spec = load_profile_spec("configs/profiles.yaml", model, task)
+    spec.update(checkpoint_path=str(tmp_path / "bundle/checkpoints/model.pt"),
+                model_config_path=str(tmp_path / "bundle/config.yaml"))
+    config = measure_config(spec, {"gpus": [{}], "gpu_class": "1x-rtx3090", "instance_id": "instance_test"},
+                            tmp_path / "profile", {"selected_env_fps": 60, "selected_obs_fps": 15})
+    assert spec["session_count"] == 5
+    assert config["env"]["simulator"] == "cpu"
+    assert config["env"]["action_history_decisions"] == 8
+    assert config["executor"]["mode"] == "realtime"
+    assert config["executor"]["inference_devices"] == ["cuda:0"]
+    assert config["evaluation"]["eval_parallel_envs"] == 1
+    assert config["evaluation"]["eval_max_steps"] == 7200
+    assert config["policy"]["task_manifest_path"] == str(tmp_path / "bundle/manifest.json")
+    assert config["policy"]["state_source"] == "transport"
+
+
 def test_registry_uses_one_episode_count_for_profile_and_replay():
     registry = load_config("configs/profiles.yaml")
     for model in registry["models"].values():

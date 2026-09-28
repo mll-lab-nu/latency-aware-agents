@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
+from gymnasium.spaces import Discrete
 
 import latency_bench.executors.realtime.executor as realtime_executor
 import latency_bench.executors.realtime.inference_worker as realtime_inference_worker
@@ -667,10 +668,13 @@ def _executor(
     fake_clock: FakeClock | None = None,
     video_recorder=None,
     config: dict | None = None,
+    action_space=None,
 ) -> RealtimeLatencyExecutor:
     fake_clock = fake_clock or FakeClock()
-    noop = Action("noop", name="noop", is_noop=True)
+    noop = Action("noop" if action_space is None else 0, name="noop", is_noop=True)
     env = DummyEnvAdapter(env_fps=env_fps, max_steps=max_steps, noop_action=noop)
+    if action_space is not None:
+        env.action_space = action_space
     clock = EnvClock(env_fps=env_fps, obs_fps=obs_fps)
     action_scheduler = ActionScheduler(
         clock=clock,
@@ -693,6 +697,24 @@ def _executor(
         video_recorder=video_recorder,
         config=config,
     )
+
+
+def test_realtime_history_joins_late_results_to_source_windows_and_resets():
+    pool = ScriptedInferencePool([
+        CompletionScript(Action(2), ready_time_ms=150, worker_id=0, device="cuda:0"),
+        CompletionScript(Action(1), ready_time_ms=300, worker_id=0, device="cuda:0"),
+    ], num_workers=1)
+    executor = _executor(pool=pool, env_fps=60, obs_fps=15, max_steps=13,
+                         config={"env": {"action_history_decisions": 8}}, action_space=Discrete(4))
+    for episode in range(2):
+        executor.run_episode(episode_id=episode, eval_max_steps=13)
+        first, second = pool.submitted
+        np.testing.assert_array_equal(first.observation.data["transport"], np.zeros(56))
+        assert second.submit_env_step == 12
+        expected = np.zeros((8, 7))
+        expected[-3] = [1, 0, 1, 0, 0, 0, 0]
+        expected[-1] = [0, 0, 0, 0, 0, 1, 0]
+        np.testing.assert_array_equal(second.observation.data["transport"], expected.reshape(-1))
 
 
 def test_env_process_ignores_late_action_when_pipe_is_closed(monkeypatch):
@@ -1547,7 +1569,8 @@ def test_realtime_records_current_episode_video(tmp_path):
     assert (tmp_path / "videos" / manifest[0]["video_path"]).is_file()
 
 
-def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
+@pytest.mark.parametrize("history", [False, True])
+def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path, history):
     from latency_bench.executors import realtime_warmup
 
     monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 3)
@@ -1574,6 +1597,19 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
         ],
         num_workers=1,
     )
+    history_snapshots = []
+    submit = pool.submit
+
+    def capture_warmup(task):
+        attached = attach_observation_arrays(task.observation)
+        try:
+            if history:
+                history_snapshots.append(attached.observation.data["transport"].copy())
+            return submit(task)
+        finally:
+            attached.close()
+
+    pool.submit = capture_warmup
     formal_logger = TrajectoryLogger(
         tmp_path,
         save_step_records=True,
@@ -1584,7 +1620,9 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
         pool=pool,
         max_steps=2,
         logger=formal_logger,
-        config={"logging": {"output_dir": str(tmp_path)}},
+        config={"logging": {"output_dir": str(tmp_path)},
+                "env": {"action_history_decisions": 8 if history else None}},
+        action_space=Discrete(4) if history else None,
     )
 
     warmup_dir = tmp_path / "warmup/episode_000000"
@@ -1604,6 +1642,9 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path):
     assert (warmup_dir / "warmup_stability.png").is_file()
     assert not (tmp_path / "warmup_summary.json").exists()
     assert not (tmp_path / "latencies.jsonl").exists()
+    if history:
+        assert len(history_snapshots) == 3
+        np.testing.assert_array_equal(history_snapshots, np.zeros((3, 56)))
 
 
 def test_realtime_warmup_uses_stress_policy_samples(monkeypatch, tmp_path):

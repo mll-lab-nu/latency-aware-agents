@@ -142,6 +142,8 @@ def _evaluation_seed(config: dict[str, Any]) -> int:
 
 def _episode_seed(config: dict[str, Any], episode_id: int) -> int:
     seed = _evaluation_seed(config)
+    if "episode_seed_offset" in config["evaluation"]:
+        return seed + config["evaluation"]["episode_seed_offset"] + episode_id
     if _is_sample_factory_policy(config):
         return seed + 104729 + episode_id
     return seed + episode_id

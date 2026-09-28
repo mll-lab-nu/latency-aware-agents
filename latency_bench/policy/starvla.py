@@ -979,7 +979,7 @@ def _validate_gymnasium_starvla_contract(
     )
     manifest_uses_state = bool(manifest.get("uses_state", model_uses_state))
     if manifest_has_state_metadata:
-        if manifest_uses_state != ("state_space" in expected):
+        if policy_cfg.get("state_source") != "transport" and manifest_uses_state != ("state_space" in expected):
             raise ValueError(
                 "StarVLA dataset uses_state does not match the Gymnasium state space"
             )
@@ -989,7 +989,7 @@ def _validate_gymnasium_starvla_contract(
             )
     if manifest_has_state_metadata and manifest_uses_state:
         state_labels = manifest["state_labels"]
-        expected_state_labels = expected["state_space"]["labels"]
+        expected_state_labels = expected["state_space"]["labels"] if policy_cfg.get("state_source") != "transport" else state_labels
         if state_labels != expected_state_labels:
             raise ValueError(
                 "StarVLA dataset state_labels do not match the Gymnasium state space"

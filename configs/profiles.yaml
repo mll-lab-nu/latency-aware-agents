@@ -366,6 +366,38 @@ models:
         simulation_env: {}
   qwenoft:
     workloads:
+      atlantis:
+        base_config: configs/experiments/atlantis/starvla_profile_hist8.yaml
+        model_artifact:
+          local_root: outputs/tasks/atari_hist8_v1/bundles/atlantis-qwenoft-hist8-zero-s42-v1
+          checkpoint: checkpoints/model.pt
+          model_config: config.yaml
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/atlantis/vla/starvla-qwenoft-h1/atlantis-qwenoft-hist8-zero-s42-v1
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+      asterix:
+        base_config: configs/experiments/asterix/starvla_profile_hist8.yaml
+        model_artifact:
+          local_root: outputs/tasks/atari_hist8_v1/bundles/asterix-qwenoft-hist8-zero-s42-v1
+          checkpoint: checkpoints/model.pt
+          model_config: config.yaml
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/asterix/vla/starvla-qwenoft-h1/asterix-qwenoft-hist8-zero-s42-v1
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
       air_raid:
         base_config: configs/examples/gymnasium/air_raid/starvla_profile.yaml
         model_artifact:
@@ -480,6 +512,38 @@ models:
         simulation_env: {}
   qwenpi_v3:
     workloads:
+      atlantis:
+        base_config: configs/experiments/atlantis/starvla_profile_hist8.yaml
+        model_artifact:
+          local_root: outputs/tasks/atari_hist8_v1/bundles/atlantis-qwenpi_v3-hist8-zero-s42-v1
+          checkpoint: checkpoints/model.pt
+          model_config: config.yaml
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/atlantis/vla/starvla-qwenpi_v3-h1/atlantis-qwenpi_v3-hist8-zero-s42-v1
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+      asterix:
+        base_config: configs/experiments/asterix/starvla_profile_hist8.yaml
+        model_artifact:
+          local_root: outputs/tasks/atari_hist8_v1/bundles/asterix-qwenpi_v3-hist8-zero-s42-v1
+          checkpoint: checkpoints/model.pt
+          model_config: config.yaml
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/asterix/vla/starvla-qwenpi_v3-h1/asterix-qwenpi_v3-hist8-zero-s42-v1
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
       mikasa_intercept_grab_fast:
         base_config: configs/examples/mikasa/official_starvla_profile.yaml
         model_artifact:
@@ -539,6 +603,38 @@ models:
         simulation_env: {}
   qwengr00t:
     workloads:
+      atlantis:
+        base_config: configs/experiments/atlantis/starvla_profile_hist8.yaml
+        model_artifact:
+          local_root: outputs/tasks/atari_hist8_v1/bundles/atlantis-qwengr00t-hist8-zero-s42-v1
+          checkpoint: checkpoints/model.pt
+          model_config: config.yaml
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/atlantis/vla/starvla-qwengr00t-h1/atlantis-qwengr00t-hist8-zero-s42-v1
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
+      asterix:
+        base_config: configs/experiments/asterix/starvla_profile_hist8.yaml
+        model_artifact:
+          local_root: outputs/tasks/atari_hist8_v1/bundles/asterix-qwengr00t-hist8-zero-s42-v1
+          checkpoint: checkpoints/model.pt
+          model_config: config.yaml
+          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_path: zero-latency/asterix/vla/starvla-qwengr00t-h1/asterix-qwengr00t-hist8-zero-s42-v1
+        checkpoint_kind: best
+        session_count: 5
+        eval_episodes: 10
+        evaluation_seed: 42
+        calibrate_env_fps: false
+        simulation_parallel_envs: 1
+        simulation_gpu: null
+        simulation_env: {}
       mikasa_intercept_grab_fast:
         base_config: configs/examples/mikasa/official_starvla_profile.yaml
         model_artifact:

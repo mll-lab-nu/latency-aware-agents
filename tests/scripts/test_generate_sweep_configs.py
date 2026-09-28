@@ -479,15 +479,24 @@ def test_paper_sweep_specs_use_base_inheritance():
         assert spec["experiment_family"] in {"observation_stride", "memory_small_model"}
 
 
-def test_asterix_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
+@pytest.mark.parametrize("gpu_eval", [False, True])
+def test_asterix_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path, gpu_eval):
     generated_root = tmp_path / "configs"
     output_root = tmp_path / "outputs"
     train_dir = tmp_path / "checkpoints"
+    spec = REPO_ROOT / "configs/experiments/memory/small_model/asterix_zero_latency.yaml"
+    if gpu_eval:
+        override = tmp_path / "gpu_eval.yaml"
+        override.write_text(yaml.safe_dump({"__base__": str(spec),
+                                           "env": {"action_history_decisions": 8},
+                                           "evaluation": {"latency_bench_env_backend": "asterix_gpu_batched",
+                                                          "eval_parallel_envs": 32, "eval_max_steps": 7200}}))
+        spec = override
 
     generate_sweep_configs(
         [
             "--spec",
-            "configs/experiments/memory/small_model/asterix_zero_latency.yaml",
+            str(spec),
             "--generated-root",
             str(generated_root),
             "--output-root",
@@ -513,7 +522,12 @@ def test_asterix_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
     assert train_cfg["env"]["name"] == "gymnasium"
     assert train_cfg["env"]["task_name"] == "asterix"
     assert resolved_train_cfg["env"]["simulator"] == "cpu"
-    assert eval_cfg["env"]["simulator"] == "cpu"
+    assert eval_cfg["env"]["simulator"] == ("gpu" if gpu_eval else "cpu")
+    if gpu_eval:
+        assert train_cfg["env"]["action_history_decisions"] == 8
+        assert eval_cfg["env"]["action_history_decisions"] == 8
+        assert eval_cfg["evaluation"]["eval_parallel_envs"] == 32
+        assert eval_cfg["evaluation"]["eval_max_steps"] == 7200
     assert train_cfg["latency"] == {
         "method": "fixed",
         "fixed_latency_ms": 0.0,

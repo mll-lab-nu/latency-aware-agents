@@ -918,7 +918,8 @@ def _replay_accepted_specs(
     history_decisions = getattr(cfg, "action_history_decisions", None)
     include_decision_history = (
         export_zero_action_history is None
-        and integration_name in {"flappy", "demon_attack", "deadly_corridor"}
+        and (integration_name in {"flappy", "demon_attack", "deadly_corridor"}
+             or env_name in _GYMNASIUM_ATARI_GPU_ENVS)
         and history_decisions is not None
     )
     zero_history = None
@@ -1217,7 +1218,8 @@ def _build_rollout_driver_runtime(
     with sample_factory_init_log(output_dir):
         module, cfg = build_sample_factory_rollout_cfg(config)
         frame_stack = int(cfg.frame_stack)
-        if (integration_name in {"flappy", "demon_attack", "deadly_corridor"}
+        if ((integration_name in {"flappy", "demon_attack", "deadly_corridor"}
+             or env_name in _GYMNASIUM_ATARI_GPU_ENVS)
                 and getattr(cfg, "action_history_decisions", None) == 8
                 and cfg.latency_type == "profile_sample"):
             setattr(cfg, "rollout_profile_seed_by_reset", True)
@@ -1434,11 +1436,11 @@ def collect_teacher_dataset(
     image_resolution = None
     if remaining_specs:
         matched_gpu_replay = (
-            integration_name in {"flappy", "demon_attack"}
+            (integration_name in {"flappy", "demon_attack"}
+             or config["env_name"] in _GYMNASIUM_ATARI_GPU_ENVS)
             and ("export_zero_action_history" in config or (
                 "flat_cfg" in config
                 and config["flat_cfg"].get("action_history_decisions") == 8
-                and config["flat_cfg"]["latency_type"] == "profile_sample"
             ))
         )
         if matched_gpu_replay and completed_episode_indices:

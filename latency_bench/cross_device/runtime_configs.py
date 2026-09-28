@@ -133,6 +133,10 @@ def _base_config(spec: dict[str, Any], output_dir: Path) -> dict[str, Any]:
             Path(spec["model_config_path"]).parent
             / config["policy"]["task_contract_path"]
         )
+    if "model_config_path" in spec and "task_manifest_path" in config["policy"]:
+        config["policy"]["task_manifest_path"] = str(
+            Path(spec["model_config_path"]).parent / config["policy"]["task_manifest_path"]
+        )
     config["experiment"]["seed"] = spec["evaluation_seed"]
     config["evaluation"]["eval_episodes"] = spec["eval_episodes"]
     config["provenance"] = {

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 pytest.importorskip("omegaconf")
 
@@ -14,6 +16,10 @@ from latency_bench.eval.reporting import _corrected_eval_scalar_payload
 from scripts.tasks.decision_history.run_hist8_v2 import available_gpus, execute, run_queue
 from scripts.tasks.decision_history.make_hist8_v2_queue import add_zero_controls, build_manifest, H200_FIRST, H200_SECOND, H100, TASKS, MODELS
 from scripts.tasks.decision_history.monitor_hist8_v2 import pending_events
+from scripts.tasks.atari_hist8.profile_teacher import teacher_configs
+from scripts.tasks.atari_hist8.make_profile_queue import build_manifest as build_atari_profile_manifest, build_teacher_manifest
+from scripts.tasks.atari_hist8.make_queue import build_manifest as build_atari_zero_manifest
+from scripts.tasks.decision_history.collect_vla_hist8 import audit_atari_history
 
 
 def arguments(tmp_path, task="demon_attack", model="qwenoft"):
@@ -23,8 +29,79 @@ def arguments(tmp_path, task="demon_attack", model="qwenoft"):
                      preflight=False, resume=False, training_condition="profile")
 
 
+@pytest.mark.parametrize("task,actions", [("atlantis", 4), ("asterix", 9)])
+def test_profile_teacher_keeps_cpu_learning_and_independent_gpu_evaluation(tmp_path, task, actions):
+    train, evaluation = teacher_configs(task, "qwenoft", tmp_path / "profile.json", tmp_path)
+    assert train["experiment"]["seed"] == 0
+    assert train["env"]["simulator"] == "cpu"
+    assert train["env"]["frame_stack"] == evaluation["env"]["frame_stack"] == 4
+    assert train["env"]["action_history_decisions"] == evaluation["env"]["action_history_decisions"] == 8
+    assert len(train["env"]["action_order"]) == actions
+    assert train["training"]["train_for_env_steps"] == 15_000_000
+    assert train["training"]["learning_rate"] == 0.000303
+    assert train["training"]["lr_schedule"] == "constant"
+    assert train["executor"]["simulated_worker_capacity"] == 1
+    assert train["latency"]["method"] == "temporal"
+    assert train["latency"]["profile_worker_slot"] == 0
+    assert train["latency"]["profile_path"] == evaluation["latency"]["profile_path"]
+    assert evaluation["env"]["simulator"] == "gpu"
+    assert evaluation["experiment"]["seed"] + evaluation["evaluation"]["episode_seed_offset"] == 1_000_000
+    assert evaluation["evaluation"]["eval_episodes"] == 100
+    assert evaluation["evaluation"]["eval_parallel_envs"] == 32
+    assert evaluation["evaluation"]["eval_max_steps"] == 7200
+    assert evaluation["evaluation"]["latency_bench_env_backend"] == f"{task}_gpu_batched"
+    assert evaluation["logging"]["wandb_name"] == train["logging"]["wandb_name"]
+    assert train["logging"]["wandb_project"] == "latency-sensitive-bench"
+
+
+def test_atari_graphs_pair_profiles_and_respect_gpu_pool(tmp_path):
+    for task in ("atlantis", "asterix"):
+        zero = build_atari_zero_manifest(task, tmp_path, Path("/envs"), Path("/backbone"), [0, 1])
+        assert all(job["gpu_pool"] == [0, 1] for job in zero["jobs"])
+    teachers = build_teacher_manifest(tmp_path, Path("/envs"), [0, 1])
+    teacher_jobs = {job["id"]: job for job in teachers["jobs"]}
+    manifest = build_atari_profile_manifest("atlantis", tmp_path, Path("/envs"), Path("/backbone"), [0, 1, 2, 3, 5, 6])
+    jobs = {job["id"]: job for job in manifest["jobs"]}
+    for model in MODELS:
+        identity = f"atlantis-{model}"
+        prep = jobs[f"teacher_prepare__{identity}"]
+        assert prep["ready_path"].endswith(f"profile_receipts/{identity}.json")
+        collect = jobs[f"collect_profile__{identity}"]
+        assert collect["ready_path"].endswith(f"teacher_publications/{identity}.json")
+        teacher_train = teacher_jobs[f"teacher_train__{identity}"]
+        assert teacher_train["gpus_required"] == 1
+        assert teacher_train["gpu_pool"] == [0, 1]
+        assert teacher_jobs[f"teacher_publish__{identity}"]["depends_on"] == [f"teacher_eval__{identity}"]
+        train = jobs[f"train__{identity}-hist8-profile-s42-v1"]
+        assert train["depends_on"] == [collect["id"]]
+        assert train["gpus_required"] == 2
+        assert not train["resume"]
+        pair = [jobs[f"eval_{condition}_to_profile__{identity}-hist8-{condition}-s42-v1"]
+                for condition in ("zero", "profile")]
+        assert pair[0]["profile_path"] == pair[1]["profile_path"]
+        assert all(job["parallel_envs"] == 32 for job in pair)
+    assert all(parent in jobs for job in jobs.values() for parent in job["depends_on"])
+
+
+def test_atari_profile_history_audit_preserves_rejected_commands_and_delayed_actions(tmp_path):
+    reset = [0.0] * 56
+    admitted = [1., 1., 0., 0., 0., 0., 0.]  # FIRE submitted; NOOP still applied.
+    rejected = [0., 0., 0., 0., 1., 0., 0.]  # RIGHTFIRE rejected; earlier FIRE applied.
+    states = [reset, reset[7:] + admitted, reset[14:] + admitted + rejected]
+    for split in ("train", "val"):
+        rows = [{"episode_idx": 0, "decision_step": i, "action_id": action, "state": state}
+                for i, (action, state) in enumerate(zip((1, 2, 0), states))]
+        pq.write_table(pa.Table.from_pylist(rows), tmp_path / f"{split}.parquet")
+    assert audit_atari_history(tmp_path, "atlantis")["checked_rows"] == 6
+    rows[2]["state"][-6] = 1.0
+    pq.write_table(pa.Table.from_pylist(rows), tmp_path / "val.parquet")
+    with pytest.raises(AssertionError):
+        audit_atari_history(tmp_path, "atlantis")
+
+
 @pytest.mark.parametrize("task,state_dim,action_dim", [
     ("flappy", 24, 2), ("demon_attack", 88, 6), ("deadly_corridor", 120, 7),
+    ("atlantis", 56, 4), ("asterix", 136, 9),
 ])
 @pytest.mark.parametrize("model", ["qwenoft", "qwengr00t", "qwenpi_v3"])
 @pytest.mark.parametrize("condition", ["profile", "zero"])
@@ -48,9 +125,31 @@ def test_training_configs_keep_the_task_contract(tmp_path, task, state_dim, acti
     assert cfg.trainer.learning_rate.base == 3e-5
     assert cfg.trainer.scheduler_specific_kwargs.min_lr_rate == pytest.approx(1 / 30)
     assert cfg.trainer.max_train_steps == 5000
+    assert cfg.wandb_entity == "saberrr-zju"
+    assert cfg.wandb_project == "starvla_tasks"
     if model == "qwenoft":
         assert cfg.framework.action_model.loss_type == (
             "multibinary_bce" if task == "deadly_corridor" else "discrete_ce")
+
+
+@pytest.mark.parametrize("task", ["atlantis", "asterix"])
+@pytest.mark.parametrize("condition", ["zero", "profile"])
+def test_atari_history_evaluation_uses_gpu_and_published_action_layout(tmp_path, task, condition):
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "provenance.json").write_text(json.dumps({"training_run_id": task, "training_step": 5000}))
+    cfg = evaluation_config(task, "qwenoft", bundle, tmp_path / "profile.json", tmp_path / "eval",
+                            tmp_path / "backbone", Path("/python"), device="cuda:0", episodes=100,
+                            env_condition=condition)
+    assert cfg["env"]["simulator"] == "gpu"
+    assert cfg["env"]["action_history_decisions"] == 8
+    assert cfg["evaluation"]["latency_bench_env_backend"] == f"{task}_gpu_batched"
+    assert cfg["evaluation"]["eval_parallel_envs"] == 32
+    assert cfg["evaluation"]["eval_max_steps"] == 7200
+    assert cfg["policy"]["task_manifest_path"] == str(bundle / "manifest.json")
+    assert cfg["latency"]["method"] == ("zero" if condition == "zero" else "temporal")
+    if task == "asterix":
+        assert cfg["policy"]["action_layout"] == "discrete_9"
 
 
 def test_pause_and_resume_keep_the_full_schedule_and_run_identity(tmp_path):
@@ -75,13 +174,15 @@ def test_pause_and_resume_keep_the_full_schedule_and_run_identity(tmp_path):
     assert "stop_after_steps" not in resumed.trainer
 
 
-def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path):
+@pytest.mark.parametrize("task", ["demon_attack", "atlantis", "asterix"])
+def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path, task):
     run = tmp_path / "old-run"
     checkpoint = run / "checkpoints" / "steps_2877_pytorch_model.pt"
     checkpoint.parent.mkdir(parents=True)
     checkpoint.write_bytes(b"checkpoint fixture")
     config = {
-        "run_id": "old-demon", "version_id": "0.21",
+        "run_id": f"old-{task}", "version_id": "0.21",
+        "rl_games": {"env_eval": {"image_size": 224}},
         "framework": {"name": "QwenOFT", "qwenvl": {"base_vlm": "/old/base"}},
         "datasets": {"vla_data": {"include_state": True, "obs_image_size": None,
                                     "image_mode": "single", "num_obs_frames": 1}},
@@ -90,7 +191,7 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path):
     (run / "dataset_statistics.json").write_text("{}")
     dataset = tmp_path / "data" / "lerobot"
     dataset.mkdir(parents=True)
-    (dataset / "manifest.json").write_text(json.dumps({"robot_type": "rl_games_demon_attack"}))
+    (dataset / "manifest.json").write_text(json.dumps({"robot_type": f"rl_games_{task}"}))
     (dataset.parent / "quality_report.json").write_text("{}")
     (dataset.parent / "raw").mkdir()
     (dataset.parent / "raw/metadata.json").write_text("{}")
@@ -103,7 +204,7 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path):
     assert provenance["wandb_run_id"] == "old-id"
     assert provenance["checkpoint_sha256"] == hashlib.sha256(checkpoint.read_bytes()).hexdigest()
     assert provenance["eval_protocol_version"] == EVAL_PROTOCOL
-    cfg = evaluation_config("demon_attack", "qwenoft", bundle, tmp_path / "profile.json",
+    cfg = evaluation_config(task, "qwenoft", bundle, tmp_path / "profile.json",
                             tmp_path / "eval", tmp_path / "backbone", Path("/python"),
                             device="cuda:0", episodes=100)
     assert "step2877" in cfg["experiment"]["name"]
@@ -112,6 +213,11 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path):
     assert cfg["evaluation"]["eval_episodes"] == 100
     assert cfg["evaluation"]["eval_parallel_envs"] == 32
     assert cfg["evaluation"]["eval_max_steps"] == 7200
+    if task in {"atlantis", "asterix"}:
+        from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
+
+        prepare_starvla_checkpoint_input_config(cfg)
+        assert cfg["env"]["obs_resize"] == [224, 224]
     zero = evaluation_config("flappy", "qwenoft", bundle, tmp_path / "profile.json",
                              tmp_path / "eval-zero", tmp_path / "backbone", Path("/python"),
                              device="cuda:0", episodes=100, env_condition="zero",
@@ -238,7 +344,7 @@ def test_existing_selected_job_starts_fresh_from_approved_lr(tmp_path, monkeypat
 def test_queue_keeps_free_pair_for_training_before_evaluation(tmp_path, monkeypatch):
     """Scheduling contract: a released pair stays together and ready training runs first."""
     manifest = tmp_path / "manifest.json"
-    jobs = [{"id": name, "kind": name, "python": "/python", "gpus_required": 2,
+    jobs = [{"id": name, "kind": name, "python": "/python", "runtime_root": str(tmp_path / name), "gpus_required": 2,
              "priority": priority, "depends_on": []} for name, priority in (("eval", 1000), ("train", 100))]
     manifest.write_text(json.dumps({"jobs": jobs}))
     pair_released = False
@@ -253,6 +359,9 @@ def test_queue_keeps_free_pair_for_training_before_evaluation(tmp_path, monkeypa
             pair_released = True
     def launch(command, **kwargs):
         job = json.loads(Path(command[command.index("--job") + 1]).read_text())
+        assert kwargs["cwd"] == Path(job["runtime_root"])
+        assert command[1] == str(Path(job["runtime_root"]) / "scripts/tasks/decision_history/run_hist8_v2.py")
+        assert kwargs["env"]["PYTHONPATH"].split(":")[0] == job["runtime_root"]
         launches.append((job["id"], kwargs["env"]["CUDA_VISIBLE_DEVICES"]))
         Path(command[command.index("--result") + 1]).write_text(json.dumps({
             "status": "completed", "returncode": 0, "finished": 1,

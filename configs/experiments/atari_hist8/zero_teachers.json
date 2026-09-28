@@ -1,0 +1,20 @@
+{
+  "repo_id": "latency-sensitive-bench/benchmark-models",
+  "revision": "dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2",
+  "teachers": {
+    "atlantis": {
+      "path": "zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1",
+      "checkpoint": "best_000026560_13598720_reward_675769.000.pth",
+      "checkpoint_sha256": "d41d728d8c2329d3623eb9e01bd9f3f2df4fc0d4f6f2c1f799c4badc24af78c5",
+      "env_fps": 60,
+      "obs_fps": 15
+    },
+    "asterix": {
+      "path": "zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1",
+      "checkpoint": "best_000024112_12345344_reward_5614.500.pth",
+      "checkpoint_sha256": "0fe54ff4b3a2ccec438aca789f1a9f86fcef7cda44cda5156e3b774262c50beb",
+      "env_fps": 60,
+      "obs_fps": 15
+    }
+  }
+}
