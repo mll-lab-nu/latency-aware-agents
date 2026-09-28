@@ -102,7 +102,7 @@ TASK_SPECS: dict[str, StarVLATaskSpec] = {
     "mikasa_conditioned_h8": StarVLATaskSpec(
         name="mikasa_intercept_grab_fast",
         robot_type="latency_mikasa_conditioned_h8",
-        state_dim=71,
+        state_dim=63,
         action_dim=7,
         fps=20.0,
         video_keys=("video.top", "video.wrist"),
@@ -157,7 +157,12 @@ def _normalization_from_rows(rows: list[dict[str, Any]], spec: StarVLATaskSpec) 
     if "action_loss_mask" in auxiliary:
         valid = np.asarray([row["action_loss_mask"] for row in rows], dtype=bool)
         actions = actions[valid]
-    return {"state": _numeric_stats(states), "action": _numeric_stats(actions.reshape(-1, spec.action_dim))}
+    state_stats = _numeric_stats(states)
+    if spec.robot_type == "latency_mikasa_conditioned_h8":
+        # Action slots retain their physical scale even when constant in bootstrap data.
+        state_stats["min"][7:] = [-1.0] * 56
+        state_stats["max"][7:] = [1.0] * 56
+    return {"state": state_stats, "action": _numeric_stats(actions.reshape(-1, spec.action_dim))}
 
 
 def _read_prompt(dataset_dir: Path) -> str | None:
@@ -210,9 +215,9 @@ def write_task_contract(
         else _normalization_source_contract(normalization_source)["normalization"]
     )
     version = (
-        3 if spec.robot_type in ("latency_balance_profile_h8", "latency_balance_profile_h16")
+        3 if spec.robot_type in ("latency_balance_profile_h8", "latency_balance_profile_h16",
+                                "latency_mikasa_conditioned_h8")
         else 2 if spec.name == TASK_SPECS["balance"].name
-        or spec.robot_type == "latency_mikasa_conditioned_h8"
         else 1
     )
     contract: dict[str, Any] = {

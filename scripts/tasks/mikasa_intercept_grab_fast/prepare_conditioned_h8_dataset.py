@@ -11,6 +11,7 @@ import shutil
 import numpy as np
 
 from latency_bench.data.starvla_tasks import read_task_contract, task_spec, write_task_contract
+from latency_bench.policy.action_prefix import encode_prefix_state
 from scripts.starvla.prepare_dataset import _rewrite_dataset, _write_manifest
 
 
@@ -66,6 +67,10 @@ def _write_split(raw: Path, output: Path, episode_indices: list[int], task: str)
                 }
             if task == "mikasa_conditioned_h8":
                 values["action_prefix_mask"] = episode["action_prefix_mask"][frame]
+                values["observation.state"] = encode_prefix_state(
+                    episode["state"][frame, :7], values["issued_command_chunk"],
+                    values["action_prefix_mask"],
+                )
             dataset.add_frame(values)
             frames += 1
         dataset.save_episode(parallel_encoding=False)
@@ -156,7 +161,7 @@ def prepare(
         info_path.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
         _write_manifest(dataset_dir, spec, contract)
     result = {
-        "format": "latency_bench_starvla_h8_v2",
+        "format": read_task_contract(output_train)["format"],
         "task": spec.name,
         "robot_type": spec.robot_type,
         "raw_collection": str(raw_root),

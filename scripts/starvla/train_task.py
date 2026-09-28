@@ -471,10 +471,7 @@ def eval_config(args, bundle: Path, teacher: Path, output_dir: Path, *,
             else {'method': 'fixed', 'fixed_latency_ms': eval_latency_frames * 50.0}
         )
         if args.task == 'mikasa_conditioned_h8':
-            config['env']['returned_action_context'] = {
-                'state_key': settings['state_info_key'], 'horizon': 8, 'frames': None,
-                'order': list(range(7)), 'low': [-1.0] * 7, 'high': [1.0] * 7,
-            }
+            config['env']['action_prefix_state_key'] = settings['state_info_key']
             config['policy']['action_prefix'] = json.loads(
                 (bundle / 'task_contract.json').read_text()
             )['action_prefix']

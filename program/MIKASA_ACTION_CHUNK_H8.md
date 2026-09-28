@@ -112,6 +112,10 @@ CUDA_VISIBLE_DEVICES=1 VLA_PY=/path/to/starvla-python \
 
 ## Conditioned H8：Profile / Fixed-2 prefix training
 
+以下描述已发布的 **71D v2 历史合同**。新训练代码已迁移到 63D v3：
+7D proprio + 按当前时刻对齐、固定动作尺度的 8×7 prefix；本轮 Fixed-2
+重训入口、开发评测与选优以 [prefix 修复协议](MIKASA_FIXED2_PREFIX_REPAIR.md) 为准。
+
 Conditioned 路线使用独立任务键 `mikasa_conditioned_h8`，不改变上面的 `mikasa_h8`
 baseline。action 仍为 `8×7`，state 改为 71D：7D proprio、controller 当时真实可见的
 returned chunk `8×7`，以及 active-head one-hot 8D。所有评测延迟（包括 Zero）都保留

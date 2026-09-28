@@ -73,10 +73,19 @@ def action_prefix_arrays(scheduler, frame, settings):
     return actions, np.arange(horizon) < frames
 
 
+def encode_prefix_state(proprio, action_chunk, prefix_mask):
+    """Encode observation-relative committed actions, excluding every teacher suffix."""
+    prefix = np.where(np.asarray(prefix_mask)[..., None], action_chunk, 0)
+    return np.concatenate((proprio, prefix.reshape(-1))).astype(np.float32)
+
+
 def with_action_prefix(observation, scheduler, settings):
     """Freeze prefix and any environment-provided action context before IPC."""
     prefix, mask = action_prefix_arrays(scheduler, observation.env_step, settings)
     metadata = observation.metadata.copy()
+    if "action_prefix_state_key" in metadata:
+        key = metadata.pop("action_prefix_state_key")
+        metadata[key] = encode_prefix_state(metadata[key], prefix, mask)
     if "returned_action_context" in metadata:
         context = metadata.pop("returned_action_context")
         horizon = context["horizon"]

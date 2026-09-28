@@ -9,6 +9,7 @@
 - RTX 3090 profiles：[profiles@e8be1e5](https://huggingface.co/datasets/latency-sensitive-bench/profiles/tree/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles)
 - Parkour latency small：[benchmark-models@6348f44](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/6348f44ce65c1414dbc4f2ec46e0d5eb525ab770/latency-aware/extreme-parkour-go2/small-policy)
 - MIKASA WanOFT latency-aware VLA：[benchmark-models@ad40d57](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ad40d57c5747761705770aa557db0f287888f727/latency-aware/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_wanoft_latency_3090_20260916T094307Z)
+- MIKASA H1 corrected latency-aware VLAs：[benchmark-models@ae81bdb3](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla)
 
 ## 阅读口径
 
@@ -24,7 +25,7 @@
 | 任务 | Zero VLA | RTX 3090 profile | Latency small | Latency VLA | 当前结论 |
 |---|---|---|---|---|---|
 | Balance Simple | 4/4 完成 | 4/4 完成 | H8/H16 专题实验完成多组，尚无统一正式产物 | 正式四模型终点未完成 | 延迟控制可由 oracle/BC 部分恢复，但现有 RL/PPO 未超过 BC；新 DAgger 矩阵待终点结果 |
-| MIKASA InterceptGrabFast | 4/4 完成 | 4/4 完成 | 4/4 达标并发布 | 4/4 SFT 5k；四组矩阵完成，仅 WanOFT 已发布 | latency-aware VLA 能恢复部分 profile 性能，模型间恢复幅度差异明显 |
+| MIKASA InterceptGrabFast | 4/4 完成；H8 zero SFT 与三路 naive DAgger 已发布 | 4/4 完成；H8 六路 conditioned DAgger 终评与发布完成 | 4/4 达标并发布 | H1 三路纠正评测完成；H8 九路 DAgger 均完成训练、终评与发布 | Figure 2 的 H1（Hub `56b2c095`）与 zero-latency H8 DAgger（Hub `5b533937`）完成 L0–L4 各 200 局：H1 三路在 L2 均为 0/200，H8 三路在 L2 为 115/123/101/200。[结果与证据](RESULTS.md) |
 | Extreme Parkour Go2 | 3/4 完成 | 3/4 完成 | 3/4 训练、评测、发布完成 | 未找到正式产物 | 三个 small policy 在 profile 下均完成正式评测；未预设 acceptance threshold |
 | HAIC PullCart | 1/4 完成 | 1/4 完成 | 正式终点未核验 | 未找到正式产物 | 当前只有 QwenOFT 正式 VLA 结果，任务覆盖仍不完整 |
 
@@ -55,7 +56,8 @@
 ### MIKASA InterceptGrabFast
 
 QwenOFT/QwenGR00T/QwenPI v3 为 20/20Hz，WanOFT zero VLA 主表也按 20/20Hz。
-L0 使用 50 个共同 seeds `4242424242–4242424291`。
+L0 使用 50 个共同 seeds `4242424242–4242424291`。本节依次列出 H1 zero baseline、
+H1 single-action profile training，以及 H8 action-chunk 两组实验；不同协议不可混用。
 
 | 模型 | 训练 | L0 return ± SD | task success | profile mean |
 |---|---:|---:|---:|---:|
@@ -66,14 +68,174 @@ L0 使用 50 个共同 seeds `4242424242–4242424291`。
 
 本表是共同 50-seed 补评测；中央模型中的其他 100-episode 文件使用不同协议，不与本表合并。
 
-#### H8 Fixed-0–4 训练/评测矩阵
+#### H1 single-action profile training
 
-已确定采用训练时固定 K 的硬 prefix 协议，包含 L0；训练条件与实际评测延迟独立。
-新增范围为 QwenOFT Fixed-1/3/4，每路 SFT 5k + DAgger 5k，global batch 128、
-gradient checkpointing 关闭。主矩阵每格 200 局、20/20Hz、reset seeds
-`4242424242–4242424441`；Zero 列复用已核验 Figure 2 的既有五格，其余 20 格待评测。
-已按用户要求跳过短流程启动正式流水线：Fixed-1/3 已进入 SFT，Fixed-4 完成数据准备后自动接续训练。已有 Fixed-2 DAgger step-5000（Hub `795468e5`）五档评测完成，成功数依次为 **1、1、177、0、0 / 200**，执行审计均通过；新模型训练与完整矩阵尚未完成。[Fixed-2 证据](../outputs/tasks/mikasa_intercept_grab_fast/fixed-grid-20260924/fixed2_column.json)。
-[协议与执行入口](MIKASA_FIXED_LATENCY_GRID.md)。
+这批模型明确为 `action_horizon=1`，每次推理只输出一个 7D action，不是后面的 H8
+action chunk。四个 profile-trained VLA 均完成 5,000-step SFT。QwenOFT、QwenPI v3、
+QwenGR00T 的 2026-09-22 checkpoint 使用 200 episodes、reset seeds
+`4242424242–4242424441`、latency seed `271828` 和 deterministic inference 完成
+纠正后的 matched-profile 评测；WanOFT 保留既有 100-episode 结果。WanOFT 为 10Hz，
+其余为 20Hz。表内为 `task success；mean return±SD`；旧 zero 比较项仅作协议内参考，
+不与新 200-episode 样本合并。
+
+| 模型 | zero→zero | zero→profile | profile→profile | 训练 / 发布 |
+|---|---:|---:|---:|---|
+| QwenOFT | 57%；22.0986 | 0%；0.4274 | 101/200；17.77506±15.43550 | SFT 5k、纠正评测与新 run ID 发布完成 |
+| QwenPI v3 | 60%；23.0983 | 0%；0.2862 | 90/200；13.55261±13.75740 | SFT 5k、纠正评测与新 run ID 发布完成 |
+| QwenGR00T | 63%；24.1050 | 0%；0.4136 | 100/200；17.51561±14.29526 | SFT 5k、纠正评测与新 run ID 发布完成 |
+| WanOFT | 41%；16.8500 | 0%；0.3368 | 21%；6.8902 | SFT 5k 完成；已发布 |
+
+三个新结果分别来自 `mikasa_qwenoft_latency_3090_2xh200_20260922`、
+`mikasa_qwenpi_v3_latency_3090_2xh200_20260922`、
+`mikasa_qwengr00t_latency_3090_2xh200_20260922` 的 step-5,000 checkpoint；mean latency
+为 `99.091 / 148.740 / 99.365ms`。三路均完成 12,000 环境步，其中非 noop 步数为
+`11,561 / 11,346 / 11,554`，逐局 return 向量两两不同。此前三路 0/200、
+`0.189403±0.031062` 的结果因实际 12,000 步全部执行 noop 而失效；训练数据与 checkpoint
+不受影响。旧 Hub 权重保留，但其附带的旧 eval metadata 不得引用；纠正后的 bundle 已以
+新 `*_evalfix_20260923` run ID 发布，并在最终 revision
+[`ae81bdb3`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla)
+核验三条路径各含 7 个必需文件且 checkpoint 大小一致。
+[三路纠正评测证据](../outputs/tasks/mikasa_intercept_grab_fast/h1_hold_last_reval_20260923/REPORT.md)、
+[WanOFT 证据](../outputs/tasks/mikasa_intercept_grab_fast/wanoft_latency_20260916T094307Z/eval_matrix/results.json)；
+[H1 合同与复核记录](LATENCY_RL_HANDOFF.zh-CN.md)。
+
+#### H8 action-chunk zero-trained baseline
+
+以下结果全部是 **H8 action chunk**。正式结果与代码均按正确 action-chunk 语义收尾；teacher
+baseline 的三个 step-5,000 模型均完成 50-seed Zero 评测。Profile 与 Fixed-2 在原共同
+reset seeds `4242424242–4242424291` 的 50 episodes 上，补跑不重叠 seeds
+`4242424292–4242424441` 的 150 episodes，并合并为 200-episode 统计。共同协议为
+20/20Hz、单 inference worker、每局 60 个实际 environment transitions；Profile 使用
+latency seed 0，Fixed-2 严格为 100ms / 2 frames。环境从 reset 立即开始；首动作到达前
+执行 noop 并消耗 budget，worker 忙时丢弃请求并继续旧 chunk 的
+observation-aligned 后续 head。
+
+| 模型 | Zero（50） | RTX 3090 Profile（200） | Fixed-2（200） |
+|---|---:|---:|---:|
+| QwenOFT | 25/50，50% | 29/200，14.5% | 33/200，16.5% |
+| QwenPI v3 | 34/50，68% | 26/200，13.0% | 51/200，25.5% |
+| QwenGR00T | 31/50，62% | 36/200，18.0% | 41/200，20.5% |
+
+Zero / Profile / Fixed-2 return 分别为 QwenOFT
+`19.42654±16.93815 / 7.45255±11.82559 / 8.84059±12.99718`、QwenPI v3
+`26.42206±13.34111 / 5.12064±10.51648 / 10.79818±14.93077`、QwenGR00T
+`22.92212±16.49738 / 8.32811±12.75548 / 8.56929±12.49691`。
+
+九组 mean length 均为 60，原 50 局与新增 150 局的 execution audit 均通过，200 个
+seed 已核验唯一。三个 Zero setting 达到原预设 `>=25/50` gate；按相同比例折算为
+`>=100/200` 时，三个 Profile setting 均未达到。训练与三套 H8 bundle 发布均已完成。
+Hub API 已在最终 revision
+[`d546ea62d9be8f741f9b52c52a7a2122db1a1b42`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/d546ea62d9be8f741f9b52c52a7a2122db1a1b42/zero-latency/mikasa-intercept-grab-fast/vla)
+核验 OFT/PI/GR00T 三个目录各包含 8 个正式文件，checkpoint 分别为
+`9,785,101,729 / 10,922,637,469 / 9,976,844,067` bytes。冻结首动作的旧 Profile
+结果和 H200 wall-clock measured 结果已被此协议取代，不作为正式证据。
+[200-episode 扩展结果](../outputs/tasks/mikasa_intercept_grab_fast/h8_zero_extended_eval_20260922/RESULTS.md)；
+[原 50-episode 主证据](../outputs/tasks/mikasa_intercept_grab_fast/h8_teacher_baseline_20260920/REPORT.md)；
+[运行记录](logs/mikasa-h8-zero-latency-2026-09-20.md)。
+
+#### H8 action-chunk conditioned prefix training
+
+conditioned-trained 六个 step-5,000 终点均完成训练；第一台三项使用标量单槽 reset
+完成有效的 200 episodes 正式评测，第二台三项旧评测因物理 seed 错配失效；表内
+zero-trained→Profile / Fixed-2 也是 200 episodes。共同协议为 20/20Hz、每局 60 transitions、capacity 1、
+无首动作冻结；Profile 使用 RTX 3090 revision
+`66414463f2a609316da63935941a79abf0a73ce9` 和 latency seed 0，Fixed-2 严格为
+100ms / 2 frames。表格单元格为 `success_once；return mean±SD`，zero→zero 是两张表
+共享的 zero-trained 参考。
+
+Profile：
+
+| 模型 | zero→zero | zero→profile | profile→profile |
+|---|---:|---:|---:|
+| QwenOFT | 25/50；19.42654±16.93815 | 29/200；7.45255±11.82559 | 15/200；3.92213±9.23980 |
+| QwenPI v3 | 34/50；26.42206±13.34111 | 26/200；5.12064±10.51648 | —（旧 reset 失效） |
+| QwenGR00T | 31/50；22.92212±16.49738 | 36/200；8.32811±12.75548 | —（旧 reset 失效） |
+
+Fixed-2：
+
+| 模型 | zero→zero | zero→fixed-2 | fixed-2→fixed-2 |
+|---|---:|---:|---:|
+| QwenOFT | 25/50；19.42654±16.93815 | 33/200；8.84059±12.99718 | 12/200；3.47094±8.22190 |
+| QwenPI v3 | 34/50；26.42206±13.34111 | 51/200；10.79818±14.93077 | —（旧 reset 失效） |
+| QwenGR00T | 31/50；22.92212±16.49738 | 41/200；8.56929±12.49691 | 13/200；4.07645±9.08028 |
+
+第二台旧三项虽记录唯一 seeds `4242424242–4242424441` 且执行了非零动作，单槽 reset
+实际仍传入整张 seed 列表，物理状态与记录 seed 不符。独立标量 reset 诊断重评三项均完成
+200 episodes 且 execution audit 通过：Profile-GR00T `11/200`、Profile-PI `6/200`、
+Fixed-2-PI `5/200`；诊断输出不覆盖旧正式 JSON，正式 replacement 尚待归档。
+六路旧 SFT 端点均低于 `>=100/200` gate，未作性能验收；其训练权重后来作为下述
+DAgger 起点归档发布。五路首请求 train/validation 泛化差距和三路 student 状态重标误差
+递增促成了 student roll-in 对照；Profile-PI 全训练首请求 MAE `.0755`。
+[完整诊断](../outputs/tasks/mikasa_intercept_grab_fast/h8_endpoint_diagnosis_20260923/REPORT.md)；
+[运行记录](logs/mikasa-h8-conditioned-2026-09-21.md)。
+
+#### H8 student-rollout DAgger（2026-09-23）
+
+六路 conditioned 和三路 zero-latency naive 均从对应 SFT step-5,000 **训练权重**
+初始化新优化器，连续完成 10×500 DAgger updates；每路有 11 次 100 局开发评测、
+10 份各不少于 16,000 有效 suffix head 的 student rollout/PPO 标签，以及完整双 rank
+step-5,000 trainer state。每轮复用常驻 trainer 的当前模型。共同协议为 H8×7、
+20/20Hz、capacity 1；开发 seeds `4242424442–4242424541`，独立终评 seeds
+`4242424542–4242424741`。Profile 使用 RTX 3090 profile，Fixed-2 为严格 100ms /
+2 frames。最佳模型由开发集 100 局成功数选取，同分比较 mean return；以下所有终评
+单元格为 **成功数/200；mean return**，执行审计均通过。
+
+| Conditioned 模型 | SFT baseline | DAgger best | DAgger latest | 选中 step / 发布证据 |
+|---|---:|---:|---:|---|
+| Profile OFT | 12；3.348 | 138；25.752 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923-profile) |
+| Profile PI v3 | 8；2.176 | 89；17.558 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-conditioned-dagger-20260923-profile) |
+| Profile GR00T | 13；3.744 | 134；25.235 | 125；23.500 | 4000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-conditioned-dagger-20260923-profile) |
+| Fixed-2 OFT | 10；2.962 | 175；31.680 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923-fixed-2) |
+| Fixed-2 PI v3 | 9；3.149 | 159；29.303 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-conditioned-dagger-20260923-fixed-2) |
+| Fixed-2 GR00T | 12；3.509 | 164；29.866 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-conditioned-dagger-20260923-fixed-2) |
+
+六份 conditioned SFT bundle 和六份 DAgger 选优 bundle 均已发布；Profile GR00T
+另发布 step-5,000 `latest_model.pt`。按原 `>=100/200` gate，六路 conditioned 中
+五路达到，Profile PI v3 的 `89/200` 尚未达到。SFT 与 DAgger 的完整发布 revision
+见 [conditioned 记录](logs/mikasa-h8-dagger-2026-09-23.md)。12 份 bundle 已在
+[`af8d7bfa`](https://huggingface.co/latency-sensitive-bench/benchmark-models/commit/af8d7bfacbb03b59b5b5eabbed331577dd5fa690)
+归入 `latency-aware`，训练条件保留在 run ID 和 provenance 中。
+
+| Naive 模型 / 终评条件 | SFT baseline | DAgger best | DAgger latest | 选中 step / 发布证据 |
+|---|---:|---:|---:|---|
+| OFT / Zero | 95；18.730 | 196；36.108 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af125bd372c22c5b00e326d9af1af64ea3751b56/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-naive-dagger-20260923) |
+| OFT / Profile | 13；4.599 | 101；18.596 | 同 best | 同上 |
+| OFT / Fixed-2 | 20；5.679 | 109；20.955 | 同 best | 同上 |
+| PI v3 / Zero | 118；21.933 | 199；36.785 | 196；35.968 | 4000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/5b533937a72e9fa923ecf28b1c1be5a16bad488d/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-naive-dagger-20260923) |
+| PI v3 / Profile | 13；3.301 | 40；8.082 | 42；8.461 | 同上 |
+| PI v3 / Fixed-2 | 42；7.938 | 115；21.473 | 117；22.180 | 同上 |
+| GR00T / Zero | 132；24.611 | 192；33.514 | 194；33.756 | 3000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/3fb1d4a7c2645715f0554f315d85032868bf15bb/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-naive-dagger-20260923) |
+| GR00T / Profile | 15；4.542 | 73；14.314 | 83；15.941 | 同上 |
+| GR00T / Fixed-2 | 25；6.229 | 95；17.838 | 93；18.814 | 同上 |
+
+三路 naive DAgger 选优 bundle 均已发布；PI v3 与 GR00T 另存 step-5,000 latest。
+六路 conditioned 的十轮 student/PPO suffix MAE 首请求范围为 `0.052–0.080`，
+后续请求为 `0.176–0.252`；三路 naive 分别为 `0.048–0.056` 与 `0.118–0.124`
+（按各轮请求数加权）。逐路值与训练/发布记录见
+[conditioned](logs/mikasa-h8-dagger-2026-09-23.md) 和
+[naive](logs/mikasa-h8-naive-dagger-2026-09-23.md)。
+
+#### H8 Fixed-2 输入合同修复
+
+旧 Fixed-2 DAgger step-5000（Hub `795468e53947d26314e891cbc375775c6e0bd491`）在
+L0–L4 各 200 局、20/20Hz、60 transitions、seeds `4242424242–4242424441` 下为
+**1、1、177、0、0 / 200**；[原始结果](../outputs/tasks/mikasa_intercept_grab_fast/fixed-grid-20260924/fixed2_column.json)。
+调度审计通过，但旧 71D 输入中的常量维归一化会丢失跨延迟 prefix 信息，因而这些结果
+不能单独归因于延迟泛化。保留旧数据、checkpoint 和结果作为修复对照。
+
+已批准方案 A：63D 当前时刻对齐 prefix，动作输入固定 [-1,1]，只重训 Fixed-2，
+SFT 5k + DAgger 5k；DAgger step 0 及每 500 steps 五档各 100 局，仍只按 L2 选 best，
+最终 best 五档各 200 局共同旧 seeds。此前 Fixed-1/3/4 由用户停止，完整 5×5 尚未完成。
+新 Fixed-2（`fixed2-prefix63-20260924`）SFT5k+DAgger5k及best5000五档终评完成；
+共同seeds `4242424242–4242424441`、20/20Hz、60 transitions下，L0–L4为
+**186、186、177、121、44 / 200**。[结果归档](../outputs/tasks/mikasa_intercept_grab_fast/prefix63-20260924-launch/final-evidence.tar.gz)。
+新Fixed-1/3/4在首个完整DAgger500边界之前失败，原始trainer异常待取证，完整5×5未完成。
+第一台原训练数据盘已不可访问：32块Local SSD均无RAID元数据，分布抽样全零；
+新权重未备份到本地，第二台产物尚待核验。[故障证据](../outputs/tasks/mikasa_intercept_grab_fast/failure-audit-20260925/DISK_FINDINGS.md)。
+
+
+最新报告口径：用户决定采用四路63D Fixed-1/2/3/4的共同 **DAgger step-3500** W&B快照填充论文grid；各列matched成功率为 **94/100、86/100、65/100、57/100**。每格100局development，seeds `4242424442–4242424541`、20/20Hz、60 transitions；Zero列仍为已发布step-5000的200局held-out结果，不视为同预算、同评测集的终评。附录保留完整SFT5k loss及DAgger至3500的loss/五档成功率曲线。[冻结数据与run来源](../paper/figures/fig20_mikasa_fixed_latency_learning_curves/README.md)。
+W&B记录四路SFT完成；Fixed-1/2/3 DAgger记录至5000，Fixed-4训练loss至4000、最后完整五档评测为3500。新终评及模型发布状态本轮未核验，不由开发快照推断完成。
 
 ### Extreme Parkour Go2
 
@@ -121,26 +283,6 @@ gradient checkpointing 关闭。主矩阵每格 200 局、20/20Hz、reset seeds
 
 原始结果与 checkpoint 审计见 [completion audit](../outputs/latency_rl/parkour/h200_20260916_completion_audit.md)。
 该项目没有预设 acceptance threshold，因此这里只声明训练、评测和发布完成。
-
-## MIKASA latency-aware VLA
-
-所有矩阵均使用 100 episodes、reset seeds `4242424242–4242424341`、deterministic inference；
-temporal 项使用 latency seed `271828`。WanOFT 为 10Hz，其余为 20Hz。
-
-| 模型 | Baseline zero | Baseline profile | Latency-aware profile | 训练 / 发布 |
-|---|---|---|---|---|
-| QwenOFT | success 57%；return 22.0986 | 0%；0.4274 | 57%；19.4161 | SFT 5k 完成；未发布 |
-| QwenPI v3 | 60%；23.0983 | 0%；0.2862 | 48%；14.9605 | SFT 5k 完成；未发布 |
-| QwenGR00T | 63%；24.1050 | 0%；0.4136 | 35%；11.8917 | SFT 5k 完成；未发布 |
-| WanOFT | 41%；16.8500 | 0%；0.3368 | 21%；6.8902 | SFT 5k 完成；已发布 |
-
-证据：[QwenOFT](../outputs/latency_rl/mikasa/qwenoft_rtx3090_h1_v1/direct_eval_revalidation_20260911/comparison.json)、
-[QwenPI v3](../outputs/tasks/mikasa_intercept_grab_fast/qwenpi_latency_20260914T122034Z/eval_matrix/results.json)、
-[QwenGR00T](../outputs/tasks/mikasa_intercept_grab_fast/qwengr00t_latency_20260915T035000Z/eval_matrix/results.json)、
-[WanOFT](../outputs/tasks/mikasa_intercept_grab_fast/wanoft_latency_20260916T094307Z/eval_matrix/results.json)。
-
-结论：四个 zero-latency VLA 在对应 profile 下均降到 0% success；latency-aware 训练恢复到 21%–57%，
-但除 QwenOFT 外仍低于各自 zero/zero 成功率。WanOFT 的 21% 也低于其 41% zero/zero ceiling，尚未作 acceptance 决定。
 
 ## Balance 关键实验与决策
 
@@ -210,6 +352,6 @@ QwenOFT 两臂的逐 seed return/length 与旧结果完全一致。
 ## 下一决策
 
 - **Balance**：固定均值 prefix / no-prefix 六组因果评测完成，以新协议比较为准；已决定新训练数据与所有学生推理统一使用 profile 均值固定 K；公共合同迁移及相关测试已验证（[证据](../outputs/tasks/humanoidbench_balance_simple/fixed_k_unification_20260920/README.md)），尚未重训；下一步决定是否按新标签合同重训。D/E 消融仍是独立待办。
-- **MIKASA**：评审 WanOFT 21% profile recovery 是否可接受；为 QwenOFT/QwenPI/QwenGR00T 补齐 canonical bundle/发布状态，保持 10Hz 与 20Hz 分开报告。
+- **MIKASA**：论文采用63D四路共同DAgger3500开发快照与既有Zero列；终评、发布与开发快照分别记录。后续若恢复实验，再核验剩余预算、共同held-out终评及产物发布，不以当前grid替代。[快照协议](../paper/figures/fig6_latency_robustness/mikasa/README.md)。
 - **Parkour**：补 WanOFT H1/profile/latency-small；在新的质量声明前先定义 acceptance threshold。
 - **HAIC**：核验其余三模型、RTX 3090 profiles、latency-small 终点和正式 latency-aware VLA；不以 smoke 代替质量结果。

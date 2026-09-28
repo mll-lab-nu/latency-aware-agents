@@ -107,6 +107,7 @@ def _snapshot(host: str) -> dict:
         alive = _alive(output)
         jobs[model] = {
             "alive": alive,
+            "pid": int((output / "controller.pid").read_text()) if alive else None,
             "complete": (output / "result.json").is_file() and not alive,
             "run": json.loads(record.read_text()) if record.is_file() else None,
         }
@@ -177,7 +178,7 @@ def _slot(snapshot: dict, records: dict, host: str) -> tuple[tuple[int, int], in
                             and gpu not in snapshot["busy_gpus"]))), None)
     if simulator is None:
         simulator = next((gpu for gpu in free[2:] if gpu not in pair), None)
-    return (pair, simulator) if simulator is not None else None
+    return pair, pair[0] if simulator is None else simulator
 
 
 def _dispatch() -> dict:
@@ -214,6 +215,9 @@ def _dispatch() -> dict:
                                      "--port", str(state[model]["port"]))
                     state[model]["pid"] = result["pid"]
                     job["alive"] = True
+                    job["pid"] = result["pid"]
+                if job["alive"]:
+                    state[model]["pid"] = job["pid"]
                 state[model]["status"] = ("complete" if job["complete"] else
                                            "running" if job["alive"] else "needs_attention")
         _write_json(state_file, state)

@@ -10,7 +10,10 @@
 |---|---|---|
 | [BALANCE](BALANCE.md) | Balance Simple 早期 NVIDIA GR00T 实验和 10k 历史结果 | 历史记录；当前 H8 StarVLA 路线见 BALANCE_LOCAL_H8 和 PROGRESS |
 | [MIKASA](MIKASA.md) | InterceptGrabFast 环境、PPO teacher、275 条轨迹、LeRobot、QwenOFT 训练与评测 | 保留；早期 zero baseline，profile 详见 PROFILE |
-| [MIKASA_FIXED_LATENCY_GRID](MIKASA_FIXED_LATENCY_GRID.md) | QwenOFT H8 固定 prefix、Fixed-1/3/4 SFT+DAgger 与 5×5 成功率矩阵 | 三路正式流水线与 Fixed-2 五档评测已启动；终点待核验 |
+| [MIKASA_ACTION_CHUNK_H8](MIKASA_ACTION_CHUNK_H8.md) | InterceptGrabFast H8 baseline，以及 71D Profile/Fixed-2 prefix 数据、训练和 12 组评测合同 | Zero H8 baseline 已完成；conditioned H8 正式流水线见文档和运行记录 |
+| [MIKASA_FIXED_LATENCY_GRID](MIKASA_FIXED_LATENCY_GRID.md) | QwenOFT H8 固定 prefix 与 5×5 成功率矩阵的原方案 | 旧 Fixed-2 五档完成；因 71D 输入缺陷先转入合同修复 |
+| [MIKASA_PREFIX63_RESTART](MIKASA_PREFIX63_RESTART.md) | 四路从零重跑、matched periodic、最终五档与阶段结束直接发布 | 当前执行协议；新一轮采集已启动 |
+| [MIKASA_FIXED2_PREFIX_REPAIR](MIKASA_FIXED2_PREFIX_REPAIR.md) | 63D prefix、Fixed-2 SFT 5k + DAgger 5k、五档 periodic eval 与 L2 选优 | 本轮正式重训合同 |
 | [EXTREME_PARKOUR](EXTREME_PARKOUR.md) | Go2 teacher/student 与早期 NVIDIA GR00T action+yaw/DAgger 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
 | [HAIC](HAIC.md) | PullCart 原生 PPO 与早期 NVIDIA GR00T H40 实验 | 历史记录；当前 StarVLA H1 入口见 SCALE_MODELS 和 PROGRESS |
 | [SCALE_MODELS](SCALE_MODELS.md) | 四任务×qwenoft/qwengr00t/qwenpi_v3/wanoft 的 H1 公共入口与 16 组 smoke | 活跃公共运行手册；正式训练不能用两步 smoke 代替 |
@@ -33,12 +36,17 @@
 | [logs/decision-history-vla-v2-2026-09-23](logs/decision-history-vla-v2-2026-09-23.md) | history01 修复、断点验收、九路重训、PI 选优和旧权重纠正评测 | PI 底座已选 `3e-6`；每 rank 16 workers，九路训练与评测队列进行中 |
 | [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 四任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
 | [logs/starvla-resident-dagger-migration-2026-09-19](logs/starvla-resident-dagger-migration-2026-09-19.md) | StarVLA DAgger 常驻训练权重推理、smoke 验证与正式迁移 | 运行记录；未经核验的正式结果不写入 PROGRESS |
-| [logs/mikasa-fixed-grid-2026-09-24](logs/mikasa-fixed-grid-2026-09-24.md) | Fixed-1/3/4 正式采集、SFT/DAgger 与 5×5 grid 的启动和运行记录 | 当前完成状态以 PROGRESS 为准 |
-| [logs/mikasa-h8-dagger-2026-09-23](logs/mikasa-h8-dagger-2026-09-23.md) | 六路 conditioned H8 从 SFT step-5000 接续 DAgger 的配置、smoke 与运行状态 | 运行记录；十轮与终评核验后更新 PROGRESS |
-| [logs/mikasa-h8-naive-dagger-2026-09-23](logs/mikasa-h8-naive-dagger-2026-09-23.md) | 三路 zero-latency naive H8 DAgger 的队列与运行状态 | 运行记录；正式终点核验后更新 PROGRESS |
+| [logs/mikasa-h8-zero-latency-2026-09-20](logs/mikasa-h8-zero-latency-2026-09-20.md) | MIKASA H8 数据审计、相关测试、三模型 smoke 与正式运行时间线 | 运行记录；完成状态和结果只以 PROGRESS 为准 |
 | [logs/atari-gpu-training-gate-2026-09-22](logs/atari-gpu-training-gate-2026-09-22.md) | Atlantis/Asterix CuLE 接入、2048/4096 H100 吞吐与 100 局 GPU/CPU 兼容评测 | 2048 候选通过吞吐与兼容门；三 seed 同帧数质量 A/B 尚未完成 |
 | [logs/worker-capacity-contract-2026-09-23](logs/worker-capacity-contract-2026-09-23.md) | Flappy/Demon/Deadly 训练评测容量不一致的诊断、统一实现、H100 验证与 corrected 重训协议 | 九项旧 profile-small 结果失效；corrected 产物只留挂载盘，未经批准不更新 HF |
 | [logs/decision-action-history-nine-profile-2026-09-23](logs/decision-action-history-nine-profile-2026-09-23.md) | Flappy/Demon/Deadly 共用 8 次决策历史与 3090 temporal 配方；Deadly 时钟修正与重跑 | Deadly 原 60/15 run 已删除，35/8.75 新队列已启动；正式结果待核验 |
+| [logs/mikasa-h8-conditioned-2026-09-21](logs/mikasa-h8-conditioned-2026-09-21.md) | MIKASA conditioned H8 的实现、四路 collector、六路训练与三条终评流水线 | 运行记录；未经核验的正式结果不写入 PROGRESS |
+| [logs/mikasa-prefix63-failure-2026-09-25](logs/mikasa-prefix63-failure-2026-09-25.md) | 三路DAgger失败与第一台Local SSD只读排查 | 原始trainer异常待取证；第一台阵列元数据缺失且抽样全零 |
+| [logs/mikasa-prefix63-expansion-2026-09-24](logs/mikasa-prefix63-expansion-2026-09-24.md) | Fixed-1/3/4沿用63D合同的正式训练、matched选优和五档评测 | 原L2继续；三路新流水线启动 |
+| [logs/mikasa-fixed2-prefix63-2026-09-24](logs/mikasa-fixed2-prefix63-2026-09-24.md) | 63D 合同验证、独立目录部署与 Fixed-2 正式重训 | 当前完成状态以 PROGRESS 为准 |
+| [logs/mikasa-fixed-grid-2026-09-24](logs/mikasa-fixed-grid-2026-09-24.md) | Fixed-1/3/4 正式采集、SFT/DAgger 与 5×5 grid 的启动和运行记录 | 当前完成状态以 PROGRESS 为准 |
+| [logs/mikasa-h8-dagger-2026-09-23](logs/mikasa-h8-dagger-2026-09-23.md) | 六路 conditioned H8 从 SFT step-5000 接续 DAgger 的运行、终评与发布记录 | 九路汇总结论见 PROGRESS |
+| [logs/mikasa-h8-naive-dagger-2026-09-23](logs/mikasa-h8-naive-dagger-2026-09-23.md) | 三路 zero-latency naive H8 DAgger 的运行、终评与发布记录 | 九路汇总结论见 PROGRESS |
 | [parkour/OPTIMIZE](parkour/OPTIMIZE.md) | CPU 调度收益、预算对齐及已回退的 PhysX/cache 实验 | 保留性能记录；训练吞吐与 VLA inference latency profile 分开解释 |
 
 ## 研究资料

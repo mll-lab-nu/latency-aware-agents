@@ -81,10 +81,23 @@ def _rollout(args, mode: str, destination: Path, *, seed: int, episodes: int,
 
 def _eval(args, step: int, checkpoint: Path, *, resident: bool) -> dict:
     destination = args.output / "evaluations" / f"step_{step:04d}"
-    _rollout(args, "eval", destination, seed=DEVELOPMENT_SEED,
-             episodes=args.eval_episodes, checkpoint=checkpoint,
-             resident_step=step if resident else None)
-    result = json.loads((destination / "result.json").read_text(encoding="utf-8"))
+    if args.condition in FIXED_LATENCIES:
+        latencies = {}
+        for latency in range(5):
+            cell = destination / f"eval_{latency}"
+            _rollout(args, "eval", cell, seed=DEVELOPMENT_SEED,
+                     episodes=args.eval_episodes, checkpoint=checkpoint,
+                     resident_step=step if resident else None,
+                     eval_config=args.eval_configs[latency])
+            latencies[str(latency)] = json.loads((cell / "result.json").read_text())
+        result = {**latencies[str(FIXED_LATENCIES[args.condition])], "latencies": latencies}
+        # A checkpoint becomes a selection candidate after all five cells finish.
+        _write_json(destination / "result.json", result)
+    else:
+        _rollout(args, "eval", destination, seed=DEVELOPMENT_SEED,
+                 episodes=args.eval_episodes, checkpoint=checkpoint,
+                 resident_step=step if resident else None)
+        result = json.loads((destination / "result.json").read_text())
     _update_best(args)
     return result
 
@@ -182,8 +195,6 @@ def _trainer_config(args, resume_state: Path | None) -> Path:
     config["run_id"] = "dagger"
     config["run_root_dir"] = str(args.output / "training")
     config["wandb_name"] = f"mikasa-h8-dagger-{args.condition}-{args.model}"
-    config["wandb_entity"] = "saberrr-zju"
-    config["wandb_project"] = "starvla_tasks"
     config["wandb_group"] = args.output.name
     config["wandb_tags"] = ["mikasa", "naive-h8" if args.condition == "zero-latency"
                             else "conditioned-h8", "dagger", args.condition, args.model]
@@ -273,6 +284,20 @@ def _wait_boundary(args, pid: int, step: int) -> None:
 
 def _heldout(args) -> None:
     best = json.loads((args.output / "best.json").read_text(encoding="utf-8"))
+    if args.condition in FIXED_LATENCIES:
+        results = {}
+        for latency in range(5):
+            destination = args.output / "heldout" / f"eval_{latency}"
+            _rollout(args, "eval", destination, seed=4_242_424_242,
+                     episodes=args.heldout_episodes, checkpoint=Path(best["checkpoint"]),
+                     eval_config=args.eval_configs[latency])
+            results[str(latency)] = json.loads((destination / "result.json").read_text())
+        _write_json(args.output / "result.json", {
+            "source_checkpoint": str(args.source_checkpoint),
+            "dagger_steps": args.total_steps, "best_step": best["step"],
+            "selection_latency": FIXED_LATENCIES[args.condition], "heldout": results,
+        })
+        return
     latest = _bundle(args, "latest", args.output / "training/dagger",
                      _checkpoint(args, args.total_steps)[0])
     checkpoints = {
@@ -353,7 +378,8 @@ def run(args) -> None:
               "bootstrap": str(args.bootstrap), "model": args.model,
               "condition": args.condition, "train_devices": args.train_devices,
               "simulator_gpu": args.simulator_gpu, "rounds": args.rounds,
-              "round_steps": args.round_steps, "head_budget": args.head_budget}
+              "round_steps": args.round_steps, "head_budget": args.head_budget,
+              "development_latency": FIXED_LATENCIES[args.condition] if args.condition in FIXED_LATENCIES else None}
     if args.condition == "zero-latency":
         source["port"] = args.port
     if marker.is_file():
@@ -361,6 +387,17 @@ def run(args) -> None:
             raise RuntimeError("existing DAgger run has a different source or budget")
     else:
         _write_json(marker, source)
+    if args.condition in FIXED_LATENCIES:
+        args.eval_configs = {}
+        config_dir = args.output / "eval_configs"
+        config_dir.mkdir(exist_ok=True)
+        for latency in range(5):
+            config = yaml.safe_load(args.eval_config.read_text())
+            config["latency"] = ({"method": "zero", "sync_cuda": False} if latency == 0 else
+                                 {"method": "fixed", "fixed_latency_ms": latency * 50.0})
+            path = config_dir / f"eval_{latency}.yaml"
+            path.write_text(yaml.safe_dump(config, sort_keys=False))
+            args.eval_configs[latency] = path
     control = args.output / "dagger_control"
     control.mkdir(exist_ok=True)
     resident_config = control / "resident_policy.json"
@@ -393,13 +430,18 @@ def run(args) -> None:
         next_round = step // args.round_steps + 1
         collection = _delta(args, next_round, weights, resident_step=step)
         _mixture(args, next_round)
-        _write_json(control / f"step_{step}.continue.json", {"metrics": {
+        metrics = {
             "optimizer_steps": step,
             "eval/success_rate": result["success_rate"],
             "eval/mean_return": result["mean_return"],
             "collection/valid_heads": collection["splits"]["train"]["valid_actions"],
             "round": next_round,
-        }})
+        }
+        if args.condition in FIXED_LATENCIES:
+            for latency, cell in result["latencies"].items():
+                metrics.update({f"eval/L{latency}/{key}": cell[key]
+                                for key in ("success_rate", "mean_return", "episodes")})
+        _write_json(control / f"step_{step}.continue.json", {"metrics": metrics})
     _heldout(args)
 
 

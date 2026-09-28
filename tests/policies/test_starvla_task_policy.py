@@ -9,6 +9,7 @@ import pytest
 
 from latency_bench.core.types import Observation
 from latency_bench.data.starvla_tasks import TASK_SPECS
+from latency_bench.policy.action_prefix import encode_prefix_state
 from latency_bench.policy.starvla_tasks import TaskStarVlaPolicyRunner
 
 
@@ -110,10 +111,11 @@ def test_task_policy_normalizes_and_forwards_action_prefix():
 
 
 @pytest.mark.parametrize("model_source", ["live", "checkpoint"])
-def test_task_policy_loads_contract_for_model_source(tmp_path, monkeypatch, model_source):
+@pytest.mark.parametrize("task", ["balance_profile_h8", "mikasa_conditioned_h8"])
+def test_task_policy_loads_contract_for_model_source(tmp_path, monkeypatch, model_source, task):
     from latency_bench.policy.starvla import build_live_starvla_policy
 
-    spec = TASK_SPECS["balance_profile_h8"]
+    spec = TASK_SPECS[task]
     contract = {
         "task": spec.name,
         "state_dim": spec.state_dim,
@@ -124,6 +126,9 @@ def test_task_policy_loads_contract_for_model_source(tmp_path, monkeypatch, mode
         },
     }
     contract_path = tmp_path / "task_contract.json"
+    if task == "mikasa_conditioned_h8":
+        contract["normalization"]["state"]["min"][7:] = [-1] * 56
+        contract["normalization"]["state"]["max"][7:] = [1] * 56
     contract_path.write_text(json.dumps(contract))
     framework = SimpleNamespace()
 
@@ -175,12 +180,23 @@ def test_task_policy_loads_contract_for_model_source(tmp_path, monkeypatch, mode
 
     assert isinstance(policy, TaskStarVlaPolicyRunner)
     assert policy.framework is framework
-    framework.predict_action = lambda **_: {"normalized_actions": np.zeros((1, 8, spec.action_dim))}
+    captured = []
+    def predict_action(*, examples):
+        captured.extend(examples)
+        return {"normalized_actions": np.zeros((1, 8, spec.action_dim))}
+    framework.predict_action = predict_action
     prefix = np.full((8, spec.action_dim), 0.75)
     observation = Observation(None, 0, 0, {
         "state": np.zeros(spec.state_dim), "views": [np.zeros((8, 8, 3), dtype=np.uint8)],
         "action_prefix": prefix, "action_prefix_mask": np.arange(8) < 2,
     })
+    if task == "mikasa_conditioned_h8":
+        observation.metadata["state"] = encode_prefix_state(
+            np.zeros(7), prefix, observation.metadata["action_prefix_mask"])
     output = policy.predict(observation)
+    if task == "mikasa_conditioned_h8":
+        assert captured[0]["state"].shape == (1, 63)
+        np.testing.assert_array_equal(captured[0]["state"][0, 7:21], 0.75)
+        np.testing.assert_array_equal(captured[0]["state"][0, 21:], 0)
     np.testing.assert_array_equal(output.action_chunk[:2], prefix[:2])
     np.testing.assert_array_equal(output.action_chunk[2:], 0.0)

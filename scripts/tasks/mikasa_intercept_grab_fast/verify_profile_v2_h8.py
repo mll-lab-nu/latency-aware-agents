@@ -52,7 +52,7 @@ def verify(data_root: Path, output_root: Path, *, hub: bool) -> dict:
         assert (run_root / "inference/checkpoints/model.pt").is_file()
         evaluation = json.loads((run_root / "inference/eval_profile.json").read_text())
         acceptance = evaluation["acceptance"]
-        assert acceptance["episode_count"] == 50
+        assert acceptance["episode_count"] == 200
         assert run["evaluation_matrix"]["profile"]["latency_seed"] == 0
         assert set(run["evaluation_matrix"]) == {"profile"}
         report["datasets"][model] = {

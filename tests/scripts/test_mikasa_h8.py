@@ -11,9 +11,9 @@ import pytest
 import torch
 import yaml
 
-from latency_bench.data.starvla_tasks import task_spec, write_task_contract
+from latency_bench.data.starvla_tasks import normalize, task_spec, write_task_contract
 from latency_bench.core.types import Action, Observation
-from latency_bench.policy.action_prefix import resolve_action_prefix, with_action_prefix
+from latency_bench.policy.action_prefix import encode_prefix_state, resolve_action_prefix, with_action_prefix
 from scripts.mikasa.evaluate import _reset_seeded_slot, _reset_seeded_slots
 from scripts.starvla import train_task
 from scripts.tasks.mikasa_intercept_grab_fast import fixed_latency_grid as grid
@@ -24,10 +24,12 @@ from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
     _selected_slots,
     _teacher_chunks,
 )
+from scripts.tasks.mikasa_intercept_grab_fast.diagnose_conditioned_h8 import suffix_errors
 from scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset import (
     _features as conditioned_h8_features,
 )
 from scripts.tasks.mikasa_intercept_grab_fast.prepare_h8_dataset import prepare_mikasa_h8
+from scripts.tasks.mikasa_intercept_grab_fast import publish_h8_checkpoints as h8_publisher
 from scripts.tasks.mikasa_intercept_grab_fast import dispatch_h8_naive_dagger_queue as naive_queue
 
 
@@ -87,6 +89,65 @@ def _write_h1_split(root: Path, episode_lengths: list[int], *, split_at: int | N
     )
 
 
+def test_h8_diagnostic_uses_only_teacher_suffix_heads():
+    target = np.zeros((8, 7), dtype=np.float32)
+    prediction = np.zeros_like(target)
+    prediction[:3] = 100
+    prediction[3] = 2
+    prediction[4] = 4
+    prediction[5:] = 100
+    mask = np.array([False, False, False, True, True, False, False, False])
+
+    result = suffix_errors(prediction, target, mask)
+
+    assert result["first_head"] == 3
+    assert result["first_mae"] == 2
+    assert result["mae"] == 3
+
+
+def test_h8_publication_paths_keep_training_conditions_distinct():
+    prefix = "mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/"
+    dagger = "h8-conditioned-dagger-20260923"
+    sft = "h8-conditioned-seed-reset-20260922"
+
+    assert h8_publisher._publication_path("zero-latency", "qwenoft", "h8-naive-dagger-20260923", "dagger") == (
+        "zero-latency/" + prefix + "h8-naive-dagger-20260923"
+    )
+    for condition, suffix in (("profile-latency", "profile"), ("fixed-2", "fixed-2")):
+        assert h8_publisher._publication_path(condition, "qwenoft", f"{sft}-{suffix}", "sft") == (
+            "latency-aware/" + prefix + f"{sft}-{suffix}"
+        )
+        assert h8_publisher._publication_path(condition, "qwenoft", dagger, "dagger") == (
+            "latency-aware/" + prefix + f"{dagger}-{suffix}"
+        )
+
+
+def test_h8_publisher_resolves_historical_marker_to_migrated_bundle(tmp_path, monkeypatch):
+    run = tmp_path / "run"
+    run.mkdir()
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "config.yaml").write_text("model: qwenoft\n")
+    path = h8_publisher._publication_path(
+        "profile-latency", "qwenoft", "h8-conditioned-dagger-20260923", "dagger"
+    )
+    historical = {"path": path.replace("latency-aware/", "profile-latency/").removesuffix("-profile"),
+                  "revision": "original-revision"}
+    (run / "publication_hf_dagger.json").write_text(json.dumps(historical))
+    monkeypatch.setattr(h8_publisher, "_prepare_stage", lambda *_: (stage, run, path, 5000))
+    api = SimpleNamespace(
+        repo_info=lambda *_, **__: SimpleNamespace(sha="migrated-revision"),
+        get_paths_info=lambda *_, **__: [
+            SimpleNamespace(path=f"{path}/config.yaml", size=(stage / "config.yaml").stat().st_size)
+        ],
+    )
+
+    published = h8_publisher._publish(api, "profile-latency", "qwenoft", "dagger", dry_run=False)
+
+    assert published == {"path": path, "revision": "migrated-revision"}
+    assert json.loads((run / "publication_hf_dagger.json").read_text()) == historical
+
+
 def test_mikasa_h8_conversion_preserves_episode_boundaries_and_masks_padding(tmp_path: Path):
     source_train = tmp_path / "source/lerobot"
     source_val = tmp_path / "source/lerobot__val"
@@ -140,14 +201,14 @@ def test_mikasa_h8_and_h1_task_contracts_remain_distinct():
     assert h8.auxiliary_shape_map() == {"action_loss_mask": (8,)}
 
 
-def test_mikasa_conditioned_h8_contract_is_71d_and_exports_both_masks(tmp_path):
+def test_mikasa_conditioned_h8_contract_is_63d_and_exports_both_masks(tmp_path):
     spec = task_spec("mikasa_conditioned_h8")
-    assert (spec.state_dim, spec.action_dim, spec.action_horizon) == (71, 7, 8)
+    assert (spec.state_dim, spec.action_dim, spec.action_horizon) == (63, 7, 8)
     assert spec.auxiliary_shape_map() == {
         "action_prefix_mask": (8,),
         "action_loss_mask": (8,),
     }
-    assert conditioned_h8_features()["observation.state"]["shape"] == (71,)
+    assert conditioned_h8_features()["observation.state"]["shape"] == (63,)
     assert conditioned_h8_features()["issued_command_chunk"]["shape"] == (8, 7)
 
     dataset = tmp_path / "lerobot"
@@ -156,7 +217,7 @@ def test_mikasa_conditioned_h8_contract_is_71d_and_exports_both_masks(tmp_path):
     pq.write_table(
         pa.table(
             {
-                "observation.state": [[0.0] * 71],
+                "observation.state": [[0.0] * 63],
                 "action": [[0.0] * 7],
                 "issued_command_chunk": [[[0.0] * 7 for _ in range(8)]],
                 "action_prefix_mask": [[True, True] + [False] * 6],
@@ -169,7 +230,7 @@ def test_mikasa_conditioned_h8_contract_is_71d_and_exports_both_masks(tmp_path):
         json.dumps(
             {
                 "features": {
-                    "observation.state": {"names": [f"state_{index}" for index in range(71)]},
+                    "observation.state": {"names": [f"state_{index}" for index in range(63)]},
                     "issued_command_chunk": {"names": [f"action_{index}" for index in range(7)]},
                 }
             }
@@ -177,12 +238,47 @@ def test_mikasa_conditioned_h8_contract_is_71d_and_exports_both_masks(tmp_path):
     )
     write_task_contract(dataset, spec=spec)
     contract = json.loads((dataset / "task_contract.json").read_text())
-    assert contract["format"] == "latency_bench_starvla_h8_v2"
-    assert contract["state_dim"] == 71
+    assert contract["format"] == "latency_bench_starvla_h8_v3"
+    assert contract["state_dim"] == 63
+    stats = json.loads((dataset / "meta/stats_gr00t.json").read_text())["statistics"]
+    assert stats["observation.state"] == contract["normalization"]["state"]
+    assert stats["observation.state"]["min"][7:] == [-1.0] * 56
+    assert stats["observation.state"]["max"][7:] == [1.0] * 56
+    state = np.zeros(63, dtype=np.float32)
+    state[7:21] = np.linspace(-1, 1, 14)
+    np.testing.assert_allclose(normalize(state, contract["normalization"]["state"]), state,
+                               atol=1e-7)
     assert contract["auxiliary"] == {
         "action_prefix_mask": {"shape": [8], "column": "action_prefix_mask"},
         "action_loss_mask": {"shape": [8], "column": "action_loss_mask"},
     }
+
+
+@pytest.mark.parametrize("frames", [1, 2, 3, 4])
+def test_prefix_state_is_observation_relative_and_excludes_teacher_suffix(frames):
+    """Long-lived MIKASA contract: offline labels and live requests encode identical causal input."""
+    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import _conditioned_observation
+
+    proprio = np.arange(7, dtype=np.float32)
+    chunk = np.arange(56, dtype=np.float32).reshape(8, 7) / 56
+    mask = np.arange(8) < frames
+    offline = encode_prefix_state(proprio, chunk, mask)
+    changed_suffix = chunk.copy()
+    changed_suffix[frames:] = -100
+    np.testing.assert_array_equal(encode_prefix_state(proprio, changed_suffix, mask), offline)
+    changed_prefix = chunk.copy()
+    changed_prefix[0] = -0.5
+    assert not np.array_equal(encode_prefix_state(proprio, changed_prefix, mask), offline)
+    prefix = {"mode": "fixed_frames", "frames": frames, "action_horizon": 8, "action_dim": 7}
+    for old_head in (1, 2, 4, 7):
+        # Different ages can expose the same projected prefix, including hold-last.
+        scheduler = SimpleNamespace(project_actions=lambda frame, count: [Action(a) for a in chunk[:count]])
+        live, actions, live_mask = _conditioned_observation(proprio, scheduler, prefix, old_head)
+        np.testing.assert_array_equal(live, offline)
+        np.testing.assert_array_equal(live_mask, mask)
+        np.testing.assert_array_equal(actions[:frames], chunk[:frames])
+    assert offline.shape == (63,)
+    np.testing.assert_array_equal(offline[7 + frames * 7:], 0)
 
 
 @pytest.mark.parametrize(
@@ -444,6 +540,11 @@ def test_naive_queue_respects_gpu_claims_after_ssh_json(monkeypatch):
     snapshot["old_training_claims"] = [2, 3, 4, 5]
     assert naive_queue._slot(snapshot, {}, host) == ((0, 1), 6)
 
+    snapshot["old_training_claims"] = [0, 1, 4, 5]
+    running = {"qwenoft": {"host": host, "train_devices": "6,7",
+                            "simulator_gpu": 6, "status": "running"}}
+    assert naive_queue._slot(snapshot, running, host) == ((2, 3), 2)
+
 
 def test_conditioned_batch_selects_shortest_seed_prefix_reaching_target():
     assert _selected_slots([0, 5, 4, 7], collected=3, target=10) == [
@@ -500,7 +601,7 @@ def test_mikasa_h8_training_config(
     (bootstrap / "task_contract.json").write_text(
         json.dumps(
             {
-                "state_dim": 7 if task == "mikasa_h8" else 71,
+                "state_dim": 7 if task == "mikasa_h8" else 63,
                 "action_dim": 7,
                 "robot_type": f"latency_{task}",
                 "action_horizon": 8,
@@ -537,6 +638,7 @@ def test_mikasa_h8_training_config(
     )
 
     assert config["framework"]["action_model"]["action_horizon"] == 8
+    assert config["framework"]["action_model"]["state_dim"] == (7 if task == "mikasa_h8" else 63)
     assert config["framework"]["action_model"]["future_action_window_size"] == 7
     assert config["framework"]["qwenvl"]["enable_gradient_checkpointing"] is checkpointing
     assert config["datasets"]["vla_data"]["per_device_batch_size"] == micro_batch
@@ -556,6 +658,8 @@ def test_mikasa_h8_training_config(
             source_checkpoint=tmp_path / "sft-step-5000.pt",
         )
         dagger = yaml.safe_load(_trainer_config(dagger_args, None).read_text())
+        assert dagger["wandb_entity"] == config["wandb_entity"]
+        assert dagger["wandb_project"] == config["wandb_project"]
         assert dagger["datasets"]["vla_data"]["per_device_batch_size"] == 64
         assert dagger["trainer"]["gradient_accumulation_steps"] == 1
         assert dagger["framework"]["qwenvl"]["enable_gradient_checkpointing"] is False
@@ -585,17 +689,183 @@ def test_dagger_rejects_a_different_source_condition_before_starting(tmp_path):
 
 
 @pytest.mark.parametrize("selected_step,bundle_name", [(0, "source"), (4500, "best")])
-def test_grid_selects_one_completed_dagger_checkpoint(tmp_path, selected_step, bundle_name):
+@pytest.mark.parametrize("train_latency", [2, 3])
+def test_grid_selects_one_completed_dagger_checkpoint(tmp_path, selected_step, bundle_name, train_latency):
     """Long-lived selection contract: all eval rows use the development-selected bundle."""
     sft = tmp_path / "sft"
     sft.mkdir()
     (sft / "run.json").write_text(json.dumps({"training": {"sft_updates": 5000}}))
-    (tmp_path / "run.json").write_text(json.dumps({"source_run": str(sft), "condition": "fixed-3"}))
+    (tmp_path / "run.json").write_text(json.dumps({"source_run": str(sft), "condition": f"fixed-{train_latency}"}))
     (tmp_path / "result.json").write_text(json.dumps({"dagger_steps": 5000, "best_step": selected_step}))
-    bundle, source = grid.selected_model(3, tmp_path)
+    bundle, source = grid.selected_model(tmp_path)
     assert bundle == tmp_path / "bundles" / bundle_name
     assert source["selected_step"] == selected_step
-    assert source["condition"] == "fixed-3"
+    assert source["condition"] == f"fixed-{train_latency}"
+
+
+@pytest.mark.parametrize("train_latency", [1, 2, 3, 4])
+def test_dagger_latency_cells_resume_and_select_only_matched_results(tmp_path, monkeypatch, train_latency):
+    """Long-lived controller contract: five cells resume independently; only matched scores select weights."""
+    from scripts.tasks.mikasa_intercept_grab_fast import run_dagger as dagger
+
+    args = SimpleNamespace(
+        output=tmp_path, eval_episodes=100,
+        condition=f"fixed-{train_latency}", task_python=Path("python"), model="qwenoft", source_run=tmp_path,
+        latency_config=tmp_path / "latency.yaml", bootstrap=tmp_path / "bootstrap",
+        teacher_checkpoint=tmp_path / "teacher.pt", head_budget=16000, eval_envs=10,
+        simulator_gpu=0, inference_gpu=1, inference_batch_size=8, gpu_lock=tmp_path / "gpu.lock",
+        source_policy_checkpoint=tmp_path / "sft.pt", eval_configs={},
+    )
+    (tmp_path / "run.json").write_text(json.dumps({"backbone": {"revision": "test"}}))
+    prefix = {"mode": "fixed_frames", "frames": train_latency, "action_horizon": 8, "action_dim": 7}
+    for latency in range(5):
+        path = tmp_path / f"eval_{latency}.yaml"
+        path.write_text(yaml.safe_dump({"policy": {"action_prefix": prefix}}))
+        args.eval_configs[latency] = path
+    calls = []
+    fail_once = True
+
+    def evaluate(command, log):
+        nonlocal fail_once
+        destination = command[command.index("--output") + 1]
+        latency = int(destination.name.removeprefix("eval_"))
+        step = int(destination.parent.name.removeprefix("step_"))
+        if latency == 3 and fail_once:
+            fail_once = False
+            raise RuntimeError("interrupted evaluation")
+        config = yaml.safe_load(command[command.index("--eval-config") + 1].read_text())
+        assert config["policy"]["action_prefix"] == prefix
+        assert command[command.index("--seed") + 1] == dagger.DEVELOPMENT_SEED
+        assert command[command.index("--checkpoint") + 1] == tmp_path / f"step_{step}.pt"
+        calls.append((step, latency))
+        count = (80 if step != 500 else 70) if latency == train_latency else 100
+        dagger._write_json(destination / "result.json", {
+            "success_count": count, "success_rate": count / 100, "episodes": 100,
+            "mean_return": 2 if step >= 1000 else 1,
+        })
+
+    monkeypatch.setattr(dagger, "_run", evaluate)
+    monkeypatch.setattr(dagger, "inference_bundle", lambda *args, **kwargs: None)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        dagger._eval(args, 0, tmp_path / "step_0.pt", resident=False)
+    assert not (tmp_path / "best.json").exists()
+    assert not (tmp_path / "evaluations/step_0000/result.json").exists()
+    dagger._eval(args, 0, tmp_path / "step_0.pt", resident=False)
+    assert calls == [(0, latency) for latency in range(5)]
+    dagger._eval(args, 0, tmp_path / "step_0.pt", resident=False)
+    assert calls == [(0, latency) for latency in range(5)]
+    for step, best_step in ((500, 0), (1000, 1000), (1500, 1500)):
+        result = dagger._eval(args, step, tmp_path / f"step_{step}.pt", resident=True)
+        assert result["episodes"] == 100
+        assert calls[-5:] == [(step, latency) for latency in range(5)]
+        assert len(result["latencies"]) == 5
+        assert json.loads((tmp_path / "best.json").read_text())["step"] == best_step
+
+
+@pytest.mark.parametrize("train_latency", [1, 2, 3, 4])
+def test_prefix63_report_keeps_matched_selection_and_fixed_prefix(tmp_path, train_latency):
+    """Long-lived reporting contract: all five cells use the run's K and selected checkpoint."""
+    from scripts.tasks.mikasa_intercept_grab_fast.prefix_repair_results import summarize
+
+    (tmp_path / "run.json").write_text(json.dumps({"condition": f"fixed-{train_latency}"}))
+    (tmp_path / "best.json").write_text(json.dumps({"step": 500, "checkpoint": "best.pt"}))
+    cell = {"action_prefix": {"frames": train_latency}, "audit": {"passed": True},
+            "seed": 4242424442, "episodes": 100, "success_rate": 0.4}
+    for step in range(0, 5001, 500):
+        for latency in range(5):
+            path = tmp_path / f"evaluations/step_{step:04d}/eval_{latency}"
+            path.mkdir(parents=True)
+            (path / "result.json").write_text(json.dumps(cell))
+    for latency in range(5):
+        path = tmp_path / f"heldout/eval_{latency}"
+        path.mkdir(parents=True)
+        (path / "result.json").write_text(json.dumps({
+            **cell, "seed": 4242424242, "episodes": 200, "checkpoint": "best.pt",
+        }))
+    result = summarize(tmp_path, None, tmp_path / "report")
+    assert result["selection_latency"] == train_latency
+    assert len(result["periodic"]) == 55
+    assert len(result["heldout"]) == 5
+    assert {item["checkpoint"] for item in result["heldout"]} == {"best.pt"}
+    assert "comparison" not in result
+
+
+@pytest.mark.parametrize("upload_result", ["ok", "missing-state", "network-error"])
+def test_prefix63_completed_phase_publication_requires_complete_remote_state(tmp_path, monkeypatch, upload_result):
+    """Long-lived publication contract: a model-only or failed upload cannot acknowledge recoverability."""
+    from scripts.tasks.mikasa_intercept_grab_fast import publish_prefix63 as publish
+
+    trained = tmp_path / "training"
+    checkpoints = trained / "checkpoints"
+    checkpoints.mkdir(parents=True)
+    model = checkpoints / "steps_5000_pytorch_model.pt"
+    model.write_bytes(b"test-model")
+    state = checkpoints / "steps_5000_state"
+    state.mkdir()
+    (state / "optimizer.pt").write_bytes(b"test-optimizer")
+    contract = tmp_path / "task_contract.json"
+    contract.write_text(json.dumps({"state_dim": 63, "action_prefix": {"frames": 2}}))
+    data = {"task_contract_path": str(contract), "include_state": True,
+            "obs_image_size": [224, 224], "image_mode": "single", "stitch_grid": [1, 2],
+            "num_obs_frames": 1}
+    cfg = {"run_id": "dagger", "training_latency_condition": "fixed-2",
+           "version_id": "0.21", "framework": {"qwenvl": {"base_vlm": "/remote/backbone"}},
+           "datasets": {"vla_data": data}, "trainer": {"max_train_steps": 5000}}
+    (trained / "config.full.yaml").write_text(yaml.safe_dump(cfg))
+    (trained / "dataset_statistics.json").write_text("{}")
+    uploaded = {}
+
+    def upload_folder(**kwargs):
+        if upload_result == "network-error":
+            raise RuntimeError("upload failed")
+        for path in Path(kwargs["folder_path"]).rglob("*"):
+            if path.is_file():
+                uploaded[kwargs["path_in_repo"] + "/" + path.relative_to(kwargs["folder_path"]).as_posix()] = path.read_bytes()
+        return SimpleNamespace(oid="verified-revision")
+
+    def paths_info(repo, paths, **kwargs):
+        assert kwargs["revision"] == "verified-revision"
+        return [SimpleNamespace(path=p, size=len(uploaded[p])) for p in paths
+                if not (upload_result == "missing-state" and p.endswith("optimizer.pt"))]
+
+    monkeypatch.setattr(publish, "HfApi", lambda **kwargs: SimpleNamespace(
+        upload_folder=upload_folder, get_paths_info=paths_info))
+    receipt = trained / "publication_step_5000.json"
+    if upload_result != "ok":
+        with pytest.raises(RuntimeError):
+            publish.publish_training_endpoint(trained, "test/fixed-2")
+        assert not receipt.exists()
+    else:
+        publish.publish_training_endpoint(trained, "test/fixed-2")
+        assert json.loads(receipt.read_text())["revision"] == "verified-revision"
+        prefix = "test/fixed-2/training/dagger/step_05000/"
+        assert uploaded[prefix + "checkpoints/model.pt"] == b"test-model"
+        assert uploaded[prefix + "trainer_state/optimizer.pt"] == b"test-optimizer"
+        assert json.loads(uploaded[prefix + "task_contract.json"])["state_dim"] == 63
+
+
+@pytest.mark.parametrize("train_latency", [1, 2, 3, 4])
+def test_fixed_dagger_final_eval_uses_all_latencies_and_one_best(tmp_path, monkeypatch, train_latency):
+    """Long-lived final evaluation contract: matched-only development still ends with five held-out cells."""
+    from scripts.tasks.mikasa_intercept_grab_fast import run_dagger as dagger
+
+    (tmp_path / "best.json").write_text(json.dumps({"step": 1500, "checkpoint": "selected.pt"}))
+    args = SimpleNamespace(output=tmp_path, condition=f"fixed-{train_latency}",
+                           heldout_episodes=200, total_steps=5000, source_checkpoint=Path("sft.pt"),
+                           eval_configs={latency: Path(f"eval_{latency}.yaml") for latency in range(5)})
+    calls = []
+
+    def rollout(args, mode, destination, **kwargs):
+        calls.append(kwargs)
+        dagger._write_json(destination / "result.json", {"success_count": 1})
+
+    monkeypatch.setattr(dagger, "_rollout", rollout)
+    dagger._heldout(args)
+    assert [call["eval_config"] for call in calls] == list(args.eval_configs.values())
+    assert all(call["checkpoint"] == Path("selected.pt") and call["episodes"] == 200
+               and call["seed"] == 4242424242 for call in calls)
+    result = json.loads((tmp_path / "result.json").read_text())
+    assert result["best_step"] == 1500 and len(result["heldout"]) == 5
 
 
 def test_mikasa_h8_execution_audit_covers_initial_noops_requests_and_chunk_age(tmp_path):
@@ -866,17 +1136,9 @@ def test_mikasa_conditioned_eval_keeps_causal_action_context_in_all_settings(
         eval_latency_frames=2,
     )
 
-    expected_context = {
-        "state_key": "mikasa_proprio",
-        "horizon": 8,
-        "frames": None,
-        "order": list(range(7)),
-        "low": [-1.0] * 7,
-        "high": [1.0] * 7,
-    }
-    assert profile["env"]["returned_action_context"] == expected_context
-    assert zero["env"]["returned_action_context"] == expected_context
-    assert fixed["env"]["returned_action_context"] == expected_context
+    assert profile["env"]["action_prefix_state_key"] == "mikasa_proprio"
+    assert zero["env"]["action_prefix_state_key"] == "mikasa_proprio"
+    assert fixed["env"]["action_prefix_state_key"] == "mikasa_proprio"
     assert profile["policy"]["action_prefix"] == profile_prefix
     assert zero["policy"]["action_prefix"] == profile_prefix
     assert fixed["latency"] == {"method": "fixed", "fixed_latency_ms": 100.0}
@@ -917,7 +1179,7 @@ def test_conditioned_grid_preserves_training_prefix(tmp_path, train_latency, eva
                            vla_python=tmp_path / "python", backbone_path=tmp_path / "backbone")
     config = grid.build_config(args, bundle, tmp_path / "eval")
     assert config["policy"]["action_prefix"] == prefix
-    assert config["env"]["returned_action_context"]["horizon"] == 8
+    assert config["env"]["action_prefix_state_key"] == "mikasa_proprio"
     assert config["executor"]["simulated_worker_capacity"] == 1
     assert config["evaluation"]["eval_episodes"] == 200
     assert config["experiment"]["seed"] == 4242424242
@@ -996,7 +1258,7 @@ def test_grid_cell_summarizes_raw_episodes_and_action_trace(tmp_path):
     for name, values in (("episode_metrics", episodes), ("steps", steps), ("actions", actions)):
         (tmp_path / f"{name}.jsonl").write_text("".join(json.dumps(row) + "\n" for row in values))
     manifest = {"train_latency": 2, "eval_latency": 1, "bundle": "fixed2",
-                "artifact": {"revision": grid.FIXED_TWO_REVISION},
+                "artifact": {"revision": "795468e53947d26314e891cbc375775c6e0bd491"},
                 "inference_code": {"benchmark": "test"}, "action_prefix": prefix}
     summary = grid.summarize_cell(tmp_path, manifest)
     assert summary["success_count"] == 100

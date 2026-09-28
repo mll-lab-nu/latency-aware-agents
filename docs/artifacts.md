@@ -100,9 +100,18 @@ layout.
 
 The four StarVLA models (`qwenoft`, `qwenpi_v3`, `qwengr00t`, `wanoft`) use
 `zero-latency/<task>/vla/starvla-<model>-h<horizon>/<run-id>/` in the central
-model repository. Balance uses H8; the other task contracts use H1. Formal
+model repository. Balance and MIKASA conditioned runs also have H8 contracts; the
+original task pipelines use H1. Formal
 pipelines upload after final checkpoint L0 evaluation; smoke runs stay local.
 See [SCALE_MODELS](../program/SCALE_MODELS.md) for commands.
+
+MIKASA H8 profile and fixed-2 models use
+`latency-aware/mikasa-intercept-grab-fast/vla/starvla-<model>-h8/<run-id>/`.
+The SFT run IDs end in `-profile` or `-fixed-2`; the DAgger run IDs are
+`h8-conditioned-dagger-20260923-profile` and
+`h8-conditioned-dagger-20260923-fixed-2`. The condition remains in each bundle's
+provenance. The 12 migrated bundles are available at
+[the verified layout revision](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla).
 
 Each task shares `zero-latency/<task>/teacher-rollouts-h<horizon>-state-v1/`
 across all four models. Balance, Parkour, and HAIC additionally publish

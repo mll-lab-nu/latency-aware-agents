@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow.parquet as pq
 
+from latency_bench.policy.action_prefix import encode_prefix_state
 
 PROFILE_REVISION = "66414463f2a609316da63935941a79abf0a73ce9"
 
@@ -22,7 +23,7 @@ def _parquet_rows(dataset: Path) -> list[dict]:
     return rows
 
 
-def _raw_rows(raw_root: Path, episodes: list[int]) -> list[dict[str, np.ndarray]]:
+def _raw_rows(raw_root: Path, episodes: list[int], state_dim: int) -> list[dict[str, np.ndarray]]:
     rows = []
     for episode_index in episodes:
         episode = np.load(raw_root / f"episodes/episode_{episode_index:06d}.npz")
@@ -32,7 +33,7 @@ def _raw_rows(raw_root: Path, episodes: list[int]) -> list[dict[str, np.ndarray]
         states = episode["state"]
         actions = episode["action"]
         latency_frames = episode["latency_raw_frames"]
-        assert states.shape[1:] == (71,)
+        assert states.shape[1:] == (state_dim,)
         assert chunks.shape[1:] == (8, 7)
         assert prefix_masks.shape[1:] == (8,)
         assert loss_masks.shape[1:] == (8,)
@@ -73,7 +74,8 @@ def audit(
         assert [row["batch_index"] for row in batch] == [batch_index] * num_envs
         assert [row["slot_id"] for row in batch] == list(range(num_envs))
         assert len({row["split"] for row in batch}) == 1
-    assert collection["format"] == "mikasa_conditioned_h8_raw_v2"
+    state_dim = {"mikasa_conditioned_h8_raw_v2": 71,
+                 "mikasa_conditioned_h8_raw_v3": 63}[collection["format"]]
     saved_by_index = {
         row["episode_index"]: row for row in collection["saved_episodes"]
     }
@@ -119,8 +121,8 @@ def audit(
         assert prefix["mode"] == "fixed_frames"
         assert prefix_frames == FIXED_LATENCIES[condition]
 
-    raw_train = _raw_rows(raw_root, train_split["episode_indices"])
-    raw_validation = _raw_rows(raw_root, validation_split["episode_indices"])
+    raw_train = _raw_rows(raw_root, train_split["episode_indices"], state_dim)
+    raw_validation = _raw_rows(raw_root, validation_split["episode_indices"], state_dim)
     for row in raw_train + raw_validation:
         np.testing.assert_array_equal(row["prefix_mask"], expected_prefix_mask)
         assert row["loss_mask"].any()
@@ -140,14 +142,19 @@ def audit(
     split_counts = {}
     for split, (dataset_dir, raw_rows) in zip(("train", "validation"), datasets):
         contract = json.loads((dataset_dir / "task_contract.json").read_text(encoding="utf-8"))
-        assert contract["format"] == "latency_bench_starvla_h8_v2"
+        assert contract["format"] == "latency_bench_starvla_h8_v3"
         assert contract["robot_type"] == "latency_mikasa_conditioned_h8"
         assert (contract["state_dim"], contract["action_dim"], contract["action_horizon"]) == (
-            71,
+            63,
             7,
             8,
         )
         assert contract["action_prefix"] == prefix
+        stats = json.loads((dataset_dir / "meta/stats_gr00t.json").read_text())["statistics"]
+        assert stats["observation.state"] == contract["normalization"]["state"]
+        assert stats["issued_command_chunk"] == contract["normalization"]["action"]
+        assert stats["observation.state"]["min"][7:] == [-1.0] * 56
+        assert stats["observation.state"]["max"][7:] == [1.0] * 56
         modality = json.loads((dataset_dir / "meta/modality.json").read_text(encoding="utf-8"))
         assert [entry["original_key"] for entry in modality["video"].values()] == [
             "observation.images.top",
@@ -159,7 +166,8 @@ def audit(
         packaged_rows = _parquet_rows(dataset_dir)
         assert len(packaged_rows) == len(raw_rows)
         for packaged, raw in zip(packaged_rows, raw_rows):
-            np.testing.assert_array_equal(packaged["observation.state"], raw["state"])
+            expected_state = encode_prefix_state(raw["state"][:7], raw["chunk"], raw["prefix_mask"])
+            np.testing.assert_array_equal(packaged["observation.state"], expected_state)
             np.testing.assert_array_equal(packaged["issued_command_chunk"], raw["chunk"])
             np.testing.assert_array_equal(packaged["action_prefix_mask"], raw["prefix_mask"])
             np.testing.assert_array_equal(packaged["action_loss_mask"], raw["loss_mask"])

@@ -209,6 +209,8 @@ class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
             MIKASA_STATE_INFO_KEY: self._observation["proprio"][slot_id].detach().cpu().numpy(),
             "slot_id": slot_id,
         }
+        if "action_prefix_state_key" in self.config["env"]:
+            metadata["action_prefix_state_key"] = self.config["env"]["action_prefix_state_key"]
         if "returned_action_context" in self.config["env"]:
             context = self.config["env"]["returned_action_context"]
             metadata["returned_action_context"] = {

@@ -85,12 +85,24 @@ row uses 10/10 Hz, as recorded in its [profile evaluation configuration](../outp
 
 ### 1. Single Action (No Action Chunk), RTX 3090 Profile
 
-| Model | Zero-trained → Zero | Zero-trained → Profile | Profile-trained → Profile |
-|---|---:|---:|---:|
-| QwenOFT | 114/200 (57.0%); 21.9662 | 0/200 (0.0%); 0.4615 | 101/200 (50.5%); 17.77506±15.43550 |
-| QwenPI v3 | 106/200 (53.0%); 21.0783 | 0/200 (0.0%); 0.2845 | 90/200 (45.0%); 13.55261±13.75740 |
-| QwenGR00T | 133/200 (66.5%); 24.7617 | 0/200 (0.0%); 0.4353 | 100/200 (50.0%); 17.51561±14.29526 |
-| WanOFT | 92/200 (46.0%); 19.2724 | 0/200 (0.0%); 0.3314 | 63/200 (31.5%); 10.3123 |
+| Model | Small model L0 → L0 † | VLA L0 → L0 | VLA L0 → Profile | Small model profile → profile † | VLA Profile-trained → Profile |
+|---|---:|---:|---:|---:|---:|
+| QwenOFT | 100/100 (100%); 36.81948 | 114/200 (57.0%); 21.9662 | 0/200 (0.0%); 0.4615 | 255/256 (99.61%); 33.64463 | 101/200 (50.5%); 17.77506±15.43550 |
+| QwenPI v3 | 100/100 (100%); 36.81948 | 106/200 (53.0%); 21.0783 | 0/200 (0.0%); 0.2845 | 253/256 (98.83%); 28.64633 | 90/200 (45.0%); 13.55261±13.75740 |
+| QwenGR00T | 100/100 (100%); 36.81948 | 133/200 (66.5%); 24.7617 | 0/200 (0.0%); 0.4353 | 251/256 (98.05%); 31.75039 | 100/200 (50.0%); 17.51561±14.29526 |
+| WanOFT | 100/100 (100%); 36.81948 | 92/200 (46.0%); 19.2724 | 0/200 (0.0%); 0.3314 | 252/256 (98.44%); 30.86635 | 63/200 (31.5%); 10.3123 |
+
+† The shared zero PPO teacher's archived strict evaluation reports 100/100
+successes and mean return 36.81948, computed from its 100 raw returns on seeds
+`4242424242–4242424341`; it is not a 200-episode VLA evaluation.
+[Zero-teacher raw evaluation](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/strict-eval.json).
+H1 profile-teacher cells use separate native 256-episode evaluations with
+`environment_seed=20260910`, `latency_seed=271828` and 60 transitions.
+Teacher success in this table is **success_once**, matching the VLA task-success
+metric; the source's top-level `success_rate` instead denotes `success_at_end`.
+These native teacher evaluations are not paired with the VLA's 200 seeds.
+
+Profile-teacher evidence: [OFT](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/strict-eval.json) · [Pi0.5](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1/strict-eval.json) · [GR00T](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1/strict-eval.json) · [WanOFT](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/strict-eval.json).
 
 The corrected QwenOFT/QwenPI v3/QwenGR00T cells use unique seeds
 `4242424242–4242424441`, latency seed `271828`, and mean profile latencies
@@ -104,19 +116,23 @@ IDs and were jointly verified at
 
 ### 2. H8 Action Chunk DAgger Best, RTX 3090 Profile
 
-| Model | Zero-trained → Zero | Zero-trained → Profile | Profile-trained → Profile |
-|---|---:|---:|---:|
-| QwenOFT | 196/200 (98.0%); 36.108 | 101/200 (50.5%); 18.596 | 138/200 (69.0%); 25.752 |
-| QwenPI v3 | 199/200 (99.5%); 36.785 | 40/200 (20.0%); 8.082 | 89/200 (44.5%); 17.558 |
-| QwenGR00T | 192/200 (96.0%); 33.514 | 73/200 (36.5%); 14.314 | 134/200 (67.0%); 25.235 |
+| Model | Small model L0 → L0 † | VLA L0 → L0 | VLA L0 → Profile | Small model profile → profile † | VLA Profile-trained → Profile |
+|---|---:|---:|---:|---:|---:|
+| QwenOFT | 100/100 (100%); 36.81948 | 196/200 (98.0%); 36.108 | 101/200 (50.5%); 18.596 | N/A (action chunk) | 138/200 (69.0%); 25.752 |
+| QwenPI v3 | 100/100 (100%); 36.81948 | 199/200 (99.5%); 36.785 | 40/200 (20.0%); 8.082 | N/A (action chunk) | 89/200 (44.5%); 17.558 |
+| QwenGR00T | 100/100 (100%); 36.81948 | 192/200 (96.0%); 33.514 | 73/200 (36.5%); 14.314 | N/A (action chunk) | 134/200 (67.0%); 25.235 |
 
 ### 3. H8 Action Chunk DAgger Best, Fixed-2 (100 ms / 2 Frames)
 
-| Model | Zero-trained → Zero | Zero-trained → Fixed-2 | Fixed-2-trained → Fixed-2 |
-|---|---:|---:|---:|
-| QwenOFT | 196/200 (98.0%); 36.108 | 109/200 (54.5%); 20.955 | 175/200 (87.5%); 31.680 |
-| QwenPI v3 | 199/200 (99.5%); 36.785 | 115/200 (57.5%); 21.473 | 159/200 (79.5%); 29.303 |
-| QwenGR00T | 192/200 (96.0%); 33.514 | 95/200 (47.5%); 17.838 | 164/200 (82.0%); 29.866 |
+| Model | Small model L0 → L0 † | VLA L0 → L0 | VLA L0 → Fixed-2 | Small model fixed-2 → fixed-2 † | VLA Fixed-2-trained → Fixed-2 |
+|---|---:|---:|---:|---:|---:|
+| QwenOFT | 100/100 (100%); 36.81948 | 196/200 (98.0%); 36.108 | 109/200 (54.5%); 20.955 | N/A (action chunk) | 175/200 (87.5%); 31.680 |
+| QwenPI v3 | 100/100 (100%); 36.81948 | 199/200 (99.5%); 36.785 | 115/200 (57.5%); 21.473 | N/A (action chunk) | 159/200 (79.5%); 29.303 |
+| QwenGR00T | 100/100 (100%); 36.81948 | 192/200 (96.0%); 33.514 | 95/200 (47.5%); 17.838 | N/A (action chunk) | 164/200 (82.0%); 29.866 |
+
+`N/A (action chunk)` marks the absence of a separate profile/fixed-2 teacher
+for these H8 DAgger comparisons. The repeated L0 teacher cells refer to the
+same 100-episode PPO evaluation above, not additional H8 teacher runs.
 
 Each H8 run completed 5,000 DAgger optimizer updates; the tables use its best
 checkpoint selected with 100-episode development evaluations. `Zero-trained`

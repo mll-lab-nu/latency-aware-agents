@@ -1,8 +1,17 @@
 # MIKASA QwenOFT H8 fixed-latency grid
 
+> 本页保留 71D v2 合同的原矩阵方案与历史状态。当前工作已转为
+> [63D Fixed-2 合同修复与重训](MIKASA_FIXED2_PREFIX_REPAIR.md)，旧结果只作对照。
+> 新评测入口显式使用传入 DAgger run 的 best，不再按 train latency=2 自动加载旧 Hub 模型。
+
 当前阶段：用户已批准同步和正式启动，并明确要求跳过 GPU 短流程。两台 H200 的独立
-运行目录已同步，Fixed-1/3 已进入正式 SFT，Fixed-4 的正式数据正在打包，随后自动接续
-训练。Fixed-2 的五档评测已全部完成；新模型训练与完整5×5尚未完成。仅暂存相关代码，不自动 commit。
+运行目录已同步。2026-09-24 用户在旁支明确要求停止第二台 H200 GPU 2/3、4/5 上的
+任务，改为启动 Asterix GR00T、PI；对应 Fixed-3/4 启动器及训练进程已停止，产物保留，
+不应按意外故障自动重启并抢占这四张卡。用户随后明确要求也停止 Fixed-1（GPU 0/1），
+其启动器及训练进程现已停止，0/1 保持空闲；Fixed-1/3/4 均为用户主动停止。
+远端 Fixed-1 的 `phase` 为 `stopped-by-user`，Fixed-3/4 为
+`stopped-by-user-gpu-reassignment`，各自的 `user_stop.json` 记录原因，产物均保留。
+Fixed-2 的五档评测已全部完成；新模型训练与完整5×5尚未完成。仅暂存相关代码，不自动 commit。
 [执行记录](logs/mikasa-fixed-grid-2026-09-24.md)。
 
 ## 冻结协议

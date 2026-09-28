@@ -92,14 +92,7 @@ def _conditioned_observation(proprio, scheduler, prefix, frame: int) -> tuple[np
         sim_time_ms=frame * 1000.0 / FPS,
         metadata={
             MIKASA_STATE_INFO_KEY: np.asarray(proprio, dtype=np.float32),
-            "returned_action_context": {
-                "state_key": MIKASA_STATE_INFO_KEY,
-                "horizon": HORIZON,
-                "frames": None,
-                "order": np.arange(ACTION_DIM),
-                "low": -np.ones(ACTION_DIM, dtype=np.float32),
-                "high": np.ones(ACTION_DIM, dtype=np.float32),
-            },
+            "action_prefix_state_key": MIKASA_STATE_INFO_KEY,
         },
     )
     conditioned = with_action_prefix(observation, scheduler, prefix)
@@ -554,7 +547,7 @@ def collect(args: argparse.Namespace, *, student_pool=None, seed_start: int = 0,
 
     result = {
         "format": ("mikasa_h8_naive_dagger_raw_v1" if args.condition == "zero-latency"
-                   else "mikasa_conditioned_h8_raw_v2"),
+                   else "mikasa_conditioned_h8_raw_v3"),
         "condition": args.condition,
         "model": args.model,
         "collection_num_envs": args.num_envs,

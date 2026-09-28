@@ -11,7 +11,6 @@ import subprocess
 from types import SimpleNamespace
 
 import yaml
-from huggingface_hub import snapshot_download
 
 from scripts.starvla.train_task import (
     ROOT, code_revisions, eval_config, evaluation_summary, mikasa_h8_execution_audit,
@@ -19,26 +18,12 @@ from scripts.starvla.train_task import (
 
 
 ZERO_REVISION = "5b533937a72e9fa923ecf28b1c1be5a16bad488d"
-FIXED_TWO_REVISION = "795468e53947d26314e891cbc375775c6e0bd491"
-FIXED_TWO_PATH = (
-    "fixed-2/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/"
-    "h8-conditioned-dagger-20260923"
-)
 EPISODES = 200
 START_SEED = 4242424242
 
 
-def selected_model(train_latency: int, model_dir: Path) -> tuple[Path, dict]:
-    """Use the published Fixed-2 bundle or the completed DAgger run's best model."""
-    if train_latency == 2:
-        snapshot = snapshot_download(
-            "latency-sensitive-bench/benchmark-models", revision=FIXED_TWO_REVISION,
-            allow_patterns=[f"{FIXED_TWO_PATH}/**"], local_dir=model_dir,
-        )
-        return Path(snapshot) / FIXED_TWO_PATH, {
-            "type": "benchmark_models", "repo_id": "latency-sensitive-bench/benchmark-models",
-            "revision": FIXED_TWO_REVISION, "path": FIXED_TWO_PATH, "selected_step": 5000,
-        }
+def selected_model(model_dir: Path) -> tuple[Path, dict]:
+    """Use the explicitly supplied completed DAgger run's selected model."""
     result = json.loads((model_dir / "result.json").read_text())
     run = json.loads((model_dir / "run.json").read_text())
     sft = json.loads((Path(run["source_run"]) / "run.json").read_text())
@@ -93,13 +78,12 @@ def summarize_cell(directory: Path, manifest: dict) -> dict:
 
 
 def evaluate_cell(args) -> None:
-    bundle, source = selected_model(args.train_latency, args.model_dir)
+    bundle, source = selected_model(args.model_dir)
     output = args.output / f"train_{args.train_latency}" / f"eval_{args.eval_latency}"
     config = build_config(args, bundle, output)
     # These are artifact/protocol audits: the column must be the trained condition.
     assert config["policy"]["action_prefix"]["frames"] == args.train_latency
-    if args.train_latency != 2:
-        assert source["condition"] == f"fixed-{args.train_latency}"
+    assert source["condition"] == f"fixed-{args.train_latency}"
     output.mkdir(parents=True, exist_ok=False)
     config_path = output / "requested_eval_config.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))

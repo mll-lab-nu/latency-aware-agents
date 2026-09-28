@@ -101,6 +101,29 @@ def test_evaluation_prefix_uses_startup_and_hold_without_mutating_live_queue():
     assert scheduler.underflow_frames == 0
 
 
+def test_prefix_state_ignores_old_chunk_head_coordinates():
+    """Long-lived scheduler contract: identical future commitments have identical state encodings."""
+    settings = {"mode": "fixed_frames", "frames": 2, "action_horizon": 8, "action_dim": 7}
+    encoded = []
+    for head in (1, 2, 4, 7):
+        scheduler = ActionScheduler(EnvClock(env_fps=20, obs_fps=20), Action(np.zeros(7)),
+                                    HoldPolicy(), OrderingPolicy.LATEST_READY,
+                                    hold_last_chunk_action=True)
+        chunk = [Action(np.zeros(7)) for _ in range(head)]
+        chunk.extend(Action(np.full(7, 0.75)) for _ in range(8 - head))
+        scheduler.enqueue(_chunk_event(action_id=0, obs_env_step=0, ready_raw_frame=0,
+                                       latency_ms=0, chunk=chunk))
+        observation = with_action_prefix(Observation(None, head, head * 50, {
+            "state": np.zeros(7), "action_prefix_state_key": "state",
+        }), scheduler, settings)
+        encoded.append(observation.metadata["state"])
+    for state in encoded:
+        assert state.shape == (63,)
+        np.testing.assert_array_equal(state[7:21], 0.75)
+        np.testing.assert_array_equal(state[21:], 0)
+        np.testing.assert_array_equal(state, encoded[0])
+
+
 def _chunk_event(
     *,
     action_id: int,

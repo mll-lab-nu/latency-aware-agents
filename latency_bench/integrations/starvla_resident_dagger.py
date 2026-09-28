@@ -106,6 +106,11 @@ def serve_resident_inference(
     stop_requested: Callable[[], bool],
 ) -> dict[str, Any] | None:
     """Serve one saved boundary until the controller publishes its continue message."""
+    # Only the training-side service needs torch; controller IPC remains lightweight.
+    import torch
+
+    # Release unused training allocations before the simulator shares this GPU.
+    torch.cuda.empty_cache()
     control_dir.mkdir(parents=True, exist_ok=True)
     control_dir.chmod(0o700)
     socket_dir.mkdir(parents=True, exist_ok=True)
