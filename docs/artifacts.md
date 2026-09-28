@@ -63,6 +63,26 @@ record.
 The MIKASA profile-PPO training and evaluation commands are documented
 in the [latency PPO guide](mikasa/latency_ppo.md).
 
+## Hist8 VLA release: Flappy, Demon Attack, Deadly Corridor
+
+The 18 step-5000 models are **Published** at central revision
+`95aed229d8a90c0146885eb8f496518e98625d5f`: 9 zero-trained models under
+`zero-latency/<game>/vla/starvla-<model>-h1/<run-id>/`, and 9 profile-trained
+models under `latency-aware/<game>/vla/starvla-<model>-h1/<run-id>/`.
+Models are `qwenoft`, `qwengr00t`, and `qwenpi_v3`; games are `flappy`,
+`demon-attack`, and `deadly-corridor`. H1 is the action horizon; hist8 is the
+eight-decision input history. Each receives one RGB frame and raw 0/1 history.
+
+All 27 formal evaluation conditions contain 100 episodes. The final revision's
+18 checkpoint LFS hashes match the original evaluated weights; 588 metadata
+objects and 102 downloaded core files passed readback. The bundles contain
+configuration, statistics, task contracts, provenance, exact profile sidecars,
+model cards and episode-level results. Deadly uses sf-render-v4.
+
+See the [published model index and scores](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)
+and [publication receipt](../outputs/tasks/decision_history_vla_hist8_v2/hf_publication/README.md).
+These are distinct from the historical VLA paths still marked pending above.
+
 ## Dataset artifacts
 
 | Task | Contents | Local source | Central path | Status |

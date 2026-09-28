@@ -33,14 +33,14 @@
 | [BALANCE_CAUSAL_EVAL](BALANCE_CAUSAL_EVAL.md) | 现有 Balance 模型补评测协议、历史结果与统一入口用法 | 因果评测协议；正式结果见 PROGRESS 与实验报告 |
 | [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 四任务 evaluator、固定均值 prefix、sampler/worker 与 seed/reset 合同 | 保留合同记录；实现验证与正式训练分别记录 |
 | [ARTIFACT_HANDOFF](ARTIFACT_HANDOFF.md) | Flappy/Demon/Deadly/Atlantis/Asterix 的 5 类历史资产、统一 100 局评测与中央 HF 路径 | 活跃交接；只有正式评测与远端回读通过后才在 PROGRESS 标记发布 |
-| [DECISION_HISTORY_VLA_H8](DECISION_HISTORY_VLA_H8.md) | Flappy/Demon/Deadly 九路 scratch VLA 的二值 H8 输入、Demon PI LR 选优后跨游戏复用、双卡训练与正式评测合同 | hist8 v2 活跃运行手册；训练、评测、性能验收分别记录 |
-| [logs/decision-history-vla-v2-2026-09-23](logs/decision-history-vla-v2-2026-09-23.md) | history01 修复、断点验收、九路重训、PI 选优和旧权重纠正评测 | PI 底座已选 `3e-6`；每 rank 16 workers，九路训练与评测队列进行中 |
+| [DECISION_HISTORY_VLA_H8](DECISION_HISTORY_VLA_H8.md) | Flappy/Demon/Deadly × 三架构 × profile/zero 条件，共 18 路 H8 VLA 与 27 组交叉评测合同 | 18/18 模型已发布 HF 并回读；27/27 新版及 9/9 旧权重重评完成；[最终报告](../outputs/tasks/decision_history_vla_hist8_v2/final_report.md) |
+| [logs/decision-history-vla-v2-2026-09-23](logs/decision-history-vla-v2-2026-09-23.md) | history01 修复、PI LR 选优、18 路训练、zero teacher 采集与旧权重纠正评测 | Deadly 渲染合同已修正；全部结果核验完毕，监控正常退出 |
 | [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 四任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
 | [logs/starvla-resident-dagger-migration-2026-09-19](logs/starvla-resident-dagger-migration-2026-09-19.md) | StarVLA DAgger 常驻训练权重推理、smoke 验证与正式迁移 | 运行记录；未经核验的正式结果不写入 PROGRESS |
 | [logs/mikasa-h8-zero-latency-2026-09-20](logs/mikasa-h8-zero-latency-2026-09-20.md) | MIKASA H8 数据审计、相关测试、三模型 smoke 与正式运行时间线 | 运行记录；完成状态和结果只以 PROGRESS 为准 |
 | [logs/atari-gpu-training-gate-2026-09-22](logs/atari-gpu-training-gate-2026-09-22.md) | Atlantis/Asterix CuLE 接入、2048/4096 H100 吞吐与 100 局 GPU/CPU 兼容评测 | 2048 候选通过吞吐与兼容门；三 seed 同帧数质量 A/B 尚未完成 |
 | [logs/worker-capacity-contract-2026-09-23](logs/worker-capacity-contract-2026-09-23.md) | Flappy/Demon/Deadly 训练评测容量不一致的诊断、统一实现、H100 验证与 corrected 重训协议 | 九项旧 profile-small 结果失效；corrected 产物只留挂载盘，未经批准不更新 HF |
-| [logs/decision-action-history-nine-profile-2026-09-23](logs/decision-action-history-nine-profile-2026-09-23.md) | Flappy/Demon/Deadly 共用 8 次决策历史与 3090 temporal 配方；Deadly 时钟修正与重跑 | Deadly 原 60/15 run 已删除，35/8.75 新队列已启动；正式结果待核验 |
+| [logs/decision-action-history-nine-profile-2026-09-23](logs/decision-action-history-nine-profile-2026-09-23.md) | Flappy/Demon/Deadly 共用 8 次决策历史与 3090 temporal 配方；Deadly 时钟修正与重跑 | 九条训练及 final/best 各 100 局已完成；[结果汇总](../outputs/tasks/decision_history_nine_profile_20260923/summary.md) |
 | [logs/mikasa-h8-conditioned-2026-09-21](logs/mikasa-h8-conditioned-2026-09-21.md) | MIKASA conditioned H8 的实现、四路 collector、六路训练与三条终评流水线 | 运行记录；未经核验的正式结果不写入 PROGRESS |
 | [logs/mikasa-prefix63-failure-2026-09-25](logs/mikasa-prefix63-failure-2026-09-25.md) | 三路DAgger失败与第一台Local SSD只读排查 | 原始trainer异常待取证；第一台阵列元数据缺失且抽样全零 |
 | [logs/mikasa-prefix63-expansion-2026-09-24](logs/mikasa-prefix63-expansion-2026-09-24.md) | Fixed-1/3/4沿用63D合同的正式训练、matched选优和五档评测 | 原L2继续；三路新流水线启动 |

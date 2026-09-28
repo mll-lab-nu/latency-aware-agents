@@ -352,6 +352,15 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
         env_cfg = config["env"]
         self.env_fps = float(env_cfg.get("env_fps", 35))
         self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
+        # The raw teacher view is part of the policy's observation contract.
+        render_options = {
+            key: env_cfg[key]
+            for key in (
+                "screen_resolution", "render_hud", "render_crosshair",
+                "render_weapon", "render_decals", "render_particles",
+            )
+            if key in env_cfg
+        }
         attempts = [
             ("VizdoomDeadlyCorridor-MultiBinary-v1", {}),
             ("VizdoomDeadlyCorridor-MultiBinary-v0", {}),
@@ -364,10 +373,12 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
             try:
                 # frame_skip=1: the latency_bench scheduler advances obs_stride raw
                 # frames per decision and holds the action between observations.
-                self.gym_env = gym.make(env_id, render_mode="rgb_array", frame_skip=1, **kwargs)
+                self.gym_env = gym.make(
+                    env_id, render_mode="rgb_array", frame_skip=1, **render_options, **kwargs
+                )
                 self.env_id = env_id
                 break
-            except Exception as exc:  # noqa: BLE001 - try the next registered id
+            except (gym.error.NameNotFound, gym.error.VersionNotFound, gym.error.NamespaceNotFound) as exc:
                 last_exc = exc
         if self.gym_env is None:
             raise RuntimeError(f"Failed to create Deadly Corridor MultiBinary env: {last_exc}")

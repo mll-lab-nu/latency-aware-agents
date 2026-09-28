@@ -32,7 +32,7 @@ RATES = {"flappy": (10, 10), "demon_attack": (60, 15), "deadly_corridor": (35, 8
          "atlantis": (60, 15), "asterix": (60, 15)}
 HORIZONS = {"flappy": 3600, "demon_attack": 7200, "deadly_corridor": 3600,
             "atlantis": 7200, "asterix": 7200}
-EVAL_PROTOCOL = "hist8-history01-par32-v3"
+EVAL_PROTOCOL = "hist8-history01-sf-render-v4"
 EVAL_PREFIX = "eval_history01_v2"
 
 
@@ -170,6 +170,11 @@ def evaluation_config(
         config["policy"]["action_layout"] = "discrete_9"
     if task == "deadly_corridor":
         config["policy"]["action_layout"] = "multibinary_7"
+        config["env"].update({
+            "screen_resolution": "RES_160X120", "render_hud": True,
+            "render_crosshair": False, "render_weapon": True,
+            "render_decals": False, "render_particles": False,
+        })
     config["evaluation"].update({
         "eval_episodes": episodes,
         "eval_parallel_envs": parallel_envs,
@@ -230,6 +235,7 @@ def main() -> None:
     )
     config_path = output_dir / "eval_config.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    shutil.copyfile(ROOT / "code_snapshot.json", output_dir / "eval_code_snapshot.json")
     provenance = json.loads((args.bundle_dir.resolve() / "provenance.json").read_text())
     receipt = {
         **provenance, "eval_protocol_version": EVAL_PROTOCOL,

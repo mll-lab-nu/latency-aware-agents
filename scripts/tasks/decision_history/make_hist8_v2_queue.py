@@ -47,7 +47,7 @@ def build_manifest(catalog: list[dict], *, host: str, runtime_root: Path, python
                 evaluation = {
                     **common, "source": "v2", "python": eval_python, "profile_path": profile,
                     "env_condition": "profile", "parallel_envs": 32,
-                    "metric_prefix": "eval_hist8_v3/profile_to_profile",
+                    "metric_prefix": "eval_hist8_v4/profile_to_profile",
                     "eval_dir": str(output / "evals" / base_run_id),
                 }
                 priority = 100 + task_index * 100 + model_index * 10
@@ -69,7 +69,8 @@ def build_manifest(catalog: list[dict], *, host: str, runtime_root: Path, python
                 continue
             legacy = {
                 **common, "source": "legacy", "python": eval_python,
-                "env_condition": "profile", "parallel_envs": 32, "metric_prefix": "eval_history01_v2",
+                "env_condition": "profile", "parallel_envs": 32,
+                "metric_prefix": "eval_history01_v2/sf_render_v4" if task == "deadly_corridor" else "eval_history01_v2",
                 "id": f"eval_legacy__{task}-{model}", "profile_path": profile,
                 "checkpoint_sha256": entry["checkpoint_sha256"],
                 "bundle_dir": str(output / "bundles" / f"legacy-{task}-{model}-step{entry['step']}"),
@@ -151,7 +152,7 @@ def add_zero_controls(manifest: dict, catalog: list[dict], *, python_root: Path,
                     "task": task, "model": model, "python": eval_python, "backbone": str(backbone),
                     "bundle_dir": str(output / "bundles" / run_id), "profile_path": str(profile),
                     "env_condition": condition, "parallel_envs": 32,
-                    "metric_prefix": f"eval_hist8_v3/zero_to_{condition}",
+                    "metric_prefix": f"eval_hist8_v4/zero_to_{condition}",
                     "eval_dir": str(output / "evals" / run_id / f"to_{condition}"),
                     "gpus_required": 2, "priority": 1100 + task_index * 10 + model_index,
                     "depends_on": [package_id],

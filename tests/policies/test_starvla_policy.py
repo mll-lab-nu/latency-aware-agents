@@ -13,6 +13,7 @@ from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
 from latency_bench.policy.factory import build_policy
 from latency_bench.data.prompts import BASE_PROMPTS
+from latency_bench.policy.starvla_prompts import resolve_starvla_prompt
 from helpers import REPO_ROOT
 
 FLAPPY_REALTIME_STARVLA_CONFIG = (
@@ -23,6 +24,52 @@ FLAPPY_SIMULATED_STARVLA_CONFIGS = (
     "configs/experiments/flappy/simulated/starvla_openvla_fix_latency_2_15fps_l2_warmup200_3ep.yaml",
     "configs/experiments/flappy/simulated/starvla_openvla_fix_latency_2_16fps_l2_warmup200_3ep.yaml",
     "configs/experiments/flappy/simulated/starvla_openvla_fix_latency_2_8fps_l1_warmup200_3ep.yaml",
+)
+
+ZERO_LATENCY_STARVLA_TRAINING_PROMPTS = (
+    (
+        "configs/experiments/flappy/starvla_eval_zero_latency.yaml",
+        "flappy",
+        "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. "
+        "Choose the action: NOOP, FLAP. Current action latency is 0 raw frames (0.00 ms).  "
+        "The environment runs at 30 FPS and observations are emitted at 30 FPS. "
+        "Choose the best next action.",
+    ),
+    (
+        "configs/experiments/demon_attack/starvla_eval_zero_latency.yaml",
+        "demon_attack",
+        "You are playing Demon Attack from a single game image. Choose exactly one action from: "
+        "NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE. Survive, avoid enemy fire, and shoot "
+        "enemies to maximize score. Current action latency is 0 raw frames (0.00 ms).  "
+        "The environment runs at 60 FPS and observations are emitted at 15 FPS. "
+        "Choose the best next action.",
+    ),
+    (
+        "configs/experiments/deadly_corridor/starvla_eval_zero_latency.yaml",
+        "deadly_corridor",
+        "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight "
+        "enemies, and reach the green armor vest at the far end. The available actions are: "
+        "MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. "
+        "Choose the best next action from the current visual observation. Current action latency "
+        "is 0 raw frames (0.00 ms).  The environment runs at 35 FPS and observations are emitted "
+        "at 8.75 FPS. Choose the best next action.",
+    ),
+    (
+        "configs/experiments/atlantis/starvla_eval_zero_latency.yaml",
+        "atlantis",
+        "Defend Atlantis by firing at descending enemies. Choose exactly one action from: noop, "
+        "fire, rightfire, leftfire. Current action latency is 0 raw frames (0.00 ms).  The "
+        "environment runs at 60 FPS and observations are emitted at 15 FPS. Choose the best next "
+        "action.",
+    ),
+    (
+        "configs/experiments/asterix/starvla_eval_zero_latency.yaml",
+        "asterix",
+        "Collect useful objects and avoid lyres. Choose exactly one action from: noop, up, right, "
+        "left, down, upright, upleft, downright, downleft. Current action latency is 0 raw frames "
+        "(0.00 ms).  The environment runs at 60 FPS and observations are emitted at 15 FPS. "
+        "Choose the best next action.",
+    ),
 )
 
 
@@ -1223,6 +1270,33 @@ def test_flappy_simulated_starvla_configs_use_latency_neutral_prompt():
         assert config["policy"]["type"] == "starvla"
         assert config["policy"]["prompt_mode"] == "latency_neutral"
         assert "latency_prompt_map_path" not in config["policy"]
+
+
+@pytest.mark.parametrize(
+    ("config_path", "semantic_env_name", "expected_prompt"),
+    ZERO_LATENCY_STARVLA_TRAINING_PROMPTS,
+)
+def test_zero_latency_starvla_configs_match_training_prompts(
+    config_path: str,
+    semantic_env_name: str,
+    expected_prompt: str,
+):
+    config = load_config(REPO_ROOT / config_path)
+    env_cfg = config["env"]
+
+    assert config["policy"]["prompt_mode"] == "raw"
+    assert resolve_starvla_prompt(
+        env_name=semantic_env_name,
+        observation_metadata={
+            "latency_raw_frames": 0,
+            "latency_ms": 0.0,
+            "env_fps": env_cfg["env_fps"],
+            "obs_fps": env_cfg["obs_fps"],
+        },
+        latency_prompt_map=None,
+        base_prompt=env_cfg.get("base_prompt"),
+        prompt_mode=config["policy"]["prompt_mode"],
+    ) == expected_prompt
 
 
 def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Path):

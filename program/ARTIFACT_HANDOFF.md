@@ -12,7 +12,24 @@
 - 数据：[`latency-sensitive-bench/benchmark-datasets`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
 - Profile：[`latency-sensitive-bench/profiles`](https://huggingface.co/datasets/latency-sensitive-bench/profiles)
 
-## 交接总表
+## hist8 新版 VLA 发布（2026-09-24）
+
+用户指定的 Flappy / Demon Attack / Deadly Corridor × QwenOFT / QwenGR00T /
+QwenPI v3 × zero/profile 共 18 个新版模型已发布。固定中央 revision 为
+`95aed229d8a90c0146885eb8f496518e98625d5f`；9 个 zero 模型进入 `zero-latency`，
+9 个 profile 模型进入 `latency-aware`，使用
+`<condition>/<game>/vla/starvla-<model>-h1/<run-id>/`，与下文历史模型路径区分。
+全部为完成正式评测的 step 5,000 权重，H1、单帧 RGB＋8 次原始 0/1 决策历史。
+27 组新版评测各 100 局；Deadly 使用修正后的 sf-render-v4。
+
+18 个中央 checkpoint 的 LFS SHA 与原始权重一致；588 个元数据对象、102 个核心
+文件实际下载回读核对通过。公开包包含权重、配置、统计、任务合同、profile 与
+采样 sidecar、provenance、README 和逐局评测证据。optimizer/RNG 保留在训练归档。
+[公开索引与成绩](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)
+与[发布回执](../outputs/tasks/decision_history_vla_hist8_v2/hf_publication/README.md)
+列出全部 18 个路径和身份。下文历史资产的待评/不发布决定不适用于这批已验证新版。
+
+## 历史交接总表
 
 | 环境 | 0-latency small | 0-latency VLA | Latency profile | Profiled small | Profiled VLA |
 |---|---|---|---|---|---|
@@ -141,7 +158,7 @@ Corrected 协议为全新 `capacity1_seed42` 实验：Flappy 使用 temporal pro
 
 ## 不进入正式模型路径的资产
 
-- 当前所有 profiled VLA 均不发布。Deadly Corridor 三族、Flappy G/π、Demon Attack
+- 本节所列历史 profiled VLA 均不发布。Deadly Corridor 三族、Flappy G/π、Demon Attack
   旧数据 O 已有明确差结果，只在本账本保留 provenance。
 - Flappy profiled O 只有在 exact config、dataset statistics 和 task contract 全部找回后
   才做 matching-profile 评测；不以相似配置代替。

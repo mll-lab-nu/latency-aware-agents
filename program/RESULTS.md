@@ -47,16 +47,48 @@ F evaluation. Frequencies follow the user-provided task/model FPS table.
 | Walker2D | 5/5 | 188.57 | 3,743.51 | 3,631.42 | 80.95 | 3,305.17 | 371.09 |
 | Humanoid | 5/5 | 182.02 | 6,331.47 | 6,667.56 | 891.67 | terminated | terminated |
 
-### Additional Figure 1 task clocks
+## Flappy Bird, Demon Attack, and Deadly Corridor — H1 VLA with H8 decision history
 
-These are the configured env/obs rates for tasks whose Figure 1 three-condition
-VLA return rows are still incomplete. They do not fill missing result cells.
+Each VLA cell is the mean return over 100 episodes on the same evaluation seeds
+`1,000,000–1,000,099`. All 18 zero- and profile-trained checkpoints completed
+5,000 optimizer steps. Evaluation uses 32 parallel environments, worker
+capacity 1, and a raw-frame cap of 3,600 / 7,200 / 3,600 for Flappy Bird /
+Demon Attack / Deadly Corridor. Their environment/observation rates are
+10/10, 60/15, and 35/8.75 FPS, respectively. Each architecture uses its own
+RTX 3090 temporal profile; scores across architectures do not compare equal
+latency. Deadly Corridor uses the corrected training-matched rendering
+protocol (`sf-render-v4`).
 
-| Task | Env/obs FPS |
-|---|---:|
-| Demon Attack | 60/15 |
-| Flappy Bird | 10/10 |
-| Deadly Corridor | 35/8.75 |
+| Game | Model | Small model L0 → L0 † | VLA L0 → L0 | VLA L0 → Profile | Small model profile → profile † | VLA profile → Profile |
+|---|---|---:|---:|---:|---:|---:|
+| Flappy Bird | QwenOFT | 444.60 | 439.13 | 19.19 | 1,233.51 | 373.78 |
+| Flappy Bird | QwenGR00T | 444.60 | 428.48 | 6.62 | 1,995.24 | 414.52 |
+| Flappy Bird | QwenPI v3 | 444.60 | 408.72 | 5.58 | 1,194.79 | 344.48 |
+| Demon Attack | QwenOFT | 8,727.15 | 2362.15 | 584.35 | 1,525.00 | 1452.80 |
+| Demon Attack | QwenGR00T | 8,727.15 | 2370.90 | 231.90 | 663.25 | 1203.10 |
+| Demon Attack | QwenPI v3 | 8,727.15 | 2350.95 | 112.30 | 447.30 | 907.30 |
+| Deadly Corridor | QwenOFT | 2,116.79 | 2098.67 | 742.35 | 1,933.82 | 2091.23 |
+| Deadly Corridor | QwenGR00T | 2,116.79 | 2100.46 | 341.76 | 2,155.71 | 2090.82 |
+| Deadly Corridor | QwenPI v3 | 2,116.79 | 2104.09 | 140.94 | 1,397.40 | 1450.83 |
+
+† Small-model cells are independently evaluated teacher checkpoints, not training
+rewards or VLA scores. The shared zero teachers use 100 episodes, actual seeds
+`104771–104870`, and caps of 3,600 / 14,400 / 30,000 for Flappy / Demon /
+Deadly. Profile teachers use the training-selected **best** checkpoint from each
+25M-step, seed-42 run, 100 episodes on `104771–104870`, env/obs rates
+10/10, 60/15, 35/8.75 FPS, and caps of 18,000 / 14,400 / 3,600.
+Demon profile scores use the 16-way CuLE GPU evaluation; the superseded CPU
+score and the invalid Deadly 60/15 FPS runs are excluded. These teacher
+columns have different seed/cap/backend protocols from the VLA columns and
+must not be treated as a matched teacher–VLA comparison or a paired L0–profile
+comparison. In particular, Flappy's larger profile return has a longer cap.
+
+Zero-teacher evidence: [Flappy](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/flappy/small-policy/sample-factory-v1/eval_l0.json) · [Demon](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/demon-attack/small-policy/sample-factory-v1/eval_l0.json) · [Deadly](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/deadly-corridor/small-policy/sample-factory-v1/eval_l0.json).
+[Profile-teacher best-checkpoint scores, run links and episode records](../outputs/tasks/decision_history_nine_profile_20260923/nine_profile_results.json).
+
+The zero-trained VLA policy loses return under its profile in all nine cases;
+profile training improves the return under that profile in all nine cases.
+[Verified evaluation summary, checkpoint identities, and per-run audit links](../outputs/tasks/decision_history_vla_hist8_v2/evaluation_summary.md).
 
 ## Atlantis and Asterix — H1 VLA with H8 decision history
 

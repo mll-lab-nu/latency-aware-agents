@@ -286,6 +286,11 @@ def test_queue_graph_covers_nine_final_models_and_nine_old_evaluations(tmp_path)
     jobs = [job for manifest in manifests for job in manifest["jobs"]]
     assert len([job for job in jobs if job["id"].startswith("eval_v2__")]) == 9
     assert len([job for job in jobs if job["id"].startswith("eval_legacy__")]) == 9
+    for job in jobs:
+        if job["id"].startswith("eval_v2__"):
+            assert job["metric_prefix"] == "eval_hist8_v4/profile_to_profile"
+        if job["id"].startswith("eval_legacy__deadly_corridor"):
+            assert job["metric_prefix"] == "eval_history01_v2/sf_render_v4"
     training = [job for job in jobs if job["kind"] == "train"]
     assert len(training) == 9
     assert {(job["task"], job["model"]) for job in training} == {
@@ -311,6 +316,9 @@ def test_queue_graph_covers_nine_final_models_and_nine_old_evaluations(tmp_path)
     assert len([job for job in jobs if job["id"].startswith("package_zero__")]) == 9
     assert len([job for job in jobs if job["id"].startswith("eval_zero_to_zero__")]) == 9
     assert len([job for job in jobs if job["id"].startswith("eval_zero_to_profile__")]) == 9
+    for job in jobs:
+        if job["id"].startswith("eval_zero_"):
+            assert job["metric_prefix"] == f"eval_hist8_v4/zero_to_{job['env_condition']}"
     for job in zero_train:
         assert job["training_condition"] == "zero"
         assert job["vlm_lr"] == 3e-6
