@@ -1,0 +1,365 @@
+"""One pinned sim2real experiment: calibration, fit, held-out runs and replay.
+
+This module owns the experimental protocol. Process scheduling across experiments
+and machines belongs to the caller.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from copy import deepcopy
+from datetime import datetime, timezone
+from pathlib import Path
+from statistics import mean, stdev
+
+from scipy.stats import t
+
+from latency_bench.core.clock import ms_to_raw_frames
+from latency_bench.core.config import load_config
+from latency_bench.cross_device.instances import instance_id_from_gpu_deployment
+from latency_bench.cross_device.runtime_configs import eval_command, write_generated_config
+from latency_bench.cross_device.spec import gpu_name_registry
+from latency_bench.cross_device.study_assets import prepare_assets
+from latency_bench.latency.hardware_info import collect_hardware_fingerprint, describe_participating_gpus
+from latency_bench.latency.profile_builder import build_profile_from_traces
+from latency_bench.utils.io import load_jsonl_records, read_json, write_csv, write_json, write_json_atomic
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+REGISTRY = REPO_ROOT / "configs/experiments/sim2real.yaml"
+FIT_RUNS = tuple(range(5))
+VALID_RUNS = tuple(range(5, 10))
+EPISODES = 20
+ENV_SEED = 2_000_000
+CALIBRATION_SAMPLES = 500
+METHODS = ("fixed", "normal", "iid", "temporal")
+
+
+def run_config(base, output, *, inference_device, simulator_device, env_fps,
+               run_id, method="measured", profile_path=None, latency_seed=None):
+    """Change execution coordinates while retaining the archived task contract."""
+    config = deepcopy(base)
+    stride = base["env"]["env_fps"] / base["env"]["obs_fps"]
+    config["env"].update(env_fps=env_fps, obs_fps=env_fps / stride)
+    if simulator_device is not None:
+        config["env"]["simulator_device"] = simulator_device
+    config["policy"]["device"] = inference_device
+    config["policy"]["worker_python_executable"] = sys.executable
+    config["executor"].update(
+        mode="realtime" if method == "measured" else "simulated",
+        inference_devices=[inference_device],
+    )
+    if method == "measured":
+        for key in ("simulated_worker_capacity", "simulated_inference_pool", "inference_batch_size"):
+            config["executor"].pop(key, None)
+        config["latency"] = {"method": "measured", "device": inference_device, "sync_cuda": True}
+    else:
+        profile = read_json(profile_path)
+        config["executor"].update(
+            simulated_worker_capacity=1, simulated_inference_pool=True, inference_batch_size=1,
+        )
+        config["latency"] = {
+            "method": method, "profile_path": str(profile_path), "seed": latency_seed,
+            "profile_worker_slot": 0,
+        }
+        if method == "fixed":
+            config["latency"]["fixed_latency_ms"] = profile["summary"]["mean_ms"]
+        elif method == "normal":
+            config["latency"].update(
+                mean_latency_ms=profile["summary"]["mean_ms"],
+                std_latency_ms=profile["summary"]["std_ms"],
+            )
+    if "add_latency_info" in base["latency"]:
+        config["latency"]["add_latency_info"] = base["latency"]["add_latency_info"]
+    config["experiment"]["seed"] = ENV_SEED + EPISODES * run_id
+    config["evaluation"].update(
+        eval_episodes=EPISODES, eval_parallel_envs=1, eval_latency_values=None,
+        episode_seed_offset=0,
+    )
+    config["evaluation"].pop("eval_suites", None)
+    config["logging"].update(
+        output_dir=str(output), save_step_records=True, save_action_records=True,
+        save_latency_records=True, realtime_pipeline_profile=True,
+    )
+    return config
+
+
+def execute_stage(config, output, entry):
+    """Resume completed protocol stages; restart an interrupted stage in full."""
+    if (output / "DONE").exists():
+        return
+    if output.exists():
+        shutil.rmtree(output)
+    generated = output / "generated.yaml"
+    write_generated_config(generated, config)
+    print(f"Running {output}; log: {output / 'stdout.log'}", flush=True)
+    command = eval_command(entry, generated, output)
+    with (output / "stdout.log").open("w") as log:
+        subprocess.run(command, cwd=REPO_ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
+    (output / "DONE").touch()
+
+
+def admitted_latencies(output, count):
+    samples = (
+        row["observation_to_action_latency_ms"]
+        for row in load_jsonl_records(output / "observation_attempts.jsonl")
+        if row["submitted"]
+    )
+    return [next(samples) for _ in range(count)]
+
+
+def calibrate(base, training_profile, output, *, inference_device, simulator_device, entry):
+    """Match training-clock mean latency using two independent realtime probes."""
+    result_path = output / "calibration.json"
+    if result_path.exists():
+        return read_json(result_path)
+    training_fps = base["env"]["env_fps"]
+    stride = training_fps / base["env"]["obs_fps"]
+    target = training_profile["summary"]["mean_ms"] * training_fps / 1000.0
+    fps = training_fps
+    rounds = []
+    for index in range(2):
+        probe_dir = output / f"probe_{index}"
+        config = run_config(
+            base, probe_dir, inference_device=inference_device,
+            simulator_device=simulator_device, env_fps=fps, run_id=-(index + 1),
+        )
+        config["experiment"]["seed"] = ENV_SEED - CALIBRATION_SAMPLES * (index + 1)
+        # At least one request is admitted per episode. The driver finishes
+        # the current episode once the sample budget has been collected.
+        config["evaluation"].update(
+            eval_episodes=CALIBRATION_SAMPLES, calibration_samples=CALIBRATION_SAMPLES,
+        )
+        execute_stage(config, probe_dir, entry)
+        samples = admitted_latencies(probe_dir, CALIBRATION_SAMPLES)
+        mean_ms = mean(samples)
+        actual_frames = mean_ms * fps / 1000.0
+        rounds.append({
+            "env_fps": fps, "obs_fps": fps / stride, "sample_count": len(samples),
+            "mean_latency_ms": mean_ms, "mean_frames": actual_frames,
+            "mean_raw_frames": mean(ms_to_raw_frames(value, fps) for value in samples),
+            "target_frame_error": actual_frames - target,
+        })
+        fps = target * 1000.0 / mean_ms
+    result = {
+        "training_env_fps": training_fps, "training_obs_fps": base["env"]["obs_fps"],
+        "training_profile_env_fps": training_profile["env_fps"],
+        "training_mean_latency_ms": training_profile["summary"]["mean_ms"],
+        "target_mean_frames": target, "observation_stride": stride,
+        "selected_env_fps": fps, "selected_obs_fps": fps / stride, "rounds": rounds,
+        "predicted_mean_raw_frames": mean(ms_to_raw_frames(value, fps) for value in samples),
+    }
+    write_json_atomic(result_path, result)
+    return result
+
+
+def fit_profile(output, *, model, task, deployment, experiment_id, calibration, contract):
+    """Only the five fitting sessions are inputs to the frozen profile."""
+    destination = output / "profile"
+    if not (destination / "DONE").exists():
+        if destination.exists():
+            shutil.rmtree(destination)
+        build_profile_from_traces(
+            sessions=[{
+                "measure_session_id": index,
+                "observation_attempts": output / "real" / str(index) / "observation_attempts.jsonl",
+            } for index in FIT_RUNS],
+            output_dir=destination, model_id=model, workload_id=task,
+            gpu_class=deployment["gpu_class"], instance_id=deployment["instance_id"],
+            source_run_id=experiment_id, env_fps=calibration["selected_env_fps"],
+            metadata={
+                "fit_session_ids": list(FIT_RUNS), "validation_session_ids": list(VALID_RUNS),
+                "experiment_contract": contract,
+            },
+        )
+        (destination / "DONE").touch()
+    return destination / "profile.json"
+
+
+def confidence_interval(values):
+    average = mean(values)
+    half_width = t.ppf(0.975, len(values) - 1) * stdev(values) / len(values) ** 0.5
+    return {"mean": average, "ci95_low": average - half_width, "ci95_high": average + half_width}
+
+
+def paired_comparison(real, simulated):
+    differences = [sim - measured for sim, measured in zip(simulated, real)]
+    return {
+        "simulated": confidence_interval(simulated),
+        "paired_sim_minus_real": confidence_interval(differences),
+        "mean_absolute_paired_error": mean(abs(value) for value in differences),
+    }
+
+
+def summarize(output):
+    """Report uncertainty across runs and paired held-out performance errors."""
+    rows = []
+    for method, ids in [("fit", FIT_RUNS), ("valid", VALID_RUNS), *[(m, range(5)) for m in METHODS]]:
+        for index in ids:
+            directory = output / "real" / str(index) if method in {"fit", "valid"} else output / "sim" / method / str(index)
+            episodes = load_jsonl_records(directory / "episode_metrics.jsonl")
+            row = {
+                "condition": method, "run_id": index, "episodes": len(episodes),
+                "mean_return": mean(item["episode_return_env"] for item in episodes),
+                "mean_length": mean(item["survival_steps"] for item in episodes),
+                "episode_metrics": str(directory / "episode_metrics.jsonl"),
+            }
+            if "task_metrics" in episodes[0]["metadata"]:
+                for name in episodes[0]["metadata"]["task_metrics"]:
+                    row[f"task/{name}"] = mean(item["metadata"]["task_metrics"][name] for item in episodes)
+            rows.append(row)
+    real = [row["mean_return"] for row in rows if row["condition"] == "valid"]
+    comparisons = {}
+    for method in METHODS:
+        simulated = [row["mean_return"] for row in rows if row["condition"] == method]
+        comparisons[method] = paired_comparison(real, simulated)
+    result = {
+        "return_field": "episode_return_env", "statistical_unit": "run_mean",
+        "n_validation_runs": len(VALID_RUNS), "episodes_per_run": EPISODES,
+        "real": confidence_interval(real), "methods": comparisons,
+    }
+    task_metrics = {}
+    for column in (key for key in rows[0] if key.startswith("task/")):
+        real_values = [row[column] for row in rows if row["condition"] == "valid"]
+        task_metrics[column.removeprefix("task/")] = {
+            "real": confidence_interval(real_values),
+            "methods": {
+                method: paired_comparison(real_values, [row[column] for row in rows if row["condition"] == method])
+                for method in METHODS
+            },
+        }
+    result["task_metrics"] = task_metrics
+    calibration = read_json(output / "calibration/calibration.json")
+    timing = {}
+    for name, ids in (("fit", FIT_RUNS), ("valid", VALID_RUNS)):
+        latencies = []
+        drops = 0
+        for index in ids:
+            for attempt in load_jsonl_records(output / "real" / str(index) / "observation_attempts.jsonl"):
+                if attempt["submitted"]:
+                    latencies.append(attempt["observation_to_action_latency_ms"])
+                else:
+                    drops += 1
+        fps = calibration["selected_env_fps"]
+        frames = mean(latencies) * fps / 1000.0
+        timing[name] = {
+            "admitted_count": len(latencies), "capacity_drops": drops,
+            "mean_latency_ms": mean(latencies), "mean_frames": frames,
+            "mean_raw_frames": mean(ms_to_raw_frames(value, fps) for value in latencies),
+            "target_frame_error": frames - calibration["target_mean_frames"],
+        }
+    result["timing"] = timing
+    write_csv(output / "runs.csv", rows)
+    write_json(output / "comparison.json", result)
+
+
+def run_experiment(base, training_profile, entry, *, output, model, task, deployment,
+                   inference_device, simulator_device, contract, fingerprint, resume):
+    """Execute one experiment without scheduling, backgrounding or automatic retries."""
+    contract_path = output / "contract.json"
+    if resume:
+        # The existing profiling resume contract also rejects changed identity;
+        # a held-out result must never be paired with a different model/profile.
+        if read_json(contract_path) != contract:
+            raise ValueError(f"Experiment contract does not match: {contract_path}")
+    else:
+        output.mkdir(parents=True)
+        write_json_atomic(contract_path, contract)
+        write_json(output / "hardware.json", fingerprint)
+    write_generated_config(output / "archived_eval.yaml", base)
+    print(f"EXPERIMENT_ID={output.name}\nOUTPUT_DIR={output}", flush=True)
+    calibration = calibrate(
+        base, training_profile, output / "calibration", inference_device=inference_device,
+        simulator_device=simulator_device, entry=entry,
+    )
+    for index in FIT_RUNS:
+        path = output / "real" / str(index)
+        execute_stage(run_config(
+            base, path, inference_device=inference_device, simulator_device=simulator_device,
+            env_fps=calibration["selected_env_fps"], run_id=index,
+        ), path, entry)
+    profile_path = fit_profile(
+        output, model=model, task=task, deployment=deployment, experiment_id=output.name,
+        calibration=calibration, contract=contract,
+    )
+    for index in VALID_RUNS:
+        path = output / "real" / str(index)
+        execute_stage(run_config(
+            base, path, inference_device=inference_device, simulator_device=simulator_device,
+            env_fps=calibration["selected_env_fps"], run_id=index,
+        ), path, entry)
+    for method in METHODS:
+        for index, valid_run in enumerate(VALID_RUNS):
+            path = output / "sim" / method / str(index)
+            execute_stage(run_config(
+                base, path, inference_device=inference_device, simulator_device=simulator_device,
+                env_fps=calibration["selected_env_fps"], run_id=valid_run,
+                method=method, profile_path=profile_path, latency_seed=index,
+            ), path, entry)
+    summarize(output)
+    (output / "DONE").touch()
+    return output
+
+
+def main(argv=None):
+    registry = load_config(REGISTRY)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--task", choices=registry["tasks"], required=True)
+    parser.add_argument("--model", choices=("qwenoft", "qwenpi_v3", "qwengr00t"), required=True)
+    parser.add_argument("--gpu", type=int, required=True)
+    parser.add_argument("--simulator-gpu", type=int)
+    parser.add_argument("--resume", metavar="EXPERIMENT_ID")
+    parser.add_argument("--output-root", type=Path, default=REPO_ROOT / "results/sim2real")
+    args = parser.parse_args(argv)
+    mikasa = args.task == "mikasa_intercept_grab_fast"
+    if mikasa != (args.simulator_gpu is not None):
+        parser.error("--simulator-gpu is required only for mikasa_intercept_grab_fast")
+    if args.simulator_gpu == args.gpu:
+        parser.error("InterceptGrab requires distinct simulator and inference GPUs")
+    if args.resume is not None and (args.resume in {".", ".."} or Path(args.resume).name != args.resume):
+        parser.error("--resume must be an experiment ID, not a path")
+    visible = [args.simulator_gpu, args.gpu] if mikasa else [args.gpu]
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(device) for device in visible)
+    os.environ["LATENCY_BENCH_ENV_BACKEND_START_METHOD"] = "spawn"
+    if args.task in {"ant", "inverted_pendulum"}:
+        os.environ["MUJOCO_GL"] = "egl"
+        os.environ["PYOPENGL_PLATFORM"] = "egl"
+        os.environ["MUJOCO_EGL_DEVICE_ID"] = str(args.gpu)
+    inference_device = "cuda:1" if mikasa else "cuda:0"
+    simulator_device = "cuda:0" if mikasa else None
+    entry = registry["tasks"][args.task][args.model]
+    fingerprint = collect_hardware_fingerprint()
+    deployment = describe_participating_gpus(
+        gpus=fingerprint["gpus"], topology=fingerprint["gpu"]["topology"],
+        gpu_name_registry=gpu_name_registry(load_config(REPO_ROOT / "configs/profiles.yaml")["gpu_models"]),
+        cuda_visible_devices=str(args.gpu),
+    )
+    deployment["instance_id"] = instance_id_from_gpu_deployment(deployment)
+    base, training_profile = prepare_assets(registry, entry)
+    experiment_id = (
+        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        if args.resume is None else args.resume
+    )
+    output = args.output_root.resolve() / args.task / args.model / deployment["instance_id"] / experiment_id
+    contract = {
+        "model": args.model, "task": args.task, "assets": entry,
+        "model_repo": registry["model_repo"], "model_revision": registry["model_revision"],
+        "deployment": deployment, "visible_gpus": visible, "python": sys.executable,
+        "archived_eval": base, "training_profile": training_profile,
+        "protocol": {"fit": list(FIT_RUNS), "valid": list(VALID_RUNS), "episodes": EPISODES,
+                     "seed": ENV_SEED, "calibration_samples": CALIBRATION_SAMPLES, "methods": list(METHODS)},
+    }
+    result = run_experiment(
+        base, training_profile, entry, output=output, model=args.model, task=args.task,
+        deployment=deployment, inference_device=inference_device, simulator_device=simulator_device,
+        contract=contract, fingerprint=fingerprint, resume=args.resume is not None,
+    )
+    print(f"Completed {result}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

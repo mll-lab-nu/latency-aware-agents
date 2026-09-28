@@ -3,6 +3,10 @@
 Use this pipeline to measure one model/workload on the GPUs that will serve
 inference, then build a latency profile that can be replayed in simulation.
 
+For the pinned 18-model experiment with five fitting and five held-out runs,
+use the [single-experiment sim2real runner](../../scripts/experiments/sim2real/README.md).
+It calibrates clocks against each model's training profile and archived eval.
+
 ## Quick start
 
 Use the shared profiler with a registered model/workload pair and the final

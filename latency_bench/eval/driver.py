@@ -96,6 +96,11 @@ def run_from_config(
             )
         else:
             warmup_metadata = executor.run_warmup()
+            calibration_samples = (
+                config["evaluation"]["calibration_samples"]
+                if "calibration_samples" in config["evaluation"] else None
+            )
+            submitted_observations = 0
             for episode_id in selected_episode_ids:
                 warmup_metadata_by_episode[episode_id] = warmup_metadata
                 episode_metrics = executor.run_episode(
@@ -106,6 +111,12 @@ def run_from_config(
                 metrics.append(episode_metrics)
                 if on_episode_complete is not None:
                     on_episode_complete(episode_metrics)
+                if calibration_samples is not None:
+                    # Finish and drain the episode before ending a calibration
+                    # probe; its first N admitted records define the sample.
+                    submitted_observations += episode_metrics.metadata["submitted_observation_frames"]
+                    if submitted_observations >= calibration_samples:
+                        break
         metrics.sort(key=lambda item: int(item.episode_id))
         for episode_metrics in metrics:
             for key, value in _evaluation_raw_fact_metadata(config, int(episode_metrics.episode_id)).items():

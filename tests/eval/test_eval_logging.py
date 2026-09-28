@@ -8,6 +8,7 @@ import pytest
 from latency_bench.core.types import Action, EpisodeMetrics, StepRecord, StepResult
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
+from latency_bench.eval import driver
 from latency_bench.latency.burst_profile import (
     build_hidden_regime_burst_model,
     build_worker_slot_distributions_from_sessions,
@@ -92,6 +93,30 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
             "save_latency_records": True,
         },
     }
+
+
+def test_calibration_stops_after_complete_episodes_with_enough_admitted_samples(tmp_path, monkeypatch):
+    config = _config(tmp_path)
+    config["evaluation"].update(eval_episodes=500, calibration_samples=5)
+
+    class ProbeExecutor:
+        logger = None
+
+        def run_warmup(self):
+            return {}
+
+        def run_episode(self, episode_id, seed, eval_max_steps):
+            return EpisodeMetrics(
+                episode_id=episode_id, episode_return=1, survival_steps=3,
+                episode_return_env=1, metadata={"submitted_observation_frames": 3},
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(driver, "build_executor", lambda *a, **kw: ProbeExecutor())
+    result = run_from_config(config, write_summary=False)
+    assert [episode.episode_id for episode in result] == [0, 1]
 
 
 def _write_profile(tmp_path: Path) -> Path:

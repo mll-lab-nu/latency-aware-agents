@@ -1,0 +1,165 @@
+experiment:
+  name: asterix-qwenpi_v3-hist8-profile-s42-v1-step5000-history01-profile-par32
+  seed: 1000000
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cuda
+  train_dir: results/sample_factory
+  restart_behavior: resume
+  run_mode: eval
+  extra_args:
+  - --encoder_conv_architecture
+  - convnet_simple
+executor:
+  mode: simulated
+  simulated_worker_capacity: 1
+  simulated_inference_pool: true
+  inference_devices:
+  - cuda:0
+  - cuda:1
+  inference_batch_size: 16
+env:
+  name: gymnasium
+  task_name: asterix
+  env_id: LatencyBench/Asterix-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_asterix
+  make_kwargs:
+    base_env_id: ALE/Asterix-v5
+    render_mode: rgb_array
+    screen_size: 84
+    noop_max: 30
+    base_make_kwargs:
+      obs_type: rgb
+      frameskip: 1
+      repeat_action_probability: 0.0
+      full_action_space: false
+      mode: 0
+      difficulty: 0
+      max_num_frames_per_episode: 108000
+  env_fps: 60
+  obs_fps: 15
+  frame_stack: 1
+  simulator: gpu
+  terminal_on_life_loss: false
+  clip_reward: false
+  noop_action: noop
+  action_map:
+    noop: 0
+    up: 1
+    right: 2
+    left: 3
+    down: 4
+    upright: 5
+    upleft: 6
+    downright: 7
+    downleft: 8
+  action_order:
+  - noop
+  - up
+  - right
+  - left
+  - down
+  - upright
+  - upleft
+  - downright
+  - downleft
+  base_prompt: 'Collect useful objects and avoid lyres. Choose exactly one action
+    from: noop, up, right, left, down, upright, upleft, downright, downleft.'
+  obs_resize:
+  - 224
+  - 224
+  gpu_env_device: auto
+  noop_max: 30
+  action_history_decisions: 8
+latency:
+  method: temporal
+  profile_path: /home/ubuntu/codex/atari-hist8-20260924/outputs/tasks/atari_hist8_v1/teacher_configs/asterix-qwenpi_v3/profile/profile.json
+  profile_worker_slot: 0
+  seed: 271828
+  add_latency_info: false
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+policy:
+  type: starvla
+  actions:
+  - noop
+  - up
+  - right
+  - left
+  - down
+  - upright
+  - upleft
+  - downright
+  - downleft
+  checkpoint_path: /home/ubuntu/codex/atari-hist8-20260924/outputs/tasks/atari_hist8_v1/bundles/asterix-qwenpi_v3-hist8-profile-s42-v1/checkpoints/model.pt
+  model_config_path: /home/ubuntu/codex/atari-hist8-20260924/outputs/tasks/atari_hist8_v1/bundles/asterix-qwenpi_v3-hist8-profile-s42-v1/config.yaml
+  task_manifest_path: /home/ubuntu/codex/atari-hist8-20260924/outputs/tasks/atari_hist8_v1/bundles/asterix-qwenpi_v3-hist8-profile-s42-v1/manifest.json
+  device: cuda:0
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  action_layout: discrete_9
+  backbone_path: /home/ubuntu/.cache/huggingface/hub/models--Qwen--Qwen3-VL-4B-Instruct/snapshots/ebb281ec70b05090aa6165b016eac8ec08e71b17
+  worker_python_executable: /home/ubuntu/miniconda3/envs/starvla_rl_games_openvla/bin/python3.10
+  state_source: transport
+training:
+  train_for_env_steps: 1000000
+  num_workers: 4
+  num_envs_per_worker: 16
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  max_policy_lag: 300
+  learning_rate: 0.000303
+  lr_schedule: constant
+  nonlinearity: elu
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  exploration_loss: entropy
+  exploration_loss_coeff: 0.003
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.0
+  adam_eps: 1.0e-06
+  obs_scale: 1.0
+  adaptive_stddev: false
+  with_vtrace: false
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_interval_steps: null
+  eval_episodes: 100
+  eval_parallel_envs: 32
+  eval_max_steps: 7200
+  eval_deterministic: true
+  eval_suites:
+    fixed: []
+    normal: []
+    uniform: []
+  latency_bench_env_backend: asterix_gpu_batched
+  eval_raw_reward: true
+logging:
+  output_dir: /home/ubuntu/codex/atari-hist8-20260924/outputs/tasks/atari_hist8_v1/evals/asterix-qwenpi_v3-hist8-profile-s42-v1/profile_to_profile
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  wandb_project: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_tags: ''

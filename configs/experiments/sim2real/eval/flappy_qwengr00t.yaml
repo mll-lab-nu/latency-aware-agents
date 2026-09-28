@@ -1,0 +1,75 @@
+experiment:
+  name: flappy-qwengr00t-hist8-scratch-s42-v2-step5000-history01-profile-par32
+  seed: 1000000
+backend:
+  run_mode: eval
+executor:
+  mode: simulated
+  simulated_worker_capacity: 1
+  simulated_inference_pool: true
+  inference_devices:
+  - cuda:0
+  inference_batch_size: 32
+env:
+  name: flappy
+  gym_id: FlappyBird-v0
+  env_fps: 10
+  obs_fps: 10
+  render_mode: rgb_array
+  observation_mode: image
+  use_lidar: false
+  normalize_obs: true
+  audio_on: false
+  frame_stack: 1
+  obs_resize:
+  - 224
+  - 224
+  simulator: gpu
+  use_gpu_render: false
+  gpu_render_device: auto
+  gpu_render_profile: false
+  gpu_render_profile_interval: 200
+  noop_action: noop
+  action_map:
+    noop: 0
+    flap: 1
+  oneshot_actions:
+  - flap
+  action_history_decisions: 8
+latency:
+  method: temporal
+  profile_path: profiles/profile.json
+  profile_worker_slot: 0
+  seed: 271828
+  add_latency_info: false
+scheduler:
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
+policy:
+  type: starvla
+  checkpoint_path: checkpoints/model.pt
+  model_config_path: config.yaml
+  device: cuda:0
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  actions:
+  - noop
+  - flap
+  backbone_path: BACKBONE_SNAPSHOT
+  worker_python_executable: python
+  state_source: transport
+evaluation:
+  eval_episodes: 100
+  eval_parallel_envs: 32
+  latency_bench_env_backend: flappy_gpu_batched
+  eval_latency_values: null
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_raw_reward: true
+logging:
+  output_dir: replay_outputs/profile
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  video:
+    enabled: false

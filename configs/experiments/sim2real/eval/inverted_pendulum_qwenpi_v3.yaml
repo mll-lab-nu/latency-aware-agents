@@ -1,0 +1,114 @@
+experiment:
+  name: pi05_inverted_pendulum_measured
+  seed: 42
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cuda
+  train_dir: outputs/examples/gymnasium_inverted_pendulum/checkpoints
+  restart_behavior: overwrite
+  run_mode: eval
+executor:
+  mode: realtime
+  inference_devices:
+  - cuda:0
+  inference_batch_size: 1
+env:
+  name: gymnasium
+  task_name: inverted_pendulum
+  env_id: LatencyBench/InvertedPendulumDiscrete-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_mujoco
+  make_kwargs:
+    base_env_id: InvertedPendulum-v4
+    base_make_kwargs: {}
+    force_values:
+    - -3.0
+    - -1.5
+    - 0.0
+    - 1.5
+    - 3.0
+    render_mode: rgb_array
+  env_fps: 5
+  obs_fps: 5
+  frame_stack: 1
+  state_space:
+    labels:
+    - cart_position
+    - pole_angle
+    - cart_velocity
+    - pole_angular_velocity
+  noop_action: zero_force
+  action_map:
+    push_left_hard: 0
+    push_left_soft: 1
+    zero_force: 2
+    push_right_soft: 3
+    push_right_hard: 4
+  action_order:
+  - push_left_hard
+  - push_left_soft
+  - zero_force
+  - push_right_soft
+  - push_right_hard
+  base_prompt: 'Keep the pole upright by applying horizontal cart forces. Choose exactly
+    one action from: push_left_hard, push_left_soft, zero_force, push_right_soft,
+    push_right_hard.'
+  obs_resize:
+  - 224
+  - 224
+latency:
+  method: measured
+  sync_cuda: true
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+policy:
+  type: starvla
+  checkpoint_path: ${PI05_PROFILE_BUNDLE}/checkpoints/model.pt
+  model_config_path: ${PI05_PROFILE_BUNDLE}/config.yaml
+  backbone_path: ${PI05_BACKBONE_DIR}
+  device: cuda:0
+  task_manifest_path: ${PI05_PROFILE_BUNDLE}/manifest.json
+  latency_prompt_map_path: ${PI05_PROFILE_BUNDLE}/latency_prompt_map.json
+  latency_prompt_key: 1
+training:
+  train_for_env_steps: 1000000
+  num_workers: 1
+  num_envs_per_worker: 16
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  max_policy_lag: 300
+  learning_rate: 0.000303
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.0
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_episodes: 20
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+  eval_latency_values: null
+logging:
+  output_dir: ${PI05_3090_RUN}/F
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  realtime_pipeline_profile: false

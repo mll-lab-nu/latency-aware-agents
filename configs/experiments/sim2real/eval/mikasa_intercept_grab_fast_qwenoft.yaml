@@ -1,0 +1,55 @@
+experiment:
+  name: mikasa_intercept_grab_fast_qwenoft_latency-aware
+  seed: 4242424242
+executor:
+  mode: simulated
+  simulated_inference_pool: true
+  inference_devices:
+  - cuda:1
+  inference_batch_size: 8
+  simulated_worker_capacity: 1
+env:
+  name: mikasa_intercept_grab_fast
+  env_fps: 20
+  obs_fps: 20.0
+  frame_stack: 1
+  noop_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  base_prompt: Intercept the rolling ball and grasp it to stop it.
+  simulator_device: cuda:0
+latency:
+  method: temporal
+  seed: 271828
+  profile_path: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwenoft_latency_3090_2xh200_20260922/profile/profile.json
+scheduler:
+  ordering_policy: latest_ready
+  hold_policy: hold
+  hold_last_chunk_action: true
+policy:
+  type: starvla
+  checkpoint_path: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwenoft_latency_3090_2xh200_20260922/run/inference/checkpoints/model.pt
+  model_config_path: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwenoft_latency_3090_2xh200_20260922/run/inference/config.yaml
+  task_contract_path: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwenoft_latency_3090_2xh200_20260922/run/inference/task_contract.json
+  worker_python_executable: /home/ubuntu/miniconda3/envs/starvla_rl_games_openvla/bin/python
+  device: cuda:1
+  state_info_key: mikasa_proprio
+  image_views_info_key: mikasa_image_views
+evaluation:
+  eval_episodes: 200
+  eval_parallel_envs: 10
+  eval_max_steps: 60
+  eval_deterministic: true
+logging:
+  output_dir: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwenoft_latency_3090_2xh200_20260922/run/evals/final-hold-last-20260923
+  video:
+    enabled: false
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

@@ -1,0 +1,188 @@
+experiment:
+  name: gr00t_ant_measured
+  seed: 42
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cuda
+  train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/ant
+  restart_behavior: overwrite
+  run_mode: eval
+executor:
+  mode: realtime
+  inference_devices:
+  - cuda:0
+  inference_batch_size: 1
+env:
+  name: gymnasium
+  task_name: ant
+  env_id: LatencyBench/AntContinuous-v0
+  registration_imports:
+  - latency_bench.envs.gymnasium_ant
+  make_kwargs:
+    base_env_id: Ant-v4
+    base_make_kwargs:
+      exclude_current_positions_from_observation: true
+      use_contact_forces: false
+    render_mode: rgb_array
+  env_fps: 5
+  obs_fps: 5
+  frame_stack: 1
+  state_space:
+    labels:
+    - torso_z
+    - torso_quaternion_w
+    - torso_quaternion_x
+    - torso_quaternion_y
+    - torso_quaternion_z
+    - front_left_hip_angle
+    - front_left_ankle_angle
+    - front_right_hip_angle
+    - front_right_ankle_angle
+    - back_left_hip_angle
+    - back_left_ankle_angle
+    - back_right_hip_angle
+    - back_right_ankle_angle
+    - torso_x_velocity
+    - torso_y_velocity
+    - torso_z_velocity
+    - torso_angular_velocity_x
+    - torso_angular_velocity_y
+    - torso_angular_velocity_z
+    - front_left_hip_angular_velocity
+    - front_left_ankle_angular_velocity
+    - front_right_hip_angular_velocity
+    - front_right_ankle_angular_velocity
+    - back_left_hip_angular_velocity
+    - back_left_ankle_angular_velocity
+    - back_right_hip_angular_velocity
+    - back_right_ankle_angular_velocity
+  action_space:
+    dtype: float32
+    high:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    labels:
+    - back_right_hip_torque
+    - back_right_ankle_torque
+    - front_left_hip_torque
+    - front_left_ankle_torque
+    - front_right_hip_torque
+    - front_right_ankle_torque
+    - back_left_hip_torque
+    - back_left_ankle_torque
+    low:
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    - -1.0
+    type: box
+  noop_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  base_prompt: Make the Ant move forward as fast as possible without falling. Predict
+    eight continuous torques in [-1, 1] ordered as back right hip, back right ankle,
+    front left hip, front left ankle, front right hip, front right ankle, back left
+    hip, and back left ankle.
+  obs_resize:
+  - 224
+  - 224
+latency:
+  method: measured
+  sync_cuda: true
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+policy:
+  type: starvla
+  checkpoint_path: /workspace/lzj/latency-sensitive-bench/runs/ant/gr00t_h1_5fps_20260917/F-download/ant/profile_latency/GR00T/checkpoints/model.pt
+  model_config_path: /workspace/lzj/latency-sensitive-bench/runs/ant/gr00t_h1_5fps_20260917/F-download/ant/profile_latency/GR00T/config.yaml
+  backbone_path: /workspace/models/Qwen3-VL-4B-Instruct
+  device: cuda:0
+  task_manifest_path: /workspace/lzj/latency-sensitive-bench/runs/ant/gr00t_h1_5fps_20260917/F-download/ant/profile_latency/GR00T/manifest.json
+  latency_prompt_map_path: /workspace/lzj/latency-sensitive-bench/runs/ant/gr00t_h1_5fps_20260917/F-download/ant/profile_latency/GR00T/latency_prompt_map.json
+  latency_prompt_key: 1
+training:
+  train_for_env_steps: 10000000
+  num_workers: 8
+  num_envs_per_worker: 8
+  worker_num_splits: 2
+  num_policies: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 1
+  num_epochs: 2
+  num_batches_per_epoch: 4
+  num_batches_to_accumulate: 2
+  policy_workers_per_policy: 1
+  max_policy_lag: 10000
+  learning_rate: 0.00295
+  lr_schedule: linear_decay
+  lr_schedule_kl_threshold: 0.008
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.2
+  ppo_clip_value: 1.0
+  value_loss_coeff: 1.3
+  max_grad_norm: 3.5
+  exploration_loss: entropy
+  exploration_loss_coeff: 0.0
+  kl_loss_coeff: 0.1
+  reward_scale: 1.0
+  reward_clip: 1000.0
+  async_rl: false
+  serial_mode: false
+  batched_sampling: false
+  with_vtrace: false
+  use_rnn: false
+  encoder_mlp_layers:
+  - 64
+  - 64
+  nonlinearity: tanh
+  adaptive_stddev: false
+  policy_initialization: torch_default
+  initial_stddev: 1.0
+  actor_critic_share_weights: true
+  shuffle_minibatches: false
+  value_bootstrap: true
+  normalize_input: true
+  normalize_returns: true
+  decorrelate_experience_max_seconds: 10
+  decorrelate_envs_on_one_worker: true
+  set_workers_cpu_affinity: true
+  force_envs_single_thread: true
+  save_every_sec: 600
+  keep_checkpoints: 3
+  save_best_every_sec: 60
+  save_best_after: 100000
+evaluation:
+  eval_episodes: 20
+  eval_parallel_envs: 1
+  eval_max_steps: 1000
+  eval_deterministic: true
+  eval_latency_values: null
+logging:
+  output_dir: /workspace/lzj/latency-sensitive-bench/runs/ant/gr00t_h1_5fps_20260917/F
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  realtime_pipeline_profile: false
