@@ -173,6 +173,7 @@ class DemonAttackGpuBatchedEnvStepBackend(_AtariGpuBatchedEnvStepBackend):
         if env_cfg["reset_mode"] != "fire":
             raise ValueError("demon_attack_gpu_batched currently supports reset_mode='fire'")
         super().__init__(config=config, noop_action=noop_action, num_slots=num_slots)
+        self.clip_reward = env_cfg["clip_reward"] and not config["evaluation"]["eval_raw_reward"]
 
     def _step_cores(self, slot_ids: list[int], *, actions: np.ndarray, active_mask: np.ndarray) -> Any:
         step_state = super()._step_cores(slot_ids, actions=actions, active_mask=active_mask)

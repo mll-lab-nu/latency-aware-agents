@@ -1,5 +1,7 @@
 # 九条 3090 temporal profile 决策历史 APPO 训练（2026-09-23）
 
+> 2026-09-29 复核：下文旧 Demon CuLE GPU best 分数均为首次丢命终评，三模型300局的分数及结束帧已全部反事实复现；GR00T/Pi final return 另有奖励裁剪。旧数值仅保留作审计，不再作为完整游戏成绩。原权重的修正评估与同预算 teacher–student 比较见[核验记录](demon-cule-evaluation-audit-2026-09-29.md)。
+
 ## 合同与实现
 
 每条 run 从零训练 Sample Factory 小策略 25M env steps，seed 42，单个模拟推理 worker，使用对应 OpenVLA/QwenOFT、GR00T、π0.5 RTX 3090 temporal profile。Flappy 为 10/10 FPS、`one_frame_then_noop`；Demon Attack 为 60/15 FPS、`hold`；Deadly 原计划为 60/15 FPS、`hold`，随后按下文修正为 35/8.75 FPS。均采用 `latest_ready`。九条 profile 的绝对路径和 SHA256 见 [profile_revisions.json](../../outputs/tasks/decision_history_temporal_25m_seed42/profile_revisions.json)。训练配置不自动上传 HF；用户随后指定了五条已完成 run 发布 checkpoint，记录见下文。

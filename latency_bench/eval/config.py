@@ -21,15 +21,16 @@ _SAMPLE_FACTORY_POLICY_TYPES = {
 def resolve_evaluation_config(config: dict[str, Any]) -> None:
     """Materialize existing evaluation defaults at direct-dict and CLI boundaries.
 
-    Serial evaluation, in-process inference and disabled pipeline profiling are
-    the existing defaults. Worker capacity is explicitly optional. Experiment
-    seed stays untouched: policy and suite RNGs distinguish omission from zero.
+    Serial evaluation, configured environment rewards, in-process inference and
+    disabled pipeline profiling are the existing defaults. Worker capacity is
+    explicitly optional. Experiment seed stays untouched: policy and suite RNGs
+    distinguish omission from zero.
     Explicit filesystem inputs are expanded against the caller's working
     directory; model identifiers and paths embedded in model configs are not
     interpreted here.
     """
     defaults = {
-        "evaluation": {"eval_parallel_envs": 1},
+        "evaluation": {"eval_parallel_envs": 1, "eval_raw_reward": False},
         "executor": {
             "simulated_inference_pool": False,
             "simulated_worker_capacity": None,

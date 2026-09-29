@@ -64,6 +64,17 @@ def _suite_config(tmp_path: Path) -> dict:
     }
 
 
+@pytest.mark.parametrize("raw_reward", [None, True])
+def test_eval_raw_reward_remains_opt_in_when_resolving_config(tmp_path, raw_reward):
+    from latency_bench.eval.config import resolve_evaluation_config
+
+    config = _suite_config(tmp_path)
+    if raw_reward is not None:
+        config["evaluation"]["eval_raw_reward"] = raw_reward
+    resolve_evaluation_config(config)
+    assert config["evaluation"]["eval_raw_reward"] is (raw_reward is True)
+
+
 def test_parse_grouped_eval_suites_supports_multiple_normal_distributions(tmp_path: Path):
     from latency_bench.eval.suites import parse_eval_suites
 

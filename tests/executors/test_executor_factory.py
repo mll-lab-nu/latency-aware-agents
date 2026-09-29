@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from latency_bench.core.types import Action, OrderingPolicy
+from latency_bench.core.types import Action, OrderingPolicy, PolicyOutput
 from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.factory import build_executor
@@ -22,6 +22,7 @@ from latency_bench.latency.profile import save_latency_distribution, save_profil
 from latency_bench.core.clock import EnvClock
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 from latency_bench.policy.action_prefix import prepare_action_prefix
+from latency_bench.policy.base import PolicyRunner
 
 
 @pytest.mark.parametrize("mean_ms,fps,expected", [
@@ -957,17 +958,19 @@ def test_parallel_simulated_nested_tuple_action_space_still_fails_fast(tmp_path)
         build_executor(config)
 
 
-def test_parallel_simulated_stateful_policy_without_predict_batch_fails_fast(tmp_path):
+def test_parallel_simulated_policy_without_predict_batch_fails_fast(tmp_path):
+    class SingleObservationPolicy(PolicyRunner):
+        """Scalar-only fixture for the executor's batch prediction contract."""
+
+        def predict(self, observation):
+            return PolicyOutput(action=Action(value="jump", name="jump"))
+
     config = _config(output_dir=str(tmp_path))
     config["evaluation"]["eval_episodes"] = 2
     config["evaluation"]["eval_parallel_envs"] = 2
-    config["policy"] = {
-        "type": "random",
-        "actions": ["jump"],
-    }
 
     with pytest.raises(ValueError, match="does not support safe batched simulated eval"):
-        build_executor(config)
+        build_executor(config, policy=SingleObservationPolicy())
 
 
 @pytest.mark.parametrize("mode", ["simulated", "paused", "realtime"])

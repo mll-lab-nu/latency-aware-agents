@@ -64,9 +64,9 @@ protocol (`sf-render-v4`).
 | Flappy Bird | QwenOFT | 444.60 | 439.13 | 19.19 | 1,233.51 | 373.78 |
 | Flappy Bird | QwenGR00T | 444.60 | 428.48 | 6.62 | 1,995.24 | 414.52 |
 | Flappy Bird | QwenPI v3 | 444.60 | 408.72 | 5.58 | 1,194.79 | 344.48 |
-| Demon Attack | QwenOFT | 8,727.15 | 2362.15 | 584.35 | 1,525.00 | 1452.80 |
-| Demon Attack | QwenGR00T | 8,727.15 | 2370.90 | 231.90 | 663.25 | 1203.10 |
-| Demon Attack | QwenPI v3 | 8,727.15 | 2350.95 | 112.30 | 447.30 | 907.30 |
+| Demon Attack | QwenOFT | 8,727.15 | 2362.15 | 584.35 | 5,605.65 | 1452.80 |
+| Demon Attack | QwenGR00T | 8,727.15 | 2370.90 | 231.90 | 4,035.40 | 1203.10 |
+| Demon Attack | QwenPI v3 | 8,727.15 | 2350.95 | 112.30 | 2,919.80 | 907.30 |
 | Deadly Corridor | QwenOFT | 2,116.79 | 2098.67 | 742.35 | 1,933.82 | 2091.23 |
 | Deadly Corridor | QwenGR00T | 2,116.79 | 2100.46 | 341.76 | 2,155.71 | 2090.82 |
 | Deadly Corridor | QwenPI v3 | 2,116.79 | 2104.09 | 140.94 | 1,397.40 | 1450.83 |
@@ -77,11 +77,33 @@ rewards or VLA scores. The shared zero teachers use 100 episodes, actual seeds
 Deadly. Profile teachers use the training-selected **best** checkpoint from each
 25M-step, seed-42 run, 100 episodes on `104771–104870`, env/obs rates
 10/10, 60/15, 35/8.75 FPS, and caps of 18,000 / 14,400 / 3,600.
-Demon profile scores use the 16-way CuLE GPU evaluation; the superseded CPU
-score and the invalid Deadly 60/15 FPS runs are excluded. These teacher
+Demon profile scores use the corrected 2026-09-29 full-game, raw-reward,
+16-way CuLE evaluation. The former GPU values stopped at the first life loss;
+all 300 old score/length pairs were reproduced by that counterfactual and are
+superseded. The invalid Deadly 60/15 FPS runs remain excluded. These teacher
 columns have different seed/cap/backend protocols from the VLA columns and
 must not be treated as a matched teacher–VLA comparison or a paired L0–profile
 comparison. In particular, Flappy's larger profile return has a longer cap.
+
+The teacher–VLA comparison now uses a second evaluation of the same selected
+weights on the student cohort: 100 seeds `1000000–1000099`, latency seed
+`271828`, 32 environments, original temporal profiles, and matched caps of
+7,200 / 3,600 raw frames for Demon / Flappy. Student evaluations already
+continued across life losses and retain their archived scores.
+
+| Game | Model | Matched teacher | Student | Student / teacher |
+|---|---|---:|---:|---:|
+| Demon Attack | QwenOFT | 1603.60 | 1452.80 | 90.6% |
+| Demon Attack | QwenGR00T | 1305.00 | 1203.10 | 92.2% |
+| Demon Attack | QwenPI v3 | 980.05 | 907.30 | 92.6% |
+| Flappy Bird | QwenOFT | 392.00 | 373.78 | 95.4% |
+| Flappy Bird | QwenGR00T | 437.90 | 414.52 | 94.7% |
+| Flappy Bird | QwenPI v3 | 385.60 | 344.48 | 89.3% |
+
+Ratios use unrounded means. The [audit report](../outputs/demon_cule_audit_20260929/REPORT.md)
+records the raw-reward fix, first-life counterfactual, residual grayscale
+rounding effects and CPU/CuLE comparisons. All checkpoints and training curves
+are retained; no model was retrained or reselected.
 
 Zero-teacher evidence: [Flappy](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/flappy/small-policy/sample-factory-v1/eval_l0.json) · [Demon](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/demon-attack/small-policy/sample-factory-v1/eval_l0.json) · [Deadly](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/deadly-corridor/small-policy/sample-factory-v1/eval_l0.json).
 [Profile-teacher best-checkpoint scores, run links and episode records](../outputs/tasks/decision_history_nine_profile_20260923/nine_profile_results.json).

@@ -31,7 +31,8 @@ def test_cule_core_and_latency_backend_are_byte_identical():
                 assert core_value == backend_value
 
 
-def test_cule_life_loss_soft_reset_matches_ale_and_continues_the_episode():
+@pytest.mark.parametrize(("configured_clip_reward", "num_slots"), [(False, 1), (True, 16)])
+def test_cule_life_loss_soft_reset_matches_ale_and_continues_the_episode(configured_clip_reward, num_slots):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
@@ -65,15 +66,16 @@ def test_cule_life_loss_soft_reset_matches_ale_and_continues_the_episode():
                 "noop_max": 1,
                 "reset_mode": "fire",
                 "terminal_on_life_loss": True,
-                "clip_reward": False,
+                "clip_reward": configured_clip_reward,
                 "frame_stack": FRAME_STACK,
                 "gpu_env_device": "cuda",
                 "max_episode_steps": 25000,
             },
             "policy": {"type": "starvla"},
+            "evaluation": {"eval_raw_reward": True},
         },
         noop_action=noop,
-        num_slots=1,
+        num_slots=num_slots,
     )
     actions = np.random.default_rng(2026).integers(
         0,
@@ -86,14 +88,22 @@ def test_cule_life_loss_soft_reset_matches_ale_and_continues_the_episode():
     soft_reset_count = 0
     compare_next_transition = False
     true_episode_end_count = 0
+    peer_reset_count = 0
 
     try:
         cpu.reset(seed=SEED)
-        backend.reset_slot(0, episode_id=0, seed=SEED)
-        for action_value in actions:
+        for slot in range(num_slots):
+            backend.reset_slot(slot, episode_id=slot, seed=SEED + slot)
+        for raw_frame, action_value in enumerate(actions, start=1):
             action = Action(value=action_value, name=str(action_value), is_noop=action_value == 0)
             cpu_result = cpu.step(action)
-            cule_result = backend.step_slots({0: action})[0].result
+            slot_actions = {
+                slot: Action(value=(action_value + slot) % 6, name=str((action_value + slot) % 6))
+                for slot in range(num_slots)
+            }
+            slot_actions[0] = action
+            outcomes = backend.step_slots(slot_actions)
+            cule_result = outcomes[0].result
             cpu_return += cpu_result.reward
             cule_return += cule_result.reward
 
@@ -131,6 +141,15 @@ def test_cule_life_loss_soft_reset_matches_ale_and_continues_the_episode():
                 assert cpu_result.info["lives"] == 0
                 assert cpu_result.info[TRUE_EPISODE_END_INFO_KEY] is True
                 break
+            # Other replicas may hit their episode budget while slot zero is alive.
+            if num_slots > 1 and raw_frame in (128, 256):
+                peer = raw_frame // 128
+                backend.reset_slot(peer, episode_id=num_slots + peer, seed=SEED + raw_frame)
+                peer_reset_count += 1
+            for slot in range(1, num_slots):
+                if outcomes[slot].result.done or outcomes[slot].result.truncated:
+                    backend.reset_slot(slot, episode_id=slot, seed=SEED + slot)
+                    peer_reset_count += 1
     finally:
         cpu.close()
         backend.close()
@@ -138,6 +157,67 @@ def test_cule_life_loss_soft_reset_matches_ale_and_continues_the_episode():
     assert soft_reset_count > 0
     assert true_episode_end_count == 1
     assert cule_return == cpu_return
+    if num_slots > 1:
+        assert peer_reset_count > 0
+
+
+def test_frozen_h8_teacher_cpu_and_cule_continue_beyond_first_life_loss(tmp_path):
+    """Regression for the September 23 first-life teacher scores (OFT best).
+
+    DEMON_ATTACK_TEACHER_EVAL_CONFIG points to the restored, immutable OFT H8
+    eval YAML described in program/DEMON_ATTACK_EVAL_AUDIT.md. The artifact is
+    supplied explicitly so the ordinary test suite never downloads weights.
+    """
+    import os
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    if "DEMON_ATTACK_TEACHER_EVAL_CONFIG" not in os.environ:
+        pytest.skip("Set DEMON_ATTACK_TEACHER_EVAL_CONFIG to run the frozen-teacher regression")
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+
+    from latency_bench.core.actions import ActionResolver
+    from latency_bench.core.config import load_config
+    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+    from latency_bench.data.sf_teacher_runtime import build_sample_factory_rollout_cfg
+    from latency_bench.eval.driver import run_from_config
+    from latency_bench.executors.backend_selection import build_env_step_backend
+    from latency_bench.policy.sample_factory_common import SampleFactoryPolicyRunner
+
+    config = load_config(os.environ["DEMON_ATTACK_TEACHER_EVAL_CONFIG"])
+    config["experiment"]["seed"] = 42
+    config["evaluation"].update(eval_episodes=16, eval_parallel_envs=16, eval_max_steps=7000,
+                                episode_seed_offset=104729, eval_raw_reward=True)
+    config["env"]["clip_reward"] = True
+    config["logging"].update(save_step_records=False, save_action_records=False, save_latency_records=False)
+    descriptor, _ = load_rollout_training_config(config["policy"]["checkpoint_path"], device_override="gpu")
+    descriptor["latency_override"] = config["latency"]
+    module, cfg = build_sample_factory_rollout_cfg(descriptor)
+    cfg.simulator = "cpu"
+    cfg.env_gpu_observations = False
+    cfg.env_gpu_actions = False
+    cfg.episode_metrics_path = ""
+    integration = SimpleNamespace(
+        register_components=module.register_demon_attack_envs,
+        build_sf_cfg_from_config=lambda _: cfg,
+        make_reference_env=module.make_reference_env,
+    )
+    resolver = ActionResolver(config["env"])
+    policy = SampleFactoryPolicyRunner(config=config, action_resolver=resolver,
+                                      integration_module=integration, policy_type="demon_attack_sf")
+    results = []
+    for backend_name in ("serial", "demon_attack_gpu_batched"):
+        run_config = deepcopy(config)
+        run_config["logging"]["output_dir"] = str(tmp_path / backend_name)
+        backend = build_env_step_backend(backend_name, config=run_config,
+                                         noop_action=resolver.noop_action, num_slots=16)
+        episodes = run_from_config(run_config, policy=policy, env_backend=backend)
+        assert all(episode.survival_steps == 7000 for episode in episodes)
+        assert any(episode.metadata["soft_reset_count"] > 0 for episode in episodes)
+        results.append([episode.episode_return for episode in episodes])
+    assert results[0] == results[1]
 
 
 def test_cule_reset_matches_latency_cpu_ram_but_not_reset_frame_or_obs_yet():
@@ -337,6 +417,7 @@ def _cule_latency_backend_trace() -> list[dict[str, object]]:
                 "max_episode_steps": 25000,
             },
             "policy": {"type": "starvla"},
+            "evaluation": {"eval_raw_reward": False},
         },
         noop_action=Action(value=0, name="NOOP", is_noop=True),
         num_slots=1,
