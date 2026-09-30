@@ -781,7 +781,9 @@ def build_starvla_policy(
         wrapper_kwargs["backbone_path"] = policy_cfg["backbone_path"]
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
-        wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
+        wrapper_kwargs["rl_games_action_env_dim"] = int(
+            policy_cfg.get("gymnasium_active_action_dim", len(action_space["labels"]))
+        )
         if action_space["type"] == "box":
             wrapper_kwargs["rl_games_gymnasium_action_space_type"] = "box"
         wrapper_kwargs["rl_games_env_name"] = integration_env_name
@@ -857,7 +859,9 @@ def build_live_starvla_policy(
     )
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
-        wrapper_kwargs["rl_games_action_env_dim"] = len(action_space["labels"])
+        wrapper_kwargs["rl_games_action_env_dim"] = int(
+            policy_cfg.get("gymnasium_active_action_dim", len(action_space["labels"]))
+        )
         if action_space["type"] == "box":
             wrapper_kwargs["gymnasium_action_space_type"] = "box"
         wrapper_kwargs["env_name"] = integration_env_name
