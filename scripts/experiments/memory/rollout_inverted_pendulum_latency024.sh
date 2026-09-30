@@ -20,7 +20,8 @@ set -euo pipefail
 #   REPLAY_NUM_ENVS=32
 #   DEVICE=cuda
 #   FILTER_PRESET=none
-#   EPISODE_RETURN_GT=<optional acceptance gate>
+#   EPISODE_RETURN_GT=<override acceptance gate, or none to disable>
+#   MAX_ATTEMPTS=<optional maximum rollout attempts>
 #   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
 #   PUSH_TO_HUB=1
 
@@ -94,6 +95,14 @@ _ip_steps_label() {
     7200) echo "7k2steps" ;;
     3600) echo "3k6steps" ;;
     *) echo "${MAX_STEPS:-7200}steps" ;;
+  esac
+}
+
+_ip_default_episode_return_gt() {
+  case "$(_ip_latency_label "$1")" in
+    fixed_l0) echo 7000 ;;
+    fixed_l2) echo 85 ;;
+    fixed_l4) echo 24 ;;
   esac
 }
 
@@ -195,7 +204,7 @@ _ip_rollout_one() {
   _ip_need_repo_root || return 1
   _ip_setup_cuda_env
 
-  local label frames ckpt latency_config config_name out_dir steps_label gym_make_kwargs
+  local label frames ckpt latency_config config_name out_dir steps_label gym_make_kwargs episode_return_gt
   label="$(_ip_latency_label "${latency}")" || return 1
   frames="$(_ip_latency_frames "${latency}")" || return 1
   ckpt="$(download_best_inverted_pendulum_ckpt "${latency}")" || return 1
@@ -204,6 +213,7 @@ _ip_rollout_one() {
   config_name="inverted_pendulum_fixed_latency_${frames}_${MAX_EPISODES:-200}ep_${steps_label}"
   out_dir="${ROLLOUT_DATA_ROOT}/${config_name}"
   gym_make_kwargs="{\"base_make_kwargs\":{\"max_episode_steps\":${MAX_STEPS:-7200}}}"
+  episode_return_gt="${EPISODE_RETURN_GT:-$(_ip_default_episode_return_gt "${latency}")}"
 
   echo "[run] inverted_pendulum ${label}"
   echo "[ckpt] ${ckpt}"
@@ -211,7 +221,7 @@ _ip_rollout_one() {
   echo "[out]  ${out_dir}"
   echo "[hf]   ${HF_ROLLOUT_REPO}/${config_name} (PUSH_TO_HUB=${PUSH_TO_HUB:-1})"
   echo "[steps] MAX_EPISODES=${MAX_EPISODES:-200} MAX_STEPS=${MAX_STEPS:-7200}"
-  echo "[gate] FILTER_PRESET=${FILTER_PRESET:-none} EPISODE_RETURN_GT=${EPISODE_RETURN_GT:-<none>}"
+  echo "[gate] FILTER_PRESET=${FILTER_PRESET:-none} EPISODE_RETURN_GT=${episode_return_gt}"
 
   local export_wrapper
   export_wrapper='
@@ -251,11 +261,14 @@ raise SystemExit(main(sys.argv[1:]))
     --filter-preset "${FILTER_PRESET:-none}"
   )
 
+  if [[ -n "${MAX_ATTEMPTS:-}" ]]; then
+    cmd+=(--max-attempts "${MAX_ATTEMPTS}")
+  fi
   if [[ -n "${EXPORT_IMAGE_SIZE:-}" ]]; then
     cmd+=(--export-image-size "${EXPORT_IMAGE_SIZE}")
   fi
-  if [[ -n "${EPISODE_RETURN_GT:-}" ]]; then
-    cmd+=(--episode-return-gt "${EPISODE_RETURN_GT}")
+  if [[ -n "${episode_return_gt}" && "${episode_return_gt}" != "none" && "${episode_return_gt}" != "NONE" ]]; then
+    cmd+=(--episode-return-gt "${episode_return_gt}")
   fi
   if [[ "${PROBE_ONLY:-0}" == "1" || "${PROBE_ONLY:-0}" == "true" ]]; then
     cmd+=(--probe-only)
@@ -302,6 +315,9 @@ Defaults:
   REPLAY_NUM_ENVS=32
   DEVICE=cuda
   FILTER_PRESET=none
+  EPISODE_RETURN_GT defaults by latency: l0 > 7000, l2 > 85, l4 > 24
+  Set EPISODE_RETURN_GT=none to disable, or EPISODE_RETURN_GT=<number> to override.
+  MAX_ATTEMPTS=<optional maximum total rollout attempts>
   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
   PUSH_TO_HUB=1
 
