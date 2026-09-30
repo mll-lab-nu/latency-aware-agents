@@ -24,7 +24,7 @@ def _write_config(path: Path) -> None:
 
 
 def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, monkeypatch):
-    from latency_bench.experiments import calibrate_env_fps_from_saturated_latency as module
+    from latency_bench.profiling import calibration as module
 
     config_path = tmp_path / "config.yaml"
     output_path = tmp_path / "env_fps_calibration.json"

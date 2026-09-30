@@ -4,7 +4,7 @@ This pilot measures how OFT and GR00T return calibration changes with the number
 of independent fitting sessions. Real collection runs on the profiling dual
 RTX 3090 in `servers.md`. Formal simulation runs on a different host;
 the profiling instance stops after collection, profile fitting and verified backup.
-The code entry is `latency_bench.cross_device.budget`.
+The code entry is `scripts.experiments.sim2real.budget`.
 
 ## Frozen protocol
 
@@ -18,9 +18,9 @@ horizon. Environment seed is `2000000 + 20 * run_id + episode_in_run`.
 | OFT | 0, UUID `GPU-9091e431-9a0b-168d-a5d2-b5053628d519` | 10.490762184435336 | 439.13 |
 | GR00T | 1, UUID `GPU-6a1c5dc6-6a38-ff30-cdec-1121a23df467` | 10.783693488119345 | 428.48 |
 
-The source refs and immutable HF revisions live in `budget.SOURCES`; the
+The source refs and immutable HF revisions live in `configs/experiments/sim2real/budget.yaml`; the
 normalizers are the frozen `paper/exps/sim2real_heldout/references.csv` values.
-`budget.json` captures those inputs and the complete split lists before new
+The campaign-root `budget.json` captures those inputs and the complete split lists before new
 results are observed. Source traces are retained under each model's `source/`.
 
 Fit sizes: **5, 10, 20, 30, 40, 50**. Methods: Fixed, Normal, IID, Temporal.
@@ -96,13 +96,17 @@ OOM propagates; it never silently lowers parallelism.
 Run from the repository root. Invoke the selected model and stage explicitly:
 
 ```bash
-python -m latency_bench.cross_device.budget --stage verify --model qwenoft \
+python -m scripts.experiments.sim2real.budget --stage verify --model qwenoft \
+  --config configs/experiments/sim2real/budget.yaml \
   --root /path/to/campaign --worker-python /path/to/model/python --gpu-uuid GPU_UUID
-python -m latency_bench.cross_device.budget --stage real --model qwenoft \
+python -m scripts.experiments.sim2real.budget --stage real --model qwenoft \
+  --config configs/experiments/sim2real/budget.yaml \
   --root /path/to/campaign --worker-python /path/to/model/python --gpu-uuid GPU_UUID
-python -m latency_bench.cross_device.budget --stage fit --model qwenoft \
+python -m scripts.experiments.sim2real.budget --stage fit --model qwenoft \
+  --config configs/experiments/sim2real/budget.yaml \
   --root /path/to/campaign --gpu-uuid GPU_UUID
-python -m latency_bench.cross_device.budget --stage sim --model qwenoft \
+python -m scripts.experiments.sim2real.budget --stage sim --model qwenoft \
+  --config configs/experiments/sim2real/budget.yaml \
   --root /path/to/campaign --worker-python /path/to/model/python --gpu-uuid GPU_UUID
 ```
 
@@ -170,18 +174,58 @@ The updated second figure shows four method means across five splits with
 ± one sample SD; OFT/GR00T retain equal weight within each split.
 See [the frozen draw list and execution record](logs/sim2real-budget-random5-20260930.md).
 
-## Timing 记录与历史迁移
+## Timing 记录与报告
 
 单 setting 成本记录在 timing JSON 中写明 model、stage 及该阶段的 run_ids、split、
 fit_runs、method。成本报告读取这些字段，文件路径仅作为来源位置记录。
-旧 campaign 先显式转换到新的 timing 目录，原记录保持原样：
+报告直接读取 campaign 根目录的 `budget.json`，不重新读取当前实验 YAML 或代码常量。
+已有独立 timing 产物通过 `--timing-root` 显式传入：
 
 ```bash
-python -m latency_bench.cross_device.budget_report --root /path/to/campaign \
-  --migrate-timings-to /path/to/migrated-timings
-python -m latency_bench.cross_device.budget_report --root /path/to/campaign \
-  --timing-root /path/to/migrated-timings --defer-uploads
+python -m scripts.experiments.sim2real.budget_report --root /path/to/campaign \
+  --timing-root /path/to/timing-artifacts --defer-uploads
 ```
 
-迁移适用现有单 setting 的 real/fit/sim、setup 和 verification timing 布局。
 成本定义继续区分新采集成本、原始 prefix 等价成本与逐预算累计 replay 成本。
+
+## Repeated splits and 28/27 holdout
+
+The extension recipes are `configs/experiments/sim2real/repeats.yaml` and
+`configs/experiments/sim2real/holdout.yaml`. Both prepare stages read the frozen
+base campaign's `budget.json`, retain its source revisions, seeds and reference
+returns, and record a complete `repeats.json` or `holdout.json` in the new root.
+Subsequent fit, simulation and reporting use that frozen manifest.
+
+```bash
+python -m scripts.experiments.sim2real.budget_repeats --stage prepare \
+  --config configs/experiments/sim2real/repeats.yaml \
+  --root /path/to/repeats --base-root /path/to/campaign
+python -m scripts.experiments.sim2real.budget_repeats --stage fit \
+  --config configs/experiments/sim2real/repeats.yaml \
+  --root /path/to/repeats --base-root /path/to/campaign --model qwenoft
+python -m scripts.experiments.sim2real.budget_repeats --stage sim \
+  --config configs/experiments/sim2real/repeats.yaml \
+  --root /path/to/repeats --base-root /path/to/campaign --model qwenoft --gpu-uuid GPU_UUID
+python -m scripts.experiments.sim2real.budget_repeats --stage report \
+  --config configs/experiments/sim2real/repeats.yaml \
+  --root /path/to/repeats --base-root /path/to/campaign
+
+python -m scripts.experiments.sim2real.budget_holdout --stage prepare \
+  --config configs/experiments/sim2real/holdout.yaml \
+  --root /path/to/holdout --base-root /path/to/campaign
+python -m scripts.experiments.sim2real.budget_holdout --stage fit \
+  --config configs/experiments/sim2real/holdout.yaml \
+  --root /path/to/holdout --model qwenoft
+python -m scripts.experiments.sim2real.budget_holdout --stage sim \
+  --config configs/experiments/sim2real/holdout.yaml \
+  --root /path/to/holdout --model qwenoft --gpu-uuid GPU_UUID
+python -m scripts.experiments.sim2real.budget_holdout --stage report \
+  --config configs/experiments/sim2real/holdout.yaml --root /path/to/holdout
+```
+
+Run fit/sim for each model recorded by the base campaign. Extension stages queue
+publication receipts using the existing deferred-publication protocol.
+The `--config` recipe initializes a new experiment; existing manifests remain
+authoritative on resume. Original historical manifests and reports remain
+unchanged and can be reproduced with their original source snapshot; these
+entrypoints require the explicit frozen fields documented above.

@@ -7,18 +7,18 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.core.config import load_config
-from latency_bench.cross_device.profile_resolver import (
+from latency_bench.profiling.profile_resolver import (
     list_remote_profiles,
     resolve_model_artifacts,
     resolve_remote_profile,
 )
-from latency_bench.cross_device.runner import (
+from latency_bench.profiling.runner import (
     current_deployment,
     publish_current_profile,
     run_profile,
     run_simulation,
 )
-from latency_bench.cross_device.spec import load_profile_spec
+from latency_bench.profiling.spec import load_profile_spec
 
 
 REGISTRY_PATH = Path("configs/profiles.yaml")

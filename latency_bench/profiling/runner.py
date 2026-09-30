@@ -1,3 +1,5 @@
+"""Measure deployment latency and replay profiles through the benchmark evaluator."""
+
 from __future__ import annotations
 
 import fcntl
@@ -10,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from latency_bench.cross_device.artifacts import (
+from latency_bench.profiling.artifacts import (
     profile_dir,
     profile_ref,
     run_dir,
@@ -18,27 +20,27 @@ from latency_bench.cross_device.artifacts import (
     run_session_dir,
     simulation_seed_dir,
 )
-from latency_bench.cross_device.instances import instance_id_from_gpu_deployment
-from latency_bench.cross_device.profile_resolver import (
+from latency_bench.profiling.profile_resolver import (
     resolve_profile_artifacts,
     resolve_remote_profile,
 )
-from latency_bench.cross_device.runtime_configs import (
+from latency_bench.profiling.runtime_configs import (
     calibration_config,
     eval_command,
     measure_config,
     simulation_config,
     write_generated_config,
 )
-from latency_bench.cross_device.spec import gpu_name_registry
-from latency_bench.cross_device.sync import (
+from latency_bench.profiling.spec import gpu_name_registry
+from latency_bench.profiling.sync import (
     publish_run_and_profile,
     publish_simulation_dirs,
 )
-from latency_bench.experiments.calibrate_env_fps_from_saturated_latency import (
+from latency_bench.profiling.calibration import (
     calibrate_env_fps_from_saturated_latency,
 )
 from latency_bench.latency.hardware_info import (
+    instance_id_from_gpu_deployment,
     collect_hardware_fingerprint,
     describe_participating_gpus,
     public_hardware_projection,

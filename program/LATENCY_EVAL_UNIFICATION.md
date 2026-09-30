@@ -21,7 +21,7 @@ latency loop。
 
 ```text
 scripts/profile.sh simulate
-  -> cross_device protocol / profile resolver
+  -> profiling CLI / profile resolver
   -> task-owned `latency-eval --eval-config`
   -> common `run_from_config()`
   -> common simulated/realtime executor
@@ -136,7 +136,7 @@ executor 仍被复用。
 - **全 burst slot 的 steady 分布回退到机器级 calm 池**（`latency_bench/latency/burst_profile.py`）。
   `steady: None` 时不再留给 sampler 崩溃：slot 自身无 calm 样本时用机器级 calm 池拟合；
   整个 profile 无任何 calm 样本时在 build 阶段报错（无效 artifact 不允许生成）。
-- **profile artifact 路径 containment**（`latency_bench/cross_device/profile_resolver.py`）。
+- **profile artifact 路径 containment**（`latency_bench/profiling/profile_resolver.py`）。
   `_download_profile_artifact` 的 `path_in_repo` / `checkpoint` / `model_config` 拼接前做
   absolute + `..` 逃逸校验，与非受信远端 profile 的来源一致。
 - native eval entrypoint 统一使用调用者当前激活的 Python 环境，不在 registry 或 launcher 中切换解释器。

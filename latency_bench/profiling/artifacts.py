@@ -1,3 +1,5 @@
+"""Define local and published coordinates for profile, measurement and replay artifacts."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,0 +1,9 @@
+split_seed: 20261004
+fit_runs: 28
+latency_seed_base: 202610040
+parallel_runs: 27
+inference_batch_size:
+  qwenoft: 27
+  qwengr00t: 27
+bootstrap_seed: 20261004
+bootstrap_samples: 10000

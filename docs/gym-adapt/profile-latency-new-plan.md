@@ -123,7 +123,7 @@ Command examples below use variables bound to actual paths in the run ledger. Re
 
 ### P: profile the zero-latency VLA on 3090
 
-Reuse `scripts/profile.sh` and `latency_bench.cross_device.runner.run_profile`. Add or adapt only the requested workload in the isolated checkout's `configs/profiles.yaml`. Point its base config at the selected L0 bundle and its artifact root at a fresh run directory.
+Reuse `scripts/profile.sh` and `latency_bench.profiling.runner.run_profile`. Add or adapt only the requested workload in the isolated checkout's `configs/profiles.yaml`. Point its base config at the selected L0 bundle and its artifact root at a fresh run directory.
 
 Set `session_count: 5`, `eval_episodes: 10`, `evaluation_seed: 42`, `calibrate_env_fps: false`, one inference worker and one environment. Record actual session seeds; five measurement runs are not five training seeds. The CLI does not provide episode/session-count flags, so configure the preset.
 
@@ -175,7 +175,7 @@ Current Sample Factory IID training injects action latency only; it does not rep
 
 Run 10 episodes with the established seeds/raw-step horizon and the requested clock. Bind the new checkpoint with `policy.type: gymnasium_sf` and run `python -m latency_bench.run --config "$SMALL_EVAL_YAML"`.
 
-Use `executor.mode: simulated`, `simulated_worker_capacity: 1`, `simulated_inference_pool: true`, `inference_devices: [cuda:0]`, `latency.method: iid`, the new profile path, latency seed 0 and `evaluation.eval_latency_values: null`. Follow `cross_device/runtime_configs.py::simulation_config` for replay semantics, then bind the small policy. The default profile simulation command may bind the source VLA instead.
+Use `executor.mode: simulated`, `simulated_worker_capacity: 1`, `simulated_inference_pool: true`, `inference_devices: [cuda:0]`, `latency.method: iid`, the new profile path, latency seed 0 and `evaluation.eval_latency_values: null`. Follow `profiling/runtime_configs.py::simulation_config` for replay semantics, then bind the small policy. The default profile simulation command may bind the source VLA instead.
 
 This evaluation includes worker occupancy/capacity drops, unlike action-only IID training. Verify the distribution and drop counts in recorded traces. Do not leave the default fixed-latency sweep enabled or replace the measured distribution with a single frame delay. Save results before removing the local small-model copy.
 
@@ -282,4 +282,4 @@ Completion requires P/B/S/E/R/C/V/F evidence, all four requested artifact upload
 5. Run E, then R/C/V; upload artifacts as they become ready. Set the delayed heartbeat after V is confirmed healthy.
 6. Transfer the final bundle, run F, synchronize reports/evidence, verify uploads and reclaim unused 3090 checkpoint copies.
 
-Implementation references: `configs/profiles.yaml`, `latency_bench/cross_device/{protocol,runner,runtime_configs}.py`, `docs/profiling/cookbook.md`, `training/train.py`, `scripts/rollout_data/{export_sf_teacher_dataset,prepare_starvla_lerobot_dataset}.py`, and `third_party/starVLA/starVLA/training/train_starvla.py`. Prior experimental context is in the same project's `exps` task; historical results are not results from this run.
+Implementation references: `configs/profiles.yaml`, `latency_bench/profiling/{cli,runner,runtime_configs}.py`, `docs/profiling/cookbook.md`, `training/train.py`, `scripts/rollout_data/{export_sf_teacher_dataset,prepare_starvla_lerobot_dataset}.py`, and `third_party/starVLA/starVLA/training/train_starvla.py`. Prior experimental context is in the same project's `exps` task; historical results are not results from this run.

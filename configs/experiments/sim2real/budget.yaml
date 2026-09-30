@@ -1,0 +1,26 @@
+__base__: protocol.yaml
+models: [qwenoft, qwengr00t]
+task: flappy
+total_runs: 55
+reused_run_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+original_fit: [0, 1, 2, 3, 4]
+original_valid: [5, 6, 7, 8, 9]
+fit_sizes: [5, 10, 20, 30, 40, 50]
+split_seed: 20260929
+validation_runs: 5
+new_latency_seed_base: 1000
+normalizer_source: paper/exps/sim2real_heldout/references.csv
+bootstrap_repetitions: 2000
+tolerance_pp: 2
+verification:
+  parallel_runs: 8
+  max_steps: 64
+sources:
+  qwenoft:
+    ref: sim2real/flappy/qwenoft/1x-rtx3090/instance_129d8b35443318ea/20260928T173802629272Z
+    revision: b43cfc544b818f55ce70d1f7e929b92831c433c7
+    reference_return: 439.13
+  qwengr00t:
+    ref: sim2real/flappy/qwengr00t/1x-rtx3090/instance_33621945a15d3b38/20260928T190345050625Z
+    revision: fbdc9ed65d2f16630d1d37c3a78467b8b147e262
+    reference_return: 428.48

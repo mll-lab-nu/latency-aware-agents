@@ -6,13 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from latency_bench.cross_device.profile_resolver import (
+from latency_bench.profiling.profile_resolver import (
     resolve_model_artifacts,
     resolve_profile_artifacts,
 )
-import latency_bench.cross_device.protocol as protocol
+import latency_bench.profiling.cli as protocol
 from latency_bench.eval.config import resolve_evaluation_config
-from latency_bench.cross_device.spec import load_profile_spec
+from latency_bench.profiling.spec import load_profile_spec
 
 
 def _spec(tmp_path: Path) -> dict:

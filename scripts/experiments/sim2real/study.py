@@ -5,14 +5,10 @@ and machines belongs to the caller.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
-
 import argparse
 import os
 import shutil
-import subprocess
 import sys
-from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, stdev
@@ -22,109 +18,22 @@ from huggingface_hub import HfApi
 
 from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.core.config import load_config
-from latency_bench.cross_device.grouped_replay import EPISODES
-from latency_bench.cross_device.instances import instance_id_from_gpu_deployment
-from latency_bench.cross_device.runtime_configs import (
-    _apply_profile_latency_summary,
-    _set_env_clock_preserving_observation_stride,
-    eval_command,
-    write_generated_config,
+from latency_bench.profiling.runtime_configs import write_generated_config
+from scripts.experiments.sim2real import runtime
+from latency_bench.profiling.spec import gpu_name_registry
+from scripts.experiments.sim2real.assets import prepare_assets, prepare_model_assets, portable_eval_config
+from scripts.experiments.sim2real.publication import DATASET_REPO, StudyPublication, download_real_experiment
+from latency_bench.latency.hardware_info import (
+    collect_hardware_fingerprint, describe_participating_gpus, instance_id_from_gpu_deployment,
+    public_hardware_projection,
 )
-from latency_bench.cross_device.spec import gpu_name_registry
-from latency_bench.cross_device.study_assets import prepare_assets, prepare_model_assets, portable_eval_config
-from latency_bench.cross_device.study_publication import DATASET_REPO, StudyPublication, download_real_experiment
-from latency_bench.latency.hardware_info import collect_hardware_fingerprint, describe_participating_gpus, public_hardware_projection
 from latency_bench.latency.profile_builder import build_profile_from_traces
 from latency_bench.utils.io import load_jsonl_records, read_json, write_csv, write_json, write_json_atomic
 
+from latency_bench.utils.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
 REGISTRY = REPO_ROOT / "configs/experiments/sim2real.yaml"
-FIT_RUNS = tuple(range(5))
-VALID_RUNS = tuple(range(5, 10))
-ENV_SEED = 2_000_000
-ENV_SEED_STRIDE = 20
-CALIBRATION_SAMPLES = 500
-METHODS = ("fixed", "normal", "iid", "temporal")
-
-
-def run_config(base, output, *, inference_device, simulator_device, env_fps,
-               run_id, method="measured", profile_path=None, latency_seed=None,
-               episodes=EPISODES, env_seed=ENV_SEED):
-    """Change execution coordinates while retaining the archived task contract."""
-    config = deepcopy(base)
-    _set_env_clock_preserving_observation_stride(config, env_fps)
-    if simulator_device is not None:
-        config["env"]["simulator_device"] = simulator_device
-    config["policy"]["device"] = inference_device
-    config["executor"].update(
-        mode="realtime" if method == "measured" else "simulated",
-        inference_devices=[inference_device],
-    )
-    if method == "measured":
-        for key in ("simulated_worker_capacity", "simulated_inference_pool", "inference_batch_size"):
-            config["executor"].pop(key, None)
-        config["latency"] = {"method": "measured", "device": inference_device, "sync_cuda": True}
-    else:
-        profile = read_json(profile_path)
-        config["executor"].update(
-            simulated_worker_capacity=1, simulated_inference_pool=True, inference_batch_size=1,
-        )
-        config["latency"] = {
-            "method": method, "profile_path": str(profile_path), "seed": latency_seed,
-            "profile_worker_slot": 0,
-        }
-        _apply_profile_latency_summary(config["latency"], method, profile)
-    if "add_latency_info" in base["latency"]:
-        config["latency"]["add_latency_info"] = base["latency"]["add_latency_info"]
-    config["experiment"]["seed"] = env_seed + ENV_SEED_STRIDE * run_id
-    config["evaluation"].update(
-        eval_episodes=episodes, eval_parallel_envs=1, eval_latency_values=None,
-        episode_seed_offset=0,
-    )
-    config["evaluation"].pop("eval_suites", None)
-    config["logging"].update(
-        output_dir=str(output), save_step_records=True, save_action_records=True,
-        save_latency_records=True, realtime_pipeline_profile=True,
-    )
-    return config
-
-
-def _prepare_replay_runtime(config):
-    """Resolve model inputs and RNG before building a simulated replay executor."""
-    # Real collection does not need to import the replay policy/model runtime.
-    from latency_bench.eval.config import resolve_evaluation_config
-    from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
-    from training.common.utils import seed_everything
-
-    resolve_evaluation_config(config)
-    prepare_starvla_checkpoint_input_config(config)
-    seed_everything(config["experiment"]["seed"])
-
-
-@contextmanager
-def _warmed_replay_executor(executor):
-    """Own warmup and closure, including a failed warmup, for resident replay."""
-    try:
-        executor.run_warmup()
-        yield executor
-    finally:
-        executor.close()
-
-
-def execute_stage(config, output, entry):
-    """Resume completed protocol stages; restart an interrupted stage in full."""
-    if (output / "DONE").exists():
-        return
-    if output.exists():
-        shutil.rmtree(output)
-    generated = output / "generated.yaml"
-    write_generated_config(generated, config)
-    print(f"Running {output}; log: {output / 'stdout.log'}", flush=True)
-    command = eval_command(entry, generated, output)
-    with (output / "stdout.log").open("w") as log:
-        subprocess.run(command, cwd=REPO_ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
-    (output / "DONE").touch()
 
 
 def admitted_latencies(output, count):
@@ -136,7 +45,7 @@ def admitted_latencies(output, count):
     return [next(samples) for _ in range(count)]
 
 
-def calibrate(base, training_profile, output, *, inference_device, simulator_device, entry, publication):
+def calibrate(base, training_profile, output, *, inference_device, simulator_device, entry, publication, protocol):
     """Match training-clock mean latency using two independent realtime probes."""
     result_path = output / "calibration.json"
     if result_path.exists():
@@ -147,21 +56,21 @@ def calibrate(base, training_profile, output, *, inference_device, simulator_dev
     target = training_profile["summary"]["mean_ms"] * training_fps / 1000.0
     fps = training_fps
     rounds = []
-    for index in range(2):
+    for index in range(protocol["calibration_rounds"]):
         probe_dir = output / f"probe_{index}"
-        config = run_config(
+        config = runtime.run_config(
             base, probe_dir, inference_device=inference_device,
-            simulator_device=simulator_device, env_fps=fps, run_id=-(index + 1),
+            simulator_device=simulator_device, env_fps=fps, run_id=-(index + 1), protocol=protocol,
         )
-        config["experiment"]["seed"] = ENV_SEED - CALIBRATION_SAMPLES * (index + 1)
+        config["experiment"]["seed"] = protocol["seed"] - protocol["calibration_samples"] * (index + 1)
         # At least one request is admitted per episode. The driver finishes
         # the current episode once the sample budget has been collected.
         config["evaluation"].update(
-            eval_episodes=CALIBRATION_SAMPLES, calibration_samples=CALIBRATION_SAMPLES,
+            eval_episodes=protocol["calibration_samples"], calibration_samples=protocol["calibration_samples"],
         )
-        execute_stage(config, probe_dir, entry)
+        runtime.execute_stage(config, probe_dir, entry)
         publication.publish(f"calibration/probe_{index}", [probe_dir])
-        samples = admitted_latencies(probe_dir, CALIBRATION_SAMPLES)
+        samples = admitted_latencies(probe_dir, protocol["calibration_samples"])
         mean_ms = mean(samples)
         actual_frames = mean_ms * fps / 1000.0
         rounds.append({
@@ -186,6 +95,7 @@ def calibrate(base, training_profile, output, *, inference_device, simulator_dev
 
 def fit_profile(output, *, model, task, deployment, experiment_id, calibration, contract):
     """Only the five fitting sessions are inputs to the frozen profile."""
+    protocol = contract["protocol"]
     destination = output / "profile"
     if not (destination / "DONE").exists():
         if destination.exists():
@@ -194,12 +104,12 @@ def fit_profile(output, *, model, task, deployment, experiment_id, calibration, 
             sessions=[{
                 "measure_session_id": index,
                 "observation_attempts": output / "real" / str(index) / "observation_attempts.jsonl",
-            } for index in FIT_RUNS],
+            } for index in protocol["fit"]],
             output_dir=destination, model_id=model, workload_id=task,
             gpu_class=deployment["gpu_class"], instance_id=deployment["instance_id"],
             source_run_id=experiment_id, env_fps=calibration["selected_env_fps"],
             metadata={
-                "fit_session_ids": list(FIT_RUNS), "validation_session_ids": list(VALID_RUNS),
+                "fit_session_ids": list(protocol["fit"]), "validation_session_ids": list(protocol["valid"]),
                 "experiment_contract": contract,
             },
         )
@@ -242,13 +152,13 @@ def run_rows(output, groups):
     return rows
 
 
-def summarize_real(output):
+def summarize_real(output, protocol):
     """Finish the real stage independently of any simulated results."""
-    rows = run_rows(output, [("fit", FIT_RUNS), ("valid", VALID_RUNS)])
+    rows = run_rows(output, [("fit", protocol["fit"]), ("valid", protocol["valid"])])
     real = [row["mean_return"] for row in rows if row["condition"] == "valid"]
     result = {
         "return_field": "episode_return_env", "statistical_unit": "run_mean",
-        "n_validation_runs": len(VALID_RUNS), "episodes_per_run": EPISODES,
+        "n_validation_runs": len(protocol["valid"]), "episodes_per_run": protocol["episodes"],
         "real": confidence_interval(real), "runs": rows,
     }
     task_metrics = {}
@@ -260,7 +170,7 @@ def summarize_real(output):
     result["task_metrics"] = task_metrics
     calibration = read_json(output / "calibration/calibration.json")
     timing = {}
-    for name, ids in (("fit", FIT_RUNS), ("valid", VALID_RUNS)):
+    for name, ids in (("fit", protocol["fit"]), ("valid", protocol["valid"])):
         latencies = []
         drops = 0
         for index in ids:
@@ -316,6 +226,7 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
         output.mkdir(parents=True)
         write_json_atomic(contract_path, contract)
         write_json(output / "hardware.json", fingerprint)
+    protocol = contract["protocol"]
     write_generated_config(output / "archived_eval.yaml", base)
     source_ref = f"sim2real/{task}/{model}/{deployment['gpu_class']}/{deployment['instance_id']}/{output.name}"
     public_hardware = public_hardware_projection(
@@ -338,13 +249,13 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
     )])
     calibration = calibrate(
         base, training_profile, output / "calibration", inference_device=inference_device,
-        simulator_device=simulator_device, entry=entry, publication=publication,
+        simulator_device=simulator_device, entry=entry, publication=publication, protocol=protocol,
     )
-    for index in FIT_RUNS:
+    for index in protocol["fit"]:
         path = output / "real" / str(index)
-        execute_stage(run_config(
+        runtime.execute_stage(runtime.run_config(
             base, path, inference_device=inference_device, simulator_device=simulator_device,
-            env_fps=calibration["selected_env_fps"], run_id=index,
+            env_fps=calibration["selected_env_fps"], run_id=index, protocol=protocol,
         ), path, entry)
         publication.publish(f"real/{index}", [path])
     profile_path = fit_profile(
@@ -352,14 +263,14 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
         calibration=calibration, contract=manifest,
     )
     publication.publish("profile", [profile_path.parent])
-    for index in VALID_RUNS:
+    for index in protocol["valid"]:
         path = output / "real" / str(index)
-        execute_stage(run_config(
+        runtime.execute_stage(runtime.run_config(
             base, path, inference_device=inference_device, simulator_device=simulator_device,
-            env_fps=calibration["selected_env_fps"], run_id=index,
+            env_fps=calibration["selected_env_fps"], run_id=index, protocol=protocol,
         ), path, entry)
         publication.publish(f"real/{index}", [path])
-    summarize_real(output)
+    summarize_real(output, protocol)
     (output / "REAL_DONE").touch()
     revision = publication.publish("real_complete", [output / name for name in (
         "real_runs.csv", "real_summary.json", "REAL_DONE",
@@ -404,16 +315,16 @@ def run_sim(base, entry, *, output, manifest, source_revision,
         for method in protocol["methods"]:
             for index, valid_run in enumerate(protocol["valid"]):
                 path = output / "sim" / method / str(index)
-                execute_stage(run_config(
+                runtime.execute_stage(runtime.run_config(
                     base, path, inference_device=inference_device, simulator_device=simulator_device,
                     env_fps=calibration["selected_env_fps"], run_id=valid_run,
                     method=method, profile_path=profile_path, latency_seed=index,
-                    episodes=protocol["episodes"], env_seed=protocol["seed"],
+                    protocol=protocol,
                 ), path, entry)
                 publication.publish(f"sim/{method}/{index}", [path])
     else:
         # The optional parallel runtime imports model/executor dependencies only for replay.
-        from latency_bench.cross_device.study_parallel import simulate
+        from scripts.experiments.sim2real.replay import simulate
         simulate(base, output, manifest, publication, inference_device=inference_device,
                  simulator_device=simulator_device, parallel_runs=parallel_runs)
     summarize_sim(output, manifest)
@@ -427,7 +338,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", choices=("real", "sim"), required=True)
     parser.add_argument("--task", choices=registry["tasks"])
-    parser.add_argument("--model", choices=("qwenoft", "qwenpi_v3", "qwengr00t"))
+    parser.add_argument("--model", choices=registry["models"])
     parser.add_argument("--source-ref")
     parser.add_argument("--source-revision")
     parser.add_argument("--gpu", type=int, required=True)
@@ -510,8 +421,7 @@ def main(argv=None):
         "model_repo": registry["model_repo"], "model_revision": registry["model_revision"],
         "deployment": deployment, "visible_gpus": visible, "python": sys.executable,
         "archived_eval": base, "training_profile": training_profile,
-        "protocol": {"fit": list(FIT_RUNS), "valid": list(VALID_RUNS), "episodes": EPISODES,
-                     "seed": ENV_SEED, "calibration_samples": CALIBRATION_SAMPLES, "methods": list(METHODS)},
+        "protocol": registry["protocol"],
     }
     result = run_real(
         base, training_profile, entry, output=output, model=model, task=task,

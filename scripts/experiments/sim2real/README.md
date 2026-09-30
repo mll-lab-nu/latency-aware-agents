@@ -1,5 +1,19 @@
 # Held-out sim2real: one experiment per invocation
 
+Implementation lives in this experiment directory. `study.py` owns the held-out
+protocol; `runtime.py` owns runtime overlays and resource lifetime; `replay.py`
+owns logical sessions and resident replay; `assets.py` and `publication.py` own
+pinned inputs and experiment output delivery. The budget entrypoints and reports
+are documented in [the budget protocol](../../../program/SIM2REAL_BUDGET.md).
+Shared deployment profiling lives in `latency_bench.profiling`.
+
+The held-out recipe is `configs/experiments/sim2real.yaml`, including its shared
+`sim2real/protocol.yaml` base. New experiment manifests freeze the episode count,
+seed, seed stride, methods, fitting/validation runs and calibration parameters.
+Replay uses the frozen manifest. Historical snapshots retain their original
+schema and source revision; no missing protocol fields are inferred from the
+current recipe.
+
 `run.sh` runs one task/model on one explicitly selected inference GPU, in the
 foreground. It has no job queue, GPU allocator, background process manager,
 monitor or retry loop. The calling agent owns machine setup, concurrent jobs,
@@ -77,9 +91,9 @@ asset resolution explicitly selects their original `action_prefix.mode: none`
 for the current task-contract runtime. Archived YAML snapshots remain verbatim.
 
 The registry selects the exact source archive and model/training-profile
-coordinates. `study_assets.prepare_model_assets` relocates those assets and
+coordinates. `assets.prepare_model_assets` relocates those assets and
 records provenance; `portable_eval_config` prepares the portable published
-template; `study.calibrate` freezes the runtime clock; and `study.run_config`
+template; `study.calibrate` freezes the runtime clock; and `runtime.run_config`
 applies per-run devices, latency method/seed, episode count, run-seed fields and
 logging. The evaluator assigns episode IDs under the existing run protocol;
 `run_real` and `run_sim` own stage completion, resume and publication. The table

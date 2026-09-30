@@ -15,7 +15,16 @@ third-party sources in one checkout. Installation and simulator setup live in
 | `latency_bench/eval`, `logging` | Episode orchestration, trace output and aggregate metrics |
 | `latency_bench/envs`, `policy`, `integrations` | Simulator, model and training-framework boundaries |
 | `latency_bench/data`, `training`, `scripts` | Dataset conversion, training recipes and user entrypoints |
-| `latency_bench/cross_device` | Deployment identity, profile artifacts and cross-device orchestration |
+| `latency_bench/profiling` | Deployment latency measurement, profile resolution/publication and replay |
+| `scripts/experiments/sim2real` | Held-out and fit-budget research protocols, experiment replay and reports |
+
+The profiling package is a shared workflow layer exposed by `scripts/profile.sh`.
+It depends on runtime, evaluation and latency primitives. Experiment scripts
+consume those capabilities; profiling never imports the experiment scripts.
+Physical GPU/topology identity belongs to `latency.hardware_info` and retains
+its existing artifact identifiers. Pinned tasks, model revisions, split seeds,
+episode counts and report parameters belong to experiment recipes and frozen
+manifests, rather than the shared profiling API.
 
 The [English](latency_execution_semantics_en.md) and
 [Chinese](latency_execution_semantics_zh.md) contracts define experiment timing.

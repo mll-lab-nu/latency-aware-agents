@@ -1,3 +1,10 @@
+__base__: sim2real/protocol.yaml
+models: [qwenoft, qwenpi_v3, qwengr00t]
+protocol:
+  fit: [0, 1, 2, 3, 4]
+  valid: [5, 6, 7, 8, 9]
+  calibration_samples: 500
+  calibration_rounds: 2
 model_repo: latency-sensitive-bench/benchmark-models
 model_revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
 backbone:

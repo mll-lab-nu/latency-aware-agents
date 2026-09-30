@@ -1,3 +1,5 @@
+"""Resolve exact model artifacts and published deployment profiles."""
+
 from __future__ import annotations
 
 import os
@@ -6,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from latency_bench.core.config import load_config
-from latency_bench.cross_device.sync import download_profile
+from latency_bench.profiling.sync import download_profile
 from latency_bench.utils.io import read_json
 
 

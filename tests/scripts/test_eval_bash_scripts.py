@@ -953,7 +953,7 @@ printf 'start_method=%s\\n' "${LATENCY_BENCH_ENV_BACKEND_START_METHOD:-}" >> "$L
     calls = calls_path.read_text(encoding="utf-8")
     assert "conda activate" not in calls
     assert (
-        "python -m latency_bench.cross_device.protocol "
+        "python -m latency_bench.profiling.cli "
         f"list --model {model} --workload flappy"
     ) in calls
     assert "start_method=spawn" in calls

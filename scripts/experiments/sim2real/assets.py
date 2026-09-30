@@ -8,9 +8,7 @@ from huggingface_hub import hf_hub_download, snapshot_download
 
 from latency_bench.core.config import load_config
 from latency_bench.utils.io import read_json
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from latency_bench.utils.paths import REPO_ROOT
 
 
 def portable_eval_config(config, entry):

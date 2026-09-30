@@ -8,9 +8,9 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, hf_hub_download
 
-from latency_bench.cross_device.profile_resolver import resolve_model_artifacts
-from latency_bench.cross_device.runner import run_profile
-from latency_bench.cross_device.spec import load_profile_spec
+from latency_bench.profiling.profile_resolver import resolve_model_artifacts
+from latency_bench.profiling.runner import run_profile
+from latency_bench.profiling.spec import load_profile_spec
 from latency_bench.utils.io import write_json_atomic
 from scripts.tasks.decision_history.eval_vla_hist8 import file_sha256
 

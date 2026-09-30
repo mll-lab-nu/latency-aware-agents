@@ -1,3 +1,5 @@
+"""Build profiling and replay configs while preserving the task contract."""
+
 from __future__ import annotations
 
 import sys
@@ -33,7 +35,7 @@ def measure_config(
     return config
 
 
-def _set_env_clock_preserving_observation_stride(
+def set_env_clock_preserving_observation_stride(
     config: dict[str, Any], env_fps: float,
 ) -> None:
     """Change the simulation rate while keeping the configured observation stride."""
@@ -42,7 +44,7 @@ def _set_env_clock_preserving_observation_stride(
     config["env"]["obs_fps"] = env_fps / observation_stride
 
 
-def _apply_profile_latency_summary(
+def apply_profile_latency_summary(
     latency_config: dict[str, Any], method: str, profile: dict[str, Any],
 ) -> None:
     """Add fixed or normal latency parameters from the selected profile summary."""
@@ -64,7 +66,7 @@ def simulation_config(
     latency_seed: int,
 ) -> dict[str, Any]:
     config = _base_config(spec, output_dir)
-    _set_env_clock_preserving_observation_stride(config, profile["env_fps"])
+    set_env_clock_preserving_observation_stride(config, profile["env_fps"])
     config["env"].update(spec["simulation_env"])
     config["executor"] = {
         "mode": "simulated",
@@ -86,7 +88,7 @@ def simulation_config(
         "instance_id": profile["instance_id"],
         "source_run_id": profile["source_run_id"],
     }
-    _apply_profile_latency_summary(config["latency"], method, profile)
+    apply_profile_latency_summary(config["latency"], method, profile)
     config["evaluation"]["eval_parallel_envs"] = spec["simulation_parallel_envs"]
     if "inference_batch_size" in spec:
         config["executor"]["inference_batch_size"] = spec["inference_batch_size"]

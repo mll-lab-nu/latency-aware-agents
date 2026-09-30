@@ -315,7 +315,7 @@ Hugging Face snapshot 中的 `steps_5000_pytorch_model.pt` 是指向 `blobs/<has
 `Path.resolve()` 会把 checkpoint 变成没有 `.pt` suffix 的 blob path，随后 StarVLA 按 suffix 验证
 时拒绝它。这个问题存在两层，因此两层都必须修：
 
-- `latency_bench/cross_device/profile_resolver.py` 保留 snapshot 内 checkpoint path，只用
+- `latency_bench/profiling/profile_resolver.py` 保留 snapshot 内 checkpoint path，只用
   `stat()` 确认目标存在；
 - `third_party/starVLA/starVLA/model/framework/share_tools.py` 使用 `os.path.abspath()` 规范化
   `..`，但不 dereference symlink。

@@ -1,0 +1,5 @@
+protocol:
+  episodes: 2
+  seed: 2000000
+  seed_stride: 20
+  methods: [fixed, normal, iid, temporal]

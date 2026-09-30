@@ -11,7 +11,7 @@ import pytest
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.cross_device.grouped_replay import RunTrajectoryLogger
+from scripts.experiments.sim2real.replay import RunTrajectoryLogger
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
@@ -1451,7 +1451,7 @@ def test_grouped_runs_keep_session_streams_and_seeds_when_slots_change(tmp_path,
     executor.logger = RunTrajectoryLogger(
         tmp_path, complete, run_paths={group[0] // 20: tmp_path / "runs" / str(group[0] // 20)
                                       for group in groups},
-        env_seed=2000000, env_seed_stride=20,
+        protocol={"seed": 2000000, "seed_stride": 20, "episodes": 2},
     )
     try:
         metrics = executor.run_episodes(
@@ -1480,7 +1480,7 @@ def test_grouped_runs_keep_session_streams_and_seeds_when_slots_change(tmp_path,
 
 def test_ten_run_slots_keep_repeated_run_ids_separate_across_settings(tmp_path):
     # Long-lived grouped-replay contract: two settings may share run IDs and seeds.
-    from latency_bench.cross_device.budget import replay_settings
+    from scripts.experiments.sim2real.replay import replay_settings
     from types import SimpleNamespace
     policy = MetadataCapturePolicy()
     executor, _ = _executor(tmp_path / 'engine', num_slots=10, env_max_steps=4, policy=policy)
@@ -1491,7 +1491,8 @@ def test_ten_run_slots_keep_repeated_run_ids_separate_across_settings(tmp_path):
     published = []
     try:
         replay_settings(executor, jobs, tmp_path,
-                        SimpleNamespace(publish=lambda stage, paths: published.append(stage)))
+                        SimpleNamespace(publish=lambda stage, paths: published.append(stage)),
+                        protocol={"seed": 2000000, "seed_stride": 20, "episodes": 2})
     finally:
         executor.close()
     assert max(len(batch) for batch in policy.batches) == 10

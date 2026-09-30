@@ -28,6 +28,8 @@
 
 Demon Attack 旧 CuLE teacher 的首次丢命终评与奖励裁剪问题、300局反事实复现、修正后的正式成绩及 Flappy 同预算对照，见 [评估合同](DEMON_ATTACK_EVAL_AUDIT.md) 和 [核验记录](logs/demon-cule-evaluation-audit-2026-09-29.md)。
 
+共享部署 profiling 位于 `latency_bench/profiling`；sim2real 复现代码位于 `scripts/experiments/sim2real`，固定参数位于 `configs/experiments/sim2real/`。
+
 本地 Balance H8 新路线见 [BALANCE_LOCAL_H8](BALANCE_LOCAL_H8.md)；运行状态以该文档的最新目录与 PROGRESS 为准。
 
 | 文档 | 内容 / 主要用途 | 状态与重叠关系 |

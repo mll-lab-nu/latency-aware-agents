@@ -190,7 +190,7 @@ def evaluation_config(task: str, bundle: Path, backbone: Path, output: Path, *, 
 
 
 def profile_spec(task: str, config_path: Path, bundle: Path, output: Path) -> dict:
-    from latency_bench.cross_device.spec import load_profile_spec
+    from latency_bench.profiling.spec import load_profile_spec
 
     spec = load_profile_spec(ROOT / "configs/profiles.yaml", "gr00t", "flappy")
     spec.update(model_id="gr00t", workload_id=task, base_config=str(config_path), artifact_root=str(output),
@@ -272,7 +272,7 @@ def main():
         (args.output / "eval.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
         print(args.output / "eval.yaml")
     elif args.command == "profile":
-        from latency_bench.cross_device.runner import run_profile
+        from latency_bench.profiling.runner import run_profile
 
         spec = profile_spec(args.task, args.config.resolve(), args.bundle.resolve(), args.output.resolve())
         print(json.dumps(run_profile(spec, resume_run_id=args.resume, publish=False)))

@@ -1,3 +1,5 @@
+"""Resolve registered model/workload presets and GPU names."""
+
 from __future__ import annotations
 
 from pathlib import Path

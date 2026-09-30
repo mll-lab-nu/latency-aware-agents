@@ -1,4 +1,4 @@
-from latency_bench.cross_device.instances import instance_id_from_gpu_deployment
+from latency_bench.latency.hardware_info import instance_id_from_gpu_deployment
 
 
 def test_instance_id_uses_all_gpu_uuids_and_topology_links():

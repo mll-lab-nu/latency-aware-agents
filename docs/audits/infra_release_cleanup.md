@@ -33,7 +33,7 @@ Two disjoint test selections produced **581 passed, 10 failed, 1 skipped,
 
 ```bash
 python -m pytest tests/eval tests/core tests/logging tests/scheduler \
-  tests/executors tests/integration/test_run.py tests/cross_device tests/latency \
+  tests/executors tests/integration/test_run.py tests/profiling tests/latency \
   tests/envs/test_env_factory.py tests/policies/test_starvla_task_policy.py \
   tests/scripts/test_starvla_train_task.py tests/scripts/test_starvla_artifacts.py -q
 python -m pytest tests/policies/test_starvla_policy.py \

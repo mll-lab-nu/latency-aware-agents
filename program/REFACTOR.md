@@ -213,8 +213,8 @@
 
 - [x] **状态：已完成**
 - **决定：** Flappy 预算协议共用 55-run 总体及复用 runs 定义。
-- **代码 / 验收归属：** [budget.py](../latency_bench/cross_device/budget.py)；[test_sim2real.py](../tests/cross_device/test_sim2real.py)。
-- **本对话第二批验收：** ALL_RUN_IDS与REUSED_RUN_IDS共用固定55-run协议；original fit顺序、两frozen splits、五次partitions及55个latency seeds前后一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **代码 / 验收归属：** [budget.py](../scripts/experiments/sim2real/budget.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
+- **本对话第二批验收：** 实验配置定义55-run总体及复用run列表；original fit顺序、两frozen splits、五次partitions及55个latency seeds前后一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-022"></a>
 
@@ -222,8 +222,8 @@
 
 - [x] **状态：已完成**
 - **决定：** 每 run 两 episode 的 session 宽度由一处定义，grouped replay、seed 和完成计数共同使用。
-- **代码 / 验收归属：** [grouped_replay.py](../latency_bench/cross_device/grouped_replay.py)；[test_sim2real.py](../tests/cross_device/test_sim2real.py)。
-- **本对话第二批验收：** grouped_replay持有唯一EPISODES=2，study同名导入。session sampler、seed stride、trace/DONE与ten-slot公开ID用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **代码 / 验收归属：** [replay.py](../scripts/experiments/sim2real/replay.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
+- **本对话第二批验收：** 每run局数由实验protocol配置定义，runtime与replay显式接收冻结值。session sampler、seed stride、trace/DONE与ten-slot公开ID用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-023"></a>
 
@@ -231,7 +231,7 @@
 
 - [x] **状态：已完成**
 - **决定：** 共用 clock/obs stride 和 latency summary 的相同变换；运行坐标和各任务专属配置由调用方提供。
-- **代码 / 验收归属：** [runtime_configs.py](../latency_bench/cross_device/runtime_configs.py)；[test_profile_protocol.py](../tests/cross_device/test_profile_protocol.py)。
+- **代码 / 验收归属：** [runtime_configs.py](../latency_bench/profiling/runtime_configs.py)；[test_profile_protocol.py](../tests/profiling/test_profile_protocol.py)。
 - **本对话第二批验收：** 仅共享clock/obs stride与profile scalar变换，IID/Temporal不读取summary；两builder差异留caller。184份config全部字段一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-024"></a>
@@ -240,7 +240,7 @@
 
 - [x] **状态：已完成**
 - **决定：** resident replay 共用配置准备和 executor 生命周期；backend、warmup、close 的所有者明确。
-- **代码 / 验收归属：** [study_parallel.py](../latency_bench/cross_device/study_parallel.py)；[test_sim2real.py](../tests/cross_device/test_sim2real.py)。
+- **代码 / 验收归属：** [replay.py](../scripts/experiments/sim2real/replay.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
 - **本对话第二批验收：** 只共享resolve→checkpoint inputs→config seed，真实Python/NumPy/Torch下一抽样验证run seed并恢复测试RNG。backend/warmup计时/close保持caller。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-025"></a>
@@ -249,16 +249,16 @@
 
 - [x] **状态：已完成**
 - **决定：** grouped replay 共用 episode 结果持久化；完整 trace 写完再产生 DONE 和 publication。
-- **代码 / 验收归属：** [grouped_replay.py](../latency_bench/cross_device/grouped_replay.py)；[test_sim2real.py](../tests/cross_device/test_sim2real.py)。
+- **代码 / 验收归属：** [replay.py](../scripts/experiments/sim2real/replay.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
 - **本对话第二批验收：** 五参数helper只flatten/run/flush/return；logger安装、cleanup、identity映射、publication与计时保持caller。grouped/ten-slot/resume用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-026"></a>
 
-### RF-026 — 显式 timing 坐标与历史迁移
+### RF-026 — 显式 timing 坐标
 
 - [x] **状态：已完成**
-- **决定：** timing producer 写明 stage、model、split、fit_runs、method、run_ids；报告直接读语义字段。旧格式通过显式迁移生成副本，原记录保留。
-- **代码 / 验收归属：** [budget_report.py](../latency_bench/cross_device/budget_report.py)；[test_sim2real.py](../tests/cross_device/test_sim2real.py)。
+- **决定：** timing producer 写明 stage、model、split、fit_runs、method、run_ids；报告直接读语义字段。报告通过显式 timing-root 读取已有独立计时产物，原记录保留。
+- **代码 / 验收归属：** [budget_report.py](../scripts/experiments/sim2real/budget_report.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
 
 <a id="rf-027"></a>
 
@@ -266,7 +266,7 @@
 
 - [x] **状态：已完成**
 - **决定：** 共用 case 归一化误差算式；paired/unpaired bootstrap、模型等权和跨 split 样本 SD 仍由各报告计算。
-- **代码 / 验收归属：** [budget_report.py](../latency_bench/cross_device/budget_report.py)；[test_sim2real.py](../tests/cross_device/test_sim2real.py)。
+- **代码 / 验收归属：** [budget_report.py](../scripts/experiments/sim2real/budget_report.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
 
 <a id="rf-028"></a>
 
@@ -298,7 +298,7 @@
 
 - [x] **状态：已完成**
 - **决定：** shell 入口设置仓库根目录；直接 Python 调用以仓库根目录为前提。
-- **代码 / 验收归属：** [profile.sh](../scripts/profile.sh)；[test_profile_protocol.py](../tests/cross_device/test_profile_protocol.py)。
+- **代码 / 验收归属：** [profile.sh](../scripts/profile.sh)；[test_profile_protocol.py](../tests/profiling/test_profile_protocol.py)。
 
 <a id="rf-032"></a>
 
@@ -306,7 +306,7 @@
 
 - [x] **状态：已完成（Document）**
 - **决定：** 18 份来源 YAML 原样保留；明确 runtime overlay 的实际覆盖字段和模型/任务差异。
-- **代码 / 验收归属：** [study_assets.py](../latency_bench/cross_device/study_assets.py)；[test_sim2real.py](../tests/cross_device/test_sim2real.py)。
+- **代码 / 验收归属：** [assets.py](../scripts/experiments/sim2real/assets.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
 - **本对话第二批验收：** 18份archived YAML的per-task差异与overlay职责已写入sim2real README；文件/registry保持原样，按Document完成。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-033"></a>

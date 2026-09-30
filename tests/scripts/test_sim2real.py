@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import shutil
 import csv
-import json
 import random
 from fnmatch import fnmatch
 from types import SimpleNamespace
-import subprocess
 from copy import deepcopy
 from pathlib import Path
 
@@ -19,10 +17,16 @@ from latency_bench.core.config import load_config
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.samplers import build_sampler
-from latency_bench.cross_device import budget, budget_report, study
-from latency_bench.cross_device import study_assets, study_publication, grouped_replay, study_parallel
+from scripts.experiments.sim2real import budget, budget_report, study
+from scripts.experiments.sim2real import assets, publication as publication_module, replay as replay_engine, runtime
 from latency_bench.utils.io import read_json, write_json, write_jsonl
 from training.common.checkpoints import capture_rng_state, restore_rng_state
+
+
+PROTOCOL = load_config(study.REGISTRY)["protocol"]
+BUDGET_CONFIG = load_config(study.REPO_ROOT / "configs/experiments/sim2real/budget.yaml")
+REPEAT_CONFIG = load_config(study.REPO_ROOT / "configs/experiments/sim2real/repeats.yaml")
+HOLDOUT_CONFIG = load_config(study.REPO_ROOT / "configs/experiments/sim2real/holdout.yaml")
 
 
 def archived(task="flappy", model="qwenoft"):
@@ -57,9 +61,9 @@ def test_asset_resolution_pins_profile_model_and_relocates_archive(tmp_path, mon
                 file.write_text("{}")
         return str(snapshot)
 
-    monkeypatch.setattr(study_assets, "hf_hub_download", download_profile)
-    monkeypatch.setattr(study_assets, "snapshot_download", download_snapshot)
-    config, profile = study_assets.prepare_assets(registry, entry)
+    monkeypatch.setattr(assets, "hf_hub_download", download_profile)
+    monkeypatch.setattr(assets, "snapshot_download", download_snapshot)
+    config, profile = assets.prepare_assets(registry, entry)
     assert profile == training_profile
     assert config["env"] == original["env"]
     assert config["scheduler"] == original["scheduler"]
@@ -74,13 +78,13 @@ def test_asset_resolution_pins_profile_model_and_relocates_archive(tmp_path, mon
     assert (model_root / "dataset_statistics.json").is_file()
     assert downloads[0]["revision"] == registry["model_revision"]
     assert downloads[1]["revision"] == registry["backbone"]["revision"]
-    monkeypatch.setattr(study_assets, "hf_hub_download", lambda **_: pytest.fail("training profile unavailable"))
+    monkeypatch.setattr(assets, "hf_hub_download", lambda **_: pytest.fail("training profile unavailable"))
     frozen_eval = tmp_path / "eval_template.yaml"
     study.write_generated_config(frozen_eval, original)
-    replay_config = study_assets.prepare_model_assets(registry, entry, eval_config_path=frozen_eval)
+    replay_config = assets.prepare_model_assets(registry, entry, eval_config_path=frozen_eval)
     assert replay_config == config
     mikasa_entry, mikasa_archive = archived("mikasa_intercept_grab_fast", "qwenoft")
-    mikasa = study_assets.prepare_model_assets(registry, mikasa_entry)
+    mikasa = assets.prepare_model_assets(registry, mikasa_entry)
     assert mikasa["policy"]["action_prefix"] == {"mode": "none"}
     assert mikasa["env"] == mikasa_archive["env"]
     assert mikasa["scheduler"] == mikasa_archive["scheduler"]
@@ -103,9 +107,10 @@ def test_archived_task_contract_survives_clock_calibration(tmp_path, task, clock
         assert original["env"]["env_fps"] == fps
         assert original["env"]["obs_fps"] == fps / stride
         assert original["evaluation"]["eval_max_steps"] == horizon
-        config = study.run_config(
+        config = runtime.run_config(
             original, tmp_path, inference_device="cuda:0", simulator_device=None,
             env_fps=17.3, run_id=6,
+            protocol=PROTOCOL,
         )
         assert config["env"]["obs_fps"] == 17.3 / stride
         assert config["env"] == {**original["env"], "env_fps": 17.3, "obs_fps": 17.3 / stride}
@@ -117,12 +122,13 @@ def test_archived_task_contract_survives_clock_calibration(tmp_path, task, clock
         assert config["policy"] == {**original["policy"], "device": "cuda:0"}
         assert original == before
         assert entry["training_profile"]["revision"]
-        for method in study.METHODS:
+        for method in PROTOCOL["methods"]:
             profile = {"summary": {"mean_ms": 80, "std_ms": 4}} if method in {"fixed", "normal"} else {}
             write_json(profile_path, profile)
-            simulated = study.run_config(
+            simulated = runtime.run_config(
                 original, tmp_path, inference_device="cuda:0", simulator_device=None,
                 env_fps=17.3, run_id=6, method=method, profile_path=profile_path, latency_seed=7,
+                    protocol=PROTOCOL,
             )
             assert simulated["env"]["env_fps"] == 17.3
             assert simulated["env"]["obs_fps"] == 17.3 / stride
@@ -144,7 +150,7 @@ def test_archived_task_contract_survives_clock_calibration(tmp_path, task, clock
 
 
 def test_prepare_replay_runtime_resolves_task_contract_and_uses_config_seed(tmp_path):
-    """Cross-device replay owns task-input resolution followed by run-config seeding."""
+    """Sim2real replay owns task-input resolution followed by run-config seeding."""
     task_contract = tmp_path / "task_contract.json"
     write_json(task_contract, {"state_labels": ["position"], "robot_type": "unit_test"})
     seed = 2_000_100
@@ -163,7 +169,7 @@ def test_prepare_replay_runtime_resolves_task_contract_and_uses_config_seed(tmp_
 
     original_rng = capture_rng_state()
     try:
-        study._prepare_replay_runtime(config)
+        runtime.prepare_replay_runtime(config)
 
         assert config["policy"]["task_contract_path"] == str(task_contract)
         assert config["env"]["frame_stack"] == 1
@@ -222,8 +228,8 @@ class MemoryHub:
 
 def test_queued_publication_batches_completed_stages_and_recovers_receipts(tmp_path, monkeypatch):
     hub = MemoryHub()
-    monkeypatch.setattr(study_publication, "HfApi", lambda: hub)
-    publication = study_publication.StudyPublication(tmp_path, "case", defer_uploads=True)
+    monkeypatch.setattr(publication_module, "HfApi", lambda: hub)
+    publication = publication_module.StudyPublication(tmp_path, "case", defer_uploads=True)
     for run_id in (0, 1):
         path = tmp_path / "sim/fixed" / str(run_id)
         write_jsonl(path / "episode_metrics.jsonl", [{"episode_id": i} for i in range(2)])
@@ -232,7 +238,7 @@ def test_queued_publication_batches_completed_stages_and_recovers_receipts(tmp_p
     pending = sorted(tmp_path.glob("pending_uploads/**/*.json"))
     assert len(pending) == 2
     assert not (tmp_path / "uploads").exists()
-    revision = study_publication.publish_pending(pending)
+    revision = publication_module.publish_pending(pending)
     assert len(hub.snapshots) == 2
     assert not list(tmp_path.glob("pending_uploads/**/*.json"))
     for run_id in (0, 1):
@@ -241,7 +247,7 @@ def test_queued_publication_batches_completed_stages_and_recovers_receipts(tmp_p
     # Recover a published batch after its local receipt was lost, without another commit.
     (tmp_path / "uploads/sim/fixed/0.json").unlink()
     publication.publish("sim/fixed/0", [tmp_path / "sim/fixed/0"])
-    assert study_publication.publish_pending(list(tmp_path.glob("pending_uploads/**/*.json"))) == revision
+    assert publication_module.publish_pending(list(tmp_path.glob("pending_uploads/**/*.json"))) == revision
     assert len(hub.snapshots) == 2
 
 
@@ -250,8 +256,7 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
     entry, base = archived()
     registry = load_config(study.REGISTRY)
     contract = {"checkpoint": "pinned-checkpoint", "protocol": {
-        "fit": list(study.FIT_RUNS), "valid": list(study.VALID_RUNS),
-        "episodes": study.EPISODES, "seed": study.ENV_SEED, "methods": list(study.METHODS),
+        **PROTOCOL,
     }}
     deployment = {"gpu_class": "1x-test", "instance_id": "instance_test",
                   "gpus": [{"uuid": "private-gpu-uuid", "name": "test"}]}
@@ -261,7 +266,7 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
     base["policy"]["checkpoint_path"] = "/private-host/model.pt"
     output = tmp_path / "experiment"
     hub = MemoryHub()
-    monkeypatch.setattr(study_publication, "HfApi", lambda: hub)
+    monkeypatch.setattr(publication_module, "HfApi", lambda: hub)
     evaluated = []
     observed_seeds = {}
 
@@ -283,7 +288,7 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
             } for i in range(count)])
             write_jsonl(directory / "observation_attempts.jsonl", _attempts(80, 20.0))
 
-    monkeypatch.setattr(study.subprocess, "run", evaluate)
+    monkeypatch.setattr(runtime.subprocess, "run", evaluate)
     arguments = dict(
         output=output, model="qwenoft", task="flappy", deployment=deployment,
         inference_device="cuda:0", simulator_device=None, contract=contract, fingerprint={}, registry=registry,
@@ -301,7 +306,7 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
     assert calibration["selected_env_fps"] == calibration["selected_obs_fps"] == 40
     probe_seeds = [observed_seeds[output / f"calibration/probe_{i}"] for i in range(2)]
     assert set(range(probe_seeds[0], probe_seeds[0] + 500)).isdisjoint(range(probe_seeds[1], probe_seeds[1] + 500))
-    assert max(probe_seeds) + 500 <= study.ENV_SEED
+    assert max(probe_seeds) + 500 <= PROTOCOL["seed"]
     completed = tuple(evaluated)
     study.run_real(base, training_profile, entry, **arguments, resume=True)
     assert all(evaluated.count(directory) == 1 for directory in completed)
@@ -334,24 +339,24 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
                 path.write_bytes(data)
         return str(cache)
 
-    monkeypatch.setattr(study_publication, "snapshot_download", download)
+    monkeypatch.setattr(publication_module, "snapshot_download", download)
     replay = tmp_path / "different-host" / "replay"
-    manifest = study_publication.download_real_experiment(source_ref, source_revision, replay)
+    manifest = publication_module.download_real_experiment(source_ref, source_revision, replay)
     changed = deepcopy(base)
     changed["env"].update(env_fps=30, obs_fps=30)
     changed["policy"]["checkpoint_path"] = "/new-host/model.pt"
     if parallel_runs == 5:
-        monkeypatch.setattr(study_parallel, "build_replay_executor", lambda config, slots: (
+        monkeypatch.setattr(replay_engine, "build_replay_executor", lambda config, slots: (
             SimpleNamespace(run_warmup=lambda: None, close=lambda: None), config,
         ))
-        def replay_runs(executor, configs, run_paths, runtime, completed, **kwargs):
+        def replay_runs(executor, configs, run_paths, runtime_dir, completed, **kwargs):
             for run_id, path in run_paths.items():
                 config = configs[run_id]
-                assert config["experiment"]["seed"] == study.ENV_SEED + 20 * run_id
+                assert config["experiment"]["seed"] == PROTOCOL["seed"] + 20 * run_id
                 assert config["latency"]["seed"] == run_id - 5
-                study.execute_stage(config, path, entry)
+                runtime.execute_stage(config, path, entry)
                 completed(run_id, path)
-        monkeypatch.setattr(study_parallel, "replay_runs", replay_runs)
+        monkeypatch.setattr(replay_engine, "replay_runs", replay_runs)
     study.run_sim(changed, entry, output=replay, manifest=manifest, source_revision=source_revision,
                   inference_device="cuda:3", simulator_device=None,
                   fingerprint={"gpus": [{"uuid": "replay-gpu", "name": "test"}]}, parallel_runs=parallel_runs)
@@ -368,7 +373,7 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
                       fingerprint={"gpus": [{"uuid": "another-gpu", "name": "test"}]})
     summary = read_json(replay / "comparison.json")
     assert summary["task_metrics"]["success"]["real"]["mean"] == 0.5
-    for method in study.METHODS:
+    for method in PROTOCOL["methods"]:
         for i in range(5):
             config = load_config(replay / f"sim/{method}/{i}/generated.yaml")
             assert config["env"]["env_fps"] == 40
@@ -427,34 +432,41 @@ def test_cli_isolates_requested_inference_gpu(tmp_path, monkeypatch, task, gpu, 
 
 
 def test_budget_split_sizes_and_total_replay_budget(tmp_path):
-    # Long-lived fit-budget protocol, owned by the cross-device study.
-    for model in budget.MODELS:
-        manifest = budget.initialize(tmp_path / model, model)
+    # Long-lived fit-budget protocol, owned by the sim2real experiment.
+    for model in BUDGET_CONFIG["models"]:
+        manifest = budget.initialize(tmp_path / model, model, BUDGET_CONFIG)
         assert manifest["source"] == {
-            "ref": budget.SOURCES[model]["ref"], "revision": budget.SOURCES[model]["revision"],
-            "reference_return": budget.SOURCES[model]["reference_return"],
+            "ref": BUDGET_CONFIG["sources"][model]["ref"], "revision": BUDGET_CONFIG["sources"][model]["revision"],
+            "reference_return": BUDGET_CONFIG["sources"][model]["reference_return"],
         }
-    splits = budget.split_manifest()
+    assert budget.initialize(tmp_path / model, model, BUDGET_CONFIG) == manifest
+    changed = deepcopy(BUDGET_CONFIG)
+    changed["protocol"]["seed"] += 1
+    with pytest.raises(ValueError, match="Budget protocol changed"):
+        budget.initialize(tmp_path / model, model, changed)
+    assert read_json(tmp_path / model / "budget.json") == manifest
+    splits = budget.split_manifest(BUDGET_CONFIG)
     assert splits["original"]["valid"] == [5, 6, 7, 8, 9]
     assert splits["original"]["fit_order"] == [*range(5), *range(10, 55)]
     assert splits["random"]["valid"] == [2, 12, 16, 26, 48]
     episodes = 0
     for partition in splits.values():
         previous = set()
-        for count in budget.FIT_SIZES:
+        for count in BUDGET_CONFIG["fit_sizes"]:
             fit = partition["fit_order"][:count]
             assert len(set(fit)) == count
             assert set(fit).isdisjoint(partition["valid"])
             assert previous <= set(fit)
             previous = set(fit)
-            episodes += len(partition["valid"]) * 2 * len(study.METHODS) * len(budget.MODELS)
+            episodes += len(partition["valid"]) * 2 * len(PROTOCOL["methods"]) * len(BUDGET_CONFIG["models"])
         assert set(partition["fit_order"]) | set(partition["valid"]) == set(range(55))
     assert episodes == 960
 
 
 @pytest.mark.parametrize("replica_seed", [False, True])
 def test_budget_real_resume_and_fit_data_isolation(tmp_path, monkeypatch, replica_seed):
-    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", budget.SOURCES["qwenoft"]["uuid"])
+    manifest = budget.initialize(tmp_path / "qwenoft", "qwenoft", BUDGET_CONFIG)
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-test")
     entry, base = archived()
     source = tmp_path / "source"
     output = tmp_path / "qwenoft"
@@ -462,11 +474,11 @@ def test_budget_real_resume_and_fit_data_isolation(tmp_path, monkeypatch, replic
         path = source / "real" / str(run_id)
         write_jsonl(path / "observation_attempts.jsonl", _attempts(8, 20 + run_id))
         (path / "DONE").touch()
-    write_json(source / "experiment.json", {"target_deployment": {"instance_id": "test"}})
+    write_json(source / "experiment.json", {"task": "flappy", "target_deployment": {"instance_id": "test", "gpu_class": "1x-test"}})
     write_json(source / "calibration/calibration.json", {"selected_env_fps": 10})
-    monkeypatch.setattr(budget, "runtime_base", lambda *a: (base, {"assets": entry}, 10))
-    monkeypatch.setattr(budget, "collect_hardware_fingerprint", lambda: {
-        "gpus": [{"uuid": budget.SOURCES["qwenoft"]["uuid"]}],
+    monkeypatch.setattr(runtime, "runtime_base", lambda *a: (base, {"assets": entry}, 10))
+    monkeypatch.setattr(runtime, "collect_hardware_fingerprint", lambda: {
+        "gpus": [{"uuid": "GPU-test"}],
         "gpu": {"driver_version": "same"}, "packages": {"torch": "same"}, "cpu": {"model_name": "test", "cpu_mhz": "variable"},
         "memory": {"total_kib": 1024}, "system": {"hostname": "test"}})
     evaluated = []
@@ -474,29 +486,30 @@ def test_budget_real_resume_and_fit_data_isolation(tmp_path, monkeypatch, replic
         evaluated.append(config["experiment"]["seed"])
         write_jsonl(path / "observation_attempts.jsonl", _attempts(8, 20))
         (path / "DONE").touch()
-    monkeypatch.setattr(study, "execute_stage", execute)
+    monkeypatch.setattr(runtime, "execute_stage", execute)
     publication = SimpleNamespace(publish=lambda *args: None)
-    budget.measure_real(output, source, "qwenoft", "python", publication)
-    budget.measure_real(output, source, "qwenoft", "python", publication)
+    budget.measure_real(output, source, "qwenoft", "python", publication, manifest)
+    budget.measure_real(output, source, "qwenoft", "python", publication, manifest)
     assert evaluated == [2000000 + 20 * i for i in range(10, 55)]
     assert (output / "REAL_DONE").exists()
     # Recover a crash after DONE but before finalizing timing, without re-evaluation.
     timing = output / "timings/real_10.json"
     started = read_json(timing)["started_at"]
     write_json(timing, {"started_at": started})
-    budget.measure_real(output, source, "qwenoft", "python", publication)
+    budget.measure_real(output, source, "qwenoft", "python", publication, manifest)
     assert len(evaluated) == 45
     assert read_json(timing)["seconds"] >= 0
-    monkeypatch.setattr(budget, "collect_hardware_fingerprint", lambda: {
-        "gpus": [{"uuid": budget.SOURCES["qwenoft"]["uuid"]}],
+    monkeypatch.setattr(runtime, "collect_hardware_fingerprint", lambda: {
+        "gpus": [{"uuid": "GPU-test"}],
         "gpu": {"driver_version": "changed"}, "packages": {"torch": "same"}, "cpu": {"model_name": "test", "cpu_mhz": "variable"},
         "memory": {"total_kib": 1024}, "system": {"hostname": "test"}})
     with pytest.raises(ValueError, match="execution contract changed"):
-        budget.measure_real(output, source, "qwenoft", "python", publication)
+        budget.measure_real(output, source, "qwenoft", "python", publication, manifest)
     # Keep the real fitter: admission counts and provenance expose leakage.
-    budget.fit_profiles(output, source, "qwenoft", publication, partitions=budget.split_manifest())
-    for split, partition in budget.split_manifest().items():
-        for count in budget.FIT_SIZES:
+    budget.fit_profiles(output, source, "qwenoft", publication, partitions=budget.split_manifest(BUDGET_CONFIG),
+                        fit_sizes=manifest["fit_sizes"], source_ref=manifest["source"])
+    for split, partition in budget.split_manifest(BUDGET_CONFIG).items():
+        for count in BUDGET_CONFIG["fit_sizes"]:
             profile = read_json(output / "profiles" / split / str(count) / "profile.json")
             assert profile["n_admitted_observations"] == 8 * count
             assert profile["provenance"]["fit_session_ids"] == partition["fit_order"][:count]
@@ -504,16 +517,16 @@ def test_budget_real_resume_and_fit_data_isolation(tmp_path, monkeypatch, replic
     config = {"latency": {"method": "temporal", "seed": 0, "profile_worker_slot": 0,
                           "profile_path": str(output / "profiles/original/5/profile.json")}}
     clock = EnvClock(env_fps=10, obs_fps=10)
-    groups, seeds, sources = grouped_replay.grouped_inputs(
-        {run_id: {**config["latency"], "seed": budget.latency_seed(run_id)} for run_id in [3, 1]},
-        clock, env_seed=study.ENV_SEED, env_seed_stride=study.ENV_SEED_STRIDE, replica_seed=replica_seed,
+    groups, seeds, sources = replay_engine.grouped_inputs(
+        {run_id: {**config["latency"], "seed": manifest["latency_seeds"][str(run_id)]} for run_id in [3, 1]},
+        clock, protocol=PROTOCOL, replica_seed=replica_seed,
     )
     assert groups == [[60, 61], [20, 21]]
     assert seeds == [2000060, 2000061, 2000020, 2000021]
     for run_id, group in zip([3, 1], groups):
         reference = build_sampler({**config["latency"],
-                                   "seed": (derive_seed(budget.latency_seed(run_id), vector_index=0)
-                                            if replica_seed else budget.latency_seed(run_id))}, clock=clock)
+                                   "seed": (derive_seed(manifest["latency_seeds"][str(run_id)], vector_index=0)
+                                            if replica_seed else manifest["latency_seeds"][str(run_id)])}, clock=clock)
         for episode_id in group:
             context = {"episode_id": episode_id, "worker_slot": 0}
             for _ in range(20):
@@ -521,63 +534,62 @@ def test_budget_real_resume_and_fit_data_isolation(tmp_path, monkeypatch, replic
 
 
 def test_budget_error_uses_absolute_mean_difference_and_paired_runs():
-    result, draws = budget_report.comparison([0, 20], [10, 10], 100, paired=True, seed=1)
+    result, draws = budget_report.comparison([0, 20], [10, 10], 100, paired=True, seed=1, repetitions=2000)
     assert result["absolute_error_pp"] == 0  # Not mean absolute paired error (10).
-    result, draws = budget_report.comparison([10, 20, 30], [12, 22, 32], 200, paired=True, seed=1)
+    result, draws = budget_report.comparison([10, 20, 30], [12, 22, 32], 200, paired=True, seed=1, repetitions=2000)
     assert result["signed_error_pp"] == 1
     assert result["absolute_ci_low_pp"] == result["absolute_ci_high_pp"] == 1
     assert all(draws == 1)
-    independent, _ = budget_report.comparison([10, 20, 30], [12, 22, 32], 200, paired=False, seed=1)
+    independent, _ = budget_report.comparison([10, 20, 30], [12, 22, 32], 200, paired=False, seed=1, repetitions=2000)
     assert independent["signed_ci_high_pp"] > independent["signed_ci_low_pp"]
-    unequal, _ = budget_report.comparison([0, 20, 40, 60], [10, 30], 100, paired=False, seed=1)
+    unequal, _ = budget_report.comparison([0, 20, 40, 60], [10, 30], 100, paired=False, seed=1, repetitions=2000)
     assert unequal["signed_error_pp"] == -10
 
 
-@pytest.mark.parametrize("migrate", [False, True])
-def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path, migrate):
+@pytest.mark.parametrize("external_timings", [False, True])
+def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path, external_timings):
+    campaign_config = deepcopy(BUDGET_CONFIG)
+    campaign_config["sources"]["qwenoft"]["reference_return"] *= 2
     # Long-lived report contract: two case means get equal weight irrespective
     # of run count or reference scale, and a known offset survives all exports.
-    for model in budget.MODELS:
+    for model in campaign_config["models"]:
+        budget.initialize(tmp_path / model, model, campaign_config)
         output = tmp_path / model
         write_json(output / "source/calibration/calibration.json", {"selected_env_fps": 10})
         for run_id in range(55):
             path = output / "real" / str(run_id)
             write_jsonl(path / "episode_metrics.jsonl", [{"episode_return_env": run_id + e} for e in range(2)])
             write_jsonl(path / "observation_attempts.jsonl", _attempts(8, 20))
-        for split, partition in budget.split_manifest().items():
-            for count in budget.FIT_SIZES:
-                for method in study.METHODS:
+        for split, partition in budget.split_manifest(campaign_config).items():
+            for count in campaign_config["fit_sizes"]:
+                for method in PROTOCOL["methods"]:
                     for run_id in partition["valid"]:
                         path = output / "sim" / split / str(count) / method / "runs" / str(run_id)
                         write_jsonl(path / "episode_metrics.jsonl", [
-                            {"episode_return_env": run_id + e + (1 + run_id % 2) * budget.SOURCES[model]["reference_return"] / 100}
+                            {"episode_return_env": run_id + e + (1 + run_id % 2) * campaign_config["sources"][model]["reference_return"] / 100}
                             for e in range(2)
                         ])
         write_json(output / "runtime/setups/test.json", {"stage": "sim_setup", "model": model, "seconds": 10, "gpu_count": 1})
         for run_id, seconds in ((10, 3600), (15, 7200)):
             write_json(output / "timings" / f"real_{run_id}.json", {
                 "stage": "real", "model": model, "run_ids": [run_id], "seconds": seconds, "gpu_count": 1})
-        for split in budget.split_manifest():
+        for split in budget.split_manifest(campaign_config):
             for count, seconds in ((5, 1800), (10, 3600)):
                 write_json(output / "sim" / split / str(count) / "fixed/timings/test.json", {
                     "stage": "sim", "model": model, "split": split, "fit_runs": count,
-                    "method": "fixed", "run_ids": budget.split_manifest()[split]["valid"],
+                    "method": "fixed", "run_ids": budget.split_manifest(campaign_config)[split]["valid"],
                     "seconds": seconds, "gpu_count": 1})
         (output / "SIM_DONE").touch()
     timing_root = tmp_path
-    if migrate:
-        before = {}
-        for model in budget.MODELS:
+    if external_timings:
+        timing_root = tmp_path / "external_timings"
+        for model in campaign_config["models"]:
             for path in budget_report._timing_paths(tmp_path / model):
-                data = read_json(path)
-                for key in ("model", "split", "fit_runs", "method"):
-                    data.pop(key, None)
-                write_json(path, data)
-                before[path] = path.read_bytes()
-        timing_root = budget_report.migrate_timing_records(tmp_path, tmp_path / "migrated_timings")
-        assert all(path.read_bytes() == content for path, content in before.items())
+                destination = timing_root / model / path.relative_to(tmp_path / model)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, destination)
     # A filename is evidence, not the run identity used for cost attribution.
-    for model in budget.MODELS:
+    for model in campaign_config["models"]:
         (timing_root / model / "timings/real_10.json").rename(timing_root / model / "timings/measurement.json")
     report = budget_report.make_report(tmp_path, timing_root=timing_root)
     with (report / "nmae.csv").open() as stream:
@@ -586,20 +598,20 @@ def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path, migrat
     with (report / "case_errors.csv").open() as stream:
         cases = {(r["model"], r["split"], r["fit_runs"], r["method"], r["reference_split"]): r for r in csv.DictReader(stream)}
     for row in rows:
-        partition = budget.split_manifest()[row["split"]]
+        partition = budget.split_manifest(campaign_config)[row["split"]]
         ids = partition["valid"] if row["reference_split"] == "valid" else partition["fit_order"][:int(row["fit_runs"])]
         sim_base = sum(partition["valid"]) / 5
         real_base = sum(ids) / len(ids)
         sim_offset = 1 + sum(i % 2 for i in partition["valid"]) / 5
-        expected = sum(abs(100 * (sim_base - real_base) / budget.SOURCES[m]["reference_return"] + sim_offset)
-                       for m in budget.MODELS) / len(budget.MODELS)
+        expected = sum(abs(100 * (sim_base - real_base) / campaign_config["sources"][m]["reference_return"] + sim_offset)
+                       for m in campaign_config["models"]) / len(campaign_config["models"])
         assert float(row["nmae_pp"]) == pytest.approx(expected)
         if row["reference_split"] == "valid":
             # Shared run IDs retain the perfectly correlated normalized case errors.
             case = cases["qwenoft", row["split"], row["fit_runs"], row["method"], "valid"]
             assert float(row["ci_low_pp"]) == pytest.approx(float(case["absolute_ci_low_pp"]))
             assert float(row["ci_high_pp"]) == pytest.approx(float(case["absolute_ci_high_pp"]))
-        for model in budget.MODELS:
+        for model in campaign_config["models"]:
             fit = cases[model, row["split"], row["fit_runs"], row["method"], "fit"]
             valid = cases[model, row["split"], row["fit_runs"], row["method"], "valid"]
             assert fit["sim_mean"] == valid["sim_mean"]
@@ -607,7 +619,7 @@ def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path, migrat
             assert int(fit["real_runs"]) == int(row["fit_runs"])
             assert int(valid["real_runs"]) == 5
     assert len(list(tmp_path.glob("*/sim/*/*/*/runs/*/episode_metrics.jsonl"))) * 2 == 960
-    for split in budget.split_manifest():
+    for split in budget.split_manifest(campaign_config):
         assert (report / f"valid_{split}.png").exists()
         assert (report / f"valid_{split}.pdf").exists()
     assert (tmp_path / "REPORT_DONE").exists()
@@ -616,8 +628,8 @@ def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path, migrat
 
     with (report / "cumulative_costs.csv").open() as stream:
         costs = {(r["model"], r["split"], int(r["fit_runs"])): r for r in csv.DictReader(stream)}
-    for model in budget.MODELS:
-        for split in budget.split_manifest():
+    for model in campaign_config["models"]:
+        for split in budget.split_manifest(campaign_config):
             assert float(costs[model, split, 5]["cumulative_replay_gpu_hours"]) == .5
             assert float(costs[model, split, 10]["cumulative_replay_gpu_hours"]) == 1.5
             assert float(costs[model, split, 50]["full_collection_gpu_hours"]) == 3
@@ -629,18 +641,18 @@ def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path, migrat
 
 @pytest.mark.parametrize("repeated", [False, True])
 def test_budget_simulates_fixed_validation_runs_once_and_resumes(tmp_path, monkeypatch, repeated):
-    from latency_bench.cross_device import budget_repeats
-    partitions = ({str(seed): partition for seed, partition in budget_repeats.random_partitions().items()
-                   if seed != str(budget.SPLIT_SEED)} if repeated else budget.split_manifest())
+    from scripts.experiments.sim2real import budget_repeats
+    partitions = ({str(seed): partition for seed, partition in budget_repeats.random_partitions(BUDGET_CONFIG, REPEAT_CONFIG["seeds"]).items()
+                   if seed != str(BUDGET_CONFIG["split_seed"])} if repeated else budget.split_manifest(BUDGET_CONFIG))
     entry, base = archived()
-    monkeypatch.setattr(budget, "runtime_base", lambda *args: (base, {"assets": entry}, 10))
-    monkeypatch.setattr(budget, "record_execution_contract", lambda *args: None)
-    monkeypatch.setattr(study, "_prepare_replay_runtime", lambda config: None)
+    monkeypatch.setattr(runtime, "runtime_base", lambda *args: (base, {"assets": entry}, 10))
+    monkeypatch.setattr(runtime, "record_execution_contract", lambda *args: None)
+    monkeypatch.setattr(runtime, "prepare_replay_runtime", lambda config: None)
     executor = SimpleNamespace(run_warmup=lambda: None, close=lambda: None)
     monkeypatch.setattr(budget, "build_executor", lambda *args, **kwargs: executor)
     publication = SimpleNamespace(publish=lambda *args: None)
     evaluated = []
-    def replay(executor, config, path, run_ids, completed):
+    def replay(executor, config, path, run_ids, completed, **kwargs):
         split = path.parts[-3]
         assert run_ids == partitions[split]["valid"]
         for run_id in run_ids:
@@ -649,62 +661,73 @@ def test_budget_simulates_fixed_validation_runs_once_and_resumes(tmp_path, monke
             (destination / "DONE").touch()
             completed(run_id, destination)
             evaluated.append((path, run_id))
-    monkeypatch.setattr(budget, "replay_group", replay)
-    def replay_settings(executor, jobs, output, publication):
+    monkeypatch.setattr(replay_engine, "replay_group", replay)
+    def replay_settings(executor, jobs, output, publication, **kwargs):
         assert len(jobs) == 10
-        for run_id, path, config in jobs:
+        for run_id, path, config, run_latency_seed in jobs:
+            assert run_latency_seed == manifest["latency_seeds"][str(run_id)]
             assert run_id in partitions[path.parents[3].name]["valid"]
             write_jsonl(path / "episode_metrics.jsonl", [{"episode_return_env": run_id}] * 2)
             (path / "DONE").touch()
             evaluated.append((path.parent.parent, run_id))
-    monkeypatch.setattr(budget, "replay_settings", replay_settings)
-    for model in budget.MODELS:
+    monkeypatch.setattr(replay_engine, "replay_settings", replay_settings)
+    for model in BUDGET_CONFIG["models"]:
+        manifest = budget.initialize(tmp_path / model, model, BUDGET_CONFIG)
         output = tmp_path / model
         for split in partitions:
-            for count in budget.FIT_SIZES:
+            for count in BUDGET_CONFIG["fit_sizes"]:
                 write_json(output / "profiles" / split / str(count) / "profile.json", {
                     "summary": {"mean_ms": 73, "std_ms": 2},
                 })
         budget.simulate(output, output / "source", model, "python", publication, 10 if repeated else 8,
-                        partitions=partitions, combine_settings=repeated)
+                        partitions=partitions, manifest=manifest, combine_settings=repeated)
         budget.simulate(output, output / "source", model, "python", publication, 10 if repeated else 8,
-                        partitions=partitions, combine_settings=repeated)
+                        partitions=partitions, manifest=manifest, combine_settings=repeated)
         assert (output / "SIM_DONE").exists()
     assert len(evaluated) * 2 == (1920 if repeated else 960)
 
 
 def test_random_repeats_preserve_first_split_and_average_absolute_errors(tmp_path):
     # Long-lived repeated-split protocol: reuse repeat one; measure split variation without cancellation.
-    from latency_bench.cross_device import budget_repeats
-    partitions = budget_repeats.random_partitions()
-    assert partitions[str(budget.SPLIT_SEED)] == budget.split_manifest()['random']
+    from scripts.experiments.sim2real import budget_repeats
+    partitions = budget_repeats.random_partitions(BUDGET_CONFIG, REPEAT_CONFIG["seeds"])
+    assert partitions[str(BUDGET_CONFIG["split_seed"])] == budget.split_manifest(BUDGET_CONFIG)['random']
     priority = list(range(55))
-    budget.random.Random(budget.SPLIT_SEED).shuffle(priority)
+    budget.random.Random(BUDGET_CONFIG["split_seed"]).shuffle(priority)
     for partition in partitions.values():
         assert len(partition['valid']) == 5
         assert partition['fit_order'] == [i for i in priority if i not in partition['valid']]
         assert set(partition['fit_order']).isdisjoint(partition['valid'])
         assert len(partition['fit_order']) == 50
     assert len(partitions) == 5
-    assert (len(partitions) - 1) * len(budget.MODELS) * len(budget.FIT_SIZES) * len(study.METHODS) * 10 == 1920
+    assert (len(partitions) - 1) * len(BUDGET_CONFIG["models"]) * len(BUDGET_CONFIG["fit_sizes"]) * len(PROTOCOL["methods"]) * 10 == 1920
     root, previous = tmp_path / 'new', tmp_path / 'previous'
-    manifest = {'seeds': list(budget_repeats.RANDOM_SEEDS), 'partitions': partitions,
-                'models': list(budget.MODELS), 'fit_sizes': list(budget.FIT_SIZES), 'methods': list(study.METHODS)}
-    write_json(root / 'repeats.json', manifest)
+    for model in BUDGET_CONFIG["models"]:
+        budget.initialize(previous / model, model, BUDGET_CONFIG)
+        (previous / model / "source").mkdir()
+        (previous / model / "real").mkdir()
+        (previous / model / "SIM_DONE").touch()
+        (previous / model / "REAL_DONE").touch()
+        write_json(previous / model / "uploads/sim_complete.json", {"revision": "pinned-simulation"})
+    write_json(previous / "uploads/report.json", {"revision": "pinned-report"})
+    manifest = budget_repeats.prepare_inputs(root, previous, REPEAT_CONFIG)
+    assert manifest["new_episodes"] == 1920
+    assert manifest["random_episodes_including_previous"] == 2400
+    assert manifest["partitions"] == partitions
+    assert budget_repeats.prepare_inputs(root, previous, REPEAT_CONFIG) == manifest
     signed_errors = [1, -2, 3, -4, 5]
-    for model in budget.MODELS:
-        (root / model).mkdir()
+    for model in BUDGET_CONFIG["models"]:
         (root / model / 'SIM_DONE').touch()
         for run_id in range(55):
             write_jsonl(previous / model / 'real' / str(run_id) / 'episode_metrics.jsonl',
                         [{'episode_return_env': 100}] * 2)
-        for index, seed in enumerate(budget_repeats.RANDOM_SEEDS):
+        for index, seed in enumerate(REPEAT_CONFIG["seeds"]):
             parent, split = (previous, 'random') if index == 0 else (root, str(seed))
-            for count in budget.FIT_SIZES:
-                for method in study.METHODS:
+            for count in BUDGET_CONFIG["fit_sizes"]:
+                for method in PROTOCOL["methods"]:
                     for run_id in partitions[str(seed)]['valid']:
                         write_jsonl(parent / model / 'sim' / split / str(count) / method / 'runs' / str(run_id) / 'episode_metrics.jsonl',
-                                    [{'episode_return_env': 100 + signed_errors[index] * budget.SOURCES[model]['reference_return'] / 100}] * 2)
+                                    [{'episode_return_env': 100 + signed_errors[index] * BUDGET_CONFIG["sources"][model]['reference_return'] / 100}] * 2)
     report = budget_repeats.repeated_report(root, previous)
     with (report / 'random_nmae.csv').open() as stream:
         rows = list(csv.DictReader(stream))
@@ -718,10 +741,11 @@ def test_random_repeats_preserve_first_split_and_average_absolute_errors(tmp_pat
 
 
 def test_resident_replay_closes_executor_when_warmup_fails(monkeypatch, tmp_path):
+    manifest = budget.initialize(tmp_path / "budget", "qwenoft", BUDGET_CONFIG)
     entry, base = archived()
-    monkeypatch.setattr(budget, "runtime_base", lambda *args: (base, {"assets": entry}, 10))
-    monkeypatch.setattr(budget, "record_execution_contract", lambda *args: None)
-    monkeypatch.setattr(study, "_prepare_replay_runtime", lambda config: None)
+    monkeypatch.setattr(runtime, "runtime_base", lambda *args: (base, {"assets": entry}, 10))
+    monkeypatch.setattr(runtime, "record_execution_contract", lambda *args: None)
+    monkeypatch.setattr(runtime, "prepare_replay_runtime", lambda config: None)
     closed = []
     def fail():
         raise RuntimeError("warmup failed")
@@ -730,5 +754,44 @@ def test_resident_replay_closes_executor_when_warmup_fails(monkeypatch, tmp_path
     write_json(tmp_path / "profiles/original/5/profile.json", {"summary": {"mean_ms": 1, "std_ms": 0}})
     with pytest.raises(RuntimeError, match="warmup failed"):
         budget.simulate(tmp_path, tmp_path, "qwenoft", "python", None, 2,
-                        partitions=budget.split_manifest())
+                        partitions=budget.split_manifest(BUDGET_CONFIG), manifest=manifest)
     assert closed == [True]
+
+
+def test_holdout_budget_evaluates_four_methods_once_on_27_runs(tmp_path):
+    # Long-lived holdout protocol/report contract, owned by the sim2real experiment.
+    from scripts.experiments.sim2real import budget_holdout
+    root, previous = tmp_path / 'holdout', tmp_path / 'previous'
+    for model in BUDGET_CONFIG["models"]:
+        budget.initialize(previous / model, model, BUDGET_CONFIG)
+        (previous / model / 'source').mkdir(parents=True)
+        (previous / model / 'REAL_DONE').touch()
+        for run_id in range(55):
+            write_jsonl(previous / model / 'real' / str(run_id) / 'episode_metrics.jsonl',
+                        [{'episode_return_env': 100 + run_id}] * 2)
+    manifest = budget_holdout.prepare(root, previous, HOLDOUT_CONFIG)
+    fit, valid = manifest['partition']['fit_order'], manifest['partition']['valid']
+    assert len(fit) == 28 and len(valid) == 27
+    assert set(fit).isdisjoint(valid) and set(fit + valid) == set(range(55))
+    assert budget_holdout.prepare(root, previous, HOLDOUT_CONFIG) == manifest
+    _, base = archived()
+    for model, sign in zip(BUDGET_CONFIG["models"], [1, -1]):
+        output = root / model
+        profile = output / 'profiles/holdout/28/profile.json'
+        write_json(profile, {'summary': {'mean_ms': 73, 'std_ms': 2}})
+        jobs = list(budget_holdout.simulation_jobs(output, base, 10, manifest))
+        assert len(jobs) * 2 * len(BUDGET_CONFIG["models"]) == 432
+        assert len({path for _, path, _, _ in jobs}) == 108
+        for run_id, path, config, latency_seed in jobs:
+            assert latency_seed == manifest['latency_seed_base'] + run_id
+            assert config['latency']['profile_path'] == str(profile)
+            # Opposite model biases must not cancel in NMAE.
+            value = 100 + run_id + sign * 2 * BUDGET_CONFIG["sources"][model]['reference_return'] / 100
+            write_jsonl(path / 'episode_metrics.jsonl', [{'episode_return_env': value}] * 2)
+        (output / 'SIM_DONE').touch()
+    destination = budget_holdout.report(root, manifest)
+    with (destination / 'nmae.csv').open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 4
+    assert all(float(row['nmae_pp']) == pytest.approx(2) for row in rows)
+    assert (destination / 'heldout_calibration.pdf').exists()

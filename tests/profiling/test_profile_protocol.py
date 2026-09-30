@@ -10,26 +10,26 @@ from types import SimpleNamespace
 import pytest
 
 from latency_bench.core.config import load_config
-from latency_bench.cross_device import runner
-from latency_bench.cross_device.artifacts import (
+from latency_bench.profiling import runner
+from latency_bench.profiling.artifacts import (
     profile_dir,
     profile_ref,
     run_dir,
     run_ref,
     simulation_seed_dir,
 )
-from latency_bench.cross_device.profile_resolver import (
+from latency_bench.profiling.profile_resolver import (
     profile_refs_from_repo_files,
     resolve_remote_profile,
 )
-from latency_bench.cross_device.protocol import main
-from latency_bench.cross_device.runner import _profile_lock, _replace_current
-from latency_bench.cross_device.runtime_configs import (
+from latency_bench.profiling.cli import main
+from latency_bench.profiling.runner import _profile_lock, _replace_current
+from latency_bench.profiling.runtime_configs import (
     measure_config,
     simulation_config,
 )
-from latency_bench.cross_device.spec import load_profile_spec
-from latency_bench.cross_device.sync import download_profile, publish_run_and_profile
+from latency_bench.profiling.spec import load_profile_spec
+from latency_bench.profiling.sync import download_profile, publish_run_and_profile
 
 
 def test_profile_coordinates_define_every_artifact_path(tmp_path):
@@ -708,7 +708,7 @@ def test_concurrent_download_materializes_a_profile_once(tmp_path, monkeypatch):
             release_copy.wait()
         return real_copyfile(source_path, destination_path)
 
-    monkeypatch.setattr("latency_bench.cross_device.sync.shutil.copyfile", slow_copyfile)
+    monkeypatch.setattr("latency_bench.profiling.sync.shutil.copyfile", slow_copyfile)
     destination = tmp_path / "downloads"
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -748,7 +748,7 @@ def test_remote_profile_coordinates_must_match_request(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "latency_bench.cross_device.profile_resolver.download_profile",
+        "latency_bench.profiling.profile_resolver.download_profile",
         lambda *args, **kwargs: tmp_path,
     )
 

@@ -10,17 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from latency_bench.core.clock import ms_to_raw_frames
-from latency_bench.cross_device.budget import (
-    ALL_RUN_IDS,
-    FIT_SIZES,
-    MODELS,
-    REUSED_RUN_IDS,
-    SPLIT_SEED,
-    SOURCES,
-    split_manifest,
-)
-from latency_bench.cross_device.study import EPISODES, METHODS
-from latency_bench.cross_device.study_publication import StudyPublication
+from scripts.experiments.sim2real.publication import StudyPublication
 from latency_bench.latency.burst_profile import build_burst_samples, build_hidden_regime_burst_model_from_sessions
 from latency_bench.utils.io import load_jsonl_records, read_json, write_csv, write_json
 
@@ -34,7 +24,7 @@ def normalized_mean_error(real_mean, simulated_mean, reference):
     return (simulated_mean - real_mean) * (100 / reference)
 
 
-def comparison(real, simulated, reference, *, paired, seed, repetitions=2000):
+def comparison(real, simulated, reference, *, paired, seed, repetitions):
     """Compare means, preserving valid pairs or independently resampling fit references."""
     real, simulated = np.asarray(real), np.asarray(simulated)
     sim_indices = np.random.default_rng(seed).integers(0, len(simulated), size=(repetitions, len(simulated)))
@@ -54,12 +44,12 @@ def comparison(real, simulated, reference, *, paired, seed, repetitions=2000):
     }, abs(errors)
 
 
-def latency_diagnostics(root):
+def latency_diagnostics(root, manifest):
     rows = []
-    for model in MODELS:
+    for model in manifest["models"]:
         output = root / model
         fps = read_json(output / "source/calibration/calibration.json")["selected_env_fps"]
-        for run_id in ALL_RUN_IDS:
+        for run_id in range(manifest["total_runs"]):
             path = output / "real" / str(run_id)
             attempts = load_jsonl_records(path / "observation_attempts.jsonl")
             samples = build_burst_samples(attempts, measure_session_id=run_id)
@@ -69,7 +59,7 @@ def latency_diagnostics(root):
             dwells = burst["burst_dwell_lengths"]
             rows.append({
                 "model": model, "run_id": run_id,
-                "collection": "original" if run_id in REUSED_RUN_IDS else "new",
+                "collection": "original" if run_id in manifest["reused_run_ids"] else "new",
                 "return": run_mean(path), "admitted_count": len(values),
                 "mean_ms": values.mean(), "p95_ms": np.quantile(values, .95), "p99_ms": np.quantile(values, .99),
                 "above_one_frame_pct": 100 * np.mean(frames > 1),
@@ -86,36 +76,14 @@ def _timing_paths(output):
             *output.glob("verification/timings/*.json")]
 
 
-def migrate_timing_records(root, destination):
-    """Copy campaign timings into a new directory with explicit coordinates."""
-    destination.mkdir(parents=True)
-    for model in MODELS:
-        output = root / model
-        for path in _timing_paths(output):
-            data = read_json(path)
-            relative = path.relative_to(output)
-            stage = data["stage"]
-            data["model"] = model
-            if stage == "real":
-                data["run_ids"] = [int(path.stem.removeprefix("real_"))]
-            elif stage == "fit":
-                split, count = relative.parts[1:3]
-                data.update(split=split, fit_runs=int(count),
-                            run_ids=read_json(output / "budget.json")["splits"][split]["fit_order"][:int(count)])
-            elif stage == "sim":
-                split, count, method = relative.parts[1:4]
-                data.update(split=split, fit_runs=int(count), method=method)
-            write_json(destination / model / relative, data)
-    return destination
-
-
 def make_report(root, *, timing_root=None):
+    manifest = read_json(root / "budget.json")
     rows, draws = [], {}
-    for model in MODELS:
+    for model in manifest["models"]:
         (root / model / "SIM_DONE").read_bytes()
-        for split, partition in split_manifest().items():
-            for count in FIT_SIZES:
-                for method in METHODS:
+        for split, partition in manifest["splits"].items():
+            for count in manifest["fit_sizes"]:
+                for method in manifest["protocol"]["methods"]:
                     path = root / model / "sim" / split / str(count) / method / "runs"
                     sim = [run_mean(path / str(i)) for i in partition["valid"]]
                     for reference_split, ids in (("fit", partition["fit_order"][:count]), ("valid", partition["valid"])):
@@ -123,8 +91,8 @@ def make_report(root, *, timing_root=None):
                         # Both curves share the same sim estimates and bootstrap draws.
                         # Only validation has matching real/sim environment seeds.
                         result, bootstrap = comparison(
-                            real, sim, SOURCES[model]["reference_return"],
-                            paired=reference_split == "valid", seed=SPLIT_SEED,
+                            real, sim, manifest["sources"][model]["reference_return"],
+                            paired=reference_split == "valid", seed=manifest["split_seed"], repetitions=manifest["bootstrap_repetitions"],
                         )
                         row = {"model": model, "split": split, "fit_runs": count,
                                "method": method, "reference_split": reference_split,
@@ -132,23 +100,23 @@ def make_report(root, *, timing_root=None):
                         rows.append(row)
                         draws[model, split, count, method, reference_split] = bootstrap
     aggregate = []
-    for split in split_manifest():
-        for count in FIT_SIZES:
-            for method in METHODS:
+    for split in manifest["splits"]:
+        for count in manifest["fit_sizes"]:
+            for method in manifest["protocol"]["methods"]:
                 for target in ("fit", "valid"):
                     selected = [r for r in rows if (r["split"], r["fit_runs"], r["method"], r["reference_split"]) == (split, count, method, target)]
-                    bootstrap = np.mean([draws[m, split, count, method, target] for m in MODELS], axis=0)
+                    bootstrap = np.mean([draws[m, split, count, method, target] for m in manifest["models"]], axis=0)
                     aggregate.append({"split": split, "fit_runs": count, "method": method, "reference_split": target,
-                                      "n_cases": 2, "nmae_pp": np.mean([r["absolute_error_pp"] for r in selected]),
+                                      "n_cases": len(manifest["models"]), "nmae_pp": np.mean([r["absolute_error_pp"] for r in selected]),
                                       "ci_low_pp": np.quantile(bootstrap, .025), "ci_high_pp": np.quantile(bootstrap, .975)})
     report = root / "report"
     report.mkdir(exist_ok=True)
     write_csv(report / "case_errors.csv", rows)
     write_csv(report / "nmae.csv", aggregate)
-    write_csv(report / "real_latency_by_run.csv", latency_diagnostics(root))
+    write_csv(report / "real_latency_by_run.csv", latency_diagnostics(root, manifest))
     costs = []
     timing_root = root if timing_root is None else timing_root
-    for model in MODELS:
+    for model in manifest["models"]:
         for path in _timing_paths(timing_root / model):
             data = read_json(path)
             coordinates = {"real": ("run_ids",), "fit": ("split", "fit_runs",),
@@ -160,47 +128,49 @@ def make_report(root, *, timing_root=None):
                           **{key: data[key] for key in coordinates}})
     write_csv(report / "costs.csv", costs)
     cumulative = []
-    for model in MODELS:
+    for model in manifest["models"]:
         own = [c for c in costs if c["model"] == model]
         collected_cost = sum(c["gpu_hours"] for c in own if c["stage"] == "real")
-        for split in split_manifest():
-            for count in FIT_SIZES:
+        for split in manifest["splits"]:
+            for count in manifest["fit_sizes"]:
                 prefix_cost = sum(c["gpu_hours"] for c in own if c["stage"] == "real"
-                                  and c["run_ids"][0] in split_manifest()["original"]["fit_order"][:count])
+                                  and c["run_ids"][0] in manifest["splits"]["original"]["fit_order"][:count])
                 replay_cost = sum(c["gpu_hours"] for c in own if c["stage"] == "sim"
                                   and c["split"] == split and c["fit_runs"] <= count)
                 cumulative.append({"model": model, "split": split, "fit_runs": count,
-                                   "collected_real_runs": len(ALL_RUN_IDS), "full_collection_gpu_hours": collected_cost,
+                                   "collected_real_runs": len(range(manifest["total_runs"])), "full_collection_gpu_hours": collected_cost,
                                    "original_prefix_equivalent_gpu_hours": prefix_cost if split == "original" else None,
                                    "cumulative_replay_gpu_hours": replay_cost})
     write_csv(report / "cumulative_costs.csv", cumulative)
     stability = []
-    for model in MODELS:
-        for split in split_manifest():
-            for method in METHODS:
+    for model in manifest["models"]:
+        for split in manifest["splits"]:
+            for method in manifest["protocol"]["methods"]:
                 selected = sorted([r for r in rows if (r["model"], r["split"], r["method"], r["reference_split"]) == (model, split, method, "valid")], key=lambda r: r["fit_runs"])
                 final = selected[-1]
                 candidate = next((r["fit_runs"] for i, r in enumerate(selected[:-1])
-                                  if all(abs(v["absolute_error_pp"] - final["absolute_error_pp"]) <= 2
-                                         and abs(v["sim_mean_pct"] - final["sim_mean_pct"]) <= 2
+                                  if all(abs(v["absolute_error_pp"] - final["absolute_error_pp"]) <= manifest["tolerance_pp"]
+                                         and abs(v["sim_mean_pct"] - final["sim_mean_pct"]) <= manifest["tolerance_pp"]
                                          for v in selected[i:])), None)
-                precise = all((r["signed_ci_high_pp"] - r["signed_ci_low_pp"]) / 2 <= 2
+                precise = all((r["signed_ci_high_pp"] - r["signed_ci_low_pp"]) / 2 <= manifest["tolerance_pp"]
                               for r in selected if candidate is not None and r["fit_runs"] >= candidate)
                 stability.append({"model": model, "split": split, "method": method,
                                   "descriptive_plateau_from_runs": candidate,
                                   "budget_supported_at_2pp_precision": candidate is not None and precise})
     write_json(report / "stability.json", stability)
     write_json(report / "protocol.json", {
-        "bootstrap_repetitions": 2000, "bootstrap_unit": "run means; valid real/sim paired, fit real/sim independently resampled; common draws across models and methods",
+        "experiment": manifest,
+        "bootstrap_repetitions": manifest["bootstrap_repetitions"], "bootstrap_unit": "run means; valid real/sim paired, fit real/sim independently resampled; common draws across models and methods",
         "interval_scope": "conditional on fitted profile and fixed zero-latency reference",
-        "random_splits": 1, "tolerance_pp": 2,
+        "random_splits": 1, "tolerance_pp": manifest["tolerance_pp"],
         "fit_curves": "shared sim mean versus all real fit runs at each size; a mean-calibration diagnostic",
         "cost_scope": "new successful work, including real process setup/warmup and sim computation/stage queueing; deferred publisher and old collection costs excluded",
     })
-    plot_curves(report, aggregate)
+    plot_curves(report, aggregate, manifest)
     (report / "README.md").write_text(
         "# Flappy fit-budget results\n\n"
-        f"OFT and GR00T; 5/10/20/30/40/50 fit runs; 5 validation runs; {EPISODES} episodes/run.\n\n"
+        f"Models: {', '.join(manifest['models'])}; fit runs: {manifest['fit_sizes']}; "
+        f"{manifest['validation_runs']} validation runs; {manifest['protocol']['episodes']} episodes/run.\n\n"
         "See `case_errors.csv` for signed errors, `nmae.csv` for equally weighted two-case NMAE, "
         "`real_latency_by_run.csv` for collection drift and tails, `costs.csv` and `cumulative_costs.csv` for measured costs, "
         "and `stability.json` for descriptive 2 pp plateau candidates.\n\n"
@@ -217,13 +187,13 @@ def make_report(root, *, timing_root=None):
     return report
 
 
-def plot_curves(report, aggregate):
+def plot_curves(report, aggregate, manifest):
     colors = {"fixed": "#777777", "normal": "#3474a4", "iid": "#c48530", "temporal": "#a64768"}
     labels = {"fixed": "Fixed", "normal": "Normal", "iid": "IID", "temporal": "Temporal"}
     titles = {"original": "Fixed validation runs", "random": "Random validation runs"}
-    for split in split_manifest():
+    for split in manifest["splits"]:
         fig, ax = plt.subplots(figsize=(6.4, 4.4))
-        for method in METHODS:
+        for method in manifest["protocol"]["methods"]:
             selected = sorted(
                 [row for row in aggregate if row["split"] == split
                  and row["method"] == method and row["reference_split"] == "valid"],
@@ -232,7 +202,7 @@ def plot_curves(report, aggregate):
             ax.plot([row["fit_runs"] for row in selected], [row["nmae_pp"] for row in selected],
                     color=colors[method], marker="o", markersize=4, linewidth=1.8, label=labels[method])
         ax.set(title=titles[split], xlabel="Fit runs", ylabel="NMAE (pp)", ylim=(0, None))
-        ax.set_xticks(FIT_SIZES)
+        ax.set_xticks(manifest["fit_sizes"])
         ax.grid(alpha=.2)
         ax.legend(frameon=False)
         fig.text(.5, .015, "OFT + GR00T · equal model weights", ha="center", fontsize=9, color="#555555")
@@ -246,14 +216,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--defer-uploads", action="store_true")
-    timing = parser.add_mutually_exclusive_group()
-    timing.add_argument("--timing-root", type=Path)
-    timing.add_argument("--migrate-timings-to", type=Path)
+    parser.add_argument("--timing-root", type=Path)
     args = parser.parse_args()
-    if args.migrate_timings_to is not None:
-        migrate_timing_records(args.root, args.migrate_timings_to)
-    else:
-        report = make_report(args.root, timing_root=args.timing_root)
-        StudyPublication(args.root, f"sim2real-budget/flappy/{args.root.name}", defer_uploads=args.defer_uploads).publish(
-            "report", [report, args.root / "REPORT_DONE"],
-        )
+    report = make_report(args.root, timing_root=args.timing_root)
+    manifest = read_json(args.root / "budget.json")
+    StudyPublication(args.root, f"sim2real-budget/{manifest['task']}/{args.root.name}", defer_uploads=args.defer_uploads).publish(
+        "report", [report, args.root / "budget.json", args.root / "REPORT_DONE"],
+    )

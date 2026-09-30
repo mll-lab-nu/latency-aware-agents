@@ -8,6 +8,8 @@ of raising.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import platform
 import re
@@ -539,3 +541,24 @@ def visible_cuda_device_count() -> int:
         return int(torch.cuda.device_count())
     stripped = visible_devices.strip()
     return 0 if stripped in {"", "-1"} else len([item for item in stripped.split(",") if item.strip()])
+
+
+def instance_id_from_gpu_deployment(deployment: dict[str, Any]) -> str:
+    """Identify the participating physical GPUs and topology, independent of ordering."""
+    topology_links = [
+        {
+            "gpu_a": min(link["gpu_a"], link["gpu_b"]),
+            "gpu_b": max(link["gpu_a"], link["gpu_b"]),
+            "link": link["link"],
+        }
+        for link in deployment["topology_links"]
+    ]
+    identity = {
+        "gpus": sorted(gpu["uuid"] for gpu in deployment["gpus"]),
+        "topology_links": sorted(
+            topology_links, key=lambda link: (link["gpu_a"], link["gpu_b"])
+        ),
+    }
+    encoded = json.dumps(identity, separators=(",", ":"), ensure_ascii=True)
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return f"instance_{digest[:16]}"

@@ -1,0 +1,3 @@
+seeds: [20260929, 20260930, 20261001, 20261002, 20261003]
+parallel_runs: 10
+combine_settings: true
