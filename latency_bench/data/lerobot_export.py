@@ -41,49 +41,6 @@ _DEADLY_MULTIBINARY_LABELS = [
 ]
 
 
-def write_starvla_modality(
-    dataset_dir: Path | str,
-    state_dim: int,
-    action_dim: int,
-    *,
-    action_key: str = "action",
-) -> Path:
-    path = Path(dataset_dir) / "meta" / "modality.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "state": {
-                    "state": {
-                        "start": 0,
-                        "end": state_dim,
-                        "dtype": "float32",
-                        "absolute": True,
-                        "original_key": "observation.state",
-                    }
-                },
-                "action": {
-                    action_key: {
-                        "start": 0,
-                        "end": action_dim,
-                        "dtype": "float32",
-                        "absolute": True,
-                        "original_key": action_key,
-                    }
-                },
-                "video": {"ego_view": {"original_key": "observation.image"}},
-                "annotation": {
-                    "human.task_description": {"original_key": "task_index"}
-                },
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return path
-
-
 def _action_carrier_spec(
     action_labels: list[str],
     action_carrier: str,
@@ -208,181 +165,15 @@ def _episode_groups(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     ]
 
 
-def _legacy_row_action_vector(row: dict[str, Any], *, action_dim: int) -> list[float]:
-    if "action" in row and row["action"] is not None:
-        return [float(value) for value in row["action"]]
-    if "action_id" not in row:
-        raise KeyError(f"row is missing action fields; available columns: {sorted(row)}")
+def _legacy_row_action_vector(row: dict[str, Any], *, env_name: str, action_dim: int) -> list[float]:
+    if "action" in action_spec_for_env(env_name).row_fields:
+        return row["action"]
     action_id = int(row["action_id"])
     if action_id < 0 or action_id >= action_dim:
         raise ValueError(
             f"action_id={action_id} is outside action range [0, {action_dim - 1}]"
         )
     return [1.0 if index == action_id else 0.0 for index in range(action_dim)]
-
-
-def _write_legacy_episode(
-    path: Path,
-    rows: list[dict[str, Any]],
-    *,
-    action_dim: int,
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    table = pa.table(
-        {
-            "observation.image": pa.array(
-                [{"bytes": row["image_bytes"], "path": None} for row in rows],
-                type=pa.struct([("bytes", pa.binary()), ("path", pa.string())]),
-            ),
-            "observation.state": pa.array(
-                [[0.0] * STATE_DIM for _ in rows],
-                type=pa.list_(pa.float32(), STATE_DIM),
-            ),
-            "action": pa.array(
-                [row["action"] for row in rows],
-                type=pa.list_(pa.float32(), action_dim),
-            ),
-            "timestamp": pa.array(
-                [row["timestamp"] for row in rows], type=pa.float64()
-            ),
-            "episode_index": pa.array(
-                [row["episode_index"] for row in rows], type=pa.int64()
-            ),
-            "frame_index": pa.array(
-                [row["frame_index"] for row in rows], type=pa.int64()
-            ),
-            "task_index": pa.array(
-                [row["task_index"] for row in rows], type=pa.int64()
-            ),
-            "done": pa.array([row["done"] for row in rows], type=pa.bool_()),
-            "reward": pa.array([row["reward"] for row in rows], type=pa.float32()),
-            "density_weight": pa.array(
-                [row.get("density_weight", 1.0) for row in rows],
-                type=pa.float32(),
-            ),
-        }
-    )
-    pq.write_table(table, path)
-
-
-def _write_legacy_metadata(
-    dataset_dir: Path,
-    *,
-    fps: float,
-    action_labels: list[str],
-    episode_lengths: list[int],
-    task_prompts: list[str],
-) -> None:
-    meta_dir = dataset_dir / "meta"
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    action_dim = len(action_labels)
-    (meta_dir / "info.json").write_text(
-        json.dumps(
-            {
-                "codebase_version": "v2.0",
-                "fps": fps,
-                "features": {
-                    "observation.image": {"dtype": "image"},
-                    "observation.state": {
-                        "dtype": "float32",
-                        "shape": [STATE_DIM],
-                    },
-                    "action": {
-                        "dtype": "float32",
-                        "shape": [action_dim],
-                        "names": action_labels,
-                    },
-                    "timestamp": {"dtype": "float64", "shape": [1]},
-                    "episode_index": {"dtype": "int64", "shape": [1]},
-                    "frame_index": {"dtype": "int64", "shape": [1]},
-                    "task_index": {"dtype": "int64", "shape": [1]},
-                },
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    write_jsonl(
-        meta_dir / "episodes.jsonl",
-        [
-            {"episode_index": index, "length": int(length)}
-            for index, length in enumerate(episode_lengths)
-        ],
-    )
-    write_jsonl(
-        meta_dir / "tasks.jsonl",
-        [
-            {"task_index": index, "task": prompt}
-            for index, prompt in enumerate(task_prompts)
-        ],
-    )
-
-
-def _convert_legacy_split(
-    rows: list[dict[str, Any]],
-    output_dir: Path,
-    *,
-    env_name: str,
-    action_labels: list[str],
-    fps: float,
-    reward_field: str,
-    density_weighting: bool,
-) -> dict[str, Any]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    prompt_to_task_index: dict[str, int] = {}
-    task_prompts: list[str] = []
-    episode_lengths: list[int] = []
-    for new_episode_idx, episode_rows in enumerate(_episode_groups(rows)):
-        density_weights = (
-            density_weights_clean_v1(env_name, episode_rows)
-            if density_weighting
-            else [1.0] * len(episode_rows)
-        )
-        out_rows = []
-        for frame_idx, row in enumerate(episode_rows):
-            row["latency_raw_frames"]
-            prompt = str(row["prompt"])
-            if prompt not in prompt_to_task_index:
-                prompt_to_task_index[prompt] = len(task_prompts)
-                task_prompts.append(prompt)
-            out_rows.append(
-                {
-                    "image_bytes": _png_bytes(row["image"]),
-                    "action": _legacy_row_action_vector(
-                        row,
-                        action_dim=len(action_labels),
-                    ),
-                    "timestamp": frame_idx / fps,
-                    "episode_index": new_episode_idx,
-                    "frame_index": frame_idx,
-                    "task_index": prompt_to_task_index[prompt],
-                    "done": frame_idx == len(episode_rows) - 1,
-                    "reward": float(row[reward_field]),
-                    "density_weight": float(density_weights[frame_idx]),
-                }
-            )
-        episode_lengths.append(len(out_rows))
-        episode_chunk = new_episode_idx // 1000
-        _write_legacy_episode(
-            output_dir
-            / f"data/chunk-{episode_chunk:03d}/episode_{new_episode_idx:06d}.parquet",
-            out_rows,
-            action_dim=len(action_labels),
-        )
-    _write_legacy_metadata(
-        output_dir,
-        fps=fps,
-        action_labels=action_labels,
-        episode_lengths=episode_lengths,
-        task_prompts=task_prompts,
-    )
-    return {
-        "dataset_name": output_dir.name,
-        "env_name": env_name,
-        "episodes": len(episode_lengths),
-        "frames": int(sum(episode_lengths)),
-        "task_prompts": task_prompts,
-    }
 
 
 def _convert_legacy_export(
@@ -406,23 +197,17 @@ def _convert_legacy_export(
         shutil.rmtree(output_dir)
     if val_output_dir.exists() and force:
         shutil.rmtree(val_output_dir)
-    train_manifest = _convert_legacy_split(
-        _load_rows(raw_export_dir, "train"),
-        output_dir,
-        env_name=env_name,
-        action_labels=action_labels,
-        fps=fps,
-        reward_field=reward_field,
-        density_weighting=True,
+    common = dict(
+        env_name=env_name, integration_name=env_name, action_labels=action_labels,
+        active_action_dim=len(action_labels), state_dim=STATE_DIM, state_labels=["state"],
+        context_image_count=None, image_shape=None, fps=fps, reward_field=reward_field,
+        state_normalization=None, include_state=False,
     )
-    val_manifest = _convert_legacy_split(
-        _load_rows(raw_export_dir, "val"),
-        val_output_dir,
-        env_name=env_name,
-        action_labels=action_labels,
-        fps=fps,
-        reward_field=reward_field,
-        density_weighting=False,
+    train_manifest = _convert_split(
+        _load_rows(raw_export_dir, "train"), output_dir, density_weighting=True, **common,
+    )
+    val_manifest = _convert_split(
+        _load_rows(raw_export_dir, "val"), val_output_dir, density_weighting=False, **common,
     )
     manifest = {
         **train_manifest,
@@ -555,6 +340,7 @@ def _write_episode(
     action_dim: int,
     state_dim: int,
     include_state: bool,
+    include_latency: bool,
 ) -> None:
     """Write one LeRobot episode parquet file.
 
@@ -590,12 +376,6 @@ def _write_episode(
         ),
         "frame_index": pa.array([row["frame_index"] for row in rows], type=pa.int64()),
         "task_index": pa.array([row["task_index"] for row in rows], type=pa.int64()),
-        "latency": pa.array(
-            [row["latency_raw_frames"] for row in rows], type=pa.int64()
-        ),
-        "latency_raw_frames": pa.array(
-            [row["latency_raw_frames"] for row in rows], type=pa.int64()
-        ),
         "done": pa.array([row["done"] for row in rows], type=pa.bool_()),
         "reward": pa.array([row["reward"] for row in rows], type=pa.float32()),
         # Per-row loss weight for KV-memory scheme-B supervision (clean_v1 event
@@ -604,6 +384,18 @@ def _write_episode(
             [row["density_weight"] for row in rows], type=pa.float32()
         ),
     }
+    if include_latency:
+        # Keep latency between task identity and terminal/reward fields.
+        tail = {key: columns.pop(key) for key in ("done", "reward", "density_weight")}
+        columns.update({
+        "latency": pa.array(
+            [row["latency_raw_frames"] for row in rows], type=pa.int64()
+        ),
+        "latency_raw_frames": pa.array(
+            [row["latency_raw_frames"] for row in rows], type=pa.int64()
+        ),
+        })
+        columns.update(tail)
     if rows and "issued_command_chunk" in rows[0]:
         columns["issued_command_chunk"] = pa.array(
             [row["issued_command_chunk"] for row in rows],
@@ -649,7 +441,7 @@ def _write_metadata(
     action_labels: list[str],
     episode_lengths: list[int],
     task_prompts: list[str],
-    image_shape: tuple[int, int, int],
+    image_shape: tuple[int, int, int] | None,
     state_dim: int,
     state_labels: list[str],
     context_image_count: int | None,
@@ -666,26 +458,32 @@ def _write_metadata(
     meta_dir = dataset_dir / "meta"
     meta_dir.mkdir(parents=True, exist_ok=True)
     action_dim = len(action_labels)
-    height, width, channels = image_shape
     features = {
-        "observation.image": {
-            "dtype": "image",
-            "shape": [height, width, channels],
-            "names": ["height", "width", "channel"],
-            "video_info": {"video.fps": fps},
-        },
-        "observation.state": {
-            "dtype": "float32",
-            "shape": [state_dim],
-            "names": state_labels,
-        },
+        "observation.image": {"dtype": "image"},
+        "observation.state": {"dtype": "float32", "shape": [state_dim]},
         "action": {"dtype": "float32", "shape": [action_dim], "names": action_labels},
         "timestamp": {"dtype": "float64", "shape": [1]},
         "episode_index": {"dtype": "int64", "shape": [1]},
         "frame_index": {"dtype": "int64", "shape": [1]},
         "task_index": {"dtype": "int64", "shape": [1]},
-        "latency": {"dtype": "int64", "shape": [1]},
     }
+    info = {"codebase_version": "v2.0", "fps": fps, "features": features}
+    if image_shape is not None:
+        height, width, channels = image_shape
+        features["observation.image"].update(
+            shape=[height, width, channels], names=["height", "width", "channel"],
+            video_info={"video.fps": fps},
+        )
+        features["observation.state"]["names"] = state_labels
+        features["latency"] = {"dtype": "int64", "shape": [1]}
+        info.update(
+            total_episodes=len(episode_lengths), total_frames=sum(episode_lengths),
+            total_tasks=len(task_prompts), total_videos=0,
+            total_chunks=(len(episode_lengths) + LE_ROBOT_CHUNK_SIZE - 1) // LE_ROBOT_CHUNK_SIZE,
+            chunks_size=LE_ROBOT_CHUNK_SIZE,
+            data_path="data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+            video_path="videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+        )
     if context_image_count is not None:
         features["observation.context_images"] = {
             "dtype": "image_sequence",
@@ -693,59 +491,38 @@ def _write_metadata(
             "names": ["time", "height", "width", "channel"],
             "video_info": {"video.fps": fps},
         }
-    (meta_dir / "info.json").write_text(
-        json.dumps(
-            {
-                "codebase_version": "v2.0",
-                "fps": fps,
-                "total_episodes": len(episode_lengths),
-                "total_frames": int(sum(episode_lengths)),
-                "total_tasks": len(task_prompts),
-                "total_videos": 0,
-                "total_chunks": (len(episode_lengths) + LE_ROBOT_CHUNK_SIZE - 1)
-                // LE_ROBOT_CHUNK_SIZE,
-                "chunks_size": LE_ROBOT_CHUNK_SIZE,
-                "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
-                "video_path": (
-                    "videos/chunk-{episode_chunk:03d}/{video_key}/"
-                    "episode_{episode_index:06d}.mp4"
-                ),
-                "features": features,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (meta_dir / "modality.json").write_text(
-        json.dumps(
-            {
-                "state": {
-                    "game_state": {
-                        "start": 0,
-                        "end": state_dim,
-                        "dtype": "float32",
-                        "absolute": True,
-                        "original_key": "observation.state",
-                    }
+    (meta_dir / "info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
+    if image_shape is not None:
+        (meta_dir / "modality.json").write_text(
+            json.dumps(
+                {
+                    "state": {
+                        "game_state": {
+                            "start": 0,
+                            "end": state_dim,
+                            "dtype": "float32",
+                            "absolute": True,
+                            "original_key": "observation.state",
+                        }
+                    },
+                    "action": {
+                        "button": {
+                            "start": 0,
+                            "end": action_dim,
+                            "dtype": "float32",
+                            "absolute": True,
+                            "original_key": "action",
+                        }
+                    },
+                    "video": {"image": {"original_key": "observation.image"}},
+                    "annotation": {
+                        "human.task_description": {"original_key": "task_index"}
+                    },
                 },
-                "action": {
-                    "button": {
-                        "start": 0,
-                        "end": action_dim,
-                        "dtype": "float32",
-                        "absolute": True,
-                        "original_key": "action",
-                    }
-                },
-                "video": {"image": {"original_key": "observation.image"}},
-                "annotation": {
-                    "human.task_description": {"original_key": "task_index"}
-                },
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
     write_jsonl(
         meta_dir / "episodes.jsonl",
         [
@@ -773,7 +550,7 @@ def _convert_split(
     state_dim: int,
     state_labels: list[str],
     context_image_count: int | None,
-    image_shape: tuple[int, int, int],
+    image_shape: tuple[int, int, int] | None,
     fps: float,
     reward_field: str,
     state_normalization: dict[str, Any] | None,
@@ -781,6 +558,10 @@ def _convert_split(
     density_weighting: bool = False,
 ) -> dict[str, Any]:
     """Convert one canonical rollout split into a LeRobot dataset directory.
+
+    ``image_shape=None`` selects the existing compact game format: action-id
+    decoding, placeholder state, and metadata without image geometry or latency.
+    History and Gymnasium inputs supply image geometry and retain their extra columns.
 
     Args:
         rows: Canonical rollout rows from one split.
@@ -817,10 +598,11 @@ def _convert_split(
                 task_prompts.append(prompt)
             out_row = {
                 "image_bytes": _png_bytes(row["image"]),
-                "action": _row_action_vector(
-                    row,
-                    active_action_dim=active_action_dim,
-                    action_dim=len(action_labels),
+                "action": (
+                    _legacy_row_action_vector(row, env_name=env_name, action_dim=len(action_labels))
+                    if image_shape is None else _row_action_vector(
+                        row, active_action_dim=active_action_dim, action_dim=len(action_labels),
+                    )
                 ),
                 "timestamp": frame_idx / fps,
                 "episode_index": new_episode_idx,
@@ -839,14 +621,14 @@ def _convert_split(
                     state_max = np.asarray(state_normalization["max"], dtype=np.float32)
                     state = min_max_normalize_state(state, state_min, state_max)
                 out_row["state"] = state.tolist()
-            if "issued_command_chunk" in row:
+            if image_shape is not None and "issued_command_chunk" in row:
                 out_row["issued_command_chunk"] = row["issued_command_chunk"]
             for mask_key in ("action_prefix_mask", "action_loss_mask"):
-                if mask_key in row:
+                if image_shape is not None and mask_key in row:
                     out_row[mask_key] = row[mask_key]
-            if "action_id" in row:
+            if image_shape is not None and "action_id" in row:
                 out_row["action_id"] = int(row["action_id"])
-            if "context_images" in row and row["context_images"] is not None:
+            if image_shape is not None and "context_images" in row and row["context_images"] is not None:
                 out_row["context_image_bytes"] = [
                     _png_bytes(image) for image in row["context_images"]
                 ]
@@ -860,6 +642,7 @@ def _convert_split(
             action_dim=len(action_labels),
             state_dim=state_dim,
             include_state=include_state,
+            include_latency=image_shape is not None,
         )
     _write_metadata(
         output_dir,

@@ -17,7 +17,7 @@ from huggingface_hub import snapshot_download
 import numpy as np
 import pyarrow.parquet as pq
 
-from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
 from latency_bench.data.sf_teacher_probe import write_probe_state, merge_probe_states
 
 

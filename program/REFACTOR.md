@@ -38,6 +38,12 @@
 - RF-038 遗漏的补跑专属测试已清除，有效的评测局数与 seed 合同归入现有训练入口 suite。脚本目录收集为 **223 collected、2 errors**，剩余原因是验证环境未安装 `datasets`、`humanoid_bench`，详见[收集日志](../outputs/refactor/profiling-closeout/collection.log)。
 - RF-040 同步当前指标语义，并明确旧批次证据的源码与范围。真实模型 GPU 性能、模拟器/训练链路、干净 checkout 的完整安装与复现矩阵仍待单独验收。
 
+## Data 原地精简验收（2026-10-01）
+
+- 实现完成：`latency_bench/data` 保持原地组织，从 23 个 Python 文件、6,839 行收敛至 19 个文件、5,584 行；ghost-trail 合一，SF 阶段归拢，LeRobot 共用写出，删除无消费者的协议和路径。
+- 四卡 RTX PRO 6000 主机上，同环境 CPU 回归由 **455 passed / 3 failed** 变为 **459 passed / 1 failed**。两处 fixture 补齐既有字段；剩余 StarVLA language-key 不一致是基线已有问题。
+- 11 组转换场景、198 个产物逐项一致；真实 CUDA Flappy 配固定小网络的 batch 4/16 对照中，accepted state、metadata、数据行、PNG 字节与峰值显存一致。性能范围和限制见[验收报告](../outputs/refactor/data-cleanup/report.md)。
+
 <a id="batch-02"></a>
 
 ## 历史独立批次记录：10条验收（2026-09-30）

@@ -1,4 +1,4 @@
-"""Build canonical dataset rows from Sample Factory teacher rollout steps."""
+"""Build canonical teacher rows shared by rollout collection and Balance DAgger."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from latency_bench.data.action_layouts import (
 )
 from latency_bench.data.prompts import render_teacher_prompt
 from latency_bench.data.rollout_schema import CANONICAL_ROW_FIELDS
-from latency_bench.integrations.sample_factory.actions import to_python_action
+from latency_bench.utils.array import to_numpy
 
 
 def teacher_dataset_row(
@@ -55,8 +55,8 @@ def teacher_dataset_row(
     Returns:
         Canonical rollout row with environment-specific action fields.
     """
-    latency_raw_frames = int(to_python_action(info["latency_raw_frames"]))
-    latency_ms = float(to_python_action(info["latency_ms"]))
+    latency_raw_frames = int(to_numpy(info["latency_raw_frames"]).item())
+    latency_ms = float(to_numpy(info["latency_ms"]).item())
     resolved_action_spec = (
         action_spec if action_spec is not None else action_spec_for_env(env_name)
     )
@@ -98,18 +98,18 @@ def teacher_dataset_row(
     ):
         row.update(
             {
-                "command_admitted": bool(to_python_action(info["command_admitted"])),
-                "observation_dropped": bool(to_python_action(info["observation_dropped"])),
+                "command_admitted": bool(to_numpy(info["command_admitted"]).item()),
+                "observation_dropped": bool(to_numpy(info["observation_dropped"]).item()),
                 "applied_action": np.asarray(
-                    to_python_action(info["applied_action"]), dtype=np.float32
+                    to_numpy(info["applied_action"]), dtype=np.float32
                 ).reshape(-1).tolist(),
                 "applied_source_raw_frame": int(
-                    to_python_action(info["applied_source_raw_frame"])
+                    to_numpy(info["applied_source_raw_frame"]).item()
                 ),
                 "applied_source_obs_id": int(
-                    to_python_action(info["applied_source_obs_id"])
+                    to_numpy(info["applied_source_obs_id"]).item()
                 ),
-                "raw_done": to_python_action(info["raw_done"]),
+                "raw_done": to_numpy(info["raw_done"]).item(),
             }
         )
     return row

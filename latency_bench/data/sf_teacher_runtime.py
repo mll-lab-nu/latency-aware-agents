@@ -8,18 +8,40 @@ import logging
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 
+import numpy as np
 import torch
+from gymnasium.spaces import Box
 
-from latency_bench.latency.config import latency_type_from_config
+from latency_bench.data.sf_teacher_drivers import (
+    BatchedTeacherRolloutDriver,
+    RolloutStepResult,
+    SerialTeacherRolloutDriver,
+    batch_observations,
+)
+from latency_bench.envs.atari import is_true_atari_episode_end
+from latency_bench.integrations.sample_factory.actions import (
+    deterministic_actions_for_space,
+    normalize_actions_for_space,
+    split_batch_actions,
+)
 from latency_bench.integrations.sample_factory.runtime import (
     load_sample_factory_policy_state_dict,
     resolve_torch_device,
 )
+from latency_bench.latency.config import latency_type_from_config
+from training.asterix_sf.batched_gpu_env import AsterixBatchedGpuEnv
+from training.atlantis_sf.batched_gpu_env import AtlantisBatchedGpuEnv
 from training.common.config_adapter import import_integration_module
 from training.common.utils import maybe_set_cli_override
 
+
+_GYMNASIUM_ATARI_GPU_ENVS = {
+    "asterix": AsterixBatchedGpuEnv,
+    "atlantis": AtlantisBatchedGpuEnv,
+}
 
 REGISTRATION_METHOD_BY_INTEGRATION = {
     "deadly_corridor": "register_deadly_corridor_components",
@@ -116,8 +138,7 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
     """
     from sample_factory.cfg.arguments import load_from_checkpoint
 
-    env_name = str(config["env_name"])
-    integration_name = config["integration_name"] if "integration_name" in config else env_name
+    integration_name = config["integration_name"]
     module = import_integration_module({"env": {"name": integration_name}})
     _register_components(module, integration_name)
     flat_cfg = config["flat_cfg"]
@@ -242,3 +263,202 @@ def sample_factory_init_log(output_dir: Path):
             log_handler.close()
             sf_logger.handlers = previous_handlers
             sf_logger.propagate = previous_propagate
+
+
+def step_teacher_policy(
+    runtime: Mapping[str, Any],
+    driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
+    *,
+    active_slots: list[int],
+    active_obs: list[Any | None],
+    rnn_states: torch.Tensor,
+    deterministic: bool,
+    preserve_leading_batch: bool = False,
+    preserve_issued_actions: bool = False,
+) -> tuple[list[Any], torch.Tensor, dict[int, Any]]:
+    """Run one teacher policy/env step for active rollout slots.
+
+    Args:
+        runtime: Runtime mapping with policy, env info, and SF helper functions.
+        driver: Driver that abstracts serial vs batched env stepping.
+        active_slots: Slot ids that currently hold rollout attempts.
+        active_obs: Latest observations for every driver slot.
+        rnn_states: Recurrent state tensor aligned with driver slots.
+        deterministic: Whether to use deterministic teacher actions.
+
+    Returns:
+        Raw actions, new RNN states for the active batch, and step results.
+    """
+    actor_critic = runtime["actor_critic"]
+    device = runtime["device"]
+    prepare_and_normalize_obs = runtime["prepare_and_normalize_obs"]
+    argmax_actions = runtime["argmax_actions"]
+    preprocess_actions = runtime["preprocess_actions"]
+    unsqueeze_tensor = runtime["unsqueeze_tensor"]
+    obs_batch = batch_observations(
+        [active_obs[slot] for slot in active_slots],
+        preserve_leading_batch=preserve_leading_batch,
+    )
+    batched = isinstance(driver, BatchedTeacherRolloutDriver)
+    policy_rnn_states = rnn_states[active_slots]
+    if batched:
+        # GPU kernels can change near-tied argmax actions with the batch shape.
+        # Keep the declared slots through probe, replay, and inactive episodes.
+        padded = {}
+        for key, value in obs_batch.items():
+            padded[key] = np.zeros((driver.slot_count, *value.shape[1:]), dtype=value.dtype)
+            padded[key][active_slots] = value
+        obs_batch = padded
+        policy_rnn_states = rnn_states
+    normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
+    with torch.no_grad():
+        policy_outputs = actor_critic(normalized_obs, policy_rnn_states)
+        actions = policy_outputs["actions"]
+        if deterministic:
+            actions = deterministic_actions_for_space(
+                actor_critic.action_distribution(),
+                action_space=driver.action_space,
+                argmax_actions=argmax_actions,
+                device=device,
+            )
+        new_rnn_states = policy_outputs["new_rnn_states"]
+        if batched:
+            actions = actions[active_slots]
+            new_rnn_states = new_rnn_states[active_slots]
+        actions = normalize_actions_for_space(
+            actions,
+            batch_size=len(active_slots),
+            action_space=driver.action_space,
+            device=device,
+            unsqueeze_tensor=unsqueeze_tensor,
+        )
+        processed_actions = preprocess_actions(runtime["env_info"], actions)
+        raw_actions = split_batch_actions(
+            processed_actions,
+            len(active_slots),
+            action_space=driver.action_space,
+        )
+    step_results = driver.step(active_slots, raw_actions)
+    if isinstance(driver.action_space, Box) and not preserve_issued_actions:
+        raw_actions = [
+            step_results[slot].info["applied_action"]
+            for slot in active_slots
+        ]
+    return raw_actions, new_rnn_states, step_results
+
+
+def rollout_step_flags(
+    env_name: str,
+    step_result: RolloutStepResult,
+    *,
+    next_raw_frame: int,
+    max_steps_per_episode: int,
+) -> tuple[bool, bool]:
+    raw_done = step_result.terminated or step_result.truncated
+    life_loss_boundary = False
+    true_episode_end = raw_done
+    if env_name == "demon_attack":
+        true_episode_end = is_true_atari_episode_end(
+            step_result.terminated,
+            step_result.truncated,
+            step_result.info,
+        )
+        life_loss_boundary = raw_done and not true_episode_end
+    if next_raw_frame >= max_steps_per_episode:
+        return life_loss_boundary, True
+    return life_loss_boundary, true_episode_end
+
+
+def build_rollout_driver_runtime(
+    config: dict[str, Any],
+    *,
+    output_dir: Path,
+    num_envs: int,
+    export_env_raw_rgb_frames: bool,
+):
+    """Build Sample Factory cfg, runtime, and driver for one rollout phase.
+
+    Args:
+        config: Rollout descriptor loaded from a checkpoint.
+        output_dir: Rollout export directory.
+        num_envs: Number of rollout envs or batched agents for this phase.
+        export_env_raw_rgb_frames: Whether env info should include raw RGB frames.
+
+    Returns:
+        Sample Factory cfg, runtime mapping, driver, and checkpoint frame stack.
+    """
+    env_name = str(config["env_name"])
+    integration_name = config["integration_name"]
+    with sample_factory_init_log(output_dir):
+        module, cfg = build_sample_factory_rollout_cfg(config)
+        frame_stack = int(cfg.frame_stack)
+        if ((integration_name in {"flappy", "demon_attack", "deadly_corridor"}
+             or env_name in _GYMNASIUM_ATARI_GPU_ENVS)
+                and getattr(cfg, "action_history_decisions", None) == 8
+                and cfg.latency_type == "profile_sample"):
+            setattr(cfg, "rollout_profile_seed_by_reset", True)
+        setattr(cfg, "export_env_raw_rgb_frames", bool(export_env_raw_rgb_frames))
+        if integration_name == "flappy" and cfg.use_gpu_render:
+            maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
+        use_gymnasium_atari_gpu_batch = (
+            integration_name == "gymnasium"
+            and env_name in _GYMNASIUM_ATARI_GPU_ENVS
+            and str(cfg.device) == "gpu"
+            and int(num_envs) > 1
+        )
+        use_batched_driver = (
+            (integration_name == "flappy" and int(num_envs) > 1 and cfg.use_gpu_render)
+            or (integration_name == "demon_attack" and cfg.simulator == "gpu")
+            or use_gymnasium_atari_gpu_batch
+        )
+        if use_batched_driver:
+            if integration_name == "demon_attack":
+                maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
+            runtime = build_env_and_policy(module, cfg, config, 1)
+            if use_gymnasium_atari_gpu_batch:
+                make_kwargs = json.loads(config["flat_cfg"]["gym_make_kwargs_json"])
+                base_make_kwargs = make_kwargs["base_make_kwargs"]
+                maybe_set_cli_override(cfg, "noop_max", make_kwargs["noop_max"])
+                maybe_set_cli_override(cfg, "terminal_on_life_loss", False)
+                maybe_set_cli_override(cfg, "clip_reward", False)
+                maybe_set_cli_override(
+                    cfg,
+                    "max_episode_steps",
+                    base_make_kwargs["max_num_frames_per_episode"],
+                )
+                maybe_set_cli_override(cfg, "gpu_env_device", "cuda")
+                maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
+                maybe_set_cli_override(cfg, "episode_metrics_path", "")
+                runtime["envs"][0].close()
+                env_type = _GYMNASIUM_ATARI_GPU_ENVS[env_name]
+                runtime["envs"] = [
+                    env_type(
+                        cfg=cfg,
+                        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
+                        gpu_env_device=cfg.gpu_env_device,
+                        gpu_env_batch_size=cfg.gpu_env_batch_size,
+                    )
+                ]
+        else:
+            runtime = build_env_and_policy(module, cfg, config, int(num_envs))
+
+    if use_batched_driver:
+        driver = BatchedTeacherRolloutDriver(runtime["envs"][0], int(num_envs))
+    else:
+        if integration_name == "deadly_corridor" and (
+            "export_zero_action_history" in config or getattr(cfg, "rollout_profile_seed_by_reset", False)
+        ):
+            from sample_factory.algo.utils.make_env import make_env_func_batched
+            from sample_factory.utils.attr_dict import AttrDict
+
+            def recreate_env(slot: int):
+                return make_env_func_batched(
+                    cfg,
+                    env_config=AttrDict(worker_index=0, vector_index=slot, env_id=slot),
+                    render_mode=None,
+                )
+
+            driver = SerialTeacherRolloutDriver(runtime["envs"], recreate_env=recreate_env)
+        else:
+            driver = SerialTeacherRolloutDriver(runtime["envs"])
+    return cfg, runtime, driver, frame_stack

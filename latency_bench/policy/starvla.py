@@ -15,7 +15,9 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
-from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
+from latency_bench.data.ghost_trail import (
+    GhostTrailConfig, build_flappy_ghost_trail_window, build_demon_attack_ghost_trail_window,
+)
 from latency_bench.data.state_normalization import min_max_normalize_state
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.envs.gymnasium_task import (
@@ -267,9 +269,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         window = [np.asarray(frame, dtype=np.uint8) for frame in frames[-valid_count:]]
 
         if self._image_transform == "demon_attack_ghost_trail":
-            from latency_bench.data.ghost_trail_demon import build_demon_attack_ghost_trail_window
-            steps_arg = list(range(len(window)))
-            return build_demon_attack_ghost_trail_window(window, steps_arg, config=config)
+            return build_demon_attack_ghost_trail_window(window)
 
         current_step = int(observation.env_step)
         start_step = current_step - valid_count + 1

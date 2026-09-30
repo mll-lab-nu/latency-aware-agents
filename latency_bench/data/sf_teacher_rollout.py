@@ -4,57 +4,34 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 import torch
-from gymnasium.spaces import Box
 from tqdm import tqdm
 
 from latency_bench.core.decision_action_history import DecisionActionHistory
-from latency_bench.data.action_layouts import ActionSpec, action_spec_for_env
+from latency_bench.data.action_layouts import ActionSpec
 from latency_bench.data.filters import (
     FILTER_PRESET_CLEAN_V1,
-    accepts_episode,
-    accepts_episode_contract,
     filter_train_rows,
 )
 from latency_bench.data.hf_parquet import (
     completed_episode_indices_from_shards,
     write_episode_row_shard,
 )
-from latency_bench.data.ghost_trail import GhostTrailConfig, build_episode_image_frames
-from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_env_raw_rgb_info, frames_from_env_raw_rgb_info
-from latency_bench.data.sf_teacher_rows import teacher_dataset_row
+from latency_bench.data.ghost_trail import GhostTrailConfig, DemonGhostTrailStream
+from latency_bench.data.rollout_image_io import (
+    RolloutImageWriter, build_episode_image_frames,
+    frame_from_env_raw_rgb_info, frames_from_env_raw_rgb_info,
+)
+from latency_bench.data.rollout_rows import teacher_dataset_row
 from latency_bench.data import sf_teacher_probe as probe
 from latency_bench.data.sf_teacher_drivers import (
     BatchedTeacherRolloutDriver,
-    RolloutStepResult,
     SerialTeacherRolloutDriver,
-    batch_observations,
 )
-from latency_bench.data.sf_teacher_runtime import (
-    build_env_and_policy,
-    build_sample_factory_rollout_cfg,
-    sample_factory_init_log,
-)
-from latency_bench.integrations.sample_factory.actions import (
-    deterministic_actions_for_space,
-    normalize_actions_for_space,
-    split_batch_actions,
-    to_python_action,
-)
-from latency_bench.envs.atari import is_true_atari_episode_end
-from training.asterix_sf.batched_gpu_env import AsterixBatchedGpuEnv
-from training.atlantis_sf.batched_gpu_env import AtlantisBatchedGpuEnv
-from training.common.utils import maybe_set_cli_override
-
-
-_GYMNASIUM_ATARI_GPU_ENVS = {
-    "asterix": AsterixBatchedGpuEnv,
-    "atlantis": AtlantisBatchedGpuEnv,
-}
+from latency_bench.data import sf_teacher_runtime as teacher_runtime
 
 
 def _g1_issued_absolute_request(
@@ -70,24 +47,6 @@ def _g1_issued_absolute_request(
     if control_mode == "raw_body_target":
         return native.g1_absolute_request_from_raw_action(action)
     return action.copy()
-
-
-def _attempt_episode_spec(*, attempt_idx: int, base_seed: int) -> dict[str, Any]:
-    """Build an online rollout attempt spec before final split assignment.
-
-    Args:
-        attempt_idx: Zero-based rollout attempt index.
-        base_seed: First environment reset seed.
-
-    Returns:
-        Episode spec using an attempt-local image namespace.
-    """
-    return {
-        "attempt_idx": attempt_idx,
-        "episode_idx": attempt_idx,
-        "split": "_attempts",
-        "seed": base_seed + attempt_idx,
-    }
 
 
 def _episode_image_dir(output_dir: Path, split: str, episode_idx: int) -> Path:
@@ -234,403 +193,6 @@ def _write_filtered_episode_images(
     return written_rows
 
 
-def _update_probe_progress(progress: tqdm, probe_state: Mapping[str, Any], *, allocated_attempts: int) -> None:
-    """Display raw probe attempt counters in the progress bar.
-
-    Args:
-        progress: Active tqdm progress bar.
-        probe_state: Probe attempt counters.
-        allocated_attempts: Number of raw attempt ids assigned to rollout slots.
-    """
-    attempted = int(probe_state["attempted_episodes"])
-    accepted = len(probe_state["accepted_specs"])
-    accept_rate = accepted / attempted if attempted else 0.0
-    # alloc counts attempt seeds assigned to active slots; unfinished attempts are dropped after target acceptance.
-    progress.set_postfix(
-        alloc=int(allocated_attempts),
-        done=attempted,
-        rej=int(probe_state["rejected_episodes"]),
-        accept_rate=f"{accept_rate:.2f}",
-    )
-
-
-def _step_teacher_policy(
-    runtime: Mapping[str, Any],
-    driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
-    *,
-    active_slots: list[int],
-    active_obs: list[Any | None],
-    rnn_states: torch.Tensor,
-    deterministic: bool,
-    preserve_leading_batch: bool = False,
-    preserve_issued_actions: bool = False,
-) -> tuple[list[Any], torch.Tensor, dict[int, Any]]:
-    """Run one teacher policy/env step for active rollout slots.
-
-    Args:
-        runtime: Runtime mapping with policy, env info, and SF helper functions.
-        driver: Driver that abstracts serial vs batched env stepping.
-        active_slots: Slot ids that currently hold rollout attempts.
-        active_obs: Latest observations for every driver slot.
-        rnn_states: Recurrent state tensor aligned with driver slots.
-        deterministic: Whether to use deterministic teacher actions.
-
-    Returns:
-        Raw actions, new RNN states for the active batch, and step results.
-    """
-    actor_critic = runtime["actor_critic"]
-    device = runtime["device"]
-    prepare_and_normalize_obs = runtime["prepare_and_normalize_obs"]
-    argmax_actions = runtime["argmax_actions"]
-    preprocess_actions = runtime["preprocess_actions"]
-    unsqueeze_tensor = runtime["unsqueeze_tensor"]
-    obs_batch = batch_observations(
-        [active_obs[slot] for slot in active_slots],
-        preserve_leading_batch=preserve_leading_batch,
-    )
-    batched = isinstance(driver, BatchedTeacherRolloutDriver)
-    policy_rnn_states = rnn_states[active_slots]
-    if batched:
-        # GPU kernels can change near-tied argmax actions with the batch shape.
-        # Keep the declared slots through probe, replay, and inactive episodes.
-        padded = {}
-        for key, value in obs_batch.items():
-            padded[key] = np.zeros((driver.slot_count, *value.shape[1:]), dtype=value.dtype)
-            padded[key][active_slots] = value
-        obs_batch = padded
-        policy_rnn_states = rnn_states
-    normalized_obs = prepare_and_normalize_obs(actor_critic, obs_batch)
-    with torch.no_grad():
-        policy_outputs = actor_critic(normalized_obs, policy_rnn_states)
-        actions = policy_outputs["actions"]
-        if deterministic:
-            actions = deterministic_actions_for_space(
-                actor_critic.action_distribution(),
-                action_space=driver.action_space,
-                argmax_actions=argmax_actions,
-                device=device,
-            )
-        new_rnn_states = policy_outputs["new_rnn_states"]
-        if batched:
-            actions = actions[active_slots]
-            new_rnn_states = new_rnn_states[active_slots]
-        actions = normalize_actions_for_space(
-            actions,
-            batch_size=len(active_slots),
-            action_space=driver.action_space,
-            device=device,
-            unsqueeze_tensor=unsqueeze_tensor,
-        )
-        processed_actions = preprocess_actions(runtime["env_info"], actions)
-        raw_actions = split_batch_actions(
-            processed_actions,
-            len(active_slots),
-            action_space=driver.action_space,
-        )
-    step_results = driver.step(active_slots, raw_actions)
-    if isinstance(driver.action_space, Box) and not preserve_issued_actions:
-        raw_actions = [
-            step_results[slot].info["applied_action"]
-            for slot in active_slots
-        ]
-    return raw_actions, new_rnn_states, step_results
-
-
-def _rollout_step_flags(
-    env_name: str,
-    step_result: RolloutStepResult,
-    *,
-    next_raw_frame: int,
-    max_steps_per_episode: int,
-) -> tuple[bool, bool]:
-    raw_done = step_result.terminated or step_result.truncated
-    life_loss_boundary = False
-    true_episode_end = raw_done
-    if env_name == "demon_attack":
-        true_episode_end = is_true_atari_episode_end(
-            step_result.terminated,
-            step_result.truncated,
-            step_result.info,
-        )
-        life_loss_boundary = raw_done and not true_episode_end
-    if next_raw_frame >= max_steps_per_episode:
-        return life_loss_boundary, True
-    return life_loss_boundary, true_episode_end
-
-
-# Persist the probe resume state on every acceptance (rare, <= max_episodes) but only
-# every N rejections. Once the per-step device syncs are gone, episodes complete very
-# frequently, and serializing the whole state to disk per completion dominates. The final
-# state is flushed once the probe loop ends, so a clean run's persisted state is identical.
-PROBE_STATE_WRITE_EVERY = 256
-
-
-def _passes_episode_return_gate(
-    summary: Mapping[str, Any],
-    *,
-    episode_return_field: str,
-    episode_return_gt: float | None,
-) -> bool:
-    if episode_return_gt is None:
-        return True
-    return summary[episode_return_field] > float(episode_return_gt)
-
-
-def _probe_accepted_specs(
-    runtime: Mapping[str, Any],
-    driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
-    *,
-    cfg: Any,
-    env_name: str,
-    output_dir: Path,
-    max_episodes: int,
-    max_attempts: int | None,
-    max_steps_per_episode: int,
-    val_fraction: float,
-    split_seed: int,
-    deterministic: bool,
-    probe_state: dict[str, Any],
-    filter_preset: str = FILTER_PRESET_CLEAN_V1,
-    demon_episode_threshold: float | None = None,
-    episode_return_gt: float | None = None,
-    episode_acceptance: Mapping[str, Any] | None = None,
-    rollout_seed_offset: int = 0,
-    action_spec: ActionSpec | None = None,
-    integration_name: str | None = None,
-) -> None:
-    """Probe rollout attempts without raw RGB until enough accepted specs exist.
-
-    Args:
-        runtime: Runtime mapping with policy, env info, and SF helper functions.
-        driver: Driver that abstracts serial vs batched env stepping.
-        cfg: Sample Factory rollout cfg.
-        env_name: Canonical benchmark environment name.
-        output_dir: Rollout export directory.
-        max_episodes: Number of accepted episodes requested.
-        max_steps_per_episode: Raw environment frame cap per episode.
-        val_fraction: Fraction assigned to validation.
-        split_seed: RNG seed for split assignment.
-        deterministic: Whether to use deterministic teacher actions.
-        probe_state: Mutable probe state persisted for resume.
-        filter_preset: Filter preset name for episode-level gating.
-        demon_episode_threshold: Optional Demon raw-score threshold.
-        episode_return_gt: Optional strict lower bound for accepted episode returns.
-        episode_acceptance: Explicit task-specific episode acceptance contract.
-        action_spec: Explicit action layout carried by a generic checkpoint.
-        integration_name: Integration identity used for legacy-specific rollout behavior.
-    """
-    accepted_specs = probe_state["accepted_specs"]
-    rnn_size = runtime["rnn_size"]
-    device = runtime["device"]
-    resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
-    behavior_env_name = env_name if integration_name is None else integration_name
-    obs_stride_raw_frames = int(float(cfg.env_fps) / float(cfg.obs_fps))
-    final_splits = {
-        int(spec["episode_idx"]): str(spec["split"])
-        for spec in probe.build_episode_plan(
-            max_episodes=int(max_episodes),
-            val_fraction=float(val_fraction),
-            split_seed=int(split_seed),
-            base_seed=0,
-        )
-    }
-    active_specs: list[dict[str, Any] | None] = [None for _ in range(driver.slot_count)]
-    active_obs: list[Any | None] = [None for _ in range(driver.slot_count)]
-    active_episode_lengths = [0 for _ in range(driver.slot_count)]
-    active_episode_returns = [0.0 for _ in range(driver.slot_count)]
-    active_episode_raw_returns = [0.0 for _ in range(driver.slot_count)]
-    active_decision_steps = [0 for _ in range(driver.slot_count)]
-    rnn_states = torch.zeros([driver.slot_count, rnn_size], dtype=torch.float32, device=device)
-
-    try:
-        next_attempt_idx = int(probe_state["next_attempt_idx"])
-        initial_reset_plan: dict[int, int] = {}
-        for slot in range(driver.slot_count):
-            if max_attempts is not None and next_attempt_idx >= max_attempts:
-                break
-            spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed) + int(rollout_seed_offset))
-            next_attempt_idx += 1
-            active_specs[slot] = spec
-            initial_reset_plan[slot] = int(spec["seed"])
-        probe_state["next_attempt_idx"] = next_attempt_idx
-        if initial_reset_plan:
-            if isinstance(driver, BatchedTeacherRolloutDriver):
-                reset_results = driver.reset_slots(initial_reset_plan, [spec is not None for spec in active_specs])
-            else:
-                reset_results = driver.reset_slots(initial_reset_plan)
-            for slot, (obs, _reset_info) in reset_results.items():
-                active_obs[slot] = obs
-                active_episode_lengths[slot] = 0
-                active_episode_returns[slot] = 0.0
-                active_episode_raw_returns[slot] = 0.0
-                active_decision_steps[slot] = 0
-                rnn_states[slot].zero_()
-
-        with tqdm(total=int(max_episodes), initial=len(accepted_specs), unit="episode") as progress:
-            while len(accepted_specs) < int(max_episodes):
-                active_slots = [slot for slot, spec in enumerate(active_specs) if spec is not None]
-                if not active_slots:
-                    break
-                _raw_actions, new_rnn_states, step_results = _step_teacher_policy(
-                    runtime,
-                    driver,
-                    active_slots=active_slots,
-                    active_obs=active_obs,
-                    rnn_states=rnn_states,
-                    deterministic=deterministic,
-                    preserve_leading_batch=behavior_env_name == "gymnasium",
-                    preserve_issued_actions=env_name.startswith("g1_sonic_"),
-                )
-                reset_plan: dict[int, int] = {}
-                target_reached = False
-
-                # Scatter the new recurrent states for every active slot in one
-                # batched assignment instead of one tiny GPU write per slot. Slots
-                # that finish/reset below still get .zero_()'d afterwards, exactly
-                # as when each row was written individually.
-                rnn_states[active_slots] = new_rnn_states
-
-                for batch_idx, slot in enumerate(active_slots):
-                    if len(accepted_specs) >= int(max_episodes):
-                        active_specs[slot] = None
-                        active_obs[slot] = None
-                        active_episode_lengths[slot] = 0
-                        active_episode_returns[slot] = 0.0
-                        active_episode_raw_returns[slot] = 0.0
-                        active_decision_steps[slot] = 0
-                        rnn_states[slot].zero_()
-                        continue
-                    spec = active_specs[slot]
-                    step_result = step_results[slot]
-                    active_episode_lengths[slot] += 1
-                    active_episode_returns[slot] += float(to_python_action(step_result.reward))
-                    if behavior_env_name == "demon_attack":
-                        active_episode_raw_returns[slot] += float(to_python_action(step_result.info["raw_reward"]))
-                    else:
-                        active_episode_raw_returns[slot] += float(to_python_action(step_result.reward))
-
-                    next_decision_step = int(active_decision_steps[slot]) + 1
-                    life_loss_boundary, episode_done = _rollout_step_flags(
-                        behavior_env_name,
-                        step_result,
-                        next_raw_frame=next_decision_step * obs_stride_raw_frames,
-                        max_steps_per_episode=int(max_steps_per_episode),
-                    )
-                    if episode_done:
-                        probe_state["attempted_episodes"] += 1
-                        summary = {
-                            "episode_length": int(active_episode_lengths[slot]),
-                            "episode_raw_frames": int(active_episode_lengths[slot])
-                            * obs_stride_raw_frames,
-                            resolved_action_spec.episode_return_field: float(active_episode_returns[slot]),
-                        }
-                        if behavior_env_name == "demon_attack":
-                            summary["episode_raw_return"] = float(active_episode_raw_returns[slot])
-                        accepted = accepts_episode(
-                            filter_preset,
-                            behavior_env_name,
-                            summary,
-                            max_steps_per_episode=int(max_steps_per_episode),
-                            demon_episode_threshold=demon_episode_threshold,
-                        )
-                        if episode_acceptance is not None:
-                            summary["final_info"] = step_result.info
-                            accepted = accepted and accepts_episode_contract(
-                                summary,
-                                episode_acceptance,
-                                env_fps=cfg.env_fps,
-                            )
-                        accepted = accepted and _passes_episode_return_gate(
-                            summary,
-                            episode_return_field=resolved_action_spec.episode_return_field,
-                            episode_return_gt=episode_return_gt,
-                        )
-                        if accepted:
-                            final_episode_idx = len(accepted_specs)
-                            final_split = final_splits[final_episode_idx]
-                            accepted_spec = {
-                                "attempt_idx": int(spec["attempt_idx"]),
-                                "episode_idx": int(final_episode_idx),
-                                "episode_length": int(summary["episode_length"]),
-                                "episode_raw_frames": int(summary["episode_raw_frames"]),
-                                resolved_action_spec.episode_return_field: float(
-                                    summary[resolved_action_spec.episode_return_field]
-                                ),
-                                "seed": int(spec["seed"]),
-                                "split": str(final_split),
-                                "termination_reason": (
-                                    "terminated" if step_result.terminated and not life_loss_boundary
-                                    else "truncated" if step_result.truncated
-                                    else "horizon"
-                                ),
-                            }
-                            if behavior_env_name == "demon_attack":
-                                accepted_spec["episode_raw_return"] = float(summary["episode_raw_return"])
-                            accepted_specs.append(accepted_spec)
-                            progress.update(1)
-                            target_reached = len(accepted_specs) >= int(max_episodes)
-                        else:
-                            probe_state["rejected_episodes"] += 1
-                        if (
-                            len(accepted_specs) < int(max_episodes)
-                            and (max_attempts is None or next_attempt_idx < max_attempts)
-                        ):
-                            next_spec = _attempt_episode_spec(attempt_idx=next_attempt_idx, base_seed=int(cfg.seed) + int(rollout_seed_offset))
-                            next_attempt_idx += 1
-                            active_specs[slot] = next_spec
-                            reset_plan[slot] = int(next_spec["seed"])
-                        else:
-                            active_specs[slot] = None
-                            active_obs[slot] = None
-                            active_episode_lengths[slot] = 0
-                            active_episode_returns[slot] = 0.0
-                            active_episode_raw_returns[slot] = 0.0
-                            active_decision_steps[slot] = 0
-                            rnn_states[slot].zero_()
-                        probe_state["next_attempt_idx"] = next_attempt_idx
-                        if (
-                            max_attempts is not None
-                            or accepted
-                            or int(probe_state["attempted_episodes"]) % PROBE_STATE_WRITE_EVERY == 0
-                        ):
-                            probe.write_probe_state(output_dir, probe_state)
-                        _update_probe_progress(
-                            progress,
-                            probe_state,
-                            allocated_attempts=next_attempt_idx,
-                        )
-                    else:
-                        if life_loss_boundary:
-                            active_obs[slot], _reset_info = driver.continue_after_life_loss(slot)
-                            rnn_states[slot].zero_()
-                        else:
-                            active_obs[slot] = step_result.next_obs
-                        active_decision_steps[slot] = next_decision_step
-
-                if target_reached:
-                    break
-                if reset_plan:
-                    if isinstance(driver, BatchedTeacherRolloutDriver):
-                        reset_results = driver.reset_slots(reset_plan, [spec is not None for spec in active_specs])
-                    else:
-                        reset_results = driver.reset_slots(reset_plan)
-                    for slot, (obs, _reset_info) in reset_results.items():
-                        active_obs[slot] = obs
-                        active_episode_lengths[slot] = 0
-                        active_episode_returns[slot] = 0.0
-                        active_episode_raw_returns[slot] = 0.0
-                        active_decision_steps[slot] = 0
-                        rnn_states[slot].zero_()
-                else:
-                    if isinstance(driver, BatchedTeacherRolloutDriver):
-                        driver.sync_active([spec is not None for spec in active_specs])
-        # Flush the final probe state once the loop ends so a clean run persists the
-        # exact same accepted_specs/counters as writing on every completion did.
-        probe.write_probe_state(output_dir, probe_state)
-    finally:
-        driver.close()
-
-
 def _replay_accepted_specs(
     runtime: Mapping[str, Any],
     driver: SerialTeacherRolloutDriver | BatchedTeacherRolloutDriver,
@@ -652,7 +214,7 @@ def _replay_accepted_specs(
     base_prompt: str | None = None,
     integration_name: str | None = None,
     export_zero_action_history: int | None = None,
-) -> list[int] | None:
+) -> None:
     """Replay accepted specs with raw RGB export and write episode shards.
 
     Args:
@@ -678,10 +240,8 @@ def _replay_accepted_specs(
         integration_name: Integration identity used for legacy-specific rollout behavior.
         export_zero_action_history: Export-only history; the teacher retains its
             original observation and network input contract.
-    Returns:
-        First observed image resolution, or ``None`` when no spec is replayed.
     """
-    image_transform_config = image_transform_config or GhostTrailConfig()
+    image_transform_config = GhostTrailConfig() if image_transform_config is None else image_transform_config
     behavior_env_name = env_name if integration_name is None else integration_name
     specs_to_replay = [
         spec for spec in accepted_specs if int(spec["episode_idx"]) not in completed_episode_indices
@@ -700,7 +260,7 @@ def _replay_accepted_specs(
     include_decision_history = (
         export_zero_action_history is None
         and (integration_name in {"flappy", "demon_attack", "deadly_corridor"}
-             or env_name in _GYMNASIUM_ATARI_GPU_ENVS)
+             or env_name in teacher_runtime._GYMNASIUM_ATARI_GPU_ENVS)
         and history_decisions is not None
     )
     zero_history = None
@@ -724,12 +284,10 @@ def _replay_accepted_specs(
     # raw frame (4× per decision step) rather than 30× per decision step.
     _is_demon_ghost_trail = (
         behavior_env_name == "demon_attack"
-        and image_transform_config.normalized_transform() == "demon_attack_ghost_trail"
+        and image_transform_config.image_transform == "demon_attack_ghost_trail"
     )
-    _ghost_trail_history_len = max(1, int(image_transform_config.history_frames))
+    _ghost_trail_history_len = image_transform_config.history_frames
 
-    if _is_demon_ghost_trail:
-        from latency_bench.data.ghost_trail_demon import DemonGhostTrailStream
 
     active_specs: list[dict[str, Any] | None] = [None for _ in range(driver.slot_count)]
     active_obs: list[Any | None] = [None for _ in range(driver.slot_count)]
@@ -745,7 +303,6 @@ def _replay_accepted_specs(
         row_buffer_size=int(row_buffer_size),
         export_image_size=export_image_size,
     )
-    image_resolution: list[int] | None = None
 
     def assign_specs_to_slots(slots: list[int]) -> dict[int, int]:
         nonlocal spec_cursor
@@ -798,7 +355,7 @@ def _replay_accepted_specs(
                 if zero_history is not None:
                     histories = zero_history.observation()
                     pre_decision_histories = {slot: histories[slot] for slot in active_slots}
-                raw_actions, new_rnn_states, step_results = _step_teacher_policy(
+                raw_actions, new_rnn_states, step_results = teacher_runtime.step_teacher_policy(
                     runtime,
                     driver,
                     active_slots=active_slots,
@@ -818,15 +375,9 @@ def _replay_accepted_specs(
                     final_dir = _episode_image_dir(output_dir, str(spec["split"]), int(spec["episode_idx"]))
                     image_path = final_dir / f"decision_step_{decision_step:06d}.png"
                     image_frame = active_image_frames[slot]
-                    if image_resolution is None:
-                        if export_image_size is not None:
-                            width, height = export_image_size
-                            image_resolution = [height, width, image_frame.shape[2]]
-                        else:
-                            image_resolution = list(image_frame.shape)
                     step_result = step_results[slot]
                     next_decision_step = decision_step + 1
-                    life_loss_boundary, episode_done = _rollout_step_flags(
+                    life_loss_boundary, episode_done = teacher_runtime.rollout_step_flags(
                         behavior_env_name,
                         step_result,
                         next_raw_frame=next_decision_step * obs_stride_raw_frames,
@@ -848,7 +399,7 @@ def _replay_accepted_specs(
                         reward=step_result.reward,
                         env_fps=env_fps,
                         obs_fps=obs_fps,
-                        image_transform=image_transform_config.normalized_transform(),
+                        image_transform=image_transform_config.image_transform,
                         action_spec=action_spec,
                         base_prompt=base_prompt,
                         state=pre_decision_histories[slot] if include_decision_history or zero_history is not None else active_states[slot],
@@ -973,105 +524,6 @@ def _replay_accepted_specs(
             image_writer.close()
         finally:
             driver.close()
-    return image_resolution
-
-
-def _build_rollout_driver_runtime(
-    config: dict[str, Any],
-    *,
-    output_dir: Path,
-    num_envs: int,
-    export_env_raw_rgb_frames: bool,
-):
-    """Build Sample Factory cfg, runtime, and driver for one rollout phase.
-
-    Args:
-        config: Rollout descriptor loaded from a checkpoint.
-        output_dir: Rollout export directory.
-        num_envs: Number of rollout envs or batched agents for this phase.
-        export_env_raw_rgb_frames: Whether env info should include raw RGB frames.
-
-    Returns:
-        Sample Factory cfg, runtime mapping, driver, and checkpoint frame stack.
-    """
-    env_name = str(config["env_name"])
-    integration_name = config["integration_name"] if "integration_name" in config else env_name
-    with sample_factory_init_log(output_dir):
-        module, cfg = build_sample_factory_rollout_cfg(config)
-        frame_stack = int(cfg.frame_stack)
-        if ((integration_name in {"flappy", "demon_attack", "deadly_corridor"}
-             or env_name in _GYMNASIUM_ATARI_GPU_ENVS)
-                and getattr(cfg, "action_history_decisions", None) == 8
-                and cfg.latency_type == "profile_sample"):
-            setattr(cfg, "rollout_profile_seed_by_reset", True)
-        setattr(cfg, "export_env_raw_rgb_frames", bool(export_env_raw_rgb_frames))
-        if integration_name == "flappy" and cfg.use_gpu_render:
-            maybe_set_cli_override(cfg, "gpu_render_batch_size", int(num_envs))
-        use_gymnasium_atari_gpu_batch = (
-            integration_name == "gymnasium"
-            and env_name in _GYMNASIUM_ATARI_GPU_ENVS
-            and str(cfg.device) == "gpu"
-            and int(num_envs) > 1
-        )
-        use_batched_driver = (
-            (integration_name == "flappy" and int(num_envs) > 1 and cfg.use_gpu_render)
-            or (integration_name == "demon_attack" and cfg.simulator == "gpu")
-            or use_gymnasium_atari_gpu_batch
-        )
-        if use_batched_driver:
-            if integration_name == "demon_attack":
-                maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
-            runtime = build_env_and_policy(module, cfg, config, 1)
-            if use_gymnasium_atari_gpu_batch:
-                make_kwargs = json.loads(config["flat_cfg"]["gym_make_kwargs_json"])
-                base_make_kwargs = make_kwargs["base_make_kwargs"]
-                maybe_set_cli_override(cfg, "noop_max", make_kwargs["noop_max"])
-                maybe_set_cli_override(cfg, "terminal_on_life_loss", False)
-                maybe_set_cli_override(cfg, "clip_reward", False)
-                maybe_set_cli_override(
-                    cfg,
-                    "max_episode_steps",
-                    base_make_kwargs["max_num_frames_per_episode"],
-                )
-                maybe_set_cli_override(cfg, "gpu_env_device", "cuda")
-                maybe_set_cli_override(cfg, "gpu_env_batch_size", int(num_envs))
-                maybe_set_cli_override(cfg, "episode_metrics_path", "")
-                runtime["envs"][0].close()
-                env_type = _GYMNASIUM_ATARI_GPU_ENVS[env_name]
-                runtime["envs"] = [
-                    env_type(
-                        cfg=cfg,
-                        env_config=SimpleNamespace(worker_index=0, vector_index=0, env_id=0),
-                        gpu_env_device=cfg.gpu_env_device,
-                        gpu_env_batch_size=cfg.gpu_env_batch_size,
-                    )
-                ]
-        else:
-            runtime = build_env_and_policy(module, cfg, config, int(num_envs))
-
-    if use_batched_driver:
-        driver = BatchedTeacherRolloutDriver(runtime["envs"][0], int(num_envs))
-    else:
-        recreate_env = None
-        if integration_name == "deadly_corridor" and (
-            "export_zero_action_history" in config or getattr(cfg, "rollout_profile_seed_by_reset", False)
-        ):
-            from sample_factory.algo.utils.make_env import make_env_func_batched
-            from sample_factory.utils.attr_dict import AttrDict
-
-            def recreate_env(slot: int):
-                return make_env_func_batched(
-                    cfg,
-                    env_config=AttrDict(worker_index=0, vector_index=slot, env_id=slot),
-                    render_mode=None,
-                )
-
-        driver = (
-            SerialTeacherRolloutDriver(runtime["envs"], recreate_env=recreate_env)
-            if recreate_env is not None
-            else SerialTeacherRolloutDriver(runtime["envs"])
-        )
-    return cfg, runtime, driver, frame_stack
 
 
 def collect_teacher_dataset(
@@ -1122,13 +574,13 @@ def collect_teacher_dataset(
         image_transform_config: Optional causal image transform applied during
             replay before row filtering.
     Returns:
-        Rollout metadata.
+        Persisted probe decisions and runtime metadata; replay writes episode shards.
     """
     env_name = str(config["env_name"])
     integration_name = config["integration_name"]
     action_spec = config["action_spec"]
     base_prompt = config["base_prompt"]
-    image_transform_config = image_transform_config or GhostTrailConfig()
+    image_transform_config = GhostTrailConfig() if image_transform_config is None else image_transform_config
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
     probe_state = probe.load_probe_state(
         output_dir,
@@ -1136,7 +588,7 @@ def collect_teacher_dataset(
     )
 
     if len(probe_state["accepted_specs"]) < int(max_episodes):
-        probe_cfg, probe_runtime, probe_driver, frame_stack = _build_rollout_driver_runtime(
+        probe_cfg, probe_runtime, probe_driver, frame_stack = teacher_runtime.build_rollout_driver_runtime(
             config,
             output_dir=output_dir,
             num_envs=int(num_envs),
@@ -1149,7 +601,7 @@ def collect_teacher_dataset(
             "obs_fps": float(probe_cfg.obs_fps),
         }
         probe.write_probe_state(output_dir, probe_state)
-        _probe_accepted_specs(
+        probe.probe_accepted_specs(
             probe_runtime,
             probe_driver,
             cfg=probe_cfg,
@@ -1172,30 +624,7 @@ def collect_teacher_dataset(
         )
 
     if probe_only:
-        # Sharded-probe worker mode: the accepted_specs (with their reset seeds) are now
-        # persisted in probe_state.json; skip replay/image writing. A separate merge step
-        # combines shards and the single-process replay path materializes the dataset.
-        metadata = {
-            "probe_only": True,
-            "env_name": env_name,
-            "accepted_episodes": len(probe_state["accepted_specs"]),
-            "attempted_episodes": int(probe_state["attempted_episodes"]),
-            "rejected_episodes": int(probe_state["rejected_episodes"]),
-            "attempt_budget": max_attempts,
-            "rollout_seed_offset": int(rollout_seed_offset),
-            "filter_preset": filter_preset,
-        }
-        if demon_episode_threshold is not None:
-            metadata["demon_episode_threshold"] = demon_episode_threshold
-        if episode_acceptance is not None:
-            metadata["episode_acceptance"] = dict(episode_acceptance)
-        if episode_return_gt is not None:
-            metadata["episode_return_gate"] = {
-                "field": action_spec.episode_return_field,
-                "operator": ">",
-                "threshold": float(episode_return_gt),
-            }
-        return metadata
+        return probe_state
 
     accepted_specs = probe_state["accepted_specs"]
     if len(accepted_specs) < int(max_episodes):
@@ -1216,11 +645,10 @@ def collect_teacher_dataset(
     remaining_specs = [
         spec for spec in accepted_specs if int(spec["episode_idx"]) not in completed_episode_indices
     ]
-    image_resolution = None
     if remaining_specs:
         matched_gpu_replay = (
             (integration_name in {"flappy", "demon_attack"}
-             or config["env_name"] in _GYMNASIUM_ATARI_GPU_ENVS)
+             or config["env_name"] in teacher_runtime._GYMNASIUM_ATARI_GPU_ENVS)
             and ("export_zero_action_history" in config or (
                 "flat_cfg" in config
                 and config["flat_cfg"].get("action_history_decisions") == 8
@@ -1235,13 +663,13 @@ def collect_teacher_dataset(
             int(replay_num_envs) if matched_gpu_replay
             else min(int(replay_num_envs), len(remaining_specs))
         )
-        replay_cfg, replay_runtime, replay_driver, frame_stack = _build_rollout_driver_runtime(
+        replay_cfg, replay_runtime, replay_driver, _ = teacher_runtime.build_rollout_driver_runtime(
             config,
             output_dir=output_dir,
             num_envs=int(replay_envs),
             export_env_raw_rgb_frames=True,
         )
-        image_resolution = _replay_accepted_specs(
+        _replay_accepted_specs(
             replay_runtime,
             replay_driver,
             cfg=replay_cfg,
@@ -1264,11 +692,4 @@ def collect_teacher_dataset(
                                         if "export_zero_action_history" in config else None),
         )
 
-    return probe.finalize_metadata(
-        output_dir=output_dir, probe_state=probe_state, config=config,
-        action_spec=action_spec, filter_preset=filter_preset,
-        demon_episode_threshold=demon_episode_threshold,
-        episode_return_gt=episode_return_gt, episode_acceptance=episode_acceptance,
-        image_transform_config=image_transform_config, image_resolution=image_resolution,
-        context_window=context_window, replay_num_envs=replay_num_envs,
-    )
+    return probe_state

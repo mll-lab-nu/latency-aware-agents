@@ -1,16 +1,14 @@
-"""Causal ghost-trail image transforms for rollout dataset export."""
+"""Causal Flappy and Demon Attack motion trails shared by collection and inference."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from collections import deque
+from dataclasses import dataclass
 from typing import Callable, Sequence
 
 import numpy as np
 
-try:
-    import cv2
-except ImportError:  # pragma: no cover - exercised only in incomplete envs
-    cv2 = None
+import cv2
 
 
 PIPE_SCROLL_PX_PER_STEP = 4.0
@@ -20,7 +18,7 @@ SegmentFn = Callable[[np.ndarray], np.ndarray | None]
 
 @dataclass(frozen=True)
 class GhostTrailConfig:
-    """Configuration for causal ghost-trail rollout images."""
+    """Trail settings: Flappy counts past decision frames; Demon counts total raw frames."""
 
     image_transform: str = "raw_rgb"
     history_frames: int = 5
@@ -29,23 +27,11 @@ class GhostTrailConfig:
     ground_fraction: float = 0.22
     scroll_px_per_step: float = PIPE_SCROLL_PX_PER_STEP
 
-    def normalized_transform(self) -> str:
-        return str(self.image_transform).strip().lower()
-
-    def metadata(self) -> dict:
-        return asdict(self)
-
-
-def _require_cv2() -> None:
-    if cv2 is None:
-        raise RuntimeError("opencv-python is required for flappy_ghost_trail image export")
-
 
 def _shift_horizontal(image: np.ndarray, shift_x: float) -> np.ndarray:
     """Shift image left by ``shift_x`` pixels without wraparound."""
     if abs(float(shift_x)) < 1e-6:
         return image
-    _require_cv2()
     height, width = image.shape[:2]
     matrix = np.array([[1, 0, -float(shift_x)], [0, 1, 0]], dtype=np.float32)
     return cv2.warpAffine(
@@ -59,7 +45,6 @@ def _shift_horizontal(image: np.ndarray, shift_x: float) -> np.ndarray:
 
 
 def _make_pipe_mask(frame_rgb: np.ndarray) -> np.ndarray:
-    _require_cv2()
     hsv = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2HSV)
     pipe_hsv = cv2.inRange(
         hsv,
@@ -91,7 +76,6 @@ def _make_occlusion_mask(frame_rgb: np.ndarray, ground_fraction: float) -> np.nd
 
 def _segment_flappy_bird(frame_rgb: np.ndarray, *, ground_fraction: float = 0.22) -> np.ndarray | None:
     """Segment the Flappy bird sprite without motion or future frames."""
-    _require_cv2()
     height, width = frame_rgb.shape[:2]
     hsv = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2HSV)
 
@@ -174,10 +158,6 @@ def build_ghost_trail_image(
     output is still one RGB image, with all ghost content derived only from
     frames at or before the current decision step.
     """
-    if len(frames) != len(steps):
-        raise ValueError("frames and steps must have the same length")
-    if not frames:
-        raise ValueError("frames must contain at least the current frame")
 
     base = np.asarray(frames[-1], dtype=np.uint8)
     ghost_frames = [np.asarray(frame, dtype=np.uint8) for frame in frames[:-1]]
@@ -231,9 +211,7 @@ def build_flappy_ghost_trail_episode_frames(
     config: GhostTrailConfig,
 ) -> dict[int, np.ndarray]:
     """Build one ghost-trail image per Flappy decision step before row filtering."""
-    if len(frames) != len(steps):
-        raise ValueError("frames and steps must have the same length")
-    history_frames = max(0, int(config.history_frames))
+    history_frames = config.history_frames
     out: dict[int, np.ndarray] = {}
     for idx, step in enumerate(steps):
         start = max(0, idx - history_frames)
@@ -252,10 +230,6 @@ def build_flappy_ghost_trail_window(
     config: GhostTrailConfig,
 ) -> np.ndarray:
     """Build one live/eval Flappy ghost-trail image from a causal frame window."""
-    if len(frames) != len(steps):
-        raise ValueError("frames and steps must have the same length")
-    if not frames:
-        raise ValueError("frames must contain at least the current frame")
     current = np.asarray(frames[-1], dtype=np.uint8)
     occlusion = _make_occlusion_mask(current, float(config.ground_fraction))
     return build_ghost_trail_image(
@@ -269,29 +243,307 @@ def build_flappy_ghost_trail_window(
     )
 
 
-def build_episode_image_frames(
-    *,
-    env_name: str,
-    rows: Sequence[dict],
-    frames: Sequence[np.ndarray],
-    config: GhostTrailConfig,
-) -> dict[int, np.ndarray]:
-    """Build the image frame mapping used by rollout row writing."""
-    if len(rows) != len(frames):
-        raise ValueError("rows and frames must have the same length")
-    transform = config.normalized_transform()
-    steps = [int(row["decision_step"]) for row in rows]
-    if transform == "raw_rgb":
-        return {int(step): frame for step, frame in zip(steps, frames)}
-    if transform == "flappy_ghost_trail":
-        if str(env_name) != "flappy":
-            raise ValueError("image_transform=flappy_ghost_trail is only supported for env_name=flappy")
-        return build_flappy_ghost_trail_episode_frames(frames, steps, config=config)
-    if transform == "demon_attack_ghost_trail":
-        if str(env_name) != "demon_attack":
-            raise ValueError("image_transform=demon_attack_ghost_trail is only supported for env_name=demon_attack")
-        # Lazy import: only pull in the cv2-based tracker when this transform is used.
-        from latency_bench.data.ghost_trail_demon import build_demon_attack_ghost_trail_episode_frames
+# Native Demon Attack playfield and ship palette.
+DEMON_ATTACK_SHIP_RGB = (184, 70, 162)
+SCORE_ROW_END = 20
+GROUND_ROW_START = 188
+MAX_FOREGROUND_COMPONENT_AREA = 500
 
-        return build_demon_attack_ghost_trail_episode_frames(frames, steps, config=config)
-    raise ValueError(f"Unsupported image_transform={config.image_transform!r}")
+
+@dataclass
+class _Component:
+    frame_idx: int
+    centroid: tuple[float, float]
+    mask: np.ndarray
+    area: int
+    bbox: tuple[int, int, int, int]
+    mean_color: np.ndarray
+
+
+@dataclass
+class _Track:
+    kind: str
+    history: list[_Component]
+
+
+def _is_small_component(comp: _Component) -> bool:
+    x0, y0, x1, y1 = comp.bbox
+    w = x1 - x0
+    h = y1 - y0
+    return comp.area <= 14 and w <= 6 and h <= 18
+
+
+def _build_tracks(
+    frame_components: list[list[_Component]],
+    *,
+    bullet_like: bool,
+    max_gap: int,
+) -> list[list[_Component]]:
+    tracks: list[list[_Component]] = []
+    active_last_idx: list[int] = []
+
+    for frame_idx, comps in enumerate(frame_components):
+        candidates = [c for c in comps if _is_small_component(c) == bullet_like]
+        used_tracks: set[int] = set()
+
+        for comp in candidates:
+            best_ti = None
+            best_score = None
+            cx, cy = comp.centroid
+            for ti, history in enumerate(tracks):
+                if ti in used_tracks:
+                    continue
+                gap = frame_idx - active_last_idx[ti]
+                if gap < 1 or gap > max_gap:
+                    continue
+
+                lx, ly = history[-1].centroid
+                dx = cx - lx
+                dy = cy - ly
+                if bullet_like:
+                    if abs(dx) > 8 or abs(dy) > 24:
+                        continue
+                    if len(history) >= 2:
+                        prev_dy = history[-1].centroid[1] - history[-2].centroid[1]
+                        if abs(prev_dy) >= 1.0 and abs(dy) >= 1.0 and np.sign(prev_dy) != np.sign(dy):
+                            continue
+                    score = abs(dx) * 2.0 + abs(dy)
+                else:
+                    dist = float(np.hypot(dx, dy))
+                    if dist > 22.0:
+                        continue
+                    score = dist
+
+                if best_score is None or score < best_score:
+                    best_ti = ti
+                    best_score = score
+
+            if best_ti is None:
+                tracks.append([comp])
+                active_last_idx.append(frame_idx)
+            else:
+                tracks[best_ti].append(comp)
+                active_last_idx[best_ti] = frame_idx
+                used_tracks.add(best_ti)
+
+    return tracks
+
+
+def _classify_bullet_track(history: list[_Component]) -> str | None:
+    if len(history) < 2:
+        return None
+    x0, y0 = history[0].centroid
+    x1, y1 = history[-1].centroid
+    dy = y1 - y0
+    dx = x1 - x0
+    frame_span = max(1, history[-1].frame_idx - history[0].frame_idx)
+    median_area = float(np.median([comp.area for comp in history]))
+    if median_area > 8.0:
+        return None
+    if abs(dy) < 10.0:
+        return None
+    if abs(dy) < 1.2 * abs(dx):
+        return None
+    if abs(dy) / frame_span < 3.0:
+        return None
+    return "player_bullet" if dy < 0 else "enemy_bullet"
+
+
+def _alpha_for_frame(frame_idx: int, n: int, *, gamma: float, min_alpha: int, max_alpha: int) -> float:
+    x = (frame_idx + 1) / n
+    return (min_alpha + (max_alpha - min_alpha) * (x ** gamma)) / 255.0
+
+
+def _dilate_mask(mask: np.ndarray) -> np.ndarray:
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    return cv2.dilate(mask.astype(np.uint8), k, iterations=1) > 0
+
+
+def _contour_mask(mask: np.ndarray) -> np.ndarray:
+    if int(mask.sum()) <= 8:
+        return mask
+    k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    eroded = cv2.erode(mask.astype(np.uint8), k, iterations=1) > 0
+    edge = mask & ~eroded
+    return edge if edge.any() else mask
+
+
+def _render_tracks(
+    frames: Sequence[np.ndarray],
+    tracks: list[_Track],
+) -> np.ndarray:
+    n = len(frames)
+    H, W = frames[0].shape[:2]
+    current_idx = n - 1
+    base = frames[-1].astype(np.float32)
+    result = base.copy()
+    rows = np.arange(H)[:, None]
+    in_playfield = np.broadcast_to((rows >= SCORE_ROW_END) & (rows < GROUND_ROW_START), (H, W))
+    current_foreground = np.any(frames[-1] != 0, axis=-1) & in_playfield
+
+    params = {
+        "ship": {"gamma": 2.3, "min_alpha": 0, "max_alpha": 72},
+        "enemy": {"gamma": 2.3, "min_alpha": 0, "max_alpha": 78},
+        "player_bullet": {"gamma": 1.8, "min_alpha": 4, "max_alpha": 120},
+        "enemy_bullet": {"gamma": 1.8, "min_alpha": 4, "max_alpha": 120},
+    }
+
+    draw_ops = []
+    for track in tracks:
+        p = params[track.kind]
+
+        history = track.history
+        ghosts = history[:-1] if history[-1].frame_idx == current_idx else history
+        for comp in ghosts:
+            draw_ops.append((comp.frame_idx, track.kind, comp, p))
+
+    for _, kind, comp, p in sorted(draw_ops, key=lambda item: item[0]):
+        alpha = _alpha_for_frame(
+            comp.frame_idx,
+            n,
+            gamma=p["gamma"],
+            min_alpha=p["min_alpha"],
+            max_alpha=p["max_alpha"],
+        )
+        mask = _dilate_mask(comp.mask) if "bullet" in kind else _contour_mask(comp.mask)
+        mask = mask & ~current_foreground
+        if not mask.any():
+            continue
+        if "bullet" in kind:
+            color = comp.mean_color.astype(np.float32)
+            result[mask] = result[mask] * (1.0 - alpha) + color * alpha
+        else:
+            source = frames[comp.frame_idx].astype(np.float32)
+            result[mask] = result[mask] * (1.0 - alpha) + source[mask] * alpha
+    return np.clip(result, 0, 255).astype(np.uint8)
+
+
+@dataclass
+class _FrameCache:
+    """Per-frame data pre-computed once and shared across all sliding windows."""
+    fg_comps: list[tuple]  # (centroid, mask, area, bbox, mean_color) — no frame_idx
+    ship: tuple | None     # (mask, centroid, area, bbox) or None if absent
+
+
+def _cache_frame(frame: np.ndarray) -> _FrameCache:
+    """Extract one raw frame independently of its position in a sliding window."""
+    H, W = frame.shape[:2]
+
+    not_black = np.any(frame != 0, axis=-1)
+    rows = np.arange(H)[:, None]
+    in_band = np.broadcast_to((rows >= SCORE_ROW_END) & (rows < GROUND_ROW_START), (H, W))
+    not_ship = ~np.all(frame == np.array(DEMON_ATTACK_SHIP_RGB), axis=-1)
+    fg = not_black & in_band & not_ship
+    num, labels = cv2.connectedComponents(fg.astype(np.uint8), connectivity=8)
+    fg_comps: list[tuple] = []
+    for lab in range(1, num):
+        mask = labels == lab
+        area = int(mask.sum())
+        if area < 1 or area > MAX_FOREGROUND_COMPONENT_AREA:
+            continue
+        ys, xs = np.where(mask)
+        fg_comps.append((
+            (float(xs.mean()), float(ys.mean())),
+            mask,
+            area,
+            (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1),
+            frame[mask].mean(axis=0),
+        ))
+
+    ship_mask = np.all(frame == np.array(DEMON_ATTACK_SHIP_RGB), axis=-1)
+    if ship_mask.any():
+        ys, xs = np.where(ship_mask)
+        ship: tuple | None = (
+            ship_mask,
+            (float(xs.mean()), float(ys.mean())),
+            int(ship_mask.sum()),
+            (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1),
+        )
+    else:
+        ship = None
+
+    return _FrameCache(fg_comps=fg_comps, ship=ship)
+
+
+def _tracks_from_cache(cache_window: list[_FrameCache]) -> list[_Track]:
+    """Associate cached entities using window-relative frame indices."""
+    frame_components = [
+        [
+            _Component(frame_idx=i, centroid=c, mask=m, area=a, bbox=b, mean_color=mc)
+            for c, m, a, b, mc in pc.fg_comps
+        ]
+        for i, pc in enumerate(cache_window)
+    ]
+    tracks: list[_Track] = []
+
+    ship_history: list[_Component] = []
+    for i, pc in enumerate(cache_window):
+        if pc.ship is not None:
+            s_mask, s_centroid, s_area, s_bbox = pc.ship
+            ship_history.append(_Component(
+                frame_idx=i,
+                centroid=s_centroid,
+                mask=s_mask,
+                area=s_area,
+                bbox=s_bbox,
+                mean_color=np.array(DEMON_ATTACK_SHIP_RGB, dtype=np.float32),
+            ))
+    if ship_history:
+        tracks.append(_Track("ship", ship_history))
+
+    small_tracks = _build_tracks(frame_components, bullet_like=True, max_gap=1)
+    for history in small_tracks:
+        kind = _classify_bullet_track(history)
+        if kind is not None:
+            tracks.append(_Track(kind, history))
+
+    large_tracks = _build_tracks(frame_components, bullet_like=False, max_gap=2)
+    current_idx = len(cache_window) - 1
+    for history in large_tracks:
+        if len(history) >= 3 and current_idx - history[-1].frame_idx <= 1:
+            tracks.append(_Track("enemy", history))
+
+    return tracks
+
+
+class DemonGhostTrailStream:
+    """Cache raw-frame features for consecutive Demon Attack trail windows."""
+
+    def __init__(self, history_frames: int) -> None:
+        self.raw_frames: deque[np.ndarray] = deque(maxlen=history_frames)
+        self.frame_cache: deque[_FrameCache] = deque(maxlen=history_frames)
+
+
+    def append(self, frame: np.ndarray) -> None:
+        frame = np.asarray(frame, dtype=np.uint8)
+        self.raw_frames.append(frame)
+        self.frame_cache.append(_cache_frame(frame))
+
+    def render(self) -> np.ndarray:
+        window = list(self.raw_frames)
+        if len(window) == 1:
+            return window[-1].copy()
+        tracks = _tracks_from_cache(list(self.frame_cache))
+        return _render_tracks(window, tracks)
+
+
+def build_demon_attack_ghost_trail_window(frames: Sequence[np.ndarray]) -> np.ndarray:
+    """Render the continuous raw-frame window used by Demon Attack inference."""
+    if len(frames) == 1:
+        return np.asarray(frames[0], dtype=np.uint8).copy()
+    stream = DemonGhostTrailStream(len(frames))
+    for frame in frames:
+        stream.append(frame)
+    return stream.render()
+
+
+def build_demon_attack_ghost_trail_episode_frames(
+    frames: Sequence[np.ndarray], steps: Sequence[int], *, config: GhostTrailConfig,
+) -> dict[int, np.ndarray]:
+    """Render each episode frame with a bounded cache, including the current frame."""
+    stream = DemonGhostTrailStream(config.history_frames)
+    result = {}
+    for step, frame in zip(steps, frames, strict=True):
+        stream.append(frame)
+        result[step] = stream.render()
+    return result

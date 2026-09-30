@@ -21,12 +21,14 @@ CANONICAL_ROW_FIELDS = (
 )
 
 
-def _rollout_feature_map(
+def rollout_features(
     action_spec: ActionSpec,
     *,
+    include_context_images: bool = False,
     include_state: bool = False,
     include_latency_trace: bool = False,
-) -> dict[str, Any]:
+) -> Features:
+    """Build the canonical rollout schema, including the requested optional columns."""
     feature_map: dict[str, Any] = {
         "image": HFImage(),
         "env_name": Value("string"),
@@ -41,8 +43,6 @@ def _rollout_feature_map(
     }
     if "action_id" in action_spec.row_fields:
         feature_map["action_id"] = Value("int64")
-    if "action_tuple" in action_spec.row_fields:
-        feature_map["action_tuple"] = HFSequence(Value("int64"))
     if "action" in action_spec.row_fields:
         feature_map["action"] = HFSequence(Value("float32"))
     feature_map["action_text"] = Value("string")
@@ -59,109 +59,9 @@ def _rollout_feature_map(
                 "raw_done": Value("bool"),
             }
         )
-    return feature_map
-
-
-def rollout_features(
-    action_spec: ActionSpec,
-    *,
-    include_state: bool = False,
-    include_latency_trace: bool = False,
-) -> Features:
-    """Build Hugging Face dataset features for canonical rollout rows.
-
-    Args:
-        action_spec: Environment action spec defining action-specific fields.
-
-    Returns:
-        Hugging Face ``Features`` for one environment's rollout table.
-    """
-    return Features(
-        _rollout_feature_map(
-            action_spec,
-            include_state=include_state,
-            include_latency_trace=include_latency_trace,
-        )
-    )
-
-
-def rollout_features_with_context_images(
-    action_spec: ActionSpec,
-    *,
-    include_state: bool = False,
-    include_latency_trace: bool = False,
-) -> Features:
-    """Build rollout features for rows that carry historical context images.
-
-    Args:
-        action_spec: Environment action spec defining action-specific fields.
-
-    Returns:
-        Hugging Face ``Features`` including ``context_images``.
-    """
-    feature_map = _rollout_feature_map(
-        action_spec,
-        include_state=include_state,
-        include_latency_trace=include_latency_trace,
-    )
-    feature_map["context_images"] = HFSequence(HFImage())
+    if include_context_images:
+        feature_map["context_images"] = HFSequence(HFImage())
     return Features(feature_map)
-
-
-def empty_records(
-    action_spec: ActionSpec,
-    *,
-    include_state: bool = False,
-    include_latency_trace: bool = False,
-) -> dict[str, list[Any]]:
-    """Build empty column arrays matching the rollout features.
-
-    Args:
-        action_spec: Environment action spec defining action-specific fields.
-
-    Returns:
-        Empty column mapping suitable for ``Dataset.from_dict``.
-    """
-    return {
-        name: []
-        for name in rollout_features(
-            action_spec,
-            include_state=include_state,
-            include_latency_trace=include_latency_trace,
-        )
-    }
-
-
-def empty_records_with_context_images(
-    action_spec: ActionSpec,
-    include_context_images: bool,
-    *,
-    include_state: bool = False,
-    include_latency_trace: bool = False,
-) -> dict[str, list[Any]]:
-    """Build empty column arrays for single-image or context-image rollout features.
-
-    Args:
-        action_spec: Environment action spec defining action-specific fields.
-        include_context_images: Whether to include the ``context_images`` feature.
-
-    Returns:
-        Empty column mapping suitable for ``Dataset.from_dict``.
-    """
-    features = (
-        rollout_features_with_context_images(
-            action_spec,
-            include_state=include_state,
-            include_latency_trace=include_latency_trace,
-        )
-        if include_context_images
-        else rollout_features(
-            action_spec,
-            include_state=include_state,
-            include_latency_trace=include_latency_trace,
-        )
-    )
-    return {name: [] for name in features}
 
 
 def sort_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -173,4 +73,4 @@ def sort_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     Returns:
         New list ordered by ``episode_idx`` then ``decision_step``.
     """
-    return sorted([dict(row) for row in rows], key=lambda row: (int(row["episode_idx"]), int(row["decision_step"])))
+    return sorted([dict(row) for row in rows], key=lambda row: (row["episode_idx"], row["decision_step"]))

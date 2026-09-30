@@ -16,7 +16,6 @@ from latency_bench.envs.humanoidbench_sonic_contract import (
 
 ACTION_LAYOUT_FLAPPY_DISCRETE = "flappy_discrete"
 ACTION_LAYOUT_DEMON_ATTACK_DISCRETE = "demon_attack_discrete"
-ACTION_LAYOUT_DEADLY_CORRIDOR_FACTORIZED_11 = "deadly_corridor_factorized_11"
 ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54 = "deadly_corridor_joint_54"
 ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6 = "defend_the_line_joint_6"
 ACTION_LAYOUT_GYMNASIUM_DISCRETE_V1 = "gymnasium_discrete_v1"
@@ -31,12 +30,6 @@ DEADLY_CORRIDOR_STRAFE_LABELS = ("STRAFE_NOOP", "MOVE_LEFT", "MOVE_RIGHT")
 DEADLY_CORRIDOR_ATTACK_LABELS = ("ATTACK_NOOP", "ATTACK")
 DEFEND_THE_LINE_TURN_LABELS = ("TURN_NOOP", "TURN_LEFT", "TURN_RIGHT")
 DEFEND_THE_LINE_ATTACK_LABELS = ("ATTACK_NOOP", "ATTACK")
-DEADLY_CORRIDOR_FACTORIZED_11_LABELS = (
-    *DEADLY_CORRIDOR_TURN_LABELS,
-    *DEADLY_CORRIDOR_MOVE_LABELS,
-    *DEADLY_CORRIDOR_STRAFE_LABELS,
-    *DEADLY_CORRIDOR_ATTACK_LABELS,
-)
 DEADLY_CORRIDOR_JOINT_54_LABELS = tuple(
     " + ".join(
         label
@@ -267,7 +260,7 @@ def _deadly_corridor_joint_action_id(action_tuple: list[int]) -> int:
     return int(turn) * 18 + int(move) * 6 + int(strafe) * 2 + int(attack)
 
 
-def deadly_corridor_joint_54_action(raw_action: Any) -> dict[str, Any]:
+def _deadly_corridor_joint_54_action(raw_action: Any) -> dict[str, Any]:
     """Encode a Deadly Corridor tuple action as the legacy joint action id."""
     action_tuple = _deadly_corridor_tuple(raw_action)
     return {
@@ -280,7 +273,7 @@ def _defend_the_line_tuple(raw_action: Any) -> list[int]:
     return [int(item) for item in _to_python_action(raw_action)]
 
 
-def defend_the_line_joint_6_action(raw_action: Any) -> dict[str, Any]:
+def _defend_the_line_joint_6_action(raw_action: Any) -> dict[str, Any]:
     """Encode a Defend the Line tuple action as a compact joint action id."""
     turn, attack = _defend_the_line_tuple(raw_action)
     action_id = int(turn) * len(DEFEND_THE_LINE_ATTACK_LABELS) + int(attack)
@@ -290,7 +283,7 @@ def defend_the_line_joint_6_action(raw_action: Any) -> dict[str, Any]:
     }
 
 
-def discrete_action(
+def _discrete_action(
     env_name: str,
     raw_action: Any,
     *,
@@ -334,9 +327,9 @@ def encode_action_for_env(
     """
     resolved_action_spec = action_spec if action_spec is not None else action_spec_for_env(env_name)
     if resolved_action_spec.layout == ACTION_LAYOUT_DEADLY_CORRIDOR_JOINT_54:
-        return deadly_corridor_joint_54_action(raw_action)
+        return _deadly_corridor_joint_54_action(raw_action)
     if resolved_action_spec.layout == ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6:
-        return defend_the_line_joint_6_action(raw_action)
+        return _defend_the_line_joint_6_action(raw_action)
     if resolved_action_spec.layout in (
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
         ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
@@ -346,4 +339,4 @@ def encode_action_for_env(
             "action": action,
             "action_text": "[" + ", ".join(f"{item:.6f}" for item in action) + "]",
         }
-    return discrete_action(str(env_name), raw_action, action_spec=resolved_action_spec)
+    return _discrete_action(str(env_name), raw_action, action_spec=resolved_action_spec)

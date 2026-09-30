@@ -589,7 +589,6 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     import copy
     import gymnasium as gym
     from training.gymnasium_sf.integration import GymnasiumActionLatencyWrapper
-    from latency_bench.data.dagger import DaggerState
 
     class Native(gym.Env):
         action_space = gym.spaces.Box(-10000, 10000, (43,), dtype=np.float32)
@@ -600,6 +599,9 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
             self.value = 0.0
             self.terminate = False
             return self._policy_observation(), {}
+
+        def render(self):
+            return np.zeros((2, 2, 3), dtype=np.uint8)
 
         def _policy_observation(self):
             return np.full(198, self.value, dtype=np.float32)
@@ -633,11 +635,12 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     value, frame = main.unwrapped.value, main.env_step_idx
     config = {"env": {"task_name": "g1_sonic_balance_simple", "env_fps": 50, "obs_fps": 50,
                       "base_prompt": "balance"}, "evaluation": {"eval_max_steps": 1000}}
-    adapter = balance_dagger.BalanceDaggerAdapter(config, Teacher(), tmp_path, [main], [branch])
-    state = DaggerState(5, [5], [0], [0], [0], [SimpleNamespace(action_chunk=np.full((8, 43), -5))])
+    adapter = balance_dagger.BalanceDaggerCollector(config, Teacher(), tmp_path, [main], [branch])
+    state = SimpleNamespace(episode_steps=[5], episode_ids=[0], seeds=[0],
+                            outputs=[SimpleNamespace(action_chunk=np.full((8, 43), -5))])
     snapshot = {"images": {0: np.zeros((2, 2, 3), dtype=np.uint8)},
                 "states": {0: main.unwrapped._policy_observation().copy()}}
-    row = adapter.start_records(snapshot, [0], state)[0]
+    row = adapter._start_records(snapshot, [0], state)[0]
     mask = np.asarray(row["action_loss_mask"])
     chunk = np.asarray(row["issued_command_chunk"])
     assert main.unwrapped.value == value
@@ -648,19 +651,44 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     else:
         np.testing.assert_array_equal(mask, [False, False, False, True, True, True, True, True])
         np.testing.assert_array_equal(chunk[:, 0], [0, 0, 0, 196, 296, 196, 296, 497])
-    adapter.step(snapshot, [0], state)
+    adapter._step([0], state)
     assert main.unwrapped.value == -5
     assert main.env_step_idx == frame + 1
     main.unwrapped.terminate = True
     config["evaluation"]["eval_max_steps"] = 7
     state.episode_steps[0] = 6
-    row = adapter.start_records(snapshot, [0], state)[0]
+    row = adapter._start_records(snapshot, [0], state)[0]
     if delay == 0:
         assert row["action_loss_mask"] == [True] + [False] * 7
         np.testing.assert_array_equal(np.asarray(row["issued_command_chunk"])[1:], 0)
     else:
         assert row is None
     main.close(); branch.close()
+
+    # Exercise the real collector's odd budget and episode seed progression.
+    envs, branches = [env(), env()], [env(), env()]
+    config["evaluation"]["eval_max_steps"] = 2 if delay == 0 else 12
+    collector = balance_dagger.BalanceDaggerCollector(config, Teacher(), tmp_path, envs, branches)
+    closed, resets = [], []
+    pool = SimpleNamespace(
+        reset_state=resets.append,
+        predict_batch=lambda observations: [
+            SimpleNamespace(action_chunk=np.full((8, 43), -5)) for _ in observations
+        ],
+        close=lambda: closed.append(True),
+    )
+    try:
+        assert collector.collect(pool, row_budget=5, seed=900) == 5
+        assert len(collector.train_rows) == 5
+        assert collector.student_raw_frames == 5
+        assert [row["seed"] for row in collector.train_rows] == [900, 901, 900, 901, 902 if delay == 0 else 900]
+        assert [row["decision_step"] for row in collector.train_rows] == [0, 0, 1, 1, 0 if delay == 0 else 2]
+        assert all(Path(row["image"]).exists() for row in collector.train_rows)
+        assert closed == [True]
+        assert resets == ([0, 1, 0, 1] if delay == 0 else [0, 1])
+    finally:
+        for item in (*envs, *branches):
+            item.close()
 
 
 def test_balance_dagger_relabels_saved_absolute_actions_without_loading_models(tmp_path, monkeypatch):

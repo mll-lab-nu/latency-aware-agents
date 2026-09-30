@@ -31,7 +31,7 @@ import yaml
 
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.config import load_config
-from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.integrations.starvla_resident_dagger import ResidentInferencePool
 from scripts.starvla.balance_dagger import (

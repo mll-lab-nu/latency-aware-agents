@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import io
 import json
 from pathlib import Path
@@ -59,10 +60,10 @@ def _write_generic_export(
     state_labels: list[str] | None = None,
 ) -> None:
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     action_spec = gymnasium_discrete_action_spec(ACTION_LABELS)
-    write_parquet_splits(
+    write_rollout_fixture(
         raw_export,
         train_rows,
         [],
@@ -201,7 +202,7 @@ def test_generic_checkpoint_applies_rollout_overrides(tmp_path):
 
 def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
-    from latency_bench.data.sf_teacher_rows import teacher_dataset_row
+    from latency_bench.data.rollout_rows import teacher_dataset_row
 
     action_spec = gymnasium_discrete_action_spec(["PUSH_LEFT", "COAST", "PUSH_RIGHT"])
     row = teacher_dataset_row(
@@ -232,6 +233,7 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
     monkeypatch,
     tmp_path,
 ):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
 
     from latency_bench.data import sf_teacher_rollout
@@ -300,8 +302,7 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
         return [action_id], torch.zeros_like(rnn_states), {0: result}
 
     monkeypatch.setattr(
-        sf_teacher_rollout,
-        "_step_teacher_policy",
+        teacher_runtime, "step_teacher_policy",
         step_teacher_policy,
     )
     output_dir = tmp_path / "rollout"
@@ -316,7 +317,7 @@ def test_gymnasium_replay_exports_pre_action_state_with_stacked_observations(
         ),
         env_name="mountain_car",
         output_dir=output_dir,
-        accepted_specs=[{"episode_idx": 0, "split": "val", "seed": 7}],
+        accepted_specs=[{"episode_idx": 0, "split": "val", "seed": 7, "episode_length": 2}],
         completed_episode_indices=set(),
         max_steps_per_episode=3,
         deterministic=True,
@@ -343,6 +344,7 @@ def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
     monkeypatch,
     tmp_path,
 ):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
 
     g1_task = "g1_sonic_balance_simple"
@@ -428,8 +430,7 @@ def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
         return [teacher_action], torch.zeros_like(rnn_states), {0: result}
 
     monkeypatch.setattr(
-        sf_teacher_rollout,
-        "_step_teacher_policy",
+        teacher_runtime, "step_teacher_policy",
         step_teacher_policy,
     )
     output_dir = tmp_path / "rollout"
@@ -444,7 +445,7 @@ def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
         ),
         env_name=g1_task,
         output_dir=output_dir,
-        accepted_specs=[{"episode_idx": 0, "split": "val", "seed": 7}],
+        accepted_specs=[{"episode_idx": 0, "split": "val", "seed": 7, "episode_length": 2}],
         completed_episode_indices=set(),
         max_steps_per_episode=3,
         deterministic=True,
@@ -677,7 +678,7 @@ def test_teacher_export_cli_accepts_strict_episode_return_gate():
     [(2999.999, False), (3000.0, False), (3000.001, True)],
 )
 def test_generic_episode_return_gate_is_strictly_greater(episode_return, accepted):
-    from latency_bench.data.sf_teacher_rollout import _passes_episode_return_gate
+    from latency_bench.data.sf_teacher_probe import _passes_episode_return_gate
 
     assert (
         _passes_episode_return_gate(
@@ -733,7 +734,7 @@ def test_generic_teacher_export_rejects_task_identity_override(monkeypatch, tmp_
 
 
 def test_starvla_lerobot_converter_writes_handoff_contract(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -838,7 +839,7 @@ def test_generic_dataset_language_matches_registered_loader(tmp_path, monkeypatc
     pytest.importorskip("accelerate")
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
     from examples.rl_games.train_files.data_registry.data_config import GymnasiumDataConfig
-    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
 
     image = tmp_path / "image.png"
     save_test_image(image, 7)
@@ -852,7 +853,7 @@ def test_generic_dataset_language_matches_registered_loader(tmp_path, monkeypatc
 
 
 def test_starvla_lerobot_converter_normalizes_gymnasium_state_from_train(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -913,7 +914,7 @@ def test_starvla_lerobot_converter_normalizes_gymnasium_state_from_train(tmp_pat
 
 
 def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_state(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -969,7 +970,7 @@ def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_state(tmp_path
 
 
 def test_starvla_lerobot_bridge_carrier_rejects_more_than_seven_actions(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -1011,7 +1012,7 @@ def test_starvla_lerobot_bridge_carrier_rejects_more_than_seven_actions(tmp_path
 
 
 def test_starvla_lerobot_preserves_context_images_oldest_to_newest(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -1054,7 +1055,7 @@ def test_starvla_lerobot_preserves_context_images_oldest_to_newest(tmp_path):
 def test_generic_task_name_matching_legacy_env_keeps_generic_handoff_semantics(
     tmp_path,
 ):
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 

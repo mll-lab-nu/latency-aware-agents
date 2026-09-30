@@ -40,7 +40,7 @@ def _counts(task: str, smoke: bool) -> tuple[int, int]:
 
 def _prepare_balance_bootstrap(raw_dir: Path, output_dir: Path) -> None:
     """Convert Balance teacher rows and freeze the bootstrap task contract."""
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
     from scripts.starvla.prepare_dataset import prepare_lerobot

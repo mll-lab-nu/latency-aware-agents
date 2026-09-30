@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
-import torch
 
 from latency_bench.integrations.sample_factory.actions import to_python_action
 from latency_bench.utils.array import to_numpy
@@ -89,18 +88,6 @@ def _obs_slice(host_obs: Any, index: int) -> Any:
     if isinstance(host_obs, Mapping):
         return {key: _obs_slice(value, index) for key, value in host_obs.items()}
     return host_obs[index : index + 1]
-
-
-def _to_host_array(value: Any) -> Any:
-    """Move a full batch of scalar results (reward/terminated/...) to host once.
-
-    Args:
-        value: Batched tensor, array, or sequence.
-
-    Returns:
-        Host NumPy array indexable per slot.
-    """
-    return to_numpy(value)
 
 
 @dataclass
@@ -297,9 +284,9 @@ class BatchedTeacherRolloutDriver:
         # views). Slicing the device tensors per slot would re-copy the whole
         # batch on every call -> thousands of GPU->CPU syncs per step.
         obs_host = _to_host_obs(next_obs_batch)
-        rewards_host = _to_host_array(rewards)
-        terminated_host = _to_host_array(terminated)
-        truncated_host = _to_host_array(truncated)
+        rewards_host = to_numpy(rewards)
+        terminated_host = to_numpy(terminated)
+        truncated_host = to_numpy(truncated)
         results = {
             slot: RolloutStepResult(
                 next_obs=_obs_slice(obs_host, slot),

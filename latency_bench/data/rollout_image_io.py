@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 from PIL import Image
@@ -12,6 +12,10 @@ from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.data.background_writer import BackgroundWriter
 
 from latency_bench.utils.array import to_numpy
+from latency_bench.data.ghost_trail import (
+    GhostTrailConfig, build_flappy_ghost_trail_episode_frames,
+    build_demon_attack_ghost_trail_episode_frames,
+)
 
 
 def frames_from_env_raw_rgb_info(info: Mapping[str, Any]) -> list[np.ndarray]:
@@ -103,3 +107,26 @@ class RolloutImageWriter:
         """Flush pending writes and close the thread pool."""
         if self.writer is not None:
             self.writer.close()
+
+
+def build_episode_image_frames(
+    *,
+    env_name: str,
+    rows: Sequence[dict],
+    frames: Sequence[np.ndarray],
+    config: GhostTrailConfig,
+) -> dict[int, np.ndarray]:
+    """Build the image frame mapping used by rollout row writing."""
+    transform = config.image_transform
+    steps = [int(row["decision_step"]) for row in rows]
+    if transform == "raw_rgb":
+        return {int(step): frame for step, frame in zip(steps, frames)}
+    if transform == "flappy_ghost_trail":
+        if str(env_name) != "flappy":
+            raise ValueError("image_transform=flappy_ghost_trail is only supported for env_name=flappy")
+        return build_flappy_ghost_trail_episode_frames(frames, steps, config=config)
+    if transform == "demon_attack_ghost_trail":
+        if str(env_name) != "demon_attack":
+            raise ValueError("image_transform=demon_attack_ghost_trail is only supported for env_name=demon_attack")
+        return build_demon_attack_ghost_trail_episode_frames(frames, steps, config=config)
+    raise ValueError(f"Unsupported image_transform={config.image_transform!r}")

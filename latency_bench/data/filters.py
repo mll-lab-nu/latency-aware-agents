@@ -137,41 +137,17 @@ def _copy_kept_rows(rows: Sequence[Mapping[str, Any]], kept_indices: set[int]) -
     return [dict(row) for row_idx, row in enumerate(rows) if row_idx in kept_indices]
 
 
-def _filter_flappy_train_rows(rows: Sequence[Mapping[str, Any]], *, seed: int) -> list[dict[str, Any]]:
-    """Keep Flappy FLAP events, local context, and sampled far NOOP rows.
-
-    Args:
-        rows: Accepted Flappy training episode rows.
-        seed: Episode reset seed used for deterministic background sampling.
-
-    Returns:
-        Filtered row copies.
-    """
-    flap_steps = {row["decision_step"] for row in rows if row["action_text"] == "FLAP"}
-    kept_indices = _rows_near_steps(rows, flap_steps, window=FLAPPY_CONTEXT_WINDOW)
-    kept_indices |= _sample_background_rows(rows, kept_indices, keep_prob=FLAPPY_BACKGROUND_KEEP_PROB, seed=seed)
-    return _copy_kept_rows(rows, kept_indices)
-
-
-def _filter_demon_train_rows(rows: Sequence[Mapping[str, Any]], *, seed: int) -> list[dict[str, Any]]:
-    """Keep Demon Attack reward events, survival anchors, context, and background.
-
-    Args:
-        rows: Accepted Demon Attack training episode rows.
-        seed: Episode reset seed used for deterministic background sampling.
-
-    Returns:
-        Filtered row copies.
-    """
-    reward_steps = {row["decision_step"] for row in rows if row["raw_reward"] > 0.0}
-    kept_indices = _rows_near_steps(rows, reward_steps, window=DEMON_CONTEXT_WINDOW)
-    kept_indices |= {
-        row_idx
-        for row_idx, row in enumerate(rows)
-        if row["decision_step"] % DEMON_SURVIVAL_ANCHOR_STRIDE == 0
-    }
-    kept_indices |= _sample_background_rows(rows, kept_indices, keep_prob=DEMON_BACKGROUND_KEEP_PROB, seed=seed)
-    return _copy_kept_rows(rows, kept_indices)
+def _density_events(env_name: str, rows: Sequence[Mapping[str, Any]]) -> tuple[set[int], float]:
+    """Select the same event rows for thinning and contiguous-rollout weighting."""
+    keep_prob = {"flappy": FLAPPY_BACKGROUND_KEEP_PROB, "demon_attack": DEMON_BACKGROUND_KEEP_PROB}[env_name]
+    if env_name == "flappy":
+        events = {row["decision_step"] for row in rows if row["action_text"] == "FLAP"}
+        return _rows_near_steps(rows, events, window=FLAPPY_CONTEXT_WINDOW), keep_prob
+    events = {row["decision_step"] for row in rows if row["raw_reward"] > 0.0}
+    kept = _rows_near_steps(rows, events, window=DEMON_CONTEXT_WINDOW)
+    kept |= {idx for idx, row in enumerate(rows)
+             if row["decision_step"] % DEMON_SURVIVAL_ANCHOR_STRIDE == 0}
+    return kept, keep_prob
 
 
 def _copy_all_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -202,20 +178,10 @@ def density_weights_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]]) -
     Returns:
         One weight per row, aligned to ``rows``.
     """
-    count = len(rows)
-    if env_name == "flappy":
-        event_steps = {row["decision_step"] for row in rows if row["action_text"] == "FLAP"}
-        kept = _rows_near_steps(rows, event_steps, window=FLAPPY_CONTEXT_WINDOW)
-        return [1.0 if idx in kept else FLAPPY_BACKGROUND_KEEP_PROB for idx in range(count)]
-    if env_name == "demon_attack":
-        event_steps = {row["decision_step"] for row in rows if row["raw_reward"] > 0.0}
-        kept = _rows_near_steps(rows, event_steps, window=DEMON_CONTEXT_WINDOW)
-        kept |= {
-            idx for idx, row in enumerate(rows)
-            if row["decision_step"] % DEMON_SURVIVAL_ANCHOR_STRIDE == 0
-        }
-        return [1.0 if idx in kept else DEMON_BACKGROUND_KEEP_PROB for idx in range(count)]
-    return [1.0] * count
+    if env_name in {"flappy", "demon_attack"}:
+        kept, background_weight = _density_events(env_name, rows)
+        return [1.0 if idx in kept else background_weight for idx in range(len(rows))]
+    return [1.0] * len(rows)
 
 
 def filter_train_rows_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]], *, seed: int) -> list[dict[str, Any]]:
@@ -231,10 +197,9 @@ def filter_train_rows_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]],
     """
     if env_name in {"deadly_corridor", "defend_the_line"}:
         return _copy_all_rows(rows)
-    return {
-        "flappy": _filter_flappy_train_rows,
-        "demon_attack": _filter_demon_train_rows,
-    }[env_name](rows, seed=seed)
+    kept, keep_prob = _density_events(env_name, rows)
+    kept |= _sample_background_rows(rows, kept, keep_prob=keep_prob, seed=seed)
+    return _copy_kept_rows(rows, kept)
 
 
 def accepts_episode_contract(

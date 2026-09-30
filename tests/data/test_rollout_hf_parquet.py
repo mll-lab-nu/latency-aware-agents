@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+from itertools import groupby
+
 import pyarrow.parquet as pq
+
+from latency_bench.data.hf_parquet import (
+    write_episode_row_shard, write_parquet_splits_from_shards, load_parquet_splits,
+)
 
 from helpers import save_test_image
 
 
+def write_rollout_fixture(output_dir, train_rows, val_rows, *, action_spec):
+    """Build converter fixtures through the maintained canonical storage boundary."""
+    for rows in (train_rows, val_rows):
+        for _, episode in groupby(sorted(rows, key=lambda row: row["episode_idx"]),
+                                  key=lambda row: row["episode_idx"]):
+            write_episode_row_shard(output_dir, list(episode))
+    write_parquet_splits_from_shards(output_dir, action_spec=action_spec)
+    for shard in output_dir.glob("episode_rows/*/*.jsonl"):
+        shard.unlink()
+    return load_parquet_splits(output_dir)
+
+
 def test_hf_parquet_writes_canonical_columns_only(tmp_path):
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.hf_parquet import write_parquet_splits
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 7)
@@ -27,7 +44,7 @@ def test_hf_parquet_writes_canonical_columns_only(tmp_path):
         "action_text": "FLAP",
     }
 
-    dataset_dict = write_parquet_splits(
+    dataset_dict = write_rollout_fixture(
         tmp_path / "export",
         [row],
         [],
@@ -80,7 +97,6 @@ def test_hf_parquet_shards_sort_by_decision_step(tmp_path):
 
 def test_hf_parquet_embeds_context_images_when_rows_provide_them(tmp_path):
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.hf_parquet import write_parquet_splits
 
     image_path = tmp_path / "image.png"
     context_paths = [tmp_path / f"context_{idx}.png" for idx in range(3)]
@@ -104,7 +120,7 @@ def test_hf_parquet_embeds_context_images_when_rows_provide_them(tmp_path):
         "action_text": "FLAP",
     }
 
-    write_parquet_splits(
+    write_rollout_fixture(
         tmp_path / "export",
         [row],
         [],

@@ -24,7 +24,7 @@ Tests mirror the source tree. A test lives in the subdirectory that matches the
 | `tests/logging/` | `latency_bench/logging/` (records, trajectory logger, video, pipeline) |
 | `tests/analysis/` | `latency_bench/analysis/` (tables, stats, figures, diagnostics, fits) |
 | `tests/profiling/` | `latency_bench/profiling/` (deployment profiling, artifact resolution, calibration and CLI contracts) |
-| `tests/data/` | `latency_bench/data/` (rollout schema/filters/parquet, exporters, sf teacher) |
+| `tests/data/` | `latency_bench/data/` (rollout schema/filters/parquet, LeRobot conversion, sf teacher) |
 | `tests/training/` | `training/` (sample_factory backend, sf-compat shims, episode metrics) |
 | `tests/training/gpu/` | `training/{flappy_sf,demon_attack_sf}` and anything needing a CUDA GPU |
 | `tests/scripts/test_sim2real.py` | `scripts/experiments/sim2real/` (frozen protocols, resume/publication and statistical reports) |

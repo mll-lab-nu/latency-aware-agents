@@ -70,7 +70,7 @@ Relevant work is uncommitted. Inspect the diff rather than reconstructing it:
 - `scripts/starvla/balance_dagger.py` is the new Balance collector. It executes
   learner actions while recording FastTD3 labels for the same pre-action state.
   This file is not in the base Git index yet.
-- `latency_bench/data/exporters/starvla_lerobot.py` fixes generated modality
+- `latency_bench/data/lerobot_export.py` fixes generated modality
   metadata from `annotation.human.action.task_description` to the loader-required
   `annotation.human.task_description`.
 - `tests/scripts/test_starvla_train_task.py` covers the direct/no-publish path.

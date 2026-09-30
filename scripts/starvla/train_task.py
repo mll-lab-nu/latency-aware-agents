@@ -615,7 +615,7 @@ def _balance_dagger_collection(args, teacher, policy_path, directory, round_numb
 
 def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict,
                    round_number: int, bootstrap: Path, bootstrap_reference: dict) -> Path:
-    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
     from scripts.starvla.prepare_dataset import prepare_lerobot
 
     directory = args.output_dir / 'dagger' / f'round-{round_number:02d}'

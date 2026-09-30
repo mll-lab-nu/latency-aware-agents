@@ -10,7 +10,7 @@ from helpers import save_test_image
 
 
 def test_load_rows_preserves_nested_values_and_order_across_batches(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import _load_rows
+    from latency_bench.data.lerobot_export import _load_rows
 
     rows = [
         {
@@ -30,7 +30,7 @@ def test_load_rows_preserves_nested_values_and_order_across_batches(tmp_path):
 
 
 def test_write_episode_preserves_prefix_and_loss_masks(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import _write_episode
+    from latency_bench.data.lerobot_export import _write_episode
 
     row = {
         "image_bytes": b"png",
@@ -56,6 +56,7 @@ def test_write_episode_preserves_prefix_and_loss_masks(tmp_path):
         action_dim=2,
         state_dim=2,
         include_state=True,
+        include_latency=True,
     )
 
     written = pq.read_table(path).to_pylist()[0]
@@ -65,8 +66,8 @@ def test_write_episode_preserves_prefix_and_loss_masks(tmp_path):
 
 def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 9)
@@ -86,7 +87,7 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
         "action_id": 11,
         "action_text": "MOVE_FORWARD + MOVE_RIGHT + ATTACK",
     }
-    write_parquet_splits(raw_export, [row], [], action_spec=action_spec)
+    write_rollout_fixture(raw_export, [row], [], action_spec=action_spec)
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
@@ -131,8 +132,8 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
 @pytest.mark.parametrize("task,state_dim", [("deadly_corridor", 120), ("atlantis", 56), ("asterix", 136)])
 def test_history_export_preserves_state_and_task_action_contract(tmp_path, task, state_dim):
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+    from test_rollout_hf_parquet import write_rollout_fixture
     from latency_bench.core.config import load_config
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
     from latency_bench.envs.gymnasium_task import gymnasium_task_contract
@@ -164,7 +165,7 @@ def test_history_export_preserves_state_and_task_action_contract(tmp_path, task,
     }
     if task != "deadly_corridor":
         row["action"] = expected_action
-    write_parquet_splits(raw_export, [row], [], action_spec=action_spec)
+    write_rollout_fixture(raw_export, [row], [], action_spec=action_spec)
     (raw_export / "metadata.json").write_text(json.dumps({
         "env_name": task, "action_layout": action_spec.layout,
         "action_labels": list(action_spec.labels),
@@ -192,8 +193,8 @@ def test_history_export_preserves_state_and_task_action_contract(tmp_path, task,
 @pytest.mark.parametrize("obs_fps", [15.0, 8.75])
 def test_starvla_lerobot_exporter_preserves_decision_rows_at_obs_cadence(tmp_path, obs_fps):
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 9)
@@ -218,7 +219,7 @@ def test_starvla_lerobot_exporter_preserves_decision_rows_at_obs_cadence(tmp_pat
         }
         for step in range(8)
     ]
-    write_parquet_splits(raw_export, train_rows, [], action_spec=action_spec)
+    write_rollout_fixture(raw_export, train_rows, [], action_spec=action_spec)
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
@@ -249,7 +250,7 @@ def test_starvla_lerobot_exporter_preserves_decision_rows_at_obs_cadence(tmp_pat
 
 
 def test_starvla_lerobot_exporter_requires_rows_unit_metadata(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
 
     raw_export = tmp_path / "raw"
     raw_export.mkdir()
@@ -272,7 +273,7 @@ def test_starvla_lerobot_exporter_requires_rows_unit_metadata(tmp_path):
 
 
 def test_starvla_lerobot_exporter_rejects_non_decision_rows(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
 
     raw_export = tmp_path / "raw"
     raw_export.mkdir()
@@ -295,98 +296,42 @@ def test_starvla_lerobot_exporter_rejects_non_decision_rows(tmp_path):
         convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot", force=True)
 
 
-def test_starvla_lerobot_exporter_does_not_accept_latency_alias(tmp_path):
-    from datasets import Dataset, Features, Image as HFImage, Sequence as HFSequence, Value
-    from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
+@pytest.mark.parametrize("required_field", ["latency_raw_frames", "action"])
+def test_starvla_lerobot_exporter_requires_canonical_row_fields(tmp_path, required_field):
+    """Long-lived conversion boundary: aliases and action IDs do not replace required fields."""
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
 
     raw_export = tmp_path / "raw"
     raw_export.mkdir()
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 9)
-    features = Features(
-        {
-            "image": HFImage(),
-            "env_name": Value("string"),
-            "episode_idx": Value("int64"),
-            "decision_step": Value("int64"),
-            "split": Value("string"),
-            "seed": Value("int64"),
-            "prompt": Value("string"),
-            "latency": Value("int64"),
-            "latency_ms": Value("float64"),
-            "raw_reward": Value("float64"),
-            "action_id": Value("int64"),
-            "action": HFSequence(Value("float32")),
-            "action_text": Value("string"),
-        }
-    )
-    Dataset.from_dict(
-        {
-            "image": [str(image_path)],
-            "env_name": ["flappy"],
-            "episode_idx": [0],
-            "decision_step": [0],
-            "split": ["train"],
-            "seed": [11],
-            "prompt": ["pick action"],
-            "latency": [2],
-            "latency_ms": [66.0],
-            "raw_reward": [1.0],
-            "action_id": [1],
-            "action": [[0.0, 1.0]],
-            "action_text": ["FLAP"],
-        },
-        features=features,
-    ).to_parquet(raw_export / "train.parquet")
-    Dataset.from_dict(
-        {
-            "image": [str(image_path)],
-            "env_name": ["flappy"],
-            "episode_idx": [1],
-            "decision_step": [0],
-            "split": ["val"],
-            "seed": [12],
-            "prompt": ["pick action"],
-            "latency": [2],
-            "latency_ms": [66.0],
-            "raw_reward": [1.0],
-            "action_id": [1],
-            "action": [[0.0, 1.0]],
-            "action_text": ["FLAP"],
-        },
-        features=features,
-    ).to_parquet(raw_export / "val.parquet")
-    (raw_export / "metadata.json").write_text(
-        json.dumps(
-            {
-                "env_name": "flappy",
-                "action_layout": "flappy_discrete",
-                "reward_field": "raw_reward",
-                "action_labels": ["NOOP", "FLAP"],
-                "rows_unit": "decision_step",
-                "obs_fps": 30.0,
-                "obs_stride_raw_frames": 1,
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    try:
+    row = {
+        "image": {"bytes": image_path.read_bytes(), "path": None},
+        "env_name": "flappy", "episode_idx": 0, "decision_step": 0,
+        "seed": 11, "prompt": "pick action", "latency_raw_frames": 2, "latency": 2,
+        "latency_ms": 66.0, "raw_reward": 1.0,
+        "action_id": 1, "action": [0.0, 1.0], "action_text": "FLAP",
+    }
+    del row[required_field]
+    for split in ("train", "val"):
+        pq.write_table(pa.Table.from_pylist([row | {"split": split}]), raw_export / f"{split}.parquet")
+    (raw_export / "metadata.json").write_text(json.dumps({
+        "env_name": "flappy", "action_layout": "flappy_discrete", "reward_field": "raw_reward",
+        "action_labels": ["NOOP", "FLAP"], "rows_unit": "decision_step",
+        "obs_fps": 30.0, "obs_stride_raw_frames": 1,
+    }))
+    with pytest.raises(KeyError, match=required_field):
         convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot", force=True)
-    except KeyError as exc:
-        assert "latency_raw_frames" in str(exc)
-    else:
-        raise AssertionError("expected missing latency_raw_frames to fail")
 
 
 def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     tmp_path,
 ):
     from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 7)
@@ -416,7 +361,7 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
         for step, action in enumerate(actions)
     ]
     raw_export = tmp_path / "raw"
-    write_parquet_splits(
+    write_rollout_fixture(
         raw_export,
         rows,
         [],
@@ -517,17 +462,17 @@ def test_starvla_lerobot_exporter_writes_handoff_for_generic_continuous_state(
     action_dim,
 ):
     from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 7)
     action_labels = [f"torque_{index}" for index in range(6)]
     state_labels = [f"state_{index}" for index in range(17)]
     raw_export = tmp_path / "raw"
-    write_parquet_splits(
+    write_rollout_fixture(
         raw_export,
         [
             {
@@ -634,7 +579,7 @@ def test_starvla_lerobot_exporter_writes_handoff_for_generic_continuous_state(
 
 
 def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_path):
-    from latency_bench.data.exporters.starvla_lerobot import (
+    from latency_bench.data.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+
 import importlib.util
 import json
 import logging
 import os
-import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -555,6 +555,7 @@ def test_batched_rollout_driver_continues_life_loss_from_last_step_result(monkey
 
 
 def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -605,10 +606,9 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
         use_gpu_render=False,
     )
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": [fake_env],
             "env_info": object(),
@@ -622,8 +622,8 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy"),
@@ -650,13 +650,13 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
     assert train_rows[0]["env_name"] == "flappy"
     assert train_rows[0]["decision_step"] == 0
     assert train_rows[0]["raw_reward"] == 1.5
-    assert metadata["checkpoint_train_step"] == 123
-    assert metadata["env_fps"] == 30.0
-    assert metadata["obs_fps"] == 15.0
-    assert metadata["obs_stride_raw_frames"] == 2
+    assert metadata["runtime_metadata"]["checkpoint_train_step"] == 123
+    assert metadata["runtime_metadata"]["env_fps"] == 30.0
+    assert metadata["runtime_metadata"]["obs_fps"] == 15.0
 
 
 def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -704,10 +704,9 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
     fake_actor = FakeActorCritic()
     fake_cfg = SimpleNamespace(frame_stack=1, env_fps=35.0, obs_fps=17.5, seed=11)
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": [fake_env],
             "env_info": object(),
@@ -721,10 +720,9 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
     monkeypatch.setattr(
-        exporter,
-        "split_batch_actions",
+        teacher_runtime, "split_batch_actions",
         lambda processed_actions, batch_size, action_space=None: [[0, 1, 0, 0]] * batch_size,
     )
 
@@ -761,17 +759,13 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
     assert state["next_attempt_idx"] == 2
     assert state["attempted_episodes"] == 2
     assert state["rejected_episodes"] == 1
-    assert metadata["filter_report"]["attempted_episodes"] == 2
-    assert metadata["filter_report"]["accepted_episodes"] == 1
-    assert metadata["filter_report"]["rejected_episodes"] == 1
-    assert metadata["episode_return_gate"] == {
-        "field": "episode_raw_return",
-        "operator": ">",
-        "threshold": 3000.0,
-    }
+    assert metadata["attempted_episodes"] == 2
+    assert len(metadata["accepted_specs"]) == 1
+    assert metadata["rejected_episodes"] == 1
 
 
 def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -863,13 +857,10 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
             "checkpoint": {"train_step": 123},
         }
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_cfg)
-    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    _FakeProgress.calls.clear()
-    _FakeProgress.updates.clear()
-    monkeypatch.setattr(exporter, "tqdm", _FakeProgress)
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", fake_build_cfg)
+    monkeypatch.setattr(teacher_runtime, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
 
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
@@ -896,11 +887,9 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
     assert [transition for transition in ProbeEnv.transitions if transition[0] == 100] == ReplayEnv.transitions
     assert [row["seed"] for row in train_rows] == [100]
     assert Path(train_rows[0]["image"]).exists()
-    assert metadata["filter_report"]["attempted_episodes"] == 1
-    assert metadata["filter_report"]["accepted_episodes"] == 1
-    assert metadata["filter_report"]["rejected_episodes"] == 0
-    assert metadata["replay_num_envs"] == 1
-    assert metadata["max_steps_unit"] == "raw_frame"
+    assert metadata["attempted_episodes"] == 1
+    assert len(metadata["accepted_specs"]) == 1
+    assert metadata["rejected_episodes"] == 0
     state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
     assert state["next_attempt_idx"] == 3
     assert state["attempted_episodes"] == 1
@@ -926,6 +915,7 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
 
 
 def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -975,10 +965,9 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     fake_actor = FakeActorCritic()
     fake_cfg = SimpleNamespace(frame_stack=4, env_fps=30.0, obs_fps=15.0, seed=11, use_gpu_render=False)
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": fake_envs,
             "env_info": object(),
@@ -992,8 +981,8 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
     metadata = exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy"),
@@ -1019,13 +1008,13 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     assert "image_stack" not in train_rows[0]
     assert train_rows[0]["raw_reward"] == 1.5
     assert train_rows[0]["latency_raw_frames"] == 2
-    assert metadata["checkpoint_train_step"] == 123
-    assert metadata["env_fps"] == 30.0
-    assert metadata["obs_fps"] == 15.0
-    assert metadata["obs_stride_raw_frames"] == 2
+    assert metadata["runtime_metadata"]["checkpoint_train_step"] == 123
+    assert metadata["runtime_metadata"]["env_fps"] == 30.0
+    assert metadata["runtime_metadata"]["obs_fps"] == 15.0
 
 
 def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_actions(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from gymnasium.spaces import Discrete, Tuple
     from latency_bench.data import sf_teacher_rollout as exporter
@@ -1095,10 +1084,9 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
     fake_cfg = SimpleNamespace(frame_stack=4, env_fps=60.0, obs_fps=15.0, seed=1)
     fake_env_info = SimpleNamespace(action_space=fake_envs[0].action_space)
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": fake_envs,
             "env_info": fake_env_info,
@@ -1141,8 +1129,7 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
         "MOVE_FORWARD + MOVE_RIGHT + ATTACK",
         "TURN_LEFT + MOVE_BACKWARD",
     ]
-    assert metadata["action_layout"] == "deadly_corridor_joint_54"
-    assert metadata["checkpoint_train_step"] == 123
+    assert metadata["runtime_metadata"]["checkpoint_train_step"] == 123
 
 
 def test_deadly_corridor_action_encodes_joint_fifty_four_id():
@@ -1155,25 +1142,11 @@ def test_deadly_corridor_action_encodes_joint_fifty_four_id():
 
 
 def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from PIL import Image
     from latency_bench.data import sf_teacher_rollout as exporter
 
-    class FakeProgress:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def update(self, value):
-            pass
-
-        def set_postfix(self, **kwargs):
-            pass
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -1223,13 +1196,11 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
             return None
 
     monkeypatch.setattr(
-        exporter,
-        "build_sample_factory_rollout_cfg",
+        teacher_runtime, "build_sample_factory_rollout_cfg",
         lambda config: (object(), SimpleNamespace(frame_stack=4, env_fps=60.0, obs_fps=15.0, seed=0, simulator="cpu")),
     )
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": [FakeEnv()],
             "env_info": object(),
@@ -1243,11 +1214,10 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
-    metadata = exporter.collect_teacher_dataset(
+    exporter.collect_teacher_dataset(
         _rollout_descriptor("demon_attack"),
         output_dir=output_dir,
         max_episodes=1,
@@ -1266,8 +1236,6 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
 
     image = Image.open(train_rows[0]["image"])
     assert not val_rows
-    assert metadata["filter_report"]["demon_episode_threshold"] == 7999.0
-    assert metadata["image_source"] == "env_raw_rgb"
     assert "image_stack" not in train_rows[0]
     assert image.mode == "RGB"
     assert image.size == (2, 3)
@@ -1276,26 +1244,12 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
 
 @pytest.mark.parametrize("export_history", [False, True])
 def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, tmp_path, export_history):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from gymnasium.spaces import Discrete
     from PIL import Image
     from latency_bench.data import sf_teacher_rollout as exporter
 
-    class FakeProgress:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def update(self, value):
-            pass
-
-        def set_postfix(self, **kwargs):
-            pass
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -1339,8 +1293,7 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
             return None
 
     monkeypatch.setattr(
-        exporter,
-        "build_sample_factory_rollout_cfg",
+        teacher_runtime, "build_sample_factory_rollout_cfg",
         lambda config: (
             object(),
             SimpleNamespace(
@@ -1353,8 +1306,7 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
         ),
     )
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": [FakeEnv()],
             "env_info": object(),
@@ -1368,11 +1320,10 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
-    metadata = exporter.collect_teacher_dataset(
+    exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy") | ({"export_zero_action_history": 8} if export_history else {}),
         output_dir=output_dir,
         max_episodes=1,
@@ -1390,15 +1341,12 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
 
     image = Image.open(train_rows[0]["image"])
     assert not val_rows
-    assert metadata["image_source"] == "env_raw_rgb"
-    assert metadata["image_resolution"] == [6, 5, 3]
     assert "image_stack" not in train_rows[0]
     assert "context_images" not in train_rows[0]
     assert image.size == (5, 6)
     assert np.asarray(image)[0, 0].tolist() == [40, 41, 42]
 
     if export_history:
-        assert metadata["action_history_decisions"] == 8
         assert train_rows[0]["state"] == [0.] * 24
         assert train_rows[1]["state"] == [0.] * 21 + [1., 1., 1.]
         assert train_rows[0]["prompt"] == _rollout_descriptor("flappy")["base_prompt"]
@@ -1481,25 +1429,11 @@ def test_write_filtered_episode_images_resets_context_after_decision_step_gap(tm
 
 
 def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from PIL import Image
     from latency_bench.data import sf_teacher_rollout as exporter
 
-    class FakeProgress:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def update(self, value):
-            pass
-
-        def set_postfix(self, **kwargs):
-            pass
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -1542,8 +1476,7 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
             return None
 
     monkeypatch.setattr(
-        exporter,
-        "build_sample_factory_rollout_cfg",
+        teacher_runtime, "build_sample_factory_rollout_cfg",
         lambda config: (
             object(),
             SimpleNamespace(
@@ -1556,8 +1489,7 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
         ),
     )
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": [FakeEnv()],
             "env_info": object(),
@@ -1571,12 +1503,11 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
 
-    metadata = exporter.collect_teacher_dataset(
+    exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
@@ -1593,8 +1524,6 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
     )
     train_rows = _read_shard_rows(output_dir, "train")
 
-    assert metadata["context_window"] == 4
-    assert metadata["context_image_count"] == 3
     assert [len(row["context_images"]) for row in train_rows] == [3, 3, 3, 3]
     assert "image_stack" not in train_rows[0]
 
@@ -1618,24 +1547,10 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
 
 @pytest.mark.parametrize("episodes", [3, 5])
 def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkeypatch, tmp_path, episodes):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
-    class FakeProgress:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def update(self, value):
-            pass
-
-        def set_postfix(self, **kwargs):
-            pass
 
     class FakeActorCritic:
         inference_batches = []
@@ -1727,11 +1642,10 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
             "checkpoint": {"train_step": 123},
         }
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
-    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: list(processed_actions))
-    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(teacher_runtime, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: list(processed_actions))
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
         _rollout_descriptor("demon_attack"),
@@ -1762,25 +1676,11 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
 
 @pytest.mark.parametrize("export_history", [False, True])
 def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_losses(monkeypatch, tmp_path, export_history):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     torch = pytest.importorskip("torch")
     from gymnasium.spaces import Discrete
     from latency_bench.data import sf_teacher_rollout as exporter
 
-    class FakeProgress:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def update(self, value):
-            pass
-
-        def set_postfix(self, **kwargs):
-            pass
 
     class FakeActorCritic:
         rnn_inputs: list[list[list[float]]] = []
@@ -1863,11 +1763,10 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
             "checkpoint": {"train_step": 123},
         }
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
-    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(teacher_runtime, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
 
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
@@ -1909,28 +1808,10 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
 
 
 def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
-    class FakeProgress:
-        calls: list[tuple[int, int]] = []
-        updates: list[int] = []
-
-        def __init__(self, *, total, initial, unit):
-            self.calls.append((total, initial))
-            self.unit = unit
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def update(self, value):
-            self.updates.append(value)
-
-        def set_postfix(self, **kwargs):
-            pass
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -1986,11 +1867,10 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
             "checkpoint": {"train_step": 123},
         }
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
-    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(teacher_runtime, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy"),
@@ -2012,12 +1892,9 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
     assert [row["episode_idx"] for row in train_rows] == [0, 1]
     assert (output_dir / "episode_rows" / "train" / "episode_000000.jsonl").exists()
     assert (output_dir / "episode_rows" / "train" / "episode_000001.jsonl").exists()
-    assert FakeProgress.calls[-2:] == [(2, 0), (2, 0)]
-    assert FakeProgress.updates == [1, 1, 1, 1]
     assert FakeEnv.reset_seeds == [100, 101, 100, 101]
 
     FakeEnv.reset_seeds.clear()
-    FakeProgress.updates.clear()
 
     exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy"),
@@ -2037,12 +1914,11 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
 
     assert not resumed_val_rows
     assert [row["episode_idx"] for row in resumed_train_rows] == [0, 1, 2]
-    assert FakeProgress.calls[-2:] == [(3, 2), (1, 0)]
-    assert FakeProgress.updates == [1, 1]
     assert FakeEnv.reset_seeds == [102, 102]
 
 
 def test_collect_teacher_dataset_skips_runtime_when_probe_and_shards_complete(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     from PIL import Image
     from latency_bench.data import sf_teacher_rollout as exporter
     from latency_bench.data.hf_parquet import write_episode_row_shard
@@ -2095,8 +1971,7 @@ def test_collect_teacher_dataset_skips_runtime_when_probe_and_shards_complete(mo
     )
 
     monkeypatch.setattr(
-        exporter,
-        "build_sample_factory_rollout_cfg",
+        teacher_runtime, "build_sample_factory_rollout_cfg",
         lambda config: pytest.fail("runtime should not be built when accepted specs and shards are complete"),
     )
 
@@ -2115,44 +1990,18 @@ def test_collect_teacher_dataset_skips_runtime_when_probe_and_shards_complete(mo
         row_buffer_size=1,
     )
 
-    assert metadata["checkpoint_train_step"] == 123
-    assert metadata["frame_stack"] == 4
-    assert metadata["env_fps"] == 30.0
-    assert metadata["obs_fps"] == 15.0
-    assert metadata["filter_report"] == {
-        "preset": "clean_v1",
-        "attempted_episodes": 1,
-        "accepted_episodes": 1,
-        "rejected_episodes": 0,
-        "accepted_train_episodes": 1,
-        "accepted_val_episodes": 0,
-        "train_rows_before_row_filter": 1,
-        "train_rows_after_row_filter": 1,
-        "val_rows_before_row_filter": 0,
-        "val_rows_after_row_filter": 0,
-    }
+    assert metadata["runtime_metadata"]["checkpoint_train_step"] == 123
+    assert metadata["runtime_metadata"]["frame_stack"] == 4
+    assert metadata["runtime_metadata"]["env_fps"] == 30.0
+    assert metadata["runtime_metadata"]["obs_fps"] == 15.0
 
 
 def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatch, tmp_path, capfd):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     monkeypatch.setattr(logging.getLogger("rl"), "disabled", False)
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
-    class FakeProgress:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def update(self, value):
-            pass
-
-        def set_postfix(self, **kwargs):
-            pass
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -2201,10 +2050,9 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
             use_gpu_render=False,
         )
 
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_config)
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", fake_build_config)
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": [FakeEnv()],
             "env_info": object(),
@@ -2218,9 +2066,8 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
-    monkeypatch.setattr(exporter, "tqdm", FakeProgress)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
     output_dir = tmp_path / "export"
     exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy"),
@@ -2296,6 +2143,7 @@ def test_rollout_cfg_parses_sample_factory_evaluation_args(monkeypatch, tmp_path
     result_module, result_cfg = sf_teacher_runtime.build_sample_factory_rollout_cfg(
         {
             "env_name": "flappy",
+            "integration_name": "flappy",
             "checkpoint_experiment_dir": str(tmp_path / "teacher"),
             "checkpoint_path": None,
             "flat_cfg": {
@@ -2363,9 +2211,9 @@ def test_flappy_gpu_rollout_uses_requested_render_batch_size(
     runtime_num_envs,
     driver_kind,
 ):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     from contextlib import nullcontext
 
-    from latency_bench.data import sf_teacher_rollout
 
     cfg = SimpleNamespace(
         frame_stack=4,
@@ -2376,10 +2224,9 @@ def test_flappy_gpu_rollout_uses_requested_render_batch_size(
     runtime = {"envs": [object()]}
     captured = {}
 
-    monkeypatch.setattr(sf_teacher_rollout, "sample_factory_init_log", lambda output_dir: nullcontext())
+    monkeypatch.setattr(teacher_runtime, "sample_factory_init_log", lambda output_dir: nullcontext())
     monkeypatch.setattr(
-        sf_teacher_rollout,
-        "build_sample_factory_rollout_cfg",
+        teacher_runtime, "build_sample_factory_rollout_cfg",
         lambda config: (object(), cfg),
     )
 
@@ -2388,19 +2235,17 @@ def test_flappy_gpu_rollout_uses_requested_render_batch_size(
         captured["num_envs"] = build_num_envs
         return runtime
 
-    monkeypatch.setattr(sf_teacher_rollout, "build_env_and_policy", fake_build_env_and_policy)
+    monkeypatch.setattr(teacher_runtime, "build_env_and_policy", fake_build_env_and_policy)
     monkeypatch.setattr(
-        sf_teacher_rollout,
-        "SerialTeacherRolloutDriver",
+        teacher_runtime, "SerialTeacherRolloutDriver",
         lambda envs: SimpleNamespace(kind="serial"),
     )
     monkeypatch.setattr(
-        sf_teacher_rollout,
-        "BatchedTeacherRolloutDriver",
+        teacher_runtime, "BatchedTeacherRolloutDriver",
         lambda env, slot_count: SimpleNamespace(kind="batched"),
     )
 
-    _, _, driver, frame_stack = sf_teacher_rollout._build_rollout_driver_runtime(
+    _, _, driver, frame_stack = teacher_runtime.build_rollout_driver_runtime(
         _rollout_descriptor("flappy"),
         output_dir=tmp_path,
         num_envs=num_envs,
@@ -2416,9 +2261,9 @@ def test_flappy_gpu_rollout_uses_requested_render_batch_size(
 
 
 def test_gymnasium_atlantis_gpu_rollout_uses_one_native_batched_env(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     from contextlib import nullcontext
 
-    from latency_bench.data import sf_teacher_rollout
 
     cfg = SimpleNamespace(frame_stack=4, device="gpu", cli_args={})
     serial_env = SimpleNamespace(close=lambda: captured.update(serial_closed=True))
@@ -2429,10 +2274,9 @@ def test_gymnasium_atlantis_gpu_rollout_uses_one_native_batched_env(monkeypatch,
         def __init__(self, **kwargs):
             captured["gpu_env_kwargs"] = kwargs
 
-    monkeypatch.setattr(sf_teacher_rollout, "sample_factory_init_log", lambda output_dir: nullcontext())
+    monkeypatch.setattr(teacher_runtime, "sample_factory_init_log", lambda output_dir: nullcontext())
     monkeypatch.setattr(
-        sf_teacher_rollout,
-        "build_sample_factory_rollout_cfg",
+        teacher_runtime, "build_sample_factory_rollout_cfg",
         lambda config: (object(), cfg),
     )
 
@@ -2440,15 +2284,13 @@ def test_gymnasium_atlantis_gpu_rollout_uses_one_native_batched_env(monkeypatch,
         captured["runtime_num_envs"] = build_num_envs
         return runtime
 
-    monkeypatch.setattr(sf_teacher_rollout, "build_env_and_policy", fake_build_env_and_policy)
+    monkeypatch.setattr(teacher_runtime, "build_env_and_policy", fake_build_env_and_policy)
     monkeypatch.setattr(
-        sf_teacher_rollout,
-        "_GYMNASIUM_ATARI_GPU_ENVS",
+        teacher_runtime, "_GYMNASIUM_ATARI_GPU_ENVS",
         {"atlantis": FakeAtlantisGpuEnv},
     )
     monkeypatch.setattr(
-        sf_teacher_rollout,
-        "BatchedTeacherRolloutDriver",
+        teacher_runtime, "BatchedTeacherRolloutDriver",
         lambda env, slot_count: SimpleNamespace(kind="batched", env=env, slot_count=slot_count),
     )
 
@@ -2462,7 +2304,7 @@ def test_gymnasium_atlantis_gpu_rollout_uses_one_native_batched_env(monkeypatch,
             }),
         },
     }
-    _, _, driver, frame_stack = sf_teacher_rollout._build_rollout_driver_runtime(
+    _, _, driver, frame_stack = teacher_runtime.build_rollout_driver_runtime(
         config,
         output_dir=tmp_path,
         num_envs=128,
@@ -2479,6 +2321,7 @@ def test_gymnasium_atlantis_gpu_rollout_uses_one_native_batched_env(monkeypatch,
 
 
 def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_probe_steps(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -2586,12 +2429,12 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", fake_build_cfg)
-    monkeypatch.setattr(exporter, "build_env_and_policy", fake_runtime)
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", fake_build_cfg)
+    monkeypatch.setattr(teacher_runtime, "build_env_and_policy", fake_runtime)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
 
-    metadata = exporter.collect_teacher_dataset(
+    exporter.collect_teacher_dataset(
         _rollout_descriptor("flappy"),
         output_dir=output_dir,
         max_episodes=1,
@@ -2612,14 +2455,12 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
     assert ReplayEnv.reset_seeds == [100]
     assert [row["seed"] for row in train_rows] == [100]
     assert Path(train_rows[0]["image"]).exists()
-    assert metadata["filter_report"]["train_rows_before_row_filter"] == 1
-    assert metadata["filter_report"]["train_rows_after_row_filter"] == 1
 
 
 def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     from PIL import Image
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     Image.fromarray(np.zeros((2, 2, 3), dtype=np.uint8)).save(image_path)
@@ -2641,7 +2482,7 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
     }
 
     output_dir = tmp_path / "export"
-    dataset_dict = write_parquet_splits(output_dir, [row], [], action_spec=action_spec_for_env("flappy"))
+    dataset_dict = write_rollout_fixture(output_dir, [row], [], action_spec=action_spec_for_env("flappy"))
 
     assert (output_dir / "train.parquet").exists()
     assert (output_dir / "val.parquet").exists()
@@ -2655,7 +2496,7 @@ def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
 def test_write_parquet_splits_embeds_image_bytes(tmp_path):
     from PIL import Image
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     Image.fromarray(np.full((2, 2, 3), 3, dtype=np.uint8)).save(image_path)
@@ -2677,7 +2518,7 @@ def test_write_parquet_splits_embeds_image_bytes(tmp_path):
     }
 
     output_dir = tmp_path / "export"
-    write_parquet_splits(output_dir, [row], [], action_spec=action_spec_for_env("flappy"))
+    write_rollout_fixture(output_dir, [row], [], action_spec=action_spec_for_env("flappy"))
     image_path.unlink()
 
     table = pq.read_table(output_dir / "train.parquet")
@@ -2691,7 +2532,7 @@ def test_write_parquet_splits_embeds_image_bytes(tmp_path):
 def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
     from PIL import Image
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.hf_parquet import write_parquet_splits
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     Image.fromarray(np.full((1, 1, 3), 7, dtype=np.uint8)).save(image_path)
@@ -2716,7 +2557,7 @@ def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
     rows[256] = dict(reversed(rows[256].items()))
 
     output_dir = tmp_path / "export"
-    dataset_dict = write_parquet_splits(output_dir, rows, [], action_spec=action_spec_for_env("flappy"))
+    dataset_dict = write_rollout_fixture(output_dir, rows, [], action_spec=action_spec_for_env("flappy"))
     table = pq.read_table(output_dir / "train.parquet")
 
     assert len(dataset_dict["train"]) == 260
@@ -2772,7 +2613,9 @@ def  test_write_parquet_splits_from_shards_writes_train_and_val_rows(tmp_path):
                 json.dump(row, handle, sort_keys=True)
                 handle.write("\n")
 
-    dataset_dict = write_parquet_splits_from_shards(output_dir, action_spec=action_spec_for_env("flappy"))
+    write_parquet_splits_from_shards(output_dir, action_spec=action_spec_for_env("flappy"))
+    from latency_bench.data.hf_parquet import load_parquet_splits
+    dataset_dict = load_parquet_splits(output_dir)
     train_table = pq.read_table(output_dir / "train.parquet")
     val_table = pq.read_table(output_dir / "val.parquet")
 
@@ -2788,7 +2631,8 @@ def  test_write_parquet_splits_from_shards_writes_train_and_val_rows(tmp_path):
 def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
     from PIL import Image
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.hf_parquet import write_parquet_splits, write_parquet_splits_from_shards
+    from latency_bench.data.hf_parquet import write_parquet_splits_from_shards
+    from test_rollout_hf_parquet import write_rollout_fixture
 
     output_dir = tmp_path / "export"
     stale_image_path = tmp_path / "stale_image.png"
@@ -2808,7 +2652,7 @@ def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
         "action_id": 0,
         "action_text": "noop",
     }
-    write_parquet_splits(output_dir, [stale_row], [], action_spec=action_spec_for_env("flappy"))
+    write_rollout_fixture(output_dir, [stale_row], [], action_spec=action_spec_for_env("flappy"))
 
     image_path = output_dir / "images" / "train" / "episode_000000" / "t_000000.png"
     image_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2843,19 +2687,6 @@ def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
     assert not (output_dir / "train.parquet.tmp").exists()
 
 
-def test_write_parquet_splits_disables_datasets_progress(monkeypatch, tmp_path):
-    import latency_bench.data.hf_parquet as hf_parquet
-    from latency_bench.data.action_layouts import action_spec_for_env
-
-    calls: list[str] = []
-
-    monkeypatch.setattr(hf_parquet.datasets, "disable_progress_bars", lambda: calls.append("disabled"))
-
-    hf_parquet.write_parquet_splits(tmp_path / "export", [], [], action_spec=action_spec_for_env("flappy"))
-
-    assert calls == ["disabled"]
-    assert (tmp_path / "export" / "train.parquet").exists()
-    assert (tmp_path / "export" / "val.parquet").exists()
 
 
 def test_push_token_prefers_explicit_then_environment(monkeypatch):
@@ -3030,9 +2861,10 @@ def test_merge_probe_states_raises_when_insufficient():
 
 
 def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkeypatch, tmp_path):
+    from latency_bench.data import sf_teacher_runtime as teacher_runtime
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
-    from latency_bench.data.sf_teacher_rollout import completed_episode_indices_from_shards
+    from latency_bench.data.hf_parquet import completed_episode_indices_from_shards
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -3075,10 +2907,9 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
         seed=11,
         use_gpu_render=False,
     )
-    monkeypatch.setattr(exporter, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
+    monkeypatch.setattr(teacher_runtime, "build_sample_factory_rollout_cfg", lambda config: (object(), fake_cfg))
     monkeypatch.setattr(
-        exporter,
-        "build_env_and_policy",
+        teacher_runtime, "build_env_and_policy",
         lambda module, cfg, config, num_envs: {
             "envs": [fake_env],
             "env_info": object(),
@@ -3092,8 +2923,8 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
             "checkpoint": {"train_step": 123},
         },
     )
-    monkeypatch.setattr(exporter, "normalize_actions_for_space", lambda actions, **kwargs: actions)
-    monkeypatch.setattr(exporter, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
+    monkeypatch.setattr(teacher_runtime, "normalize_actions_for_space", lambda actions, **kwargs: actions)
+    monkeypatch.setattr(teacher_runtime, "split_batch_actions", lambda processed_actions, batch_size, action_space=None: [1] * batch_size)
 
     output_dir = tmp_path / "shard"
     result = exporter.collect_teacher_dataset(
@@ -3115,11 +2946,9 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
     )
 
     # Probe-only returns its marker and writes the resume state, but does not replay.
-    assert result["probe_only"] is True
-    assert result["accepted_episodes"] == 4
+    assert len(result["accepted_specs"]) == 4
     assert result["attempted_episodes"] == 12
     assert result["rejected_episodes"] == 8
-    assert result["attempt_budget"] == 12
     state = json.loads((output_dir / "probe_state.json").read_text(encoding="utf-8"))
     assert len(state["accepted_specs"]) == 4
     assert state["attempted_episodes"] == 12
@@ -3145,7 +2974,7 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
         probe_only=True,
         episode_return_gt=1.0,
     )
-    assert resumed["accepted_episodes"] == 4
+    assert len(resumed["accepted_specs"]) == 4
     assert len(fake_env.reset_seeds) == 12
     # No episode row shards were materialized (replay skipped).
     assert completed_episode_indices_from_shards(output_dir) == set()
@@ -3157,7 +2986,7 @@ def test_load_written_parquet_splits_restores_image_feature_memory_mapped(tmp_pa
     # image-embedded dataset into RAM via pq.read_table.
     from datasets import Dataset, Features, Image, Value
 
-    from latency_bench.data.sf_teacher_export import _load_written_parquet_splits
+    from latency_bench.data.hf_parquet import load_parquet_splits
 
     feats = Features({"image": Image(), "decision_step": Value("int64")})
     frame = np.zeros((2, 2, 3), dtype=np.uint8)
@@ -3168,10 +2997,123 @@ def test_load_written_parquet_splits_restores_image_feature_memory_mapped(tmp_pa
         str(tmp_path / "val.parquet")
     )
 
-    dd = _load_written_parquet_splits(tmp_path)
+    dd = load_parquet_splits(tmp_path)
     assert set(dd) == {"train", "val"}
     assert dd["train"].num_rows == 2
     assert dd["val"].num_rows == 1
     # Image feature round-trips, so push_to_hub re-embeds image bytes correctly.
     assert isinstance(dd["train"].features["image"], Image)
     assert dd["train"][0]["image"].size == (2, 2)
+
+
+@pytest.mark.parametrize("history_frames", [1, 5, 30])
+def test_demon_trail_stream_matches_causal_windows_and_reset(history_frames):
+    """Long-lived ghost-trail contract: cached frames preserve causal pixels and reset isolation."""
+    from latency_bench.data.ghost_trail import (
+        DemonGhostTrailStream, GhostTrailConfig,
+        build_demon_attack_ghost_trail_episode_frames, build_demon_attack_ghost_trail_window,
+    )
+    frames = []
+    for step in range(12):
+        frame = np.zeros((210, 160, 3), dtype=np.uint8)
+        frame[177:180, 30 + step:38 + step] = [184, 70, 162]
+        frame[60:65, 20 + step:28 + step] = [80, 180, 90]
+        frame[140 - step * 4:142 - step * 4, 80:82] = [210, 170, 120]
+        frames.append(frame)
+    episode = build_demon_attack_ghost_trail_episode_frames(
+        frames, range(len(frames)), config=GhostTrailConfig(history_frames=history_frames),
+    )
+    stream = DemonGhostTrailStream(history_frames)
+    for step, frame in enumerate(frames):
+        stream.append(frame)
+        rendered = stream.render()
+        window = frames[max(0, step - history_frames + 1):step + 1]
+        np.testing.assert_array_equal(rendered, build_demon_attack_ghost_trail_window(window))
+        np.testing.assert_array_equal(rendered, episode[step])
+        foreground = np.any(frame != 0, axis=-1)
+        np.testing.assert_array_equal(rendered[foreground], frame[foreground])
+    if history_frames > 1:
+        assert np.any(episode[11] != frames[11])
+    stream = DemonGhostTrailStream(history_frames)
+    stream.append(frames[0])
+    np.testing.assert_array_equal(stream.render(), frames[0])
+
+
+@pytest.mark.parametrize("probe_only", [False, True])
+def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_path, monkeypatch, probe_only):
+    """Long-lived export contract: resume decisions, final reports and embedded storage agree."""
+    from PIL import Image
+    from latency_bench.data import sf_teacher_export
+    from latency_bench.data.ghost_trail import GhostTrailConfig
+    from latency_bench.data.hf_parquet import write_episode_row_shard, load_parquet_splits
+    from latency_bench.data.sf_teacher_probe import write_probe_state
+
+    output = tmp_path / "export"
+    output.mkdir()
+    image = output / "image.png"
+    Image.fromarray(np.full((2, 2, 3), 42, dtype=np.uint8)).save(image)
+    row = {"image": str(image), "context_images": [str(image)] * 3,
+           "env_name": "flappy", "episode_idx": 0, "decision_step": 0,
+           "split": "train", "seed": 11, "prompt": "flap", "latency_raw_frames": 0,
+           "latency_ms": 0.0, "raw_reward": 5.0, "action_id": 1, "state": [0.0] * 24,
+           "action": [0.0, 1.0], "action_text": "FLAP"}
+    write_episode_row_shard(output, [row])
+    write_probe_state(output, {
+        "next_attempt_idx": 3, "attempted_episodes": 3, "rejected_episodes": 2,
+        "accepted_specs": [{"episode_idx": 0, "attempt_idx": 2, "seed": 11,
+                            "episode_length": 1, "episode_raw_frames": 2,
+                            "episode_raw_return": 5.0, "split": "train"}],
+        "runtime_metadata": {"checkpoint_train_step": 123, "frame_stack": 4,
+                             "env_fps": 30.0, "obs_fps": 15.0},
+    })
+    descriptor = _rollout_descriptor("flappy") | {"flat_cfg": {}}
+    monkeypatch.setattr(sf_teacher_export, "load_rollout_training_config",
+                        lambda *args, **kwargs: (descriptor, {"latency_source": "checkpoint"}))
+    metadata = sf_teacher_export.export_sample_factory_teacher_dataset(
+        checkpoint_root=tmp_path / "checkpoint", output_dir=output, latency_config_path=None,
+        env_name="", max_episodes=1, max_attempts=3, max_steps_per_episode=10,
+        val_fraction=0.0, split_seed=0, num_envs=1, replay_num_envs=1, device="cpu",
+        deterministic=True, export_image_size=None, image_writer_workers=0, row_buffer_size=2,
+        push_to_hub=False, hf_repo_id="", hf_private=False, hf_token="", hf_max_shard_size="500MB",
+        filter_preset="none", context_window=4, episode_return_gt=0.0, probe_only=probe_only,
+        export_zero_action_history=8,
+        image_transform_config=GhostTrailConfig(image_transform="flappy_ghost_trail"),
+    )
+    assert metadata["env_name"] == "flappy"
+    assert metadata["episode_return_gate"] == {"field": "episode_raw_return", "operator": ">", "threshold": 0.0}
+    if probe_only:
+        assert metadata["probe_only"] is True
+        assert metadata["accepted_episodes"] == 1
+        assert metadata["attempted_episodes"] == 3
+        assert metadata["rejected_episodes"] == 2
+        assert metadata["attempt_budget"] == 3
+        assert (output / "probe_state.json").exists()
+        assert not (output / "train.parquet").exists()
+        return
+    assert json.loads((output / "metadata.json").read_text()) == metadata
+    report = json.loads((output / "filter_report.json").read_text())
+    assert metadata["filter_report"] == report
+    assert report == {
+        "preset": "none", "attempted_episodes": 3, "accepted_episodes": 1,
+        "rejected_episodes": 2, "accepted_train_episodes": 1, "accepted_val_episodes": 0,
+        "train_rows_before_row_filter": 1, "train_rows_after_row_filter": 1,
+        "val_rows_before_row_filter": 0, "val_rows_after_row_filter": 0,
+        "episode_return_gate": metadata["episode_return_gate"],
+    }
+    assert metadata["action_history_decisions"] == 8
+    assert metadata["prompt_source"] == "sample_factory_checkpoint:base_prompt"
+    assert metadata["checkpoint_train_step"] == 123
+    assert metadata["frame_stack"] == 4
+    assert (metadata["env_fps"], metadata["obs_fps"], metadata["obs_stride_raw_frames"]) == (30.0, 15.0, 2)
+    assert metadata["max_steps_unit"] == "raw_frame"
+    assert metadata["replay_num_envs"] == 1
+    assert metadata["image_source"] == "env_raw_rgb_flappy_ghost_trail"
+    assert metadata["image_resolution"] == [2, 2, 3]
+    assert (metadata["context_window"], metadata["context_image_count"]) == (4, 3)
+    assert metadata["action_layout"] == "flappy_discrete"
+    assert (metadata["train_rows"], metadata["val_rows"], metadata["total_rows"]) == (1, 0, 1)
+    assert (metadata["train_episodes"], metadata["val_episodes"], metadata["total_episodes"]) == (1, 0, 1)
+    splits = load_parquet_splits(output)
+    assert len(splits["train"]) == 1 and len(splits["val"]) == 0
+    assert not (output / "probe_state.json").exists()
+    assert not (output / "episode_rows").exists()

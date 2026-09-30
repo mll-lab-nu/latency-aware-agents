@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import copy
+from contextlib import ExitStack
+from dataclasses import dataclass
 from importlib import import_module
 import json
 from pathlib import Path
@@ -22,9 +24,9 @@ from latency_bench.data.action_layouts import (
     encode_action_for_env,
 )
 from latency_bench.data.hf_parquet import embed_image_rows
-from latency_bench.data.dagger import DaggerStep, collect_dagger
+from latency_bench.data.background_writer import BackgroundWriter
 from latency_bench.data.rollout_image_io import save_image_frame
-from latency_bench.data.sf_teacher_rows import teacher_dataset_row
+from latency_bench.data.rollout_rows import teacher_dataset_row
 from latency_bench.latency.samplers import HiddenRegimeSampler
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.executors.realtime.pool import ProcessInferencePool
@@ -159,13 +161,16 @@ def _balance_row(config, output_dir, image, state, label, episode, step, seed, s
     return row
 
 
-class BalanceDaggerAdapter:
-    """Keep the student trajectory live while its own teacher labels independent branches."""
+@dataclass
+class _DaggerState:
+    episode_steps: list[int]
+    episode_ids: list[int]
+    seeds: list[int]
+    outputs: list
 
-    inference_period = record_period = 1
-    budget_mode = "step"
-    shard_rows = None
-    seed_mode = "global"
+
+class BalanceDaggerCollector:
+    """Keep the student trajectory live while its own teacher labels independent branches."""
 
     def __init__(self, policy_config, teacher_policy, output_dir, envs, branches):
         self.config = policy_config
@@ -176,24 +181,24 @@ class BalanceDaggerAdapter:
         self.train_rows = []
         self.teacher_branch_raw_frames = self.student_raw_frames = 0
 
-    def reset(self, slot, state):
+    def _reset(self, slot, state):
         self.envs[slot].reset(seed=state.seeds[slot])
 
-    def snapshot(self, due, record_slots):
+    def _snapshot(self, slots):
         return {
-            "images": {slot: np.asarray(self.envs[slot].render()).copy() for slot in record_slots},
+            "images": {slot: np.asarray(self.envs[slot].render()).copy() for slot in slots},
             "states": {slot: self.envs[slot].unwrapped._policy_observation().copy()
-                       for slot in record_slots},
+                       for slot in slots},
         }
 
-    def observations(self, snapshot, slots, state):
+    def _observations(self, snapshot, slots, state):
         return [
             _student_observation(snapshot["images"][slot], snapshot["states"][slot],
                                  state.episode_steps[slot], slot)
             for slot in slots
         ]
 
-    def start_records(self, snapshot, slots, state):
+    def _start_records(self, snapshot, slots, state):
         for slot in slots:
             _copy_collection_env(self.envs[slot], self.branches[slot])
         chunks, masks = _teacher_rollout(
@@ -215,7 +220,7 @@ class BalanceDaggerAdapter:
             rows.append(row)
         return rows
 
-    def step(self, snapshot, active, state):
+    def _step(self, active, state):
         done, rewards = [], {}
         self.student_raw_frames += len(active)
         for slot in active:
@@ -224,15 +229,46 @@ class BalanceDaggerAdapter:
             )
             if terminated or truncated or state.episode_steps[slot] + 1 == self.config["evaluation"]["eval_max_steps"]:
                 done.append(slot)
-        return DaggerStep(done, rewards)
+        return done, rewards
 
-    def finish_record(self, row, snapshot, result, slot, finished):
-        row[G1_SONIC_ACTION_SPEC.reward_field] = result.data[slot]
-
-    def write_rows(self, shard_index, slot, rows, writer):
-        for row in rows:
-            writer.submit(save_image_frame, row.pop("rgb"), Path(row["image"]), None)
-            self.train_rows.append(row)
+    def collect(self, pool, *, row_budget, seed):
+        """Collect exactly the requested labeled rows, preserving per-slot clocks."""
+        slots = list(range(self.num_envs))
+        state = _DaggerState([0] * self.num_envs, slots.copy(),
+                             [seed + slot for slot in slots], [None] * self.num_envs)
+        next_episode = self.num_envs
+        submitted = 0
+        with ExitStack() as cleanup:
+            cleanup.callback(pool.close)
+            writer = BackgroundWriter()
+            cleanup.callback(writer.close)
+            for slot in slots:
+                self._reset(slot, state)
+                pool.reset_state(slot)
+            while submitted < row_budget:
+                writer.poll()
+                active = slots[:row_budget - submitted]
+                snapshot = self._snapshot(active)
+                outputs = pool.predict_batch(self._observations(snapshot, active, state))
+                for slot, output in zip(active, outputs, strict=True):
+                    state.outputs[slot] = output
+                rows = self._start_records(snapshot, active, state)
+                done, rewards = self._step(active, state)
+                for slot, row in zip(active, rows, strict=True):
+                    state.episode_steps[slot] += 1
+                    if row is not None:
+                        row[G1_SONIC_ACTION_SPEC.reward_field] = rewards[slot]
+                        writer.submit(save_image_frame, row.pop("rgb"), Path(row["image"]), None)
+                        self.train_rows.append(row)
+                        submitted += 1
+                for slot in done:
+                    state.episode_ids[slot] = next_episode
+                    state.episode_steps[slot] = 0
+                    state.seeds[slot] = seed + next_episode
+                    next_episode += 1
+                    self._reset(slot, state)
+                    pool.reset_state(slot)
+        return submitted
 
 
 def make_collection_env(config: dict, *, seed: int, render: bool = True):
@@ -295,21 +331,20 @@ def collect_balance_dagger(
     ]
     output_dir.mkdir(parents=True, exist_ok=True)
     branches = [make_collection_env(policy_config, seed=slot, render=False) for slot in range(num_envs)]
-    adapter = BalanceDaggerAdapter(policy_config, teacher_policy, output_dir, envs, branches)
+    collector = BalanceDaggerCollector(policy_config, teacher_policy, output_dir, envs, branches)
     try:
-        collect_dagger(
-            adapter, student_pool, row_budget=row_budget, seed=10_000_000 + round_number * 1_000_000,
-            is_running=lambda: True,
+        collector.collect(
+            student_pool, row_budget=row_budget, seed=10_000_000 + round_number * 1_000_000,
         )
     finally:
         for env in (*envs, *branches):
             env.close()
-    train_rows = adapter.train_rows
+    train_rows = collector.train_rows
 
     write_balance_dataset(output_dir, env_config, train_rows, [])
     _record_label_provenance(output_dir, policy_config, teacher_config_path, teacher_checkpoint,
-                             student_raw_frames=adapter.student_raw_frames,
-                             teacher_branch_raw_frames=adapter.teacher_branch_raw_frames)
+                             student_raw_frames=collector.student_raw_frames,
+                             teacher_branch_raw_frames=collector.teacher_branch_raw_frames)
 
 
 def write_balance_dataset(output_dir, env_config, train_rows, val_rows):

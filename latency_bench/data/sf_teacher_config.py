@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -49,18 +48,6 @@ DEFAULT_OBS_FPS_BY_BENCH_ENV = {
 
 LEGACY_SAME_LATENCY_RE = re.compile(r"(?:^|_)same_latency_l(?P<frames>\d+)(?:_|$)")
 GYMNASIUM_SF_ENV = "latency_gymnasium"
-
-
-@dataclass(frozen=True)
-class CheckpointRoot:
-    """Resolved Sample Factory checkpoint location.
-
-    Args:
-        experiment_dir: Directory containing Sample Factory experiment files.
-        checkpoint_path: Optional explicit checkpoint file.
-    """
-    experiment_dir: Path
-    checkpoint_path: Path | None
 
 
 def _infer_env_name_from_sf_env(sf_env_name: str) -> str:
@@ -143,7 +130,7 @@ def _gymnasium_task_metadata(flat_cfg: Mapping[str, Any]) -> dict[str, Any]:
     return metadata
 
 
-def _resolve_checkpoint_root(checkpoint_root: str | Path) -> CheckpointRoot:
+def _resolve_checkpoint_root(checkpoint_root: str | Path) -> tuple[Path, Path | None]:
     """Resolve a checkpoint file or experiment directory.
 
     Args:
@@ -155,9 +142,9 @@ def _resolve_checkpoint_root(checkpoint_root: str | Path) -> CheckpointRoot:
     path = Path(checkpoint_root).expanduser().resolve()
     if path.is_file():
         if path.parent.name.startswith("checkpoint_p"):
-            return CheckpointRoot(experiment_dir=path.parent.parent, checkpoint_path=path)
-        return CheckpointRoot(experiment_dir=path.parent, checkpoint_path=path)
-    return CheckpointRoot(experiment_dir=path, checkpoint_path=None)
+            return (path.parent.parent, path)
+        return (path.parent, path)
+    return (path, None)
 
 
 def _read_checkpoint_config(experiment_dir: Path) -> dict[str, Any]:
@@ -187,13 +174,6 @@ def _load_latency_override(path: str | Path) -> dict[str, Any]:
     with resolved.open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle)
     return deepcopy(payload["latency"])
-
-
-def _has_current_latency_config(flat_cfg: Mapping[str, Any]) -> bool:
-    if "latency_type" not in flat_cfg:
-        return False
-    latency_type = flat_cfg["latency_type"]
-    return latency_type is not None and str(latency_type).strip() != ""
 
 
 def _env_fps(flat_cfg: Mapping[str, Any], env_name: str) -> float:
@@ -246,8 +226,8 @@ def load_rollout_training_config(
     Returns:
         Rollout descriptor and export metadata.
     """
-    checkpoint = _resolve_checkpoint_root(checkpoint_root)
-    flat_cfg = _read_checkpoint_config(checkpoint.experiment_dir)
+    experiment_dir, checkpoint_path = _resolve_checkpoint_root(checkpoint_root)
+    flat_cfg = _read_checkpoint_config(experiment_dir)
     if flat_cfg["env"] == GYMNASIUM_SF_ENV:
         make_kwargs = json.loads(flat_cfg["gym_make_kwargs_json"])
         if gym_camera_name is not None:
@@ -257,7 +237,7 @@ def load_rollout_training_config(
             make_kwargs.update(gym_make_kwargs_override)
         flat_cfg["gym_make_kwargs_json"] = json.dumps(make_kwargs)
     env_name, integration_name, action_spec, base_prompt = _rollout_task_contract(flat_cfg)
-    config_source = str((checkpoint.experiment_dir / "config.json").resolve())
+    config_source = str((experiment_dir / "config.json").resolve())
     latency_override = None
     latency_source = "checkpoint"
 
@@ -271,7 +251,7 @@ def load_rollout_training_config(
         latency_override = _legacy_same_latency_config(
             flat_cfg,
             env_name=env_name,
-            experiment_dir=checkpoint.experiment_dir,
+            experiment_dir=experiment_dir,
         )
         if latency_override is not None:
             latency_source = "legacy_checkpoint_name"
@@ -281,15 +261,15 @@ def load_rollout_training_config(
         "integration_name": integration_name,
         "action_spec": action_spec,
         "base_prompt": base_prompt,
-        "checkpoint_experiment_dir": str(checkpoint.experiment_dir),
-        "checkpoint_path": None if checkpoint.checkpoint_path is None else str(checkpoint.checkpoint_path),
+        "checkpoint_experiment_dir": str(experiment_dir),
+        "checkpoint_path": None if checkpoint_path is None else str(checkpoint_path),
         "flat_cfg": deepcopy(flat_cfg),
         "device_override": None if not device_override else resolve_sample_factory_device(device_override),
         "latency_override": latency_override,
     }
     metadata = {
-        "checkpoint_experiment_dir": str(checkpoint.experiment_dir),
-        "checkpoint_path": None if checkpoint.checkpoint_path is None else str(checkpoint.checkpoint_path),
+        "checkpoint_experiment_dir": str(experiment_dir),
+        "checkpoint_path": None if checkpoint_path is None else str(checkpoint_path),
         "config_source": config_source,
         "latency_source": latency_source,
         "checkpoint_config": deepcopy(flat_cfg),
