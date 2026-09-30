@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 import shutil
 import sys
@@ -71,6 +72,14 @@ def _plain_mapping(value: Any) -> dict[str, Any]:
     except Exception:
         pass
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _obs_stride_raw_frames(env_cfg: Mapping[str, Any]) -> int:
+    env_fps = float(env_cfg["env_fps"])
+    obs_fps = float(env_cfg["obs_fps"])
+    if obs_fps <= 0:
+        raise ValueError(f"obs_fps must be positive, got {obs_fps}")
+    return max(1, int(round(env_fps / obs_fps)))
 
 
 def _cfg_get(container: Any, key: str, default_value: Any = None) -> Any:
@@ -359,11 +368,13 @@ def build_latency_bench_config_for_rl_games(
         policy["actions"] = list(actions)
     config["policy"] = policy
 
+    raw_frame_eval_max_steps = int(eval_max_steps) * _obs_stride_raw_frames(config["env"])
     config["evaluation"] = {
         **config.get("evaluation", {}),
         "eval_episodes": int(num_episodes),
         "eval_parallel_envs": max(1, int(eval_parallel_envs)),
-        "eval_max_steps": int(eval_max_steps),
+        "eval_max_steps": int(raw_frame_eval_max_steps),
+        "eval_max_decision_steps": int(eval_max_steps),
         "eval_deterministic": True,
     }
     # We drive one fixed latency per call, so suites / sweeps must not re-expand.
@@ -520,11 +531,15 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         *,
         latency: int,
         eval_seed: int,
+        obs_stride_raw_frames: int,
     ) -> dict[str, Any]:
         """Fold latency_bench EpisodeMetrics into eval_core's per-latency dict."""
         ordered = sorted(metrics_list, key=lambda m: int(m.episode_id))
         rewards = [float(m.episode_return) for m in ordered]
-        lengths = [int(m.survival_steps) for m in ordered]
+        lengths = [
+            int(math.ceil(int(m.survival_steps) / max(1, int(obs_stride_raw_frames))))
+            for m in ordered
+        ]
         indices = [int(m.episode_id) for m in ordered]
         return {
             "latency": int(latency),
@@ -621,7 +636,10 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 on_episode_complete=progress.on_episode_complete,
             )
             per_latency[f"{task_name}/latency_{latency}"] = self._fold_episode_metrics(
-                metrics_list, latency=int(latency), eval_seed=eval_seed
+                metrics_list,
+                latency=int(latency),
+                eval_seed=eval_seed,
+                obs_stride_raw_frames=_obs_stride_raw_frames(lb_config["env"]),
             )
         progress.finish()
 
