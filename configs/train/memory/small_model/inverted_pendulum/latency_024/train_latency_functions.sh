@@ -115,7 +115,7 @@ policy:
 evaluation:
   eval_episodes: 20
   eval_parallel_envs: 1
-  eval_max_steps: 1000
+  eval_max_steps: 3600
   eval_deterministic: true
   eval_suites:
     fixed:
