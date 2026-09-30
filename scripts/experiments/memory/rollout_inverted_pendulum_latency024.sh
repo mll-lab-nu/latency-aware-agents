@@ -24,6 +24,7 @@ set -euo pipefail
 #   MAX_ATTEMPTS=<optional maximum rollout attempts>
 #   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
 #   PUSH_TO_HUB=1
+#   ROLLOUT_MUJOCO_GL=glfw  # use xvfb-run on headless machines
 
 export HF_MODEL_REPO="${HF_MODEL_REPO:-latency-sensitive-bench/paper-experiment-models}"
 export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-latency-sensitive-bench/inverted_pendulum_200ep}"
@@ -252,9 +253,9 @@ import os
 import sys
 from importlib import metadata
 
-# Gymnasium plugin discovery can import shimmy/dm_control, while MuJoCo RGB
-# replay needs EGL on headless machines. Filter third-party Gymnasium plugin
-# autoload here; our task registers explicitly through registration_imports.
+# Gymnasium plugin discovery can import shimmy/dm_control. Filter third-party
+# Gymnasium plugin autoload here; our task registers explicitly through
+# registration_imports. Rendering backend is selected by ROLLOUT_MUJOCO_GL.
 _entry_points = metadata.entry_points
 
 def _entry_points_without_gym_plugins(*args, **kwargs):
@@ -267,8 +268,14 @@ def _entry_points_without_gym_plugins(*args, **kwargs):
 
 metadata.entry_points = _entry_points_without_gym_plugins
 
-os.environ["MUJOCO_GL"] = os.environ.get("ROLLOUT_MUJOCO_GL", "egl")
-os.environ["PYOPENGL_PLATFORM"] = os.environ.get("ROLLOUT_PYOPENGL_PLATFORM", "egl")
+backend = os.environ.get("ROLLOUT_MUJOCO_GL", "glfw")
+os.environ["MUJOCO_GL"] = backend
+if backend == "egl":
+    os.environ["PYOPENGL_PLATFORM"] = os.environ.get("ROLLOUT_PYOPENGL_PLATFORM", "egl")
+elif backend == "osmesa":
+    os.environ["PYOPENGL_PLATFORM"] = os.environ.get("ROLLOUT_PYOPENGL_PLATFORM", "osmesa")
+else:
+    os.environ.pop("PYOPENGL_PLATFORM", None)
 import gymnasium  # noqa: F401
 
 from scripts.rollout_data.export_sf_teacher_dataset import main
@@ -354,6 +361,7 @@ Defaults:
   MAX_ATTEMPTS=<optional maximum total rollout attempts>
   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
   PUSH_TO_HUB=1
+  ROLLOUT_MUJOCO_GL=glfw by default. On headless machines, run with xvfb-run.
 
 The script downloads the best seed10 small-model checkpoint for each latency
 from latency-sensitive-bench/paper-experiment-models, forces the Gymnasium
