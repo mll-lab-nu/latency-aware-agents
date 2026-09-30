@@ -1,0 +1,21 @@
+__base__: ../../../../base_train.yaml
+
+experiment:
+  name: inverted_pendulum_frame_stack_fixed_l2_fs1_seed14
+  seed: 14
+
+latency:
+  fixed_latency_ms: 80.0
+
+evaluation:
+  eval_suites:
+    fixed:
+      - [2]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/memory/small_model/inverted_pendulum/latency_024/train/frame_stack/fixed_l2/fs1/seed_14
+  wandb_group: inverted-pendulum-fs1-fixed_l2
+  wandb_tags: [memory_small_model, inverted-pendulum, frame_stack, fixed, fixed_l2, fs1, seed14]
+  wandb_name: inverted-pendulum-fs1-fixed_l2-s14
