@@ -260,6 +260,7 @@ os.environ.pop("PYOPENGL_PLATFORM", None)
 import gymnasium  # noqa: F401
 
 os.environ["MUJOCO_GL"] = os.environ.get("ROLLOUT_MUJOCO_GL", "egl")
+os.environ["PYOPENGL_PLATFORM"] = os.environ.get("ROLLOUT_PYOPENGL_PLATFORM", "egl")
 
 from scripts.rollout_data.export_sf_teacher_dataset import main
 
