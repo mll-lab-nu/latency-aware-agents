@@ -31,6 +31,18 @@ export INVERTED_PENDULUM_ROLLOUT_ROOT="${INVERTED_PENDULUM_ROLLOUT_ROOT:-${HOME}
 export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_small_model_ckpts}"
 export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_rollout_datasets}"
 
+_ip_prepare_output_roots() {
+  local root
+  root="${INVERTED_PENDULUM_ROLLOUT_ROOT}"
+  if ! mkdir -p "${root}" 2>/dev/null; then
+    echo "[error] INVERTED_PENDULUM_ROLLOUT_ROOT is not writable: ${root}" >&2
+    echo "[hint] Use a writable path, for example:" >&2
+    echo "       export INVERTED_PENDULUM_ROLLOUT_ROOT=\${HOME}/talha" >&2
+    return 1
+  fi
+  mkdir -p "${SMALL_MODEL_CKPT_ROOT}" "${ROLLOUT_DATA_ROOT}"
+}
+
 _ip_need_repo_root() {
   if [[ ! -f scripts/rollout_data/export_sf_teacher_dataset.py ]]; then
     echo "[error] run this from the latency-sensitive-bench repo root." >&2
@@ -211,6 +223,7 @@ _ip_rollout_one() {
   local latency="$1"
 
   _ip_need_repo_root || return 1
+  _ip_prepare_output_roots || return 1
   _ip_setup_cuda_env
 
   local label frames ckpt latency_config config_name out_dir steps_label gym_make_kwargs episode_return_gt max_episodes
