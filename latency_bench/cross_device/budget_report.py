@@ -29,6 +29,11 @@ def run_mean(path):
     return np.mean([row["episode_return_env"] for row in load_jsonl_records(path / "episode_metrics.jsonl")])
 
 
+def normalized_mean_error(real_mean, simulated_mean, reference):
+    """Signed percentage-point error against the frozen reference return."""
+    return (simulated_mean - real_mean) * (100 / reference)
+
+
 def comparison(real, simulated, reference, *, paired, seed, repetitions=2000):
     """Compare means, preserving valid pairs or independently resampling fit references."""
     real, simulated = np.asarray(real), np.asarray(simulated)
@@ -37,8 +42,8 @@ def comparison(real, simulated, reference, *, paired, seed, repetitions=2000):
         0, len(real), size=(repetitions, len(real)),
     )
     scale = 100 / reference
-    errors = (simulated[sim_indices].mean(axis=1) - real[real_indices].mean(axis=1)) * scale
-    difference = (simulated.mean() - real.mean()) * scale
+    errors = normalized_mean_error(real[real_indices].mean(axis=1), simulated[sim_indices].mean(axis=1), reference)
+    difference = normalized_mean_error(real.mean(), simulated.mean(), reference)
     return {
         "real_mean": real.mean(), "sim_mean": simulated.mean(),
         "sim_mean_pct": simulated.mean() * scale,
@@ -75,7 +80,36 @@ def latency_diagnostics(root):
     return rows
 
 
-def make_report(root):
+def _timing_paths(output):
+    return [*output.glob("timings/*.json"), *output.glob("profiles/*/*/timing.json"),
+            *output.glob("sim/*/*/*/timings/*.json"), *output.glob("runtime/setups/*.json"),
+            *output.glob("verification/timings/*.json")]
+
+
+def migrate_timing_records(root, destination):
+    """Copy campaign timings into a new directory with explicit coordinates."""
+    destination.mkdir(parents=True)
+    for model in MODELS:
+        output = root / model
+        for path in _timing_paths(output):
+            data = read_json(path)
+            relative = path.relative_to(output)
+            stage = data["stage"]
+            data["model"] = model
+            if stage == "real":
+                data["run_ids"] = [int(path.stem.removeprefix("real_"))]
+            elif stage == "fit":
+                split, count = relative.parts[1:3]
+                data.update(split=split, fit_runs=int(count),
+                            run_ids=read_json(output / "budget.json")["splits"][split]["fit_order"][:int(count)])
+            elif stage == "sim":
+                split, count, method = relative.parts[1:4]
+                data.update(split=split, fit_runs=int(count), method=method)
+            write_json(destination / model / relative, data)
+    return destination
+
+
+def make_report(root, *, timing_root=None):
     rows, draws = [], {}
     for model in MODELS:
         (root / model / "SIM_DONE").read_bytes()
@@ -113,15 +147,17 @@ def make_report(root):
     write_csv(report / "nmae.csv", aggregate)
     write_csv(report / "real_latency_by_run.csv", latency_diagnostics(root))
     costs = []
+    timing_root = root if timing_root is None else timing_root
     for model in MODELS:
-        output = root / model
-        timing_paths = [*output.glob("timings/*.json"), *output.glob("profiles/*/*/timing.json"),
-                        *output.glob("sim/*/*/*/timings/*.json"), *output.glob("runtime/setups/*.json"), *output.glob("verification/timings/*.json")]
-        for path in timing_paths:
+        for path in _timing_paths(timing_root / model):
             data = read_json(path)
-            costs.append({"model": model, "stage": data["stage"], "seconds": data["seconds"],
+            coordinates = {"real": ("run_ids",), "fit": ("split", "fit_runs",),
+                           "sim": ("split", "fit_runs", "method", "run_ids"),
+                           "sim_setup": (), "verify": ()}[data["stage"]]
+            costs.append({"model": data["model"], "stage": data["stage"], "seconds": data["seconds"],
                           "gpu_hours": data["seconds"] * data["gpu_count"] / 3600,
-                          "source": path.relative_to(root).as_posix()})
+                          "source": path.relative_to(timing_root).as_posix(),
+                          **{key: data[key] for key in coordinates}})
     write_csv(report / "costs.csv", costs)
     cumulative = []
     for model in MODELS:
@@ -130,11 +166,9 @@ def make_report(root):
         for split in split_manifest():
             for count in FIT_SIZES:
                 prefix_cost = sum(c["gpu_hours"] for c in own if c["stage"] == "real"
-                                  and int(Path(c["source"]).stem.split("_")[1])
-                                  in split_manifest()["original"]["fit_order"][:count])
+                                  and c["run_ids"][0] in split_manifest()["original"]["fit_order"][:count])
                 replay_cost = sum(c["gpu_hours"] for c in own if c["stage"] == "sim"
-                                  and Path(c["source"]).parts[2] == split
-                                  and int(Path(c["source"]).parts[3]) <= count)
+                                  and c["split"] == split and c["fit_runs"] <= count)
                 cumulative.append({"model": model, "split": split, "fit_runs": count,
                                    "collected_real_runs": len(ALL_RUN_IDS), "full_collection_gpu_hours": collected_cost,
                                    "original_prefix_equivalent_gpu_hours": prefix_cost if split == "original" else None,
@@ -212,8 +246,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--defer-uploads", action="store_true")
+    timing = parser.add_mutually_exclusive_group()
+    timing.add_argument("--timing-root", type=Path)
+    timing.add_argument("--migrate-timings-to", type=Path)
     args = parser.parse_args()
-    report = make_report(args.root)
-    StudyPublication(args.root, f"sim2real-budget/flappy/{args.root.name}", defer_uploads=args.defer_uploads).publish(
-        "report", [report, args.root / "REPORT_DONE"],
-    )
+    if args.migrate_timings_to is not None:
+        migrate_timing_records(args.root, args.migrate_timings_to)
+    else:
+        report = make_report(args.root, timing_root=args.timing_root)
+        StudyPublication(args.root, f"sim2real-budget/flappy/{args.root.name}", defer_uploads=args.defer_uploads).publish(
+            "report", [report, args.root / "REPORT_DONE"],
+        )

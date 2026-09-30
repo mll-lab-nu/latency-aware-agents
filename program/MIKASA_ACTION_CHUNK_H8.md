@@ -1,5 +1,26 @@
 # MIKASA InterceptGrabFast H8 teacher baseline
 
+## 当前训练入口
+
+Conditioned H8 的单路采集、SFT 和评测由 `run_conditioned_h8.sh` 负责。
+从仓库根目录执行，明确提供解释器、teacher、数据和训练输出目录：
+
+```bash
+export VLA_PY=/path/to/model/python TASK_PY=/path/to/simulator/python UV=/path/to/uv
+export TEACHER_CHECKPOINT=/path/to/teacher.pt
+export DATASET_DIR=/path/to/dataset OUTPUT_DIR=/path/to/training
+export WANDB_ENTITY=your-entity
+bash scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh \
+  all qwenoft fixed-2 RUN_ID 0,1 29704
+```
+
+首个参数也可为 `collect`、`train`、`eval`，分别执行对应阶段；模型可选
+`qwenoft`、`qwenpi_v3`、`qwengr00t`，条件为 `profile-latency` 或 `fixed-1/2/3/4`。
+多路实验通过这些显式参数分别调用；长期批量工作使用现有 manifest runner。
+采集阶段读取完成标记接续，SFT 根据训练目录接续，评测使用当前任务合同。
+Fixed-N 的 SFT、DAgger 和发布流程见 [重跑协议](MIKASA_PREFIX63_RESTART.md)。
+
+
 本文冻结 MIKASA `InterceptGrabFast-VLA-v0` 的 H8 action-chunk 数据、训练和评测合同。
 H1 历史基线仍以 [MIKASA](MIKASA.md) 和 [PROGRESS](PROGRESS.md) 为准。
 
@@ -70,13 +91,6 @@ global batch 为 128，训练 5,000 optimizer steps；保存 step-2,500 recovery
 
 三个模型的完整入口：
 
-```bash
-QWENOFT_PY=/path/to/qwenoft-python \
-QWENPI_PY=/path/to/qwenpi-python \
-QWENGROOT_PY=/path/to/qwengr00t-python \
-MIKASA_PY=/path/to/mikasa-python \
-  bash scripts/tasks/mikasa_intercept_grab_fast/run_h8_baselines.sh
-```
 
 单模型两步 smoke 示例：
 
@@ -165,16 +179,6 @@ teacher suffix，不再同步推进第二个 state-only main env。最后一个 
 
 完整入口分成三个可恢复 phase；每个 phase 只依赖上一阶段写出的审计或 checkpoint：
 
-```bash
-export QWENOFT_PY=/path/to/qwenoft-python
-export QWENPI_PY=/path/to/qwenpi-python
-export QWENGROOT_PY=/path/to/qwengr00t-python
-export MIKASA_PY=/path/to/mikasa-python
-
-bash scripts/tasks/mikasa_intercept_grab_fast/run_profile_v2_h8.sh collect
-bash scripts/tasks/mikasa_intercept_grab_fast/run_profile_v2_h8.sh train-eval
-bash scripts/tasks/mikasa_intercept_grab_fast/run_fixed_v2_h8.sh all
-```
 
 正式训练均从 Qwen3-VL-4B 和 fresh action head 初始化，seed 0、global batch 128、
 5,000 optimizer steps，只使用 step 5,000；step 2,500 保存恢复状态。Profile 在物理
@@ -218,7 +222,5 @@ RTX 3090 Profile、Fixed-2 下用 held-out seeds `4242424542–4242424741` 各�
 共用；新任务的 simulator 可与自身 trainer 同卡，模拟器进程按原 GPU lock 串行。
 OFT 用 micro batch 32 / accumulation 2，PI 用 64 / 1，GR00T 用 32 / 2，
 均保持 global batch 128。队列直接启动正式任务，入口为
-`scripts/tasks/mikasa_intercept_grab_fast/dispatch_h8_naive_dagger_queue.py dispatch`；
-单路入口为 `launch_h8_naive_dagger_arm.sh`。正式输出根为两机各自的
 `outputs/starvla/runs/mikasa_intercept_grab_fast/h8-naive-dagger-20260923/`。
 训练和核验不会自动发布模型。

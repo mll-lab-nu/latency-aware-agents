@@ -795,6 +795,8 @@ def main(argv=None) -> None:
             args.task, args.model, args.condition, args.run_id
         ):
             raise ValueError('--resume task, model, condition, and run-id must match run.json')
+        if args.train_only and (args.output_dir / 'inference/provenance.json').is_file():
+            return
         if args.dagger_from is None:
             states = _training_states(args.output_dir / 'training/bootstrap/checkpoints')
             if not states:

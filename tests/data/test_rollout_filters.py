@@ -41,6 +41,12 @@ def test_clean_v1_accepts_demon_attack_by_raw_score():
         max_steps_per_episode=1000,
     )
 
+    from latency_bench.data.filters import accepts_episode
+    assert accepts_episode("clean_v1", "demon_attack", {"episode_raw_return": 2000.0},
+                           max_steps_per_episode=1000, demon_episode_threshold=2000.0)
+    assert not accepts_episode("clean_v1", "demon_attack", {"episode_raw_return": 1999.0},
+                               max_steps_per_episode=1000, demon_episode_threshold=2000.0)
+
 
 def test_demon_raw_score_bins_match_eval_distribution_breaks():
     from latency_bench.data.filters import demon_raw_score_bin_counts

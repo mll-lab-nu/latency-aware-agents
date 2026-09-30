@@ -3,12 +3,15 @@ from __future__ import annotations
 from collections import deque
 
 import numpy as np
+import pytest
 
 from latency_bench.core.types import Action
 from latency_bench.envs.deadly_corridor import (
     DeadlyCorridorEnvAdapter,
     DeadlyCorridorVlaEnvAdapter,
     _semantic_to_runtime_multibinary,
+    _deadly_runtime_button_names,
+    DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER,
 )
 from latency_bench.envs.raw_rgb import (
     ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
@@ -20,6 +23,9 @@ class ScriptedVizdoomGame:
     def __init__(self):
         self.seeds: list[int] = []
         self.screen_buffer = np.zeros((3, 4, 4), dtype=np.uint8)
+
+    def get_available_buttons(self):
+        return DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER
 
     def set_seed(self, seed: int) -> None:
         self.seeds.append(int(seed))
@@ -137,3 +143,10 @@ def test_deadly_corridor_vla_observe_exports_raw_frame_stack():
     assert observation.data is frame
     assert observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY].shape == (2, 4, 4, 3)
     assert np.all(observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] == 7)
+
+
+def test_deadly_corridor_requires_known_runtime_buttons():
+    with pytest.raises(ValueError, match="available buttons"):
+        _deadly_runtime_button_names(object())
+    with pytest.raises(KeyError, match="JUMP"):
+        _semantic_to_runtime_multibinary([0] * 7, ["JUMP"])

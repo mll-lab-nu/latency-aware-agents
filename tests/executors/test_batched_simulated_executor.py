@@ -423,6 +423,7 @@ def _executor(
     latency_sources: list[LatencySampler] | None = None,
     simulated_worker_capacity: int | None = None,
     ordering_policy: OrderingPolicy = OrderingPolicy.ISSUE_ORDER_FIFO,
+    save_records: bool = True,
 ) -> tuple[BatchedSimulatedLatencyExecutor, list[DummyEnvAdapter]]:
     noop = Action("noop", name="noop", is_noop=True)
     envs = [
@@ -459,9 +460,9 @@ def _executor(
         clock=clock,
         logger=TrajectoryLogger(
             tmp_path,
-            save_step_records=True,
-            save_action_records=True,
-            save_latency_records=True,
+            save_step_records=save_records,
+            save_action_records=save_records,
+            save_latency_records=save_records,
         ),
         simulated_worker_capacity=simulated_worker_capacity,
     )
@@ -1485,7 +1486,7 @@ def test_ten_run_slots_keep_repeated_run_ids_separate_across_settings(tmp_path):
     executor, _ = _executor(tmp_path / 'engine', num_slots=10, env_max_steps=4, policy=policy)
     jobs = [(run_id, tmp_path / setting / str(run_id),
              {'latency': {'method': 'fixed', 'fixed_latency_ms': delay, 'seed': 0},
-              'evaluation': {'eval_max_steps': 4}})
+              'evaluation': {'eval_max_steps': 4}}, 1000 + run_id)
             for setting, delay in [('a', 0), ('b', _CLOCK.frame_ms)] for run_id in range(5, 10)]
     published = []
     try:
@@ -1501,7 +1502,38 @@ def test_ten_run_slots_keep_repeated_run_ids_separate_across_settings(tmp_path):
             assert [m['episode_id'] for m in metrics] == [20 * run_id, 20 * run_id + 1]
             assert [m['metadata']['episode_seed'] for m in metrics] == [2000000 + 20 * run_id, 2000001 + 20 * run_id]
             assert all(m['metadata']['run_id'] == run_id for m in metrics)
+            assert all(m['metadata']['latency_seed'] == 1000 + run_id for m in metrics)
             assert all(m['mean_latency_ms'] == pytest.approx(delay) for m in metrics)
             assert {s['episode_id'] for s in load_jsonl_records(path / 'steps.jsonl')} == {20 * run_id, 20 * run_id + 1}
             assert (path / 'DONE').exists()
             assert f'{setting}/{run_id}' in published
+
+
+@pytest.mark.parametrize("last_info,expected_score", [({"game_score": 7, "score": 99}, 7), ({}, None)])
+def test_episode_metrics_are_independent_of_record_retention(tmp_path, monkeypatch, last_info, expected_score):
+    # Long-lived executor contract: retaining traces cannot change experiment metrics.
+    from dataclasses import asdict
+
+    results = []
+    for save_records in (False, True):
+        executor, envs = _executor(tmp_path / str(save_records), num_slots=1,
+                                  env_max_steps=2, save_records=save_records)
+        step = envs[0].step
+        def metadata_step(action):
+            result = step(action)
+            result.info = ({"game_score": 3, "score": 8, "return_raw": 11, "raw_return": 22,
+                            "episode_extra_stats": {"return_raw": 33},
+                            "task_metrics": {"success": 1}, "invalid_action": True}
+                           if not result.done else last_info)
+            return result
+        monkeypatch.setattr(envs[0], "step", metadata_step)
+        try:
+            result = executor.run_episodes(episode_ids=[0], seeds=[7], eval_max_steps=2)[0]
+            results.append(asdict(result))
+        finally:
+            executor.close()
+    assert results[0] == results[1]
+    assert results[0]["game_score"] == expected_score
+    assert results[0]["return_raw"] == 11
+    assert results[0]["num_invalid_actions"] == 1
+    assert "task_metrics" not in results[0]["metadata"]

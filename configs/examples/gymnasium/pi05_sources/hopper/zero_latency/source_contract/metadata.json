@@ -141,6 +141,7 @@
     "fasttd3_compile": true,
     "fasttd3_replay_batch_size": 32768,
     "fasttd3_replay_capacity": 6553600,
+    "fasttd3_sonic_decoder_path": null,
     "fasttd3_transitions_per_update": 64,
     "fasttd3_v_max": 250.0,
     "fasttd3_v_min": -250.0,

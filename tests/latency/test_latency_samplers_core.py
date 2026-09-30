@@ -183,7 +183,7 @@ def test_hidden_regime_clean_model_stays_calm_and_constant():
 
 
 def test_hidden_regime_deepcopy_shares_tables_and_clones_state():
-    sampler = _sampler([40.0] * 8, seed=7)
+    sampler = _sampler([30.0, 35.0, 40.0, 45.0] * 20 + [120.0] * 4, seed=7)
     sampler.sample({"episode_id": 0, "worker_slot": 0})
 
     clone = deepcopy(sampler)
@@ -194,8 +194,14 @@ def test_hidden_regime_deepcopy_shares_tables_and_clones_state():
     assert [sampler.sample(context) for context in contexts] == [
         clone.sample(context) for context in contexts
     ]
-    clone._slot_to_rank[1] = 0
-    assert 1 not in sampler._slot_to_rank
+    untouched = deepcopy(sampler)
+    for episode in range(3):
+        for _ in range(15):
+            clone.sample({"episode_id": episode, "worker_slot": 0})
+    contexts = [{"episode_id": 0, "worker_slot": 0}] * 40
+    assert [sampler.sample(context) for context in contexts] == [
+        untouched.sample(context) for context in contexts
+    ]
 
 
 def test_hidden_regime_emits_burst_values_at_fitted_rate():

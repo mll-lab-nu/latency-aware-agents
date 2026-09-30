@@ -247,7 +247,7 @@ def test_trajectory_logger_writes_inference_and_e2e_latency_traces(tmp_path):
 
     inference_rows = [
         json.loads(line)
-        for line in (tmp_path / "infer_latencies.jsonl").read_text(encoding="utf-8").splitlines()
+        for line in (tmp_path / "latencies.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     e2e_rows = [
         json.loads(line)
@@ -423,7 +423,6 @@ def test_trajectory_logger_incremental_flush_matches_one_shot_reference(tmp_path
     write_jsonl(reference_dir / "realtime_pipeline_profile.jsonl", pipeline_rows)
     write_json(reference_dir / "realtime_pipeline_summary.json", realtime_pipeline_summary(pipeline_rows))
     write_jsonl(reference_dir / "latencies.jsonl", all_latencies)
-    write_jsonl(reference_dir / "infer_latencies.jsonl", all_latencies)
     write_jsonl(reference_dir / "episode_metrics.jsonl", all_metrics)
 
     for filename in (
@@ -433,7 +432,6 @@ def test_trajectory_logger_incremental_flush_matches_one_shot_reference(tmp_path
         "realtime_pipeline_profile.jsonl",
         "realtime_pipeline_summary.json",
         "latencies.jsonl",
-        "infer_latencies.jsonl",
         "episode_metrics.jsonl",
     ):
         incremental_text = (incremental_dir / filename).read_text(encoding="utf-8")

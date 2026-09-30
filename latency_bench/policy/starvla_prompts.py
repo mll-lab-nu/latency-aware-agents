@@ -42,9 +42,9 @@ def resolve_starvla_prompt(
         prompt = render_teacher_prompt(
             env_name,
             latency_raw_frames=int(raw_frames),
-            latency_ms=float(observation_metadata.get("latency_ms", 0.0)),
-            env_fps=float(observation_metadata.get("env_fps", 35.0)),
-            obs_fps=float(observation_metadata.get("obs_fps", 35.0)),
+            latency_ms=float(observation_metadata["latency_ms"]),
+            env_fps=float(observation_metadata["env_fps"]),
+            obs_fps=float(observation_metadata["obs_fps"]),
             image_transform=str(observation_metadata.get("image_transform", "raw_rgb")),
             base_prompt=base_prompt,
         )

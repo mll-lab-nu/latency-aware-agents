@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 import math
-import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -12,17 +12,9 @@ import numpy.typing as npt
 from PIL import Image
 
 from latency_bench.core.actions import ActionResolver
-from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
-from latency_bench.data.action_layouts import (
-    DEADLY_CORRIDOR_ATTACK_LABELS as _DEADLY_CORRIDOR_ATTACK_LABELS,
-    DEADLY_CORRIDOR_MOVE_LABELS as _DEADLY_CORRIDOR_MOVE_LABELS,
-    DEADLY_CORRIDOR_STRAFE_LABELS as _DEADLY_CORRIDOR_STRAFE_LABELS,
-    DEADLY_CORRIDOR_TURN_LABELS as _DEADLY_CORRIDOR_TURN_LABELS,
-    DEMON_ATTACK_ACTION_LABELS as _DEMON_ATTACK_ACTION_LABELS,
-)
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
 from latency_bench.data.state_normalization import min_max_normalize_state
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
@@ -31,26 +23,8 @@ from latency_bench.envs.gymnasium_task import (
     gymnasium_task_contract,
 )
 from latency_bench.policy.base import PolicyRunner
+from latency_bench.policy import _starvla_input as model_input, _starvla_actions as action_decode
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
-
-from latency_bench.utils.paths import REPO_ROOT
-
-
-STARVLA_ROOT = REPO_ROOT / "third_party" / "starVLA"
-STATEFUL_STARVLA_MODEL_IDS: tuple[str, ...] = (
-    "pi0",
-    "pi-0",
-    "pi05",
-    "pi-0.5",
-    "gr00t",
-    "qwenpi",
-    "qwenpi_v3",
-    "qwengr00t",
-)
-STATELESS_STARVLA_MODEL_IDS: tuple[str, ...] = (
-    "openvla",
-    "qwenoft",
-)
 
 
 class StarVlaPolicyRunner(PolicyRunner):
@@ -73,6 +47,8 @@ class StarVlaPolicyRunner(PolicyRunner):
         obs_resize: tuple[int, int] | None = None,
         image_transform_config: Mapping[str, Any] | None = None,
         observation_stride_raw_frames: int,
+        env_fps: float,
+        obs_fps: float,
         model_cfg: Mapping[str, Any] | None = None,
         state_normalization: Mapping[str, Any] | None = None,
         state_source: str | None = None,
@@ -80,6 +56,8 @@ class StarVlaPolicyRunner(PolicyRunner):
         action_output_type: str | None = None,
         action_noise_seeded: bool = False,
     ) -> None:
+        self._env_fps = env_fps
+        self._obs_fps = obs_fps
         self._wrapper = wrapper
         self._action_noise_seeded = action_noise_seeded
         self._obs_resize = tuple(obs_resize) if obs_resize else None
@@ -99,40 +77,16 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._image_transform = str(
             self._image_transform_config.get("image_transform", "raw_rgb") or "raw_rgb"
         ).strip().lower()
-        model_cfg = (
-            _normalized_model_cfg_from_wrapper(wrapper)
-            if model_cfg is None
-            else _normalized_model_cfg(model_cfg)
-        )
-        self._include_state = _include_state_from_model_cfg(model_cfg)
-        self._state_dim = _state_dim_from_model_cfg(model_cfg) if self._include_state else None
+        model_cfg = model_input._normalized_model_cfg(wrapper._model_cfg if model_cfg is None else model_cfg)
+        self._include_state = model_cfg["datasets"]["vla_data"]["include_state"]
+        self._state_dim = model_cfg["framework"]["action_model"]["state_dim"] if self._include_state else None
         self._state_normalization = dict(state_normalization or {})
         self._state_source = state_source
         self._image_views_info_key = image_views_info_key
         self._action_output_type = action_output_type
-        vla_data = (model_cfg.get("datasets", {}) or {}).get("vla_data", {}) or {}
-        self._pack_image_sequence = (
-            bool(vla_data["pack_image_sequence"])
-            if "pack_image_sequence" in vla_data
-            else False
+        self._input_plan = model_input.resolve_model_input_plan(
+            model_cfg, observation_stride_raw_frames,
         )
-        self._image_sequence_length = (
-            int(vla_data["image_sequence_length"])
-            if self._pack_image_sequence
-            else 1
-        )
-        self._observation_stride_raw_frames = int(observation_stride_raw_frames)
-        self._image_sequence_raw_span = (
-            1
-            + (self._image_sequence_length - 1)
-            * self._observation_stride_raw_frames
-        )
-        self._num_obs_frames = int(vla_data.get("num_obs_frames", 1) or 1)
-        self._image_mode = str(vla_data.get("image_mode", "single"))
-        self._stitch_grid = tuple(vla_data.get("stitch_grid", [2, 2]))
-        framework_cfg = model_cfg["framework"]
-        kv_cfg = framework_cfg["kv_memory"] if "kv_memory" in framework_cfg else {}
-        self._kv_memory_enabled = bool(kv_cfg["enabled"]) if "enabled" in kv_cfg else False
 
     def reset_state(self, slot_id: int | None = None) -> None:
         # Clears the model's per-slot KV memory at episode boundaries (req3).
@@ -201,46 +155,46 @@ class StarVlaPolicyRunner(PolicyRunner):
 
         if self._image_views_info_key is not None:
             pass
-        elif self._pack_image_sequence:
+        elif self._input_plan.packed:
             if transformed is not None:
                 raise ValueError(
                     "WanOFT packed image sequences require image_transform=raw_rgb"
                 )
-            if len(frames) < self._image_sequence_raw_span:
+            if len(frames) < self._input_plan.raw_span:
                 raise ValueError(
                     "WanOFT packed image sequence requires "
-                    f"{self._image_sequence_raw_span} raw frames for "
-                    f"{self._image_sequence_length} decision observations at stride "
-                    f"{self._observation_stride_raw_frames}, got {len(frames)}"
+                    f"{self._input_plan.raw_span} raw frames for "
+                    f"{self._input_plan.frame_count} decision observations at stride "
+                    f"{self._input_plan.stride}, got {len(frames)}"
                 )
             frames = frames[
-                -self._image_sequence_raw_span
-                :: self._observation_stride_raw_frames
+                -self._input_plan.raw_span
+                :: self._input_plan.stride
             ]
         elif transformed is not None:
             frames = [transformed]
-        elif self._image_mode == "single" or self._kv_memory_enabled:
+        elif self._input_plan.image_mode == "single" or self._input_plan.kv_memory:
             frames = frames[-1:]
         else:
             # Select the temporal observation window to match training (_pack_sample).
-            raw_span = 1 + (self._num_obs_frames - 1) * self._observation_stride_raw_frames
-            frames = frames[-raw_span :: self._observation_stride_raw_frames]
+            raw_span = self._input_plan.raw_span
+            frames = frames[-raw_span :: self._input_plan.stride]
 
         prompt = resolve_starvla_prompt(
             env_name=self._env_name,
-            observation_metadata=observation.metadata,
+            observation_metadata={**observation.metadata, "env_fps": self._env_fps, "obs_fps": self._obs_fps},
             latency_prompt_map=self._latency_prompt_map,
             base_prompt=self._base_prompt,
             latency_prompt_key=self._latency_prompt_key,
             prompt_mode=self._prompt_mode,
         )
 
-        if self._image_mode == "stitch":
+        if self._input_plan.image_mode == "stitch":
             if transformed is not None:
                 raise ValueError("image_transform is not compatible with image_mode=stitch")
             # Tile the window into one image; matches _pack_sample's stitch branch
             # (raw frames passed to stitch_frames, which resizes each cell to 224).
-            images = [_get_stitch_frames()(frames, grid=self._stitch_grid, size=(224, 224))]
+            images = [_get_stitch_frames()(frames, grid=self._input_plan.stitch_grid, size=(224, 224))]
         else:
             if self._obs_resize is not None:
                 height, width = self._obs_resize
@@ -260,7 +214,7 @@ class StarVlaPolicyRunner(PolicyRunner):
             example["action_noise_seed"] = derive_seed(
                 observation.metadata["action_noise_seed"], stream=observation.env_step,
             )
-        if self._kv_memory_enabled:
+        if self._input_plan.kv_memory:
             example["slot_id"] = observation.metadata["slot_id"]
         elif "slot_id" in observation.metadata:
             example["slot_id"] = observation.metadata["slot_id"]
@@ -332,7 +286,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         raw_action_scores: npt.NDArray[Any] | None,
     ) -> PolicyOutput:
         payload = np.asarray(action_payload)
-        action, action_metadata = action_from_starvla_payload(
+        action, action_metadata = action_decode.action_from_starvla_payload(
             payload=payload,
             env_name=self._env_name,
             action_by_raw_id=self._action_by_raw_id,
@@ -347,14 +301,14 @@ class StarVlaPolicyRunner(PolicyRunner):
             "input_frame_count": len(example["image"]),
             "image_transform": self._image_transform,
             "action_output_type": action_output_type,
-            "action_payload": to_jsonable_action_payload(payload),
-            "kv_memory_enabled": self._kv_memory_enabled,
+            "action_payload": action_decode.to_jsonable_action_payload(payload),
+            "kv_memory_enabled": self._input_plan.kv_memory,
             **action_metadata,
         }
-        if self._pack_image_sequence:
-            metadata["image_sequence_length"] = self._image_sequence_length
-            metadata["input_frame_raw_stride"] = self._observation_stride_raw_frames
-            metadata["input_frame_raw_span"] = self._image_sequence_raw_span
+        if self._input_plan.packed:
+            metadata["image_sequence_length"] = self._input_plan.frame_count
+            metadata["input_frame_raw_stride"] = self._input_plan.stride
+            metadata["input_frame_raw_span"] = self._input_plan.raw_span
         if "slot_id" in example:
             metadata["slot_id"] = example["slot_id"]
         if raw_action_scores is not None:
@@ -407,181 +361,6 @@ def observation_data_to_hwc_uint8_frames(data: Any) -> list[npt.NDArray[np.uint8
     return [_as_uint8_image(frame)]
 
 
-def decode_starvla_action(
-    *,
-    vector: npt.NDArray[Any],
-    env_name: str,
-    action_by_raw_id: Mapping[int, Action],
-    action_layout: str | None = None,
-) -> tuple[Action, dict[str, Any]]:
-    deadly_layout = None
-    if str(env_name) == "deadly_corridor":
-        action_dim = int(np.asarray(vector).shape[-1])
-        deadly_layouts = {
-            7: "deadly_corridor_semantic_7",
-            11: "deadly_corridor_factorized_11",
-            54: "deadly_corridor_joint_54",
-        }
-        if action_dim not in deadly_layouts:
-            raise ValueError(
-                "Deadly Corridor StarVLA action vector expected 7, 11, or 54 "
-                f"values, got {action_dim}"
-            )
-        deadly_layout = deadly_layouts[action_dim]
-    asterix_layout = None
-    if str(env_name) == "asterix":
-        action_dim = int(np.asarray(vector).shape[-1])
-        if action_layout is not None:
-            asterix_layout = str(action_layout).strip().lower()
-        else:
-            asterix_layout = "factorized_6" if action_dim < 9 else "discrete_9"
-
-    decode_rl_games_actions, _, _ = _load_rl_games_action_decode()
-    prediction = decode_rl_games_actions(
-        normalized_actions=np.asarray(vector),
-        env_name=str(env_name),
-        deadly_action_layout=(deadly_layout.removeprefix("deadly_corridor_") if deadly_layout is not None else None),
-        asterix_action_layout=asterix_layout,
-    )
-    action, metadata = action_from_starvla_payload(
-        payload=np.asarray(prediction["actions"]),
-        env_name=env_name,
-        action_by_raw_id=action_by_raw_id,
-        action_output_type=prediction["action_output_type"],
-    )
-    if deadly_layout is not None:
-        metadata["action_layout"] = deadly_layout
-        if deadly_layout == "deadly_corridor_joint_54":
-            turn, move, strafe, attack = action.value
-            metadata["raw_action_id"] = turn * 18 + move * 6 + strafe * 2 + attack
-        elif deadly_layout == "deadly_corridor_semantic_7":
-            semantic_actions = (
-                [0, 1, 0, 0],
-                [0, 2, 0, 0],
-                [0, 0, 1, 0],
-                [0, 0, 2, 0],
-                [1, 0, 0, 0],
-                [2, 0, 0, 0],
-                [0, 0, 0, 1],
-            )
-            metadata["raw_action_id"] = semantic_actions.index(action.value)
-    if asterix_layout is not None:
-        metadata["action_layout"] = asterix_layout
-    return action, metadata
-
-
-# Fixed semantic button order the StarVLA multibinary head is trained against.
-# Mirrors starVLA.training.rl_games.eval_core._semantic_to_runtime_multibinary;
-# the env adapter re-orders this to the live ViZDoom button layout.
-DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER = (
-    "MOVE_FORWARD",
-    "MOVE_BACKWARD",
-    "MOVE_LEFT",
-    "MOVE_RIGHT",
-    "TURN_LEFT",
-    "TURN_RIGHT",
-    "ATTACK",
-)
-
-
-def action_from_starvla_payload(
-    *,
-    payload: npt.NDArray[Any],
-    env_name: str,
-    action_by_raw_id: Mapping[int, Action],
-    action_output_type: str = "",
-) -> tuple[Action, dict[str, Any]]:
-    if str(action_output_type) == "rl_games_continuous":
-        values = [float(item) for item in np.asarray(payload).reshape(-1).tolist()]
-        return Action(
-            value=values,
-            name="continuous_torque",
-            is_noop=all(value == 0.0 for value in values),
-            is_oneshot=False,
-        ), {"continuous_action": values}
-    if str(env_name) == "demon_attack":
-        return demon_attack_action_from_id(int(np.asarray(payload).reshape(-1)[0]))
-    if str(env_name) == "deadly_corridor":
-        # Multibinary heads emit an already-thresholded 7-dim button vector in
-        # fixed semantic order; the env adapter re-orders it to the live ViZDoom
-        # button layout. Keep it as-is rather than reinterpreting it as a
-        # [turn, move, strafe, attack] categorical tuple.
-        if str(action_output_type) == "rl_games_deadly_corridor_multibinary":
-            buttons = [int(item) for item in np.asarray(payload).reshape(-1).tolist()]
-            active = [
-                DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER[idx]
-                for idx, pressed in enumerate(buttons)
-                if idx < len(DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER) and pressed
-            ]
-            action_name = "+".join(active) if active else "NOOP"
-            return Action(
-                value=buttons,
-                name=action_name,
-                is_noop=not any(buttons),
-                is_oneshot=False,
-            ), {
-                "decoded_multibinary_buttons": buttons,
-                "action_label": action_name,
-                "action_layout": "deadly_corridor_multibinary_7",
-            }
-        return deadly_corridor_action_from_tuple(
-            action_value=[int(item) for item in np.asarray(payload).reshape(-1).tolist()],
-            metadata={"action_layout": "deadly_corridor_tuple"},
-        )
-    raw_action_id = int(np.asarray(payload).reshape(-1)[0])
-    return action_by_raw_id[raw_action_id], {"raw_action_id": raw_action_id}
-
-
-def to_jsonable_action_payload(payload: npt.NDArray[Any]) -> Any:
-    value = np.asarray(payload).tolist()
-    if isinstance(value, list) and len(value) == 1:
-        return value[0]
-    return value
-
-
-def demon_attack_action_from_id(action_id: int) -> tuple[Action, dict[str, Any]]:
-    action = Action(
-        value=action_id,
-        name=_DEMON_ATTACK_ACTION_LABELS[action_id],
-        is_noop=action_id == 0,
-        is_oneshot=False,
-    )
-    return action, {"raw_action_id": action_id, "action_label": action.name}
-
-
-def deadly_corridor_action_from_tuple(
-    *,
-    action_value: list[int],
-    metadata: dict[str, Any],
-) -> tuple[Action, dict[str, Any]]:
-    turn, move, strafe, attack = action_value
-    action_value = [turn, move, strafe, attack]
-    turn_label = _DEADLY_CORRIDOR_TURN_LABELS[turn]
-    move_label = _DEADLY_CORRIDOR_MOVE_LABELS[move]
-    strafe_label = _DEADLY_CORRIDOR_STRAFE_LABELS[strafe]
-    attack_label = _DEADLY_CORRIDOR_ATTACK_LABELS[attack]
-    active_labels = [
-        label
-        for label in (turn_label, move_label, strafe_label, attack_label)
-        if not label.endswith("_NOOP")
-    ]
-    action_name = "+".join(active_labels) if active_labels else "NOOP"
-    return Action(
-        value=action_value,
-        name=action_name,
-        is_noop=action_value == [0, 0, 0, 0],
-        is_oneshot=False,
-    ), {
-        "decoded_action_tuple": action_value,
-        "turn_label": turn_label,
-        "move_label": move_label,
-        "strafe_label": strafe_label,
-        "attack_label": attack_label,
-        "action_label": action_name,
-        **metadata,
-    }
-
-
 def _extract_observation_array(data: Any) -> npt.NDArray[Any]:
     if isinstance(data, Mapping):
         return np.asarray(data["observation"])
@@ -592,62 +371,6 @@ def _as_uint8_image(frame: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
     return np.ascontiguousarray(frame, dtype=np.uint8)
 
 
-def _normalized_model_cfg(model_cfg: Mapping[str, Any]) -> dict[str, Any]:
-    _ensure_starvla_path()
-    from omegaconf import OmegaConf
-    from starVLA.model.framework.share_tools import apply_config_compat
-
-    cfg = OmegaConf.create(model_cfg)
-    apply_config_compat(cfg)
-    _apply_model_family_include_state_compat(cfg)
-    return OmegaConf.to_container(cfg, resolve=True)
-
-
-def _normalized_model_cfg_from_wrapper(wrapper: Any) -> dict[str, Any]:
-    return _normalized_model_cfg(wrapper._model_cfg)
-
-
-def _load_starvla_model_config(path: str | Path) -> dict[str, Any]:
-    from omegaconf import OmegaConf
-
-    return _normalized_model_cfg(OmegaConf.load(path))
-
-
-def _apply_model_family_include_state_compat(cfg: Any) -> None:
-    from omegaconf import OmegaConf
-
-    if OmegaConf.select(cfg, "datasets.vla_data.include_state") is not None:
-        return
-
-    model_ids = (
-        _normalized_optional_config_string(cfg, ("model",)),
-        _normalized_optional_config_string(cfg, ("rl_games", "model_alias")),
-        _normalized_optional_config_string(cfg, ("framework", "name")),
-    )
-    if any(model_id in STATEFUL_STARVLA_MODEL_IDS for model_id in model_ids if model_id is not None):
-        OmegaConf.update(cfg, "datasets.vla_data.include_state", True, force_add=True)
-        return
-    if any(model_id in STATELESS_STARVLA_MODEL_IDS for model_id in model_ids if model_id is not None):
-        OmegaConf.update(cfg, "datasets.vla_data.include_state", False, force_add=True)
-
-
-def _normalized_optional_config_string(cfg: Any, path: tuple[str, ...]) -> str | None:
-    from omegaconf import OmegaConf
-
-    value = OmegaConf.select(cfg, ".".join(path))
-    if value is None:
-        return None
-    return str(value).strip().lower()
-
-
-def _state_dim_from_model_cfg(model_cfg: dict[str, Any]) -> int:
-    return model_cfg["framework"]["action_model"]["state_dim"]
-
-
-def _include_state_from_model_cfg(model_cfg: dict[str, Any]) -> bool:
-    return model_cfg["datasets"]["vla_data"]["include_state"]
-
-
 _STITCH_FRAMES = None
 
 
@@ -655,67 +378,11 @@ def _get_stitch_frames():
     """Lazily import starVLA's stitch_frames (starVLA path is added at runtime)."""
     global _STITCH_FRAMES
     if _STITCH_FRAMES is None:
-        _ensure_starvla_path()
+        model_input._ensure_starvla_path()
         from starVLA.training.trainer_utils.trainer_tools import stitch_frames
 
         _STITCH_FRAMES = stitch_frames
     return _STITCH_FRAMES
-
-
-def _ensure_starvla_path() -> None:
-    starvla_root = str(STARVLA_ROOT)
-    if starvla_root not in sys.path:
-        sys.path.insert(0, starvla_root)
-
-
-def _observation_stride_raw_frames(config: Mapping[str, Any]) -> int:
-    env_cfg = config["env"]
-    return EnvClock(
-        env_fps=float(env_cfg["env_fps"]),
-        obs_fps=float(env_cfg["obs_fps"]),
-    ).obs_stride_raw_frames
-
-
-def apply_starvla_model_input_config(
-    config: dict[str, Any],
-    *,
-    model_cfg: Mapping[str, Any],
-    image_transform: str = "raw_rgb",
-) -> None:
-    """Match latency_bench's raw frame stack to a saved StarVLA input contract."""
-    vla_data = model_cfg["datasets"]["vla_data"]
-    pack_image_sequence = (
-        bool(vla_data["pack_image_sequence"])
-        if "pack_image_sequence" in vla_data
-        else False
-    )
-    normalized_transform = str(image_transform).strip().lower()
-    raw_image_transform = normalized_transform in {"", "none", "raw", "raw_rgb"}
-    if pack_image_sequence:
-        if not raw_image_transform:
-            raise ValueError(
-                "WanOFT packed image sequences require image_transform=raw_rgb"
-            )
-        input_frame_count = int(vla_data["image_sequence_length"])
-    else:
-        if not raw_image_transform:
-            return
-        framework_cfg = model_cfg["framework"]
-        kv_cfg = framework_cfg["kv_memory"] if "kv_memory" in framework_cfg else {}
-        kv_memory_enabled = bool(kv_cfg["enabled"]) if "enabled" in kv_cfg else False
-        if kv_memory_enabled:
-            return
-        image_mode = str(vla_data["image_mode"]) if "image_mode" in vla_data else "single"
-        if image_mode == "single":
-            return
-        input_frame_count = int(vla_data["num_obs_frames"])
-
-    observation_stride = _observation_stride_raw_frames(config)
-    required_raw_frames = 1 + (input_frame_count - 1) * observation_stride
-    config["env"]["frame_stack"] = max(
-        int(config["env"]["frame_stack"]),
-        required_raw_frames,
-    )
 
 
 def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
@@ -736,13 +403,13 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
         config["env"]["frame_stack"] = 1
         return
     if "model_config_path" in policy_cfg:
-        model_cfg = _load_starvla_model_config(policy_cfg["model_config_path"])
+        model_cfg = model_input._load_starvla_model_config(policy_cfg["model_config_path"])
     else:
-        _ensure_starvla_path()
+        model_input._ensure_starvla_path()
         from starVLA.model.framework.share_tools import read_mode_config
 
         saved_model_cfg, _norm_stats = read_mode_config(policy_cfg["checkpoint_path"])
-        model_cfg = _normalized_model_cfg(saved_model_cfg)
+        model_cfg = model_input._normalized_model_cfg(saved_model_cfg)
     if config["env"]["name"] == "gymnasium":
         image_size = model_cfg["rl_games"]["env_eval"]["image_size"]
         config["env"]["obs_resize"] = [image_size, image_size]
@@ -756,7 +423,7 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
         if "image_transform" in image_transform_cfg
         else "raw_rgb"
     )
-    apply_starvla_model_input_config(
+    model_input.apply_starvla_model_input_config(
         config,
         model_cfg=model_cfg,
         image_transform=image_transform,
@@ -764,27 +431,14 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
 
 
 def _load_policy_wrapper_class() -> Any:
-    _ensure_starvla_path()
+    model_input._ensure_starvla_path()
     from deployment.model_server.policy_wrapper import PolicyServerWrapper
 
     return PolicyServerWrapper
 
 
 def _profiler_stage(profiler: Any, name: str) -> Any:
-    from contextlib import nullcontext
-
     return profiler.time(name) if profiler is not None else nullcontext()
-
-
-def _load_rl_games_action_decode() -> tuple[Any, Any, Any]:
-    _ensure_starvla_path()
-    from deployment.model_server.rl_games_action_decode import (
-        decode_rl_games_actions,
-        resolve_asterix_action_decode_spec,
-        resolve_deadly_action_decode_spec,
-    )
-
-    return decode_rl_games_actions, resolve_deadly_action_decode_spec, resolve_asterix_action_decode_spec
 
 
 class LiveStarVlaWrapper:
@@ -819,7 +473,7 @@ class LiveStarVlaWrapper:
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
             resolve_asterix_action_decode_spec,
-        ) = _load_rl_games_action_decode()
+        ) = action_decode._load_rl_games_action_decode()
         self._action_layout = action_layout
         self._multibinary_threshold = multibinary_threshold
         if self._rl_games_env_name == "deadly_corridor":
@@ -1050,7 +704,9 @@ def _starvla_runner_kwargs(
         prompt_mode=policy_cfg.get("prompt_mode"),
         obs_resize=tuple(env_cfg["obs_resize"]) if env_cfg.get("obs_resize") else None,
         image_transform_config=policy_cfg.get("image_transform_config"),
-        observation_stride_raw_frames=_observation_stride_raw_frames(config),
+        observation_stride_raw_frames=model_input._observation_stride_raw_frames(config),
+        env_fps=env_cfg["env_fps"],
+        obs_fps=env_cfg["obs_fps"],
         model_cfg=model_cfg,
         state_normalization=state_normalization,
         state_source=policy_cfg["state_source"] if "state_source" in policy_cfg else None,
@@ -1067,14 +723,14 @@ def build_starvla_policy(
 ) -> PolicyRunner:
     policy_cfg = config["policy"]
     if "task_contract_path" in policy_cfg:
-        _ensure_starvla_path()
+        model_input._ensure_starvla_path()
         from latency_bench.policy.starvla_tasks import build_task_starvla_policy
 
         return build_task_starvla_policy(config)
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]
     model_cfg = (
-        _load_starvla_model_config(policy_cfg["model_config_path"])
+        model_input._load_starvla_model_config(policy_cfg["model_config_path"])
         if integration_env_name == "gymnasium" or "model_config_path" in policy_cfg
         else None
     )
@@ -1161,7 +817,7 @@ def build_live_starvla_policy(
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]
     normalized_model_cfg = (
-        _normalized_model_cfg(model_cfg)
+        model_input._normalized_model_cfg(model_cfg)
         if integration_env_name == "gymnasium"
         else None
     )
@@ -1198,10 +854,8 @@ def build_live_starvla_policy(
 __all__ = [
     "LiveStarVlaWrapper",
     "StarVlaPolicyRunner",
-    "apply_starvla_model_input_config",
     "build_live_starvla_policy",
     "build_starvla_policy",
-    "decode_starvla_action",
     "observation_data_to_hwc_uint8_frames",
     "prepare_starvla_checkpoint_input_config",
 ]

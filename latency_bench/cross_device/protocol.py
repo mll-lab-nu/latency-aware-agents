@@ -1,3 +1,5 @@
+"""Profile CLI; invoke from the repository root or through scripts/profile.sh."""
+
 from __future__ import annotations
 
 import argparse

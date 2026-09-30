@@ -258,7 +258,7 @@ def accepts_episode(
     summary: Mapping[str, Any],
     *,
     max_steps_per_episode: int,
-    filter_kwargs: dict[str, Any] | None = None,
+    demon_episode_threshold: float | None = None,
 ) -> bool:
     """Dispatch episode-level gate by filter preset.
 
@@ -267,8 +267,7 @@ def accepts_episode(
         env_name: Canonical benchmark environment name.
         summary: Episode summary with length and environment-specific return.
         max_steps_per_episode: Export raw-frame cap used by Flappy's survival gate.
-        filter_kwargs: Optional overrides forwarded to the preset gate function
-            (e.g. ``demon_episode_threshold`` overrides the hard-coded demon score).
+        demon_episode_threshold: Optional Demon raw-score threshold.
 
     Returns:
         Whether this episode should be accepted.
@@ -277,7 +276,7 @@ def accepts_episode(
         return True
     return clean_v1_accepts_episode_summary(
         env_name, summary, max_steps_per_episode=max_steps_per_episode,
-        **(filter_kwargs or {}),
+        demon_episode_threshold=demon_episode_threshold,
     )
 
 

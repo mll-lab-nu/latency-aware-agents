@@ -13,7 +13,6 @@ backend:
   - convnet_atari
 executor:
   mode: realtime
-  simulated_worker_capacity: null
   inference_devices:
   - cuda:0
 env:

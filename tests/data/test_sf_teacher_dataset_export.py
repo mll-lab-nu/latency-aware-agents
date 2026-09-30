@@ -1259,12 +1259,14 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
         export_image_size=None,
         image_writer_workers=0,
         row_buffer_size=1,
+        demon_episode_threshold=7999.0,
     )
     train_rows = _read_shard_rows(output_dir, "train")
     val_rows = _read_shard_rows(output_dir, "val")
 
     image = Image.open(train_rows[0]["image"])
     assert not val_rows
+    assert metadata["filter_report"]["demon_episode_threshold"] == 7999.0
     assert metadata["image_source"] == "env_raw_rgb"
     assert "image_stack" not in train_rows[0]
     assert image.mode == "RGB"
@@ -2132,6 +2134,7 @@ def test_collect_teacher_dataset_skips_runtime_when_probe_and_shards_complete(mo
 
 
 def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatch, tmp_path, capfd):
+    monkeypatch.setattr(logging.getLogger("rl"), "disabled", False)
     import torch
     from latency_bench.data import sf_teacher_rollout as exporter
 
@@ -2245,7 +2248,8 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
     assert "sample factory logger" in init_log
 
 
-def test_sample_factory_init_log_restores_logger_handlers_added_inside_context(tmp_path):
+def test_sample_factory_init_log_restores_logger_handlers_added_inside_context(tmp_path, monkeypatch):
+    monkeypatch.setattr(logging.getLogger("rl"), "disabled", False)
     from latency_bench.data.sf_teacher_runtime import sample_factory_init_log
 
     logger = logging.getLogger("rl")
@@ -2961,7 +2965,7 @@ def test_prepare_starvla_lerobot_dataset_uploads_converted_root(monkeypatch, tmp
 
 
 def test_merge_probe_states_reindexes_dedupes_and_assigns_splits():
-    from latency_bench.data.sf_teacher_rollout import merge_probe_states, _build_episode_plan
+    from latency_bench.data.sf_teacher_probe import merge_probe_states, build_episode_plan
 
     def spec(seed, length):
         return {
@@ -2999,7 +3003,7 @@ def test_merge_probe_states_reindexes_dedupes_and_assigns_splits():
     # Splits come from the same plan the single-process probe uses.
     plan = {
         p["episode_idx"]: p["split"]
-        for p in _build_episode_plan(max_episodes=4, val_fraction=0.5, split_seed=0, base_seed=0)
+        for p in build_episode_plan(max_episodes=4, val_fraction=0.5, split_seed=0, base_seed=0)
     }
     assert {s["episode_idx"]: s["split"] for s in specs} == plan
     assert sum(1 for s in specs if s["split"] == "val") == round(4 * 0.5)
@@ -3013,7 +3017,7 @@ def test_merge_probe_states_reindexes_dedupes_and_assigns_splits():
 
 
 def test_merge_probe_states_raises_when_insufficient():
-    from latency_bench.data.sf_teacher_rollout import merge_probe_states
+    from latency_bench.data.sf_teacher_probe import merge_probe_states
 
     shard = {
         "accepted_specs": [{"seed": 0, "episode_length": 5040, "episode_idx": 0, "split": "_attempts", "attempt_idx": 0}],

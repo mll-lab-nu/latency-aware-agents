@@ -5,7 +5,7 @@ All durations are milliseconds.
 
 ## Output Files
 
-- `infer_latencies.jsonl`: one row per completed inference request. `latency_ms`
+- `latencies.jsonl`: one row per completed inference request. `latency_ms`
   is the measured worker-side action generation latency.
 - `e2e_latencies.jsonl`: one row per applied action. `latency_ms` is
   `inference_latency_ms + bench_overhead_ms`.

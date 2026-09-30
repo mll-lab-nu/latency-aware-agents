@@ -122,9 +122,14 @@ def test_translation_uses_prompt_map_raw_frame_latency(
         encoding="utf-8",
     )
 
+    model_cfg = _model_cfg()
+    model_cfg["datasets"]["vla_data"].update(data_root_dir=str(tmp_path), data_mix=f"{env_name}_train")
+    base = runner_mod.load_config(runner_mod.BASE_CONFIGS[env_name])
+    if base["env"]["name"] == "gymnasium":
+        model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] = runner_mod.gymnasium_task_contract(base["env"])
     cfg = build_latency_bench_config_for_rl_games(
         env_name=env_name,
-        model_cfg=_model_cfg(),
+        model_cfg=model_cfg,
         seed=42,
         image_size=224,
         num_episodes=1,

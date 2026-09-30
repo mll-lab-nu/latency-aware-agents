@@ -601,8 +601,10 @@ def test_latency_bench_eval_process_main_writes_result_file(monkeypatch, tmp_pat
 
     monkeypatch.setattr(periodic_eval, "run_eval_suites_from_config", fake_run_eval_suites)
 
+    config = _training_config(tmp_path)
+    config["suite_name"] = "fixed_0_to_1"
     periodic_eval._latency_bench_eval_process_main(
-        {"suite_name": "fixed_0_to_1", "evaluation": {"eval_suites": {}}},
+        config,
         {"latency_type": "fixed_sweep"},
         str(result_path),
     )
@@ -639,7 +641,8 @@ def test_latency_bench_eval_process_main_runs_current_condition_without_suites(m
         lambda config, values: [summary] if values is metrics else [],
     )
 
-    config = {"evaluation": {"eval_episodes": 8}}
+    config = _training_config(tmp_path)
+    config["evaluation"] = {"eval_episodes": 8}
     metadata = {"eval_phase": "train_periodic"}
     periodic_eval._latency_bench_eval_process_main(config, metadata, str(result_path))
 

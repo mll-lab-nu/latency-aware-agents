@@ -9,6 +9,8 @@ from typing import Any, Mapping
 
 import numpy as np
 
+from latency_bench.data.state_normalization import min_max_normalize_state
+
 
 @dataclass(frozen=True)
 class StarVLATaskSpec:
@@ -254,12 +256,7 @@ def normalize(values: Any, stats: Mapping[str, list[float]]) -> np.ndarray:
     values = np.asarray(values, dtype=np.float32)
     minimum = np.asarray(stats["min"], dtype=np.float32)
     maximum = np.asarray(stats["max"], dtype=np.float32)
-    result = np.zeros_like(values, dtype=np.float32)
-    mask = minimum != maximum
-    result[..., mask] = 2.0 * (values[..., mask] - minimum[mask]) / (
-        maximum[mask] - minimum[mask]
-    ) - 1.0
-    return np.clip(result, -1.0, 1.0)
+    return min_max_normalize_state(values, minimum, maximum)
 
 
 def denormalize(values: Any, stats: Mapping[str, list[float]]) -> np.ndarray:

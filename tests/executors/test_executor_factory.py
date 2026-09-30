@@ -754,7 +754,8 @@ def test_realtime_mode_builds_realtime_executor(monkeypatch, tmp_path):
 
 def test_realtime_mode_uses_injected_env_and_inference_devices(tmp_path):
     config = _config(mode="realtime", output_dir=str(tmp_path))
-    env = DummyEnvAdapter(noop_action=Action(value="env-noop", is_noop=True))
+    env = DummyEnvAdapter(env_fps=config["env"]["env_fps"],
+                          noop_action=Action(value="env-noop", is_noop=True))
 
     executor = build_executor(config, env=env, inference_devices=["cuda:1"])
 
@@ -762,6 +763,8 @@ def test_realtime_mode_uses_injected_env_and_inference_devices(tmp_path):
         assert executor.env is env
         assert executor.inference_devices == ["cuda:1"]
         assert executor.use_env_process is False
+        assert env.reset(seed=7).sim_time_ms == executor.clock.step_to_time_ms(0)
+        assert env.step(env.noop_action).observation.sim_time_ms == executor.clock.step_to_time_ms(1)
     finally:
         executor.close()
 
@@ -774,7 +777,9 @@ def test_realtime_devices_follow_cuda_visible_devices(monkeypatch):
 
 def test_realtime_devices_follow_torch_visible_count_when_env_is_unset(monkeypatch):
     import torch
+    from latency_bench.latency import hardware_info
 
+    monkeypatch.setattr(hardware_info, "_nvidia_smi_gpus", lambda: [])
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
 

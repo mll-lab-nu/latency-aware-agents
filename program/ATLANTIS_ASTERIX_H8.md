@@ -62,10 +62,8 @@ are stored mode 600 and excluded from snapshots/publication.
 
 ## Execution
 
-Generate a per-game graph with `scripts/tasks/atari_hist8/make_queue.py`,
 passing the runtime root, Python environments root, pinned backbone path and
 explicit GPU pool. Run its manifest through
-`scripts/tasks/decision_history/run_hist8_v2.py`. The graph collects, converts,
 trains three models, packages and publishes their step-5000 bundles, evaluates
 zero→zero and publishes evaluation results. Profiling has a separate two-GPU
 controller. Failures require diagnosis
@@ -75,7 +73,6 @@ Current local SSH access uses the existing HTTP proxy:
 Monitor and receipt-bridge services keep separate control sockets.
 After a queue relocation, resume the existing manifest through the shared
 runner (or the runtime's `resume_zero.sh`); do not regenerate it with
-`make_queue.py`/`run_zero.sh`, which would restore transferred pending jobs.
 
 Use independent `outputs/tasks/atari_hist8_v1` directories. Store smoke data
 and models under `smoke/`; these do not establish formal training or performance
@@ -91,15 +88,9 @@ has shut down the RTX host; do not reconnect or request a restart. The bridge
 and monitor skip it after this marker, while H100/H200 continue using the
 published profiles. Verification is in `verification/completed_profiles.json`.
 
-The profiling host is `ssh -p 25590 root@70.30.252.209`, workspace
-`/workspace/atari-hist8`, Python `/workspace/atari-runtime/bin/python`.
-Supervisor service `atari-profiles` runs `scripts.tasks.atari_hist8.profile_queue`:
-it discovers published bundles in HF, pins their revision, downloads and checks
-the checkpoint identity, then runs `profile_published.py` on either GPU 0 or 1.
-Each child sees exactly one card; at most two jobs run concurrently. Inspect
-`outputs/tasks/atari_hist8_v1/profile_queue/state.json` and actual processes before
-resuming. Profiles and HF read-back revisions are recorded in `profile_receipts/`.
-The task `profile.sh` wrappers remain the direct shared-profiler entry points.
+Use the task `profile.sh` wrappers or `scripts/profile.sh` to run the shared
+profiler with the selected task and model. Completed results retain their pinned
+profiles and HF read-back revisions in `profile_receipts/`.
 Use CPU simulator and CPU rendering, one inference worker, batch 1, existing
 warmup, 5 sessions × 10 episodes and 7200 raw frames at 60/15 Hz. The GPU is
 reserved for VLA inference. Realtime H8 joins late outputs to their source

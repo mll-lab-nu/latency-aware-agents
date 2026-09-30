@@ -49,7 +49,6 @@ DAgger 使用既有通用 bundle 导出接口，不引入无用 task 参数或 b
 
 Fixed 条件统一使用 `fixed-1/2/3/4`。`eval_config(..., eval_latency_frames=L)` 独立控制
 评测延迟，`None` 保留 profile 评测；单 checkpoint CLI 使用 `--setting zero|fixed-N|profile`。
-`run_fixed_v2_h8.sh` 的 `FIXED_CONDITION` 默认仍为 fixed-2，可显式设成其他 N。
 
 必要回归放在已有 MIKASA、task policy、scheduler 和 resident 测试中；都是长期协议测试：
 请求/到达/prefix 时间线，K 不随 L 改变，K 帧标签 mask 与终止尾部 mask，episode reset，
@@ -84,27 +83,6 @@ DAgger 每轮采集 seed 起点为 `10,000,000 + round×1,000,000`。原 baselin
 沿用已有 GPU lock 串行化同卡采集/评测。以下卡号仅演示一组，启动前重新核实。
 每次实验使用独立数据、SFT 与 DAgger 输出目录；入口不删除旧数据/训练目录。
 
-```bash
-export QWENOFT_PY=/home/ubuntu/miniconda3/envs/starvla_rl_games_openvla/bin/python
-export MIKASA_PY="$PWD/third_party/MIKASA-Robo/.venv/bin/python"
-export UV=/home/ubuntu/.local/bin/uv
-export WANDB_ENTITY=saberrr-zju
-export FIXED_MODELS=qwenoft
-export FIXED_CONDITION=fixed-1  # 其他两路分别设 fixed-3、fixed-4
-export MIKASA_H8_DATA_ROOT="$PWD/outputs/starvla/datasets/mikasa_intercept_grab_fast/fixed-grid-20260924"
-export MIKASA_H8_OUTPUT_ROOT="$PWD/outputs/starvla/runs/mikasa_intercept_grab_fast/fixed-grid-sft-20260924"
-export MIKASA_H8_FIXED_RUN_ID="fixed-grid-20260924-${FIXED_CONDITION}"
-export FIXED_COLLECT_GPU=6
-export FIXED_TRAIN_DEVICES=2,3
-export FIXED_TRAIN_PORTS=29921
-
-bash scripts/tasks/mikasa_intercept_grab_fast/run_fixed_v2_h8.sh all
-
-export MIKASA_H8_SOURCE_RUN="${MIKASA_H8_OUTPUT_ROOT}/${FIXED_CONDITION}/qwenoft"
-bash scripts/tasks/mikasa_intercept_grab_fast/launch_h8_dagger_arm.sh \
-  qwenoft "$FIXED_CONDITION" 2,3 6 29921 \
-  "$PWD/outputs/starvla/runs/mikasa_intercept_grab_fast/fixed-grid-dagger-20260924/${FIXED_CONDITION}/qwenoft"
-```
 
 按用户最新指令直接运行上述正式入口，不运行短流程。正式 SFT
 恢复使用相同 run-id/output-dir 加 `--resume --train-only`；DAgger 重启相同命令，复用完整

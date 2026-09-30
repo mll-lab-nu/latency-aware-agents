@@ -533,7 +533,8 @@ def test_budget_error_uses_absolute_mean_difference_and_paired_runs():
     assert unequal["signed_error_pp"] == -10
 
 
-def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path):
+@pytest.mark.parametrize("migrate", [False, True])
+def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path, migrate):
     # Long-lived report contract: two case means get equal weight irrespective
     # of run count or reference scale, and a known offset survives all exports.
     for model in budget.MODELS:
@@ -552,16 +553,33 @@ def test_budget_report_aggregates_equal_case_weight_and_exports(tmp_path):
                             {"episode_return_env": run_id + e + (1 + run_id % 2) * budget.SOURCES[model]["reference_return"] / 100}
                             for e in range(2)
                         ])
-        write_json(output / "runtime/setups/test.json", {"stage": "sim_setup", "seconds": 10, "gpu_count": 1})
+        write_json(output / "runtime/setups/test.json", {"stage": "sim_setup", "model": model, "seconds": 10, "gpu_count": 1})
         for run_id, seconds in ((10, 3600), (15, 7200)):
             write_json(output / "timings" / f"real_{run_id}.json", {
-                "stage": "real", "seconds": seconds, "gpu_count": 1})
+                "stage": "real", "model": model, "run_ids": [run_id], "seconds": seconds, "gpu_count": 1})
         for split in budget.split_manifest():
             for count, seconds in ((5, 1800), (10, 3600)):
                 write_json(output / "sim" / split / str(count) / "fixed/timings/test.json", {
-                    "stage": "sim", "seconds": seconds, "gpu_count": 1})
+                    "stage": "sim", "model": model, "split": split, "fit_runs": count,
+                    "method": "fixed", "run_ids": budget.split_manifest()[split]["valid"],
+                    "seconds": seconds, "gpu_count": 1})
         (output / "SIM_DONE").touch()
-    report = budget_report.make_report(tmp_path)
+    timing_root = tmp_path
+    if migrate:
+        before = {}
+        for model in budget.MODELS:
+            for path in budget_report._timing_paths(tmp_path / model):
+                data = read_json(path)
+                for key in ("model", "split", "fit_runs", "method"):
+                    data.pop(key, None)
+                write_json(path, data)
+                before[path] = path.read_bytes()
+        timing_root = budget_report.migrate_timing_records(tmp_path, tmp_path / "migrated_timings")
+        assert all(path.read_bytes() == content for path, content in before.items())
+    # A filename is evidence, not the run identity used for cost attribution.
+    for model in budget.MODELS:
+        (timing_root / model / "timings/real_10.json").rename(timing_root / model / "timings/measurement.json")
+    report = budget_report.make_report(tmp_path, timing_root=timing_root)
     with (report / "nmae.csv").open() as stream:
         rows = list(csv.DictReader(stream))
     assert len(rows) == 2 * 6 * 4 * 2
@@ -697,3 +715,20 @@ def test_random_repeats_preserve_first_split_and_average_absolute_errors(tmp_pat
         assert int(row['n_splits']) == 5
     assert (report / 'valid_random.png').exists()
     assert (report / 'valid_random.pdf').exists()
+
+
+def test_resident_replay_closes_executor_when_warmup_fails(monkeypatch, tmp_path):
+    entry, base = archived()
+    monkeypatch.setattr(budget, "runtime_base", lambda *args: (base, {"assets": entry}, 10))
+    monkeypatch.setattr(budget, "record_execution_contract", lambda *args: None)
+    monkeypatch.setattr(study, "_prepare_replay_runtime", lambda config: None)
+    closed = []
+    def fail():
+        raise RuntimeError("warmup failed")
+    executor = SimpleNamespace(run_warmup=fail, close=lambda: closed.append(True))
+    monkeypatch.setattr(budget, "build_executor", lambda *args, **kwargs: executor)
+    write_json(tmp_path / "profiles/original/5/profile.json", {"summary": {"mean_ms": 1, "std_ms": 0}})
+    with pytest.raises(RuntimeError, match="warmup failed"):
+        budget.simulate(tmp_path, tmp_path, "qwenoft", "python", None, 2,
+                        partitions=budget.split_manifest())
+    assert closed == [True]

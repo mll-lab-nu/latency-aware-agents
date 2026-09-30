@@ -12,9 +12,9 @@ from huggingface_hub import HfApi, hf_hub_download
 
 from latency_bench.utils.io import write_json_atomic
 from scripts.tasks.decision_history.eval_vla_hist8 import audit_evaluation, file_sha256
-from scripts.tasks.decision_history.make_hist8_v2_queue import MODELS
 
 
+MODELS = ("qwenoft", "qwengr00t", "qwenpi_v3")
 REPO_ID = "latency-sensitive-bench/benchmark-models"
 
 

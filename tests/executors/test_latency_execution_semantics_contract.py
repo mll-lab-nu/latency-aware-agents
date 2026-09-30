@@ -3,9 +3,10 @@ from __future__ import annotations
 import pytest
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionEvent, OrderingPolicy
+from latency_bench.core.types import Action, ActionEvent, LatencyRecord, OrderingPolicy
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
+from latency_bench.logging.metrics import compute_episode_metrics
 
 from helpers import make_action_event as _event
 
@@ -120,3 +121,20 @@ def test_action_event_contract_does_not_require_realtime_job_fields():
 
     assert "job_status" not in fields
     assert "action_age_raw_frames" not in fields
+
+
+@pytest.mark.parametrize("delta,expected", [(5e-11, 1), (5e-10, 2)])
+def test_timestamp_and_integer_readiness_share_the_log_rounding_boundary(delta, expected):
+    clock = EnvClock(env_fps=35, obs_fps=35)
+    for use_integer in (False, True):
+        noop, action = Action("noop", is_noop=True), Action("move")
+        timestamp = (1 + delta) * clock.frame_ms
+        event = ActionEvent(0, action, 0, timestamp, 1 + delta,
+                            LatencyRecord(0, timestamp),
+                            ready_raw_frame=expected if use_integer else None)
+        scheduler = ActionScheduler(clock, noop, HoldPolicy(), OrderingPolicy.ISSUE_ORDER_FIFO)
+        scheduler.enqueue(event)
+        assert scheduler.update(1, clock.frame_ms).value == ("move" if expected == 1 else "noop")
+        assert scheduler.update(2, 2 * clock.frame_ms).value == "move"
+        compute_episode_metrics(0, [], [event], [timestamp], frame_ms=clock.frame_ms)
+        assert event.ready_raw_frame == expected

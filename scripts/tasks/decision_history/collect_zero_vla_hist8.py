@@ -14,7 +14,7 @@ from huggingface_hub import snapshot_download
 
 from latency_bench.utils.io import write_json_atomic
 from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
-from latency_bench.data.sf_teacher_rollout import _write_probe_state, merge_probe_states
+from latency_bench.data.sf_teacher_probe import write_probe_state, merge_probe_states
 from scripts.tasks.decision_history.collect_vla_hist8 import (
     ROOT, TASK_SETTINGS, HISTORY_DIMS, _file_sha256, _export_command, _quality_report,
 )
@@ -72,7 +72,7 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
         if args.smoke or labels >= 320_000:
             break
         episodes += increment
-    _write_probe_state(raw, merged)
+    write_probe_state(raw, merged)
     write_json_atomic(output / "accepted_episodes.json", {"episodes": merged["accepted_specs"]})
     export(False)
     metadata = json.loads((raw / "metadata.json").read_text())

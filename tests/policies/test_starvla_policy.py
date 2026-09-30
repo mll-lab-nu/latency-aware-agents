@@ -328,7 +328,7 @@ def test_starvla_policy_uses_saved_checkpoint_no_state_config(monkeypatch, tmp_p
 
     from latency_bench.policy import starvla
 
-    monkeypatch.syspath_prepend(starvla.STARVLA_ROOT)
+    monkeypatch.syspath_prepend(starvla.model_input.STARVLA_ROOT)
     from starVLA.model.framework.share_tools import apply_config_compat
 
     class SavedCheckpointPolicyServerWrapper(FakePolicyServerWrapper):
@@ -740,7 +740,7 @@ def test_starvla_wanoft_uses_explicit_full_model_config(
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     monkeypatch.setattr(
-        starvla,
+        starvla.model_input,
         "_load_starvla_model_config",
         lambda _path: {
             "datasets": {
@@ -808,7 +808,7 @@ def test_prepare_starvla_checkpoint_input_config_uses_explicit_full_model_config
     from latency_bench.policy import starvla
 
     monkeypatch.setattr(
-        starvla,
+        starvla.model_input,
         "_load_starvla_model_config",
         lambda _path: {
             "datasets": {
@@ -839,7 +839,7 @@ def test_prepare_starvla_checkpoint_input_config_sizes_plain_multiframe_history(
     from latency_bench.policy import starvla
 
     monkeypatch.setattr(
-        starvla,
+        starvla.model_input,
         "_load_starvla_model_config",
         lambda _path: {
             "datasets": {
@@ -919,7 +919,7 @@ def test_starvla_decision_history_uses_transport_and_requires_it(monkeypatch, tm
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
-    monkeypatch.setattr(starvla, "_load_starvla_model_config", lambda _path: {
+    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", lambda _path: {
         "datasets": {"vla_data": {"include_state": True}},
         "framework": {"action_model": {"state_dim": state_dim}},
     })
@@ -955,7 +955,7 @@ def test_apply_starvla_model_input_config_sizes_wanoft_raw_history(
     obs_fps,
     expected_frame_stack,
 ):
-    from latency_bench.policy.starvla import apply_starvla_model_input_config
+    from latency_bench.policy._starvla_input import apply_starvla_model_input_config
 
     config = {
         "env": {
@@ -1307,31 +1307,10 @@ def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Pa
         policy.predict(Observation(data=np.zeros((2, 3, 3), dtype=np.uint8), env_step=0, sim_time_ms=0.0))
 
 
-def test_deadly_corridor_factorized_starvla_vector_decodes_to_tuple_action():
-    from latency_bench.policy.starvla import decode_starvla_action
-
-    vector = np.asarray([0.0, 0.2, 0.9, 0.8, 0.1, 0.2, 0.1, 0.7, 0.0, 0.3, 0.9])
-
-    action, metadata = decode_starvla_action(
-        vector=vector,
-        env_name="deadly_corridor",
-        action_by_raw_id={},
-    )
-
-    assert action.value == [2, 0, 1, 1]
-    assert action.name == "TURN_RIGHT+MOVE_LEFT+ATTACK"
-    assert metadata["action_layout"] == "deadly_corridor_factorized_11"
-
-    with pytest.raises(ValueError, match="expected 7, 11, or 54"):
-        decode_starvla_action(
-            vector=np.zeros(8, dtype=np.float32),
-            env_name="deadly_corridor",
-            action_by_raw_id={},
-        )
 
 
 def test_deadly_corridor_multibinary_payload_preserves_simultaneous_buttons():
-    from latency_bench.policy.starvla import action_from_starvla_payload
+    from latency_bench.policy._starvla_actions import action_from_starvla_payload
 
     action, metadata = action_from_starvla_payload(
         payload=np.asarray([1, 0, 1, 0, 1, 0, 1], dtype=np.int64),
@@ -1345,20 +1324,6 @@ def test_deadly_corridor_multibinary_payload_preserves_simultaneous_buttons():
     assert metadata["action_layout"] == "deadly_corridor_multibinary_7"
 
 
-def test_demon_attack_decodes_only_six_supported_actions():
-    from latency_bench.policy.starvla import decode_starvla_action
-
-    vector = np.asarray([0.0, 0.2, 0.9, 0.1, 0.4, 0.3, 10.0], dtype=np.float32)
-
-    action, metadata = decode_starvla_action(
-        vector=vector,
-        env_name="demon_attack",
-        action_by_raw_id={},
-    )
-
-    assert action.value == 2
-    assert action.name == "RIGHT"
-    assert metadata["raw_action_id"] == 2
 
 
 def test_starvla_policy_uses_decoded_actions_not_raw_scores(monkeypatch, tmp_path: Path):
@@ -1398,27 +1363,6 @@ def test_starvla_policy_uses_decoded_actions_not_raw_scores(monkeypatch, tmp_pat
     assert output.metadata["raw_action_scores"] == [0.8999999761581421, 0.10000000149011612]
 
 
-def test_deadly_corridor_joint_fifty_four_starvla_vector_decodes_to_tuple_action():
-    from latency_bench.policy.starvla import decode_starvla_action
-
-    vector = np.zeros(54, dtype=np.float32)
-    vector[11] = 1.0
-
-    action, metadata = decode_starvla_action(
-        vector=vector,
-        env_name="deadly_corridor",
-        action_by_raw_id={},
-    )
-
-    assert action.value == [0, 1, 2, 1]
-    assert action.name == "MOVE_FORWARD+MOVE_RIGHT+ATTACK"
-    assert metadata["raw_action_id"] == 11
-    assert metadata["decoded_action_tuple"] == [0, 1, 2, 1]
-    assert metadata["turn_label"] == "TURN_NOOP"
-    assert metadata["move_label"] == "MOVE_FORWARD"
-    assert metadata["strafe_label"] == "MOVE_RIGHT"
-    assert metadata["attack_label"] == "ATTACK"
-    assert metadata["action_layout"] == "deadly_corridor_joint_54"
 
 
 def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
@@ -1635,3 +1579,29 @@ def test_seeded_action_noise_uses_episode_and_frame_not_batch_slot(monkeypatch, 
     seeds = [e["action_noise_seed"] for call in FakePolicyServerWrapper.instances[-1].calls for e in call["examples"]]
     assert seeds[0] == seeds[1]
     assert len({seeds[0], seeds[2], seeds[3]}) == 3
+
+
+@pytest.mark.parametrize("env_name,layout,vector,expected,name", [
+    ("deadly_corridor", "factorized_11", [0, .2, .9, .8, .1, .2, .1, .7, 0, .3, .9],
+     [2, 0, 1, 1], "TURN_RIGHT+MOVE_LEFT+ATTACK"),
+    ("deadly_corridor", "joint_54", [0] * 11 + [1] + [0] * 42,
+     [0, 1, 2, 1], "MOVE_FORWARD+MOVE_RIGHT+ATTACK"),
+    ("demon_attack", None, [0, .2, .9, .1, .4, .3, 10], 2, "RIGHT"),
+])
+def test_live_model_outputs_use_the_task_action_layout(env_name, layout, vector, expected, name):
+    from latency_bench.policy.starvla import LiveStarVlaWrapper
+    from latency_bench.policy._starvla_actions import action_from_starvla_payload
+
+    class Framework:
+        def predict_action(self, examples, **kwargs):
+            return {"normalized_actions": np.asarray([[vector]], dtype=np.float32)}
+
+    wrapper = LiveStarVlaWrapper(framework=Framework(),
+                                model_cfg={"framework": {"action_model": {"loss_type": "discrete_ce"}}},
+                                env_name=env_name,
+                                action_layout=layout)
+    prediction = wrapper.predict_action([{"image": [], "lang": ""}])
+    action, metadata = action_from_starvla_payload(payload=prediction["actions"][0, 0],
+        env_name=env_name, action_by_raw_id={}, action_output_type=prediction["action_output_type"])
+    assert action.value == expected
+    assert action.name == name

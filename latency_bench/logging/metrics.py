@@ -1,12 +1,71 @@
 from __future__ import annotations
 
-import math
+from dataclasses import dataclass, field
 from statistics import mean
 from typing import Any
 
-from latency_bench.core.clock import ms_to_raw_frames
+from latency_bench.core.clock import frames_float_to_raw_frames, ms_to_raw_frames
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, StepRecord
 from latency_bench.utils.stats import percentile_linear
+
+
+@dataclass
+class EpisodeMetricAccumulator:
+    """Accumulate episode metrics independently of trajectory retention."""
+
+    episode_return_env: float = 0.0
+    survival_steps: int = 0
+    game_score: float | None = None
+    _final_metadata: dict[str, Any] = field(default_factory=dict)
+    return_raw: float | None = None
+    num_invalid_actions: int = 0
+    metric_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def update(self, reward: float, info: dict[str, Any]) -> None:
+        self.episode_return_env += reward
+        self.survival_steps += 1
+        if "invalid_action" in info and info["invalid_action"]:
+            self.num_invalid_actions += 1
+        self.game_score = (float(info["game_score"]) if "game_score" in info else
+                           float(info["score"]) if "score" in info else None)
+        self._final_metadata.clear()
+        if "task_metrics" in info:
+            self._final_metadata["task_metrics"] = info["task_metrics"]
+        if "task_metric_moments" in info:
+            self._final_metadata["task_metric_moments"] = info["task_metric_moments"]
+        raw = _first_number(info, _RAW_RETURN_KEYS)
+        if raw is None and "episode_extra_stats" in info:
+            extra = info["episode_extra_stats"]
+            if isinstance(extra, dict):
+                raw = _first_number(extra, _RAW_RETURN_KEYS)
+        if raw is not None:
+            self.return_raw = raw
+        if "stale_prefix_frames" in info:
+            if "hold_last_chunk_action" not in self.metric_metadata:
+                self.metric_metadata["hold_last_chunk_action"] = info["hold_last_chunk_action"]
+            for key in ("underflow_count", "underflow_frames", "underflow_duration_ms"):
+                self.metric_metadata[key] = max(self.metric_metadata.get(key, 0), info.get(key, 0))
+            for key in ("stale_prefix_frames", "chunk_age_raw_frames", "chunk_age_ms"):
+                self.metric_metadata[key] = max(self.metric_metadata.get(key, 0), info[key])
+
+    def compute(self, *, episode_id: int, latency_values_ms: list[float],
+                num_actions: int, num_dropped_actions: int,
+                metadata: dict[str, Any] | None = None) -> EpisodeMetrics:
+        return EpisodeMetrics(
+            episode_id=episode_id,
+            episode_return=self.episode_return_env,
+            survival_steps=self.survival_steps,
+            episode_return_env=self.episode_return_env,
+            return_raw=self.return_raw,
+            game_score=self.game_score,
+            mean_latency_ms=mean(latency_values_ms) if latency_values_ms else None,
+            p90_latency_ms=percentile_linear(latency_values_ms, 90.0) if latency_values_ms else None,
+            p99_latency_ms=percentile_linear(latency_values_ms, 99.0) if latency_values_ms else None,
+            num_actions=num_actions,
+            num_dropped_actions=num_dropped_actions,
+            num_invalid_actions=self.num_invalid_actions,
+            metadata={**(metadata or {}), **self.metric_metadata, **self._final_metadata},
+        )
 
 
 def compute_episode_metrics(
@@ -18,58 +77,15 @@ def compute_episode_metrics(
     frame_ms: float | None = None,
 ) -> EpisodeMetrics:
     _finalize_action_events(action_events, frame_ms=frame_ms)
-    episode_metadata = dict(metadata or {})
-    episode_metadata.update(_chunk_metrics_from_step_records(step_records))
-    if step_records and "task_metrics" in step_records[-1].info:
-        episode_metadata["task_metrics"] = step_records[-1].info["task_metrics"]
-    if step_records and "task_metric_moments" in step_records[-1].info:
-        episode_metadata["task_metric_moments"] = step_records[-1].info["task_metric_moments"]
-    episode_return_env = sum(record.reward for record in step_records)
-    survival_steps = len(step_records)
-    game_score = _extract_game_score(step_records)
-    return_raw = _extract_explicit_return(step_records, _RAW_RETURN_KEYS)
-    return compute_episode_metrics_from_aggregates(
+    metrics = EpisodeMetricAccumulator()
+    for record in step_records:
+        metrics.update(record.reward, record.info)
+    return metrics.compute(
         episode_id=episode_id,
-        episode_return_env=episode_return_env,
-        survival_steps=survival_steps,
-        return_raw=return_raw,
-        game_score=game_score,
         latency_values_ms=latency_values_ms,
         num_actions=len(action_events),
-        num_dropped_actions=sum(1 for event in action_events if event.dropped),
-        num_invalid_actions=sum(1 for record in step_records if record.info.get("invalid_action")),
-        metadata=episode_metadata,
-    )
-
-
-def compute_episode_metrics_from_aggregates(
-    *,
-    episode_id: int,
-    episode_return_env: float,
-    survival_steps: int,
-    return_raw: float | None,
-    game_score: float | None,
-    latency_values_ms: list[float],
-    num_actions: int,
-    num_dropped_actions: int,
-    num_invalid_actions: int,
-    metadata: dict[str, Any] | None = None,
-) -> EpisodeMetrics:
-    latencies = [float(value) for value in latency_values_ms]
-    return EpisodeMetrics(
-        episode_id=episode_id,
-        episode_return=episode_return_env,
-        survival_steps=survival_steps,
-        episode_return_env=episode_return_env,
-        return_raw=return_raw,
-        game_score=game_score,
-        mean_latency_ms=mean(latencies) if latencies else None,
-        p90_latency_ms=percentile_linear(latencies, 90.0) if latencies else None,
-        p99_latency_ms=percentile_linear(latencies, 99.0) if latencies else None,
-        num_actions=num_actions,
-        num_dropped_actions=num_dropped_actions,
-        num_invalid_actions=num_invalid_actions,
-        metadata=metadata or {},
+        num_dropped_actions=sum(event.dropped for event in action_events),
+        metadata=metadata,
     )
 
 
@@ -166,52 +182,6 @@ def active_action_step_info(
     return info
 
 
-def _chunk_metrics_from_step_records(step_records: list[StepRecord]) -> dict[str, Any]:
-    chunk_records = [
-        record.info
-        for record in step_records
-        if "stale_prefix_frames" in record.info
-    ]
-    if not chunk_records:
-        return {}
-    return {
-        "hold_last_chunk_action": chunk_records[0]["hold_last_chunk_action"],
-        "underflow_count": max(record.get("underflow_count", 0) for record in chunk_records),
-        "underflow_frames": max(record.get("underflow_frames", 0) for record in chunk_records),
-        "underflow_duration_ms": max(
-            record.get("underflow_duration_ms", 0.0) for record in chunk_records
-        ),
-        "stale_prefix_frames": max(record["stale_prefix_frames"] for record in chunk_records),
-        "chunk_age_raw_frames": max(record["chunk_age_raw_frames"] for record in chunk_records),
-        "chunk_age_ms": max(record["chunk_age_ms"] for record in chunk_records),
-    }
-
-
-def _extract_game_score(step_records: list[StepRecord]) -> float | None:
-    if not step_records:
-        return None
-    info = step_records[-1].info
-    if "game_score" in info:
-        return float(info["game_score"])
-    if "score" in info:
-        return float(info["score"])
-    return None
-
-
-def _extract_explicit_return(step_records: list[StepRecord], keys: tuple[str, ...]) -> float | None:
-    for record in reversed(step_records):
-        info = record.info or {}
-        value = _first_number(info, keys)
-        if value is not None:
-            return value
-        extra_stats = info.get("episode_extra_stats")
-        if isinstance(extra_stats, dict):
-            value = _first_number(extra_stats, keys)
-            if value is not None:
-                return value
-    return None
-
-
 def _first_number(mapping: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     for key in keys:
         if key in mapping and mapping[key] is not None:
@@ -233,21 +203,13 @@ def _backfill_action_event_raw_fields(event: ActionEvent, *, frame_ms: float | N
         if event.latency_raw_frames is not None:
             event.ready_raw_frame = int(event.obs_env_step) + int(event.latency_raw_frames)
         elif event.ready_step_float is not None:
-            event.ready_raw_frame = _ceil_step_float(event.ready_step_float)
+            event.ready_raw_frame = frames_float_to_raw_frames(event.ready_step_float)
 
 
 def _latency_ms_to_raw_frames(latency_ms: float, *, frame_ms: float | None) -> int | None:
-    if frame_ms is None or float(frame_ms) <= 0:
+    if frame_ms is None:
         return None
-    return ms_to_raw_frames(latency_ms, env_fps=1000.0 / float(frame_ms))
-
-
-def _ceil_step_float(value: float) -> int:
-    numeric = float(value)
-    rounded = round(numeric)
-    if math.isclose(numeric, rounded, rel_tol=1e-12, abs_tol=1e-12):
-        return int(rounded)
-    return int(math.ceil(numeric))
+    return ms_to_raw_frames(latency_ms, env_fps=1000.0 / frame_ms)
 
 
 def _apply_profile_metadata(target: Any, profile_metadata: dict[str, Any]) -> None:

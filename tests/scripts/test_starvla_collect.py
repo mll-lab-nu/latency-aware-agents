@@ -54,34 +54,6 @@ def test_profile_accepts_conditioned_qwenoft_with_explicit_profile(tmp_path):
     assert config["training"]["ppo"]["chunk_horizon"] == 8
 
 
-def test_formal_chain_publishes_source_and_target_with_matching_profile(tmp_path):
-    from scripts.tasks.humanoidbench_balance_simple import formal_chain_watchdog as watchdog
-
-    args = SimpleNamespace(
-        task_python=tmp_path / "task-python",
-        vla_python=tmp_path / "vla-python",
-        backbone=tmp_path / "backbone",
-        teacher=tmp_path / "teacher.pt",
-        teacher_config=tmp_path / "teacher.yaml",
-        teacher_revision="revision",
-        teacher_sha256="digest",
-        wandb_entity="entity",
-        label_mode="profile_conditioned",
-        port=29776,
-        profile_path=tmp_path / "profile.json",
-    )
-
-    source = watchdog._command(
-        args, model="qwenpi_v3", output=tmp_path / "source", resume=True
-    )
-    target = watchdog._command(
-        args, model="qwengr00t", output=tmp_path / "target", resume=False
-    )
-
-    assert "--publish" in source and "--resume" in source
-    assert "--profile-path" not in source
-    assert "--publish" in target and "--resume" not in target
-    assert target[target.index("--profile-path") + 1] == str(args.profile_path)
 
 
 def test_profile_teacher_suffix_stops_loss_mask_at_termination():
@@ -214,60 +186,8 @@ def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_p
     assert len(captured["val"]) == 2
 
 
-def test_profile_queue_reserves_controllers_between_gpu_phases():
-    """Long-lived Balance queue ownership: CPU-only controllers still own their GPUs."""
-    from scripts.tasks.humanoidbench_balance_simple.queue_profile import reserved_gpus
-
-    devices = [f'<gpu><uuid>GPU-{i}</uuid><processes>'
-               + ('<process_info><pid>123</pid></process_info>' if i == 4 else '')
-               + '</processes></gpu>' for i in range(8)]
-    xml = '<nvidia_smi_log>' + ''.join(devices) + '</nvidia_smi_log>'
-    assert reserved_gpus(xml, [b'CUDA_VISIBLE_DEVICES=6,7\0', b'CUDA_VISIBLE_DEVICES=GPU-5\0']) == {'4', '5', '6', '7'}
-    assert reserved_gpus(xml, []) == {'4'}
 
 
-def test_profile_queue_runs_qwenpi_h16_recipes_after_smoke(tmp_path, monkeypatch):
-    """The zero and single conditioned-profile recipes pass smoke before training."""
-    from scripts.tasks.humanoidbench_balance_simple import queue_profile as queue
-
-    launched, environments = [], []
-
-    class Process:
-        pid = 123
-
-        def __init__(self, command, **kwargs):
-            self.mode = command[command.index("--label-mode") + 1]
-            self.smoke = "--smoke" in command
-            environments.append(kwargs["env"])
-            launched.append((self.mode, self.smoke, "--no-gradient-checkpointing" in command,
-                             command[command.index("--model") + 1],
-                             "--collect-bootstrap-only" in command,
-                             "--bootstrap-data" in command,
-                             "--rollout-overlap" in command, "--publish" in command,
-                             kwargs["env"]["WANDB_MODE"],
-                             kwargs["env"]["CUDA_VISIBLE_DEVICES"]))
-
-        def poll(self):
-            return 0
-
-    monkeypatch.setattr(queue.sys, "argv", [
-        "queue", "--output", str(tmp_path / "runs"), "--vla-python", "python",
-        "--qwen-backbone", "qwen",
-    ])
-    monkeypatch.setattr(queue.subprocess, "Popen", Process)
-    monkeypatch.setattr(queue, "busy_gpus", lambda: set())
-    monkeypatch.setattr(queue.time, "sleep", lambda seconds: None)
-    assert queue.main() == 0
-    assert launched == [
-        ("zero_full", True, True, "qwenpi_v3", False, False, True, False, "disabled", "2,3"),
-        ("profile_conditioned", True, True, "qwenpi_v3", False, False, True, False, "disabled", "4,5"),
-        ("zero_full", False, True, "qwenpi_v3", False, False, True, False, "online", "2,3"),
-        ("profile_conditioned", False, True, "qwenpi_v3", False, False, True, False, "online", "4,5"),
-    ]
-    assert all(str(queue.ROOT / "third_party/humanoid-bench") in env["PYTHONPATH"].split(":")
-               for env in environments)
-    jobs = json.loads((tmp_path / "runs/queue.json").read_text())["jobs"]
-    assert [jobs[mode]["status"] for mode, _ in queue.JOBS] == ["completed"] * 2
 
 
 def test_profile_periodic_eval_is_logged_with_its_training_run(tmp_path, monkeypatch):

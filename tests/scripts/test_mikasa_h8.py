@@ -29,8 +29,6 @@ from scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset imp
     _features as conditioned_h8_features,
 )
 from scripts.tasks.mikasa_intercept_grab_fast.prepare_h8_dataset import prepare_mikasa_h8
-from scripts.tasks.mikasa_intercept_grab_fast import publish_h8_checkpoints as h8_publisher
-from scripts.tasks.mikasa_intercept_grab_fast import dispatch_h8_naive_dagger_queue as naive_queue
 
 
 def _write_h1_split(root: Path, episode_lengths: list[int], *, split_at: int | None = None) -> None:
@@ -105,47 +103,8 @@ def test_h8_diagnostic_uses_only_teacher_suffix_heads():
     assert result["mae"] == 3
 
 
-def test_h8_publication_paths_keep_training_conditions_distinct():
-    prefix = "mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/"
-    dagger = "h8-conditioned-dagger-20260923"
-    sft = "h8-conditioned-seed-reset-20260922"
-
-    assert h8_publisher._publication_path("zero-latency", "qwenoft", "h8-naive-dagger-20260923", "dagger") == (
-        "zero-latency/" + prefix + "h8-naive-dagger-20260923"
-    )
-    for condition, suffix in (("profile-latency", "profile"), ("fixed-2", "fixed-2")):
-        assert h8_publisher._publication_path(condition, "qwenoft", f"{sft}-{suffix}", "sft") == (
-            "latency-aware/" + prefix + f"{sft}-{suffix}"
-        )
-        assert h8_publisher._publication_path(condition, "qwenoft", dagger, "dagger") == (
-            "latency-aware/" + prefix + f"{dagger}-{suffix}"
-        )
 
 
-def test_h8_publisher_resolves_historical_marker_to_migrated_bundle(tmp_path, monkeypatch):
-    run = tmp_path / "run"
-    run.mkdir()
-    stage = tmp_path / "stage"
-    stage.mkdir()
-    (stage / "config.yaml").write_text("model: qwenoft\n")
-    path = h8_publisher._publication_path(
-        "profile-latency", "qwenoft", "h8-conditioned-dagger-20260923", "dagger"
-    )
-    historical = {"path": path.replace("latency-aware/", "profile-latency/").removesuffix("-profile"),
-                  "revision": "original-revision"}
-    (run / "publication_hf_dagger.json").write_text(json.dumps(historical))
-    monkeypatch.setattr(h8_publisher, "_prepare_stage", lambda *_: (stage, run, path, 5000))
-    api = SimpleNamespace(
-        repo_info=lambda *_, **__: SimpleNamespace(sha="migrated-revision"),
-        get_paths_info=lambda *_, **__: [
-            SimpleNamespace(path=f"{path}/config.yaml", size=(stage / "config.yaml").stat().st_size)
-        ],
-    )
-
-    published = h8_publisher._publish(api, "profile-latency", "qwenoft", "dagger", dry_run=False)
-
-    assert published == {"path": path, "revision": "migrated-revision"}
-    assert json.loads((run / "publication_hf_dagger.json").read_text()) == historical
 
 
 def test_mikasa_h8_conversion_preserves_episode_boundaries_and_masks_padding(tmp_path: Path):
@@ -520,30 +479,6 @@ def test_naive_dagger_labels_full_h8_without_prefix():
     np.testing.assert_allclose(chunks, 0.25)
 
 
-def test_naive_queue_respects_gpu_claims_after_ssh_json(monkeypatch):
-    host = naive_queue.HOSTS[0]
-    payload = {
-        "memory": {str(gpu): 0 for gpu in range(8)},
-        "busy_gpus": [],
-        "old_training_claims": list(range(6)),
-        "old_simulator_claims": [6, 7],
-        "shareable_simulators": [],
-    }
-    monkeypatch.setattr(naive_queue.subprocess, "check_output",
-                        lambda *args, **kwargs: json.dumps(payload))
-    snapshot = naive_queue._remote(host, "snapshot", "--host", host)
-    assert naive_queue._slot(snapshot, {}, host) is None
-
-    snapshot["shareable_simulators"] = [6, 7]
-    assert naive_queue._slot(snapshot, {}, host) == ((6, 7), 6)
-
-    snapshot["old_training_claims"] = [2, 3, 4, 5]
-    assert naive_queue._slot(snapshot, {}, host) == ((0, 1), 6)
-
-    snapshot["old_training_claims"] = [0, 1, 4, 5]
-    running = {"qwenoft": {"host": host, "train_devices": "6,7",
-                            "simulator_gpu": 6, "status": "running"}}
-    assert naive_queue._slot(snapshot, running, host) == ((2, 3), 2)
 
 
 def test_conditioned_batch_selects_shortest_seed_prefix_reaching_target():
@@ -841,6 +776,11 @@ def test_prefix63_completed_phase_publication_requires_complete_remote_state(tmp
         assert uploaded[prefix + "checkpoints/model.pt"] == b"test-model"
         assert uploaded[prefix + "trainer_state/optimizer.pt"] == b"test-optimizer"
         assert json.loads(uploaded[prefix + "task_contract.json"])["state_dim"] == 63
+        def unexpected_network(**kwargs):
+            raise AssertionError("Completed publication must use its saved revision")
+        monkeypatch.setattr(publish, "HfApi", unexpected_network)
+        publish.publish_training_endpoint(trained, "test/fixed-2")
+        assert json.loads(receipt.read_text())["revision"] == "verified-revision"
 
 
 @pytest.mark.parametrize("train_latency", [1, 2, 3, 4])
@@ -1273,3 +1213,39 @@ def test_grid_cell_summarizes_raw_episodes_and_action_trace(tmp_path):
     (tmp_path / "actions.jsonl").write_text("".join(json.dumps(row) + "\n" for row in actions))
     with pytest.raises(AssertionError):
         grid.summarize_cell(tmp_path, manifest)
+
+
+@pytest.mark.parametrize("model,condition", [("qwenoft", "fixed-2"), ("qwenpi_v3", "profile-latency")])
+def test_conditioned_entry_runs_shared_stages_with_explicit_inputs(tmp_path, model, condition):
+    import os
+    import subprocess
+    import sys
+    from helpers import REPO_ROOT
+
+    interpreter = tmp_path / "python"
+    calls = tmp_path / "calls.jsonl"
+    interpreter.write_text(f"#!{sys.executable}\n" +
+        "import json, os, sys\n" +
+        "with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps(sys.argv[1:]) + '\\n')\n")
+    interpreter.chmod(0o755)
+    result = subprocess.run([
+        "bash", str(REPO_ROOT / "scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh"),
+        "all", model, condition, "trial", "0,1", "29700",
+    ], cwd=REPO_ROOT, env={**os.environ, "VLA_PY": str(interpreter), "TASK_PY": str(interpreter),
+        "UV": str(interpreter), "TEACHER_CHECKPOINT": "/teacher.pt", "CALLS": str(calls),
+        "DATASET_DIR": str(tmp_path / "data"), "OUTPUT_DIR": str(tmp_path / "training")},
+        capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    commands = [json.loads(line) for line in calls.read_text().splitlines()]
+    modules = [command[command.index("-m") + 1] for command in commands]
+    assert [module.rsplit(".", 1)[-1] for module in modules] == [
+        "write_conditioned_latency_config", "collect_conditioned_h8", "prepare_conditioned_h8_dataset",
+        "audit_conditioned_h8_dataset", "train_task", "evaluate_h8_checkpoint",
+    ]
+    collect, train, evaluate = commands[1], commands[4], commands[5]
+    assert collect[collect.index("--model") + 1] == ("shared" if condition == "fixed-2" else model)
+    assert train[train.index("--dataset-dir") + 1] == str(tmp_path / "data")
+    assert train[train.index("--model") + 1] == model
+    assert train[train.index("--teacher-checkpoint") + 1] == "/teacher.pt"
+    assert ("--no-gradient-checkpointing" in train) == (model == "qwenoft")
+    assert evaluate[evaluate.index("--setting") + 1] == ("fixed-2" if condition == "fixed-2" else "profile")

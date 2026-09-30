@@ -83,8 +83,7 @@ def simulate(base, output, manifest, publication, *, inference_device, simulator
                          latency_seed=0, env_seed=protocol["seed"]),
         parallel_runs,
     )
-    try:
-        executor.run_warmup()
+    with study._warmed_replay_executor(executor):
         write_json(runtime / "config.json", resolved)
         context = output / "simulation_parallel.json"
         if not context.exists():
@@ -111,5 +110,3 @@ def simulate(base, output, manifest, publication, *, inference_device, simulator
                 print(f"Parallel {method}: runs {list(pending)}, slots={parallel_runs}", flush=True)
                 replay_runs(executor, {run_id: configs[method][run_id] for run_id in pending}, pending,
                             runtime, publish_run, env_seed=protocol["seed"], replica_seed=replica_seed)
-    finally:
-        executor.close()

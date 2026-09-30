@@ -165,8 +165,7 @@ class ProcessInferencePool:
             if tag != "state_reset":
                 raise RuntimeError(f"inference worker returned {tag!r} for reset_state")
 
-    def drain_completed(self, now_ms: float) -> list[RealtimePolicyCompletion]:
-        del now_ms
+    def drain_completed(self) -> list[RealtimePolicyCompletion]:
         self._raise_if_closed()
         return self._drain_all_ready()
 

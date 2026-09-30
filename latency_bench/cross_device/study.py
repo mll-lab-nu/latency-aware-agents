@@ -5,6 +5,8 @@ and machines belongs to the caller.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import argparse
 import os
 import shutil
@@ -98,6 +100,16 @@ def _prepare_replay_runtime(config):
     resolve_evaluation_config(config)
     prepare_starvla_checkpoint_input_config(config)
     seed_everything(config["experiment"]["seed"])
+
+
+@contextmanager
+def _warmed_replay_executor(executor):
+    """Own warmup and closure, including a failed warmup, for resident replay."""
+    try:
+        executor.run_warmup()
+        yield executor
+    finally:
+        executor.close()
 
 
 def execute_stage(config, output, entry):

@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from latency_bench.cross_device import budget
-from latency_bench.cross_device.budget_report import run_mean
+from latency_bench.cross_device.budget_report import run_mean, normalized_mean_error
 from latency_bench.cross_device.study import EPISODES, METHODS
 from latency_bench.cross_device.study_publication import StudyPublication
 from latency_bench.utils.io import read_json, write_json_atomic, write_csv, write_json
@@ -90,7 +90,7 @@ def repeated_report(root, base_root):
                     simulated = np.mean([run_mean(path / str(run_id)) for run_id in partition["valid"]])
                     real = np.mean([run_mean(base_root / model / "real" / str(run_id))
                                     for run_id in partition["valid"]])
-                    error = 100 * abs(simulated - real) / budget.SOURCES[model]["reference_return"]
+                    error = abs(normalized_mean_error(real, simulated, budget.SOURCES[model]["reference_return"]))
                     errors.append(error)
                     cases.append({"seed": seed, "model": model, "fit_runs": count, "method": method,
                                   "real_mean": real, "sim_mean": simulated, "absolute_error_pp": error})

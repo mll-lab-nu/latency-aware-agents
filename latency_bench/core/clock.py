@@ -13,10 +13,10 @@ def validate_clock_rates(env_fps: float, obs_fps: float) -> None:
         )
 
 
-_FRAME_EPS = 1e-10
+FRAME_ROUNDING_EPSILON = 1e-10
 
 def frames_float_to_raw_frames(frames: float) -> int:
-    return int(math.ceil(frames - _FRAME_EPS))
+    return int(math.ceil(frames - FRAME_ROUNDING_EPSILON))
 
 
 def ms_to_raw_frames(latency_ms: float, env_fps: float) -> int:

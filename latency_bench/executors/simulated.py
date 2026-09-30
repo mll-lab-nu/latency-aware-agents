@@ -179,7 +179,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             # ready frame whose action value is still on a worker, so a slow
             # forward pass changes when we wait, never what we compute.
             while True:
-                for completion in pool.drain_completed(0.0):
+                for completion in pool.drain_completed():
                     pending_results[completion.task.obs_id] = completion.policy_output
                 while submit_queue and pool.submit(submit_queue[0]):
                     submit_queue.popleft()

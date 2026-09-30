@@ -18,7 +18,7 @@ from latency_bench.data.action_layouts import (
     gymnasium_continuous_action_spec,
 )
 from latency_bench.envs.gymnasium_task import gymnasium_task_contract
-from latency_bench.policy.starvla import action_from_starvla_payload
+from latency_bench.policy._starvla_actions import action_from_starvla_payload
 from training.gymnasium_sf.integration import (
     GymnasiumActionLatencyWrapper,
     build_cli_args_from_config,

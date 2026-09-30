@@ -39,10 +39,8 @@ from latency_bench.core.config import load_config
 from latency_bench.eval.config import _apply_eval_latency
 from latency_bench.eval.driver import run_from_config
 from latency_bench.envs.gymnasium_task import gymnasium_task_contract
-from latency_bench.policy.starvla import (
-    apply_starvla_model_input_config,
-    build_live_starvla_policy,
-)
+from latency_bench.policy._starvla_input import apply_starvla_model_input_config
+from latency_bench.policy.starvla import build_live_starvla_policy
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map
 from latency_bench.utils.paths import REPO_ROOT
 

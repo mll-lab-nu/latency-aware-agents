@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from latency_bench.data.sf_teacher_rollout import _write_probe_state, merge_probe_states
+from latency_bench.data.sf_teacher_probe import write_probe_state, merge_probe_states
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -39,7 +39,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         split_seed=int(args.split_seed),
     )
     output_dir = Path(args.output_dir).expanduser().resolve()
-    _write_probe_state(output_dir, merged)
+    write_probe_state(output_dir, merged)
     print(f"[merge] {len(args.shard_dir)} shards -> {len(merged['accepted_specs'])} accepted episodes "
           f"written to {output_dir / 'probe_state.json'}")
     return 0

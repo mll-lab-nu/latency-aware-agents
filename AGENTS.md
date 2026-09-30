@@ -39,6 +39,17 @@ Testing guidance:
 - Tests should assert semantic behavior: required fields fail when missing, wrong actions are rejected, malformed specs fail, and no hidden substitute changes meaning.
 - Prefer updating existing tests for the touched behavior instead of adding new tests.
 
+# Repository Scripts
+
+Keep only long-lived tools and experiment code in the main repository.
+One-off monitoring, scheduling, rerun, migration, transfer, and shutdown scripts
+belong in a temporary working directory outside the repository and must be removed
+when the task finishes. Do not archive these scripts or turn them into frameworks.
+Use existing entrypoints with explicit arguments or experiment configuration.
+Delete obsolete script-specific tests, deployment configuration, imports, and
+current documentation references with the script. Experimental data, checkpoints,
+source snapshots, and result reports are artifacts with their own retention rules.
+
 # program Progress Maintenance
 
 `program/PROGRESS.md` is the concise source of truth for HumanoidBench Balance

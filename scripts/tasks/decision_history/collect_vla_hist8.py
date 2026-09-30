@@ -18,7 +18,7 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
-from latency_bench.data.sf_teacher_rollout import _write_probe_state, merge_probe_states
+from latency_bench.data.sf_teacher_probe import write_probe_state, merge_probe_states
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -294,7 +294,7 @@ def main() -> None:
             if train_labels >= 320_000:
                 episode_count = batch_count
                 break
-        _write_probe_state(raw_dir, merge_probe_states(
+        write_probe_state(raw_dir, merge_probe_states(
             states, max_episodes=episode_count, val_fraction=.1, split_seed=0,
         ))
     episodes = initial
@@ -313,7 +313,7 @@ def main() -> None:
         if train_labels >= 320_000:
             break
         episodes += increment
-    _write_probe_state(raw_dir, merged)
+    write_probe_state(raw_dir, merged)
     specs = merged["accepted_specs"]
     subprocess.run(_export_command(
         checkpoint=checkpoint, output_dir=raw_dir, episodes=episodes, horizon=horizon,

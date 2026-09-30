@@ -21,7 +21,7 @@ set -a
 . ./.env
 set +a
 unset WANDB_RUN_ID WANDB_RESUME
-export WANDB_ENTITY=zihanwang-ai-northwestern-university
+export WANDB_ENTITY="${WANDB_ENTITY:?W&B entity}"
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="$ROOT:$ROOT/third_party/starVLA"
 export CUDA_VISIBLE_DEVICES="$DEVICES"
@@ -46,32 +46,14 @@ trap publish_failure ERR
 
 "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.write_conditioned_latency_config \
   --condition "$CONDITION" --output "$STATE/$CONDITION.yaml"
+export TASK_PY UV VLA_PY
+export TEACHER_CHECKPOINT="$TEACHER" DATASET_DIR="$DATA" OUTPUT_DIR="$SFT"
 printf 'collect-teacher-prefix63\n' > "$STATE/phase"
-if [[ ! -f "$DATA/raw/collection.json" ]]; then
-  "$TASK_PY" -m scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 \
-    --condition "$CONDITION" --model shared --latency-config "$STATE/$CONDITION.yaml" \
-    --checkpoint "$TEACHER" --output "$DATA/raw" --train-targets 64288 \
-    --validation-targets 6884 --num-envs 128 > "$STATE/collection.log" 2>&1
-fi
-printf 'package-prefix63\n' > "$STATE/phase"
-if [[ ! -f "$DATA/lerobot/task_contract.json" ]]; then
-  "$UV" run --frozen --project "$ROOT/third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot" python \
-    -m scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset \
-    --raw-root "$DATA/raw" --output-train "$DATA/lerobot" > "$STATE/package.log" 2>&1
-fi
-"$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.audit_conditioned_h8_dataset \
-  --condition "$CONDITION" --raw-root "$DATA/raw" --dataset "$DATA/lerobot" > "$STATE/data-audit.log" 2>&1
+bash scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh \
+  collect qwenoft "$CONDITION" "$RUN_ID" "$DEVICES" "$SFT_PORT" > "$STATE/collection.log" 2>&1
 printf 'sft-5000\n' > "$STATE/phase"
-if [[ ! -f "$SFT/inference/provenance.json" ]]; then
-  RESUME=()
-  if [[ -f "$SFT/run.json" ]]; then RESUME+=(--resume); fi
-  "$VLA_PY" -m scripts.starvla.train_task --task mikasa_conditioned_h8 --model qwenoft \
-    --condition "$CONDITION" --train-only --no-oom-retry --no-gradient-checkpointing \
-    --run-id "$RUN_ID" --output-dir "$SFT" --dataset-dir "$DATA" \
-    --no-publish --vla-python "$VLA_PY" \
-    --num-gpus 2 --micro-batch 64 --port "$SFT_PORT" --task-python "$TASK_PY" \
-    "${RESUME[@]}" > "$STATE/sft.log" 2>&1
-fi
+bash scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh \
+  train qwenoft "$CONDITION" "$RUN_ID" "$DEVICES" "$SFT_PORT" > "$STATE/sft.log" 2>&1
 printf 'publish-sft-endpoint\n' > "$STATE/phase"
 "$VLA_PY" - "$SFT/training/bootstrap" "$PUBLISH_PREFIX" <<'PY'
 from pathlib import Path

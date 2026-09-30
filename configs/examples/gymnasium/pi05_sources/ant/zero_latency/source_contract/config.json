@@ -28,6 +28,7 @@
   "fasttd3_v_max": 250.0,
   "fasttd3_actor_action_l2": 0.0,
   "fasttd3_compile": true,
+  "fasttd3_sonic_decoder_path": null,
   "recurrence": 1,
   "shuffle_minibatches": false,
   "gamma": 0.99,

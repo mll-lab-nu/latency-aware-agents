@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from latency_bench.core.clock import EnvClock
+from latency_bench.core.clock import EnvClock, FRAME_ROUNDING_EPSILON
 from latency_bench.core.types import Action, ActionEvent, OrderingPolicy
 from latency_bench.scheduler.persistence import ActionPersistencePolicy
 
@@ -31,7 +31,7 @@ class ActionScheduler:
         self.persistence_policy = persistence_policy
         self.ordering_policy = OrderingPolicy(ordering_policy)
         self.hold_last_chunk_action = hold_last_chunk_action
-        self.ready_time_epsilon_ms = max(1e-9, self.clock.frame_ms * 1e-9)
+        self.ready_time_epsilon_ms = self.clock.frame_ms * FRAME_ROUNDING_EPSILON
         self._pending_events: list[ActionEvent] = []
         self._applied_events: list[ActionEvent] = []
         self._dropped_events_count = 0

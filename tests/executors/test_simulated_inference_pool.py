@@ -92,8 +92,7 @@ class FakeInferencePool:
                 return True
         return False
 
-    def drain_completed(self, now_ms: float) -> list[RealtimePolicyCompletion]:
-        del now_ms
+    def drain_completed(self) -> list[RealtimePolicyCompletion]:
         completed = []
         for worker_id in sorted(self._busy):
             entry = self._busy[worker_id]
@@ -118,7 +117,7 @@ class FakeInferencePool:
     def drain_until_idle(self) -> dict[str, float | int]:
         self.drain_until_idle_calls += 1
         while self._busy:
-            self.drain_completed(0.0)
+            self.drain_completed()
         return {}
 
     def reset_state(self, slot_id: int | None = None) -> None:

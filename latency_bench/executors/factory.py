@@ -52,6 +52,7 @@ def build_executor(
     env_backend: EnvStepBackend | None = None,
     inference_devices: list[str] | None = None,
 ) -> Executor:
+    """Build an executor; injected environments use config["env"]["env_fps"]."""
     resolve_evaluation_config(config)
     prepare_action_prefix(config)
     executor_cfg = config["executor"]

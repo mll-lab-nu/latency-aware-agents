@@ -140,9 +140,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     args = build_parser().parse_args(argv)
     output_dir = Path(args.output_dir).expanduser().resolve()
-    filter_kwargs = {}
-    if args.demon_episode_threshold is not None:
-        filter_kwargs["demon_episode_threshold"] = float(args.demon_episode_threshold)
     metadata = export_sample_factory_teacher_dataset(
         checkpoint_root=args.checkpoint_root,
         output_dir=output_dir,
@@ -174,7 +171,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         hf_max_shard_size=str(args.hf_max_shard_size),
         hf_config_name=str(args.hf_config_name),
         filter_preset=str(args.filter_preset),
-        filter_kwargs=filter_kwargs or None,
+        demon_episode_threshold=args.demon_episode_threshold,
         episode_return_gt=args.episode_return_gt,
         context_window=int(args.context_window),
         rollout_seed_offset=int(args.rollout_seed_offset),

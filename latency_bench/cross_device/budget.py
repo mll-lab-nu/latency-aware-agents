@@ -114,7 +114,7 @@ def runtime_base(source, worker_python):
     return base, manifest, fps
 
 
-def record_execution_contract(output, stage, config, model):
+def record_execution_contract(output, stage, config):
     """Freeze measurement identity before accepting completed runs on resume."""
     hardware = collect_hardware_fingerprint()
     selected = [gpu for gpu in hardware["gpus"]
@@ -134,7 +134,7 @@ def record_execution_contract(output, stage, config, model):
 
 def measure_real(output, source, model, worker_python, publication):
     base, manifest, fps = runtime_base(source, worker_python)
-    record_execution_contract(output, "real", {"base": base, "env_fps": fps}, model)
+    record_execution_contract(output, "real", {"base": base, "env_fps": fps})
     for run_id in ALL_RUN_IDS:
         path = output / "real" / str(run_id)
         if run_id in REUSED_RUN_IDS:
@@ -152,7 +152,7 @@ def measure_real(output, source, model, worker_python, publication):
                                       env_fps=fps, run_id=run_id)
             study.execute_stage(config, path, manifest["assets"])
         started_at = read_json(timing)["started_at"]
-        write_json_atomic(timing, {"stage": "real", "run_id": run_id, "started_at": started_at,
+        write_json_atomic(timing, {"stage": "real", "model": model, "run_id": run_id, "run_ids": [run_id], "started_at": started_at,
                                    "seconds": (path / "DONE").stat().st_mtime - started_at, "gpu_count": 1})
         publication.publish(f"real/{run_id}", [path, timing])
     (output / "REAL_DONE").touch()
@@ -180,7 +180,9 @@ def fit_profiles(output, source, model, publication, *, partitions):
                                           "validation_session_ids": partition["valid"],
                                           "source": public_source(model)},
                 )
-                write_json(path / "timing.json", {"stage": "fit", "seconds": time.perf_counter() - start,
+                write_json(path / "timing.json", {"stage": "fit", "model": model, "split": split,
+                                                  "fit_runs": count, "run_ids": partition["fit_order"][:count],
+                                                  "seconds": time.perf_counter() - start,
                                                   "gpu_count": 0})
                 (path / "DONE").touch()
             publication.publish(f"profiles/{split}/{count}", [path])
@@ -248,7 +250,7 @@ def simulate(output, source, model, worker_python, publication, parallel_runs, *
     contract = {"base": base, "env_fps": fps, "parallel_runs": parallel_runs}
     if combine_settings:
         contract["combine_settings"] = True
-    record_execution_contract(output, "replay", contract, model)
+    record_execution_contract(output, "replay", contract)
     first_split = next(iter(partitions))
     first_profile = output / "profiles" / first_split / "5/profile.json"
     config = study.run_config(base, output / "runtime", inference_device="cuda:0", simulator_device=None,
@@ -261,13 +263,12 @@ def simulate(output, source, model, worker_python, publication, parallel_runs, *
     study._prepare_replay_runtime(config)
     start = time.perf_counter()
     executor = build_executor(config, inference_devices=["cuda:0"])
-    try:
-        executor.run_warmup()
+    with study._warmed_replay_executor(executor):
         setup_seconds = time.perf_counter() - start
         write_json(output / "runtime/config.json", config)
         setup_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         setup_path = output / "runtime/setups" / f"{setup_stamp}.json"
-        write_json(setup_path, {"stage": "sim_setup", "seconds": setup_seconds,
+        write_json(setup_path, {"stage": "sim_setup", "model": model, "seconds": setup_seconds,
                                                    "gpu_count": 1, "parallel_runs": parallel_runs})
         buffered_jobs = []
         for split, partition in partitions.items():
@@ -301,14 +302,13 @@ def simulate(output, source, model, worker_python, publication, parallel_runs, *
                     start = time.perf_counter()
                     replay_group(executor, replay_config, path, pending, publish_run)
                     write_json(path / "timings" / f"{stamp}.json", {
-                        "stage": "sim", "run_ids": pending, "seconds": time.perf_counter() - start,
+                        "stage": "sim", "model": model, "split": split, "fit_runs": count,
+                        "method": method, "run_ids": pending, "seconds": time.perf_counter() - start,
                         "gpu_count": 1, "parallel_runs": parallel_runs,
                     })
                     publication.publish(f"{path.relative_to(output)}/timing/{stamp}", [path / "timings" / f"{stamp}.json"])
         if buffered_jobs:
             replay_settings(executor, buffered_jobs, output, publication)
-    finally:
-        executor.close()
     (output / "SIM_DONE").touch()
     publication.publish("sim_complete", [output / "SIM_DONE", output / "runtime/setups"])
 
@@ -319,7 +319,7 @@ def verify_parallel(output, source, model, worker_python):
     verification_started = time.perf_counter()
     base, _, fps = runtime_base(source, worker_python)
     base["policy"]["action_noise_seeded"] = model == "qwengr00t"
-    record_execution_contract(output, "replay", {"base": base, "env_fps": fps, "parallel_runs": parallel_runs}, model)
+    record_execution_contract(output, "replay", {"base": base, "env_fps": fps, "parallel_runs": parallel_runs})
     if (output / "PARALLEL_VERIFIED").exists():
         return
     profile = source / "profile/profile.json"
@@ -338,8 +338,7 @@ def verify_parallel(output, source, model, worker_python):
         config["logging"]["simulated_pipeline_profile"] = False
         study._prepare_replay_runtime(config)
         executor = build_executor(config, inference_devices=["cuda:0"])
-        try:
-            executor.run_warmup()
+        with study._warmed_replay_executor(executor):
             for method in study.METHODS:
                 replay_config = study.run_config(base, output, inference_device="cuda:0", simulator_device=None,
                                                  env_fps=fps, run_id=0, method=method,
@@ -349,8 +348,6 @@ def verify_parallel(output, source, model, worker_python):
                 pending = [run_id for run_id in run_ids if not (path / "runs" / str(run_id) / "DONE").exists()]
                 if pending:
                     replay_group(executor, replay_config, path, pending, lambda run_id, path: None)
-        finally:
-            executor.close()
     rows = []
     for method in study.METHODS:
         for run_id in run_ids:
@@ -372,7 +369,7 @@ def verify_parallel(output, source, model, worker_python):
                                                       "parallel_runs": [1, parallel_runs], "runs": rows})
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     write_json(output / "verification/timings" / f"{stamp}.json", {
-        "stage": "verify", "seconds": time.perf_counter() - verification_started, "gpu_count": 1,
+        "stage": "verify", "model": model, "seconds": time.perf_counter() - verification_started, "gpu_count": 1,
     })
     if not passed:
         raise RuntimeError(f"Serial/batched replay mismatch: {output / 'verification/result.json'}")

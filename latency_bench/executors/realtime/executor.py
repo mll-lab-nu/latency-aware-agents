@@ -263,7 +263,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     else:
                         observation_pool.release(obs_id)
                         break
-                completions = pool.drain_completed(monotonic_ms())
+                completions = pool.drain_completed()
                 for completion in completions:
                     observation_pool.release(completion.task.shared_obs_id)
                     latency_records.append(completion.latency_record)
@@ -742,7 +742,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         release_observation: Callable[[int | None], None],
     ) -> None:
         while pool.in_flight_count:
-            for completion in pool.drain_completed(self._wall_elapsed_ms()):
+            for completion in pool.drain_completed():
                 release_observation(completion.task.shared_obs_id)
             if pool.in_flight_count:
                 self.sleep_fn(0.001)
@@ -755,7 +755,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         release_observation: Callable[[int | None], None] | None,
     ) -> None:
         while pool.in_flight_count:
-            for completion in pool.drain_completed(self._wall_elapsed_ms()):
+            for completion in pool.drain_completed():
                 self._record_observation_completion(
                     completion=completion,
                     observation_attempts=observation_attempts,
@@ -778,7 +778,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         release_observation: Callable[[int | None], None] | None,
     ) -> list[ActionEvent]:
         released_events: list[ActionEvent] = []
-        for completion in pool.drain_completed(now_ms):
+        for completion in pool.drain_completed():
             self._record_observation_completion(
                 completion=completion,
                 observation_attempts=observation_attempts,

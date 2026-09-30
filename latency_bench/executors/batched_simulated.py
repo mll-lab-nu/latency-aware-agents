@@ -24,8 +24,8 @@ from latency_bench.executors.env_step_backend import EnvStepBackend, env_action_
 from latency_bench.latency.sample import LatencySample
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
-    compute_episode_metrics,
-    compute_episode_metrics_from_aggregates,
+    EpisodeMetricAccumulator,
+    active_action_step_info,
     episode_raw_fact_metadata,
     latency_type_from_source,
     profile_metadata_from_source,
@@ -41,54 +41,27 @@ from latency_bench.utils.stats import series_stats
 
 
 @dataclass
-class _EpisodeBuffers:
+class _EpisodeBuffers(EpisodeMetricAccumulator):
     step_records: list[StepRecord] | None = None
     action_events: list[ActionEvent] | None = None
     latency_records: list[LatencyRecord] | None = None
     latency_values_ms: list[float] = field(default_factory=list)
-    episode_return_env: float = 0.0
-    survival_steps: int = 0
-    game_score: float | None = None
-    return_raw: float | None = None
     num_actions: int = 0
     num_dropped_actions: int = 0
-    num_invalid_actions: int = 0
     submitted_observation_frames: int = 0
     dropped_observation_count: int = 0
     soft_reset_count: int = 0
     final_lives: int | None = None
     final_is_true_episode_end: bool | None = None
-    task_metrics: dict | None = None
-    task_metric_moments: dict | None = None
 
     def record_step(self, *, reward: float, info: dict) -> None:
-        self.episode_return_env += float(reward)
-        self.survival_steps += 1
-        if "invalid_action" in info and info["invalid_action"]:
-            self.num_invalid_actions += 1
+        self.update(reward, info)
         if "soft_reset" in info and info["soft_reset"]:
             self.soft_reset_count += 1
         if "lives" in info:
             self.final_lives = info["lives"]
         if TRUE_EPISODE_END_INFO_KEY in info:
             self.final_is_true_episode_end = info[TRUE_EPISODE_END_INFO_KEY]
-        if "game_score" in info:
-            self.game_score = float(info["game_score"])
-        if "score" in info:
-            self.game_score = float(info["score"])
-        if "task_metrics" in info:
-            self.task_metrics = info["task_metrics"]
-        if "task_metric_moments" in info:
-            self.task_metric_moments = info["task_metric_moments"]
-        self._update_return_raw(info)
-        extra_stats = info["episode_extra_stats"] if "episode_extra_stats" in info else None
-        if isinstance(extra_stats, dict):
-            self._update_return_raw(extra_stats)
-
-    def _update_return_raw(self, stats: dict) -> None:
-        for key in ("return_raw", "raw_return", "episodic_raw_return", "episode/raw_return"):
-            if key in stats and stats[key] is not None:
-                self.return_raw = float(stats[key])
 
 
 @dataclass
@@ -383,7 +356,15 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                     slot.buffers.step_records.append(record)
                     slot.buffers.record_step(reward=float(result.reward), info=record.info)
                 else:
-                    slot.buffers.record_step(reward=float(result.reward), info=result.info)
+                    info = result.info
+                    event = slot.action_scheduler.latest_applied_event
+                    if event is not None and event.action_chunk is not None:
+                        info = info | active_action_step_info(
+                            active_event=event, scheduled_time_ms=current_time_ms,
+                            frame_ms=self.clock.frame_ms,
+                            latency_type=latency_type_from_source(slot.latency_source),
+                        )
+                    slot.buffers.record_step(reward=float(result.reward), info=info)
                 if self.simulated_worker_capacity is not None and slot.buffers.step_records is not None:
                     slot.buffers.step_records[-1].info.update(
                         {
@@ -697,33 +678,15 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         buffers: _EpisodeBuffers,
         metadata: dict,
     ) -> EpisodeMetrics:
-        if buffers.task_metrics is not None:
-            metadata["task_metrics"] = buffers.task_metrics
-        if buffers.task_metric_moments is not None:
-            metadata["task_metric_moments"] = buffers.task_metric_moments
         if buffers.final_lives is not None:
             metadata["final_lives"] = buffers.final_lives
         if buffers.final_is_true_episode_end is not None:
             metadata["final_is_true_episode_end"] = buffers.final_is_true_episode_end
             metadata["soft_reset_count"] = buffers.soft_reset_count
-        if buffers.step_records is not None and buffers.action_events is not None:
-            return compute_episode_metrics(
-                episode_id=episode_id,
-                step_records=buffers.step_records,
-                action_events=buffers.action_events,
-                latency_values_ms=buffers.latency_values_ms,
-                metadata=metadata,
-                frame_ms=self.clock.frame_ms,
-            )
-        return compute_episode_metrics_from_aggregates(
+        return buffers.compute(
             episode_id=episode_id,
-            episode_return_env=buffers.episode_return_env,
-            survival_steps=buffers.survival_steps,
-            return_raw=buffers.return_raw,
-            game_score=buffers.game_score,
             latency_values_ms=buffers.latency_values_ms,
             num_actions=buffers.num_actions,
             num_dropped_actions=buffers.num_dropped_actions,
-            num_invalid_actions=buffers.num_invalid_actions,
             metadata=metadata,
         )

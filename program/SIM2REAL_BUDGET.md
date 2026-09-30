@@ -4,9 +4,7 @@ This pilot measures how OFT and GR00T return calibration changes with the number
 of independent fitting sessions. Real collection runs on the profiling dual
 RTX 3090 in `servers.md`. Formal simulation runs on a different host;
 the profiling instance stops after collection, profile fitting and verified backup.
-The code entry is
-`latency_bench.cross_device.budget`; orchestration is
-`scripts/experiments/sim2real/run_budget.sh`.
+The code entry is `latency_bench.cross_device.budget`.
 
 ## Frozen protocol
 
@@ -95,68 +93,25 @@ OOM propagates; it never silently lowers parallelism.
 
 ## Execution and recovery
 
-`scripts/experiments/sim2real/retire.supervisor.conf` runs the independent
-retirement controller. It waits for both collectors to exit, all 110 complete
-real runs and all 24 fitted profiles, then republishes and verifies their HF
-file hashes at an immutable revision. Remaining campaign artifacts and deployed
-code are encrypted, decrypted and hash-checked, uploaded, and checked again.
-Only then does it request Vast instance **53202076** stop (not destroy).
-Integrity/authentication failures leave the instance running with an error;
-transport failures are logged and retried. Formal sim is deployed on the independent host; current verification and execution state is recorded in the campaign log.
-
-Retirement artifacts are under the campaign's HF `retirement/` prefix. The
-decryption key is retained locally at
-`outputs/sim2real_budget_20260929/retirement/private_backup.key` (mode 0600),
-outside the uploaded archive. Preserve this key for restoring runtime configs:
+Run from the repository root. Invoke the selected model and stage explicitly:
 
 ```bash
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 \
-  -pass file:private_backup.key -in supplemental.tar.gz.enc -out supplemental.tar.gz
+python -m latency_bench.cross_device.budget --stage verify --model qwenoft \
+  --root /path/to/campaign --worker-python /path/to/model/python --gpu-uuid GPU_UUID
+python -m latency_bench.cross_device.budget --stage real --model qwenoft \
+  --root /path/to/campaign --worker-python /path/to/model/python --gpu-uuid GPU_UUID
+python -m latency_bench.cross_device.budget --stage fit --model qwenoft \
+  --root /path/to/campaign --gpu-uuid GPU_UUID
+python -m latency_bench.cross_device.budget --stage sim --model qwenoft \
+  --root /path/to/campaign --worker-python /path/to/model/python --gpu-uuid GPU_UUID
 ```
 
-The remote controller log is
-`/workspace/sim2real-budget-retirement/controller.log`; `status.json` records its
-latest phase. A public `shutdown_ready.json` proves upload verification and
-readiness, not confirmation that the provider has finished stopping.
-
-Use the original `/venv/sim2real/bin/python` environment. The deployed code is a
-separate snapshot so other experiments' code is not overwritten. Run on the
-profiling host:
-
-```bash
-bash /workspace/sim2real-budget-code/scripts/experiments/sim2real/run_budget.sh \
-  /workspace/sim2real-budget-20260929 /venv/sim2real/bin/python
-```
-
-The checked-in `scripts/experiments/sim2real/budget.supervisor.conf` runs this
-command independently of SSH. Install it into `/etc/supervisor/conf.d/`, then
-use `supervisorctl reread`, `supervisorctl update`, and
-`supervisorctl start sim2real-budget`. It does not restart failed experiments.
-
-The root must keep the same campaign name and protocol when resuming. Per-stage,
-per-model logs are under `logs/`. Errors stop the stage pipeline after collecting
-both child statuses; they are not automatically retried. The process supervisor
-is configured with restart disabled. Do not launch a second copy against the same
-output directory. Stop the managed process group before an explicit resume.
-If the local campaign directory is lost, restore the campaign's published files
-from HF before resuming under the same name; an empty directory is a new
-collection, not recovery of already-published runs. Keep local execution contracts
-with the private backup. Original source runs 0–9 remain recoverable from their
-separate immutable source revisions.
-
-Individual stages can also be invoked for diagnosis:
-
-```bash
-PYTHONPATH=/workspace/sim2real-budget-code /venv/sim2real/bin/python \
-  -m latency_bench.cross_device.budget --stage sim --model qwenoft \
-  --root /workspace/sim2real-budget-20260929 --gpu-uuid GPU_UUID
-```
-
-Both models' `REAL_DONE` files are required for sim. `PARALLEL_VERIFIED`,
-`REAL_DONE`, `SIM_DONE`, and `REPORT_DONE` describe separate states. The `uploads/`
-receipts record delivery at immutable HF revisions. A source directory can be
-prepopulated from the original verified local experiment; otherwise preparation
-downloads its pinned HF artifacts.
+Run the same stages for `qwengr00t` with its allocated device. Both models must
+finish real acquisition before simulation. Reuse the same campaign root and
+frozen protocol to resume; restore published artifacts before resuming a lost
+local directory. Each stage uses its completion marker and exact publication
+revision. `PARALLEL_VERIFIED`, `REAL_DONE`, `SIM_DONE`, and `REPORT_DONE` are
+separate states. Incomplete runs are replayed; completed runs are reused.
 
 ## Analysis and interpretation
 
@@ -214,3 +169,19 @@ GPU 2/3 use ten run slots per model, combining settings to fill all ten slots.
 The updated second figure shows four method means across five splits with
 ± one sample SD; OFT/GR00T retain equal weight within each split.
 See [the frozen draw list and execution record](logs/sim2real-budget-random5-20260930.md).
+
+## Timing 记录与历史迁移
+
+单 setting 成本记录在 timing JSON 中写明 model、stage 及该阶段的 run_ids、split、
+fit_runs、method。成本报告读取这些字段，文件路径仅作为来源位置记录。
+旧 campaign 先显式转换到新的 timing 目录，原记录保持原样：
+
+```bash
+python -m latency_bench.cross_device.budget_report --root /path/to/campaign \
+  --migrate-timings-to /path/to/migrated-timings
+python -m latency_bench.cross_device.budget_report --root /path/to/campaign \
+  --timing-root /path/to/migrated-timings --defer-uploads
+```
+
+迁移适用现有单 setting 的 real/fit/sim、setup 和 verification timing 布局。
+成本定义继续区分新采集成本、原始 prefix 等价成本与逐预算累计 replay 成本。

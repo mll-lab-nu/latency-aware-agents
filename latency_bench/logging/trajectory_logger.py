@@ -15,7 +15,6 @@ _OUTPUT_FILENAMES = (
     "realtime_pipeline_profile.jsonl",
     "realtime_pipeline_summary.json",
     "latencies.jsonl",
-    "infer_latencies.jsonl",
     "episode_metrics.jsonl",
 )
 
@@ -107,5 +106,4 @@ class TrajectoryLogger:
             self.action_records = []
         if self.save_latency_records:
             append_jsonl(self.output_dir / "latencies.jsonl", self.latency_records)
-            append_jsonl(self.output_dir / "infer_latencies.jsonl", self.latency_records)
             self.latency_records = []

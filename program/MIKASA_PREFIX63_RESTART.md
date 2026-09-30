@@ -39,36 +39,17 @@ DAgger结束并完成终评后发布最终恢复状态、选中的best模型及�
 `latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/fixedN-prefix63-restart-20260925`。
 训练数据、checkpoint、原始日志和图都在服务器；不向用户笔记本下载实验产物。
 
-## 2026-09-25 部署入口
+## 运行
 
-W&B 使用用户指定项目 `zihanwang-ai-northwestern-university/starvla_tasks`；
-SFT 显式设置 entity，DAgger 继承 SFT 的 entity/project。原 `saberrr-zju/starvla_tasks`
-返回403，已验证新项目能创建并同步run。L1/L2无已完成optimizer更新，保留数据并归档
-失败启动目录后重启；L3/L4当前数据子进程完成后切换新控制器，不丢弃正在处理的数据。
-
-主机 `34.131.223.74`，独立源码 `/home/ubuntu/codex/mikasa-prefix63-restart-20260925`。
-四路物理卡分别为L1=0,1、L2=2,3、L3=4,5、L4=6,7；模拟/独立推理使用各自逻辑0/1。
+从仓库根目录执行，为每路实验指定 run ID、设备与端口；模型解释器和 W&B
+entity 由调用方提供。数据和训练输出按 run ID 保存在 `outputs/starvla/` 下。
 
 ```bash
-VLA_PY=/home/ubuntu/miniconda3/envs/starvla_rl_games_openvla/bin/python \
-UV=/home/ubuntu/.local/bin/uv \
+export VLA_PY=/path/to/model/python UV=/path/to/uv WANDB_ENTITY=your-entity
 bash scripts/tasks/mikasa_intercept_grab_fast/run_fixed_prefix63.sh \
-  fixed-2 fixed2-prefix63-restart-20260925 2,3 29704 29705
+  fixed-2 RUN_ID 0,1 29704 29705
 ```
 
-服务器上 `outputs/tasks/mikasa_intercept_grab_fast/restart-20260925/launch.json` 保存四路命令，
-各run目录的`phase`及`controller.log`提供实时状态。L1/L2改用新W&B项目后已确认完成optimizer更新；
-L3/L4保留当前数据处理，完成后自动换用新控制器。训练与终评尚未完成。
-远端CPU回归152项通过；原三路trainer失败的具体异常因日志丢失、W&B读取被403拒绝仍未确认。
-
-## 五档恢复与时间估计（9月25日16:25）
-
-已按用户最新指令恢复五档periodic。L1/L2在首轮准备阶段切换controller，复用已完成的
-matched评测和采集结果，补齐其余档；尚未进入DAgger的任务直接采用新代码。
-完成且已核验的SFT publication receipt复用，避免控制器重入时重复上传。
-
-预计从16:25起，四路全部完成训练、终评及发布还需8–10小时，主要等待L4；
-目标9月26日00:30–02:30，保守排期至03:00。该估计不是完成承诺。
-依据：历史L2从DAgger启动到终评完成5h52m；首轮采集/打包L2约5.35m，
-L1约6.24m、L3约8.19m、L4约17.46m。当前每500更新约13–16m，
-五档resident评测约8–10m/边界。模型质量、CPU并发和上传影响实际耗时。
+共同的采集、打包、数据审计和 SFT 阶段复用 `run_conditioned_h8.sh`。
+DAgger 按本页的固定预算和五档评测协议接续；成功发布记录直接复用确切版本。
+当前结果及完成状态见 [PROGRESS](PROGRESS.md)，过程证据见本页开头的记录链接。

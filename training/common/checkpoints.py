@@ -19,6 +19,8 @@ _EVAL_LEASE_DIR = ".latency_bench_eval_leases"
 _EVAL_RETENTION_DIR = ".latency_bench_eval_checkpoints"
 
 
+# Native checkpoint files and RNG state.
+
 def atomic_torch_save(payload: Any, path: str | os.PathLike[str]) -> None:
     """Replace a single-writer checkpoint only after serialization succeeds."""
     path = Path(path)
@@ -120,12 +122,11 @@ class CheckpointEvalLease:
     marker_path: Path
 
 
+# Sample Factory loading and learner integration.
+
 def trusted_torch_load(path: str | os.PathLike[str], device: torch.device | str) -> dict[str, Any]:
     load_path = str(Path(path).expanduser())
-    try:
-        return torch.load(load_path, map_location=device, weights_only=False)
-    except TypeError:
-        return torch.load(load_path, map_location=device)
+    return torch.load(load_path, map_location=device, weights_only=False)
 
 
 def init_learner_process_with_checkpoint_io_patch(sf_context: Any, learner_worker: Any):
@@ -145,21 +146,20 @@ def patch_sample_factory_checkpoint_loader() -> None:
     if not _SAMPLE_FACTORY_CHECKPOINT_LOADER_PATCHED:
 
         def load_checkpoint(checkpoints, device):
-            if len(checkpoints) <= 0:
-                sf_learner.log.warning("No checkpoints found")
-                return None
+            return load_sample_factory_checkpoint_from_paths(checkpoints, device)[0]
 
-            latest_checkpoint = checkpoints[-1]
-            num_attempts = 3
-            for attempt in range(num_attempts):
-                try:
-                    sf_learner.log.warning("Loading state from checkpoint %s...", latest_checkpoint)
-                    return trusted_torch_load(latest_checkpoint, device)
-                except Exception:
-                    sf_learner.log.exception(f"Could not load from checkpoint, attempt {attempt}")
-            return None
+        def load_from_checkpoint(self, policy_id, load_progress=True):
+            # Fresh initialization is selected by the training entrypoint.
+            # Later PBT replacement loads still require a checkpoint.
+            if not self.is_initialized and self.cfg.restart_behavior != "resume":
+                return
+            prefix = {"latest": "checkpoint", "best": "best"}[self.cfg.load_checkpoint_kind]
+            paths = self.get_checkpoints(self.checkpoint_dir(self.cfg, policy_id), f"{prefix}_*")
+            checkpoint = self.load_checkpoint(paths, self.device)
+            self._load_state(checkpoint, load_progress=load_progress)
 
         sf_learner.Learner.load_checkpoint = staticmethod(load_checkpoint)
+        sf_learner.Learner.load_from_checkpoint = load_from_checkpoint
         _SAMPLE_FACTORY_CHECKPOINT_LOADER_PATCHED = True
 
     if not _SAMPLE_FACTORY_CHECKPOINT_RETENTION_PATCHED:
@@ -203,19 +203,14 @@ def load_sample_factory_checkpoint_from_paths(
     checkpoints: list[str] | list[Path],
     device: torch.device,
 ) -> tuple[dict[str, Any], Path]:
+    """Load the selected checkpoint; failure never changes the selected training step."""
     if not checkpoints:
-        raise RuntimeError("No checkpoints found to load")
-    last_error: Exception | None = None
-    for checkpoint_path in reversed([Path(item).expanduser().resolve() for item in checkpoints]):
-        try:
-            return trusted_torch_load(checkpoint_path, device), checkpoint_path
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            continue
-    if last_error is not None:
-        raise RuntimeError("Could not load checkpoint") from last_error
-    raise RuntimeError("Could not load checkpoint")
+        raise FileNotFoundError("No checkpoints found to load")
+    path = Path(checkpoints[-1]).expanduser().resolve()
+    return trusted_torch_load(path, device), path
 
+
+# Evaluation leases and pruning share the checkpoint retention boundary.
 
 def acquire_checkpoint_eval_lease(
     checkpoint_path: str | Path,

@@ -227,10 +227,7 @@ frozen profile are retained; incomplete runs restart at their beginning. Upload
 completion is independent of computation completion, so failed uploads do not
 consume another GPU run.
 
-## Historical figures
+## Working directory
 
-`build_figures.sh` belongs to the retired OpenVLA/Flappy paper experiment and is
-not called by this runner. Its old path predates the paper reorganization.
-Current frozen Figure 4 sources live under
-`paper/figures/fig4_sim2real_calibration/source/`; use that experiment's README
-when reproducing historical figures.
+Run direct Python commands from the repository root. `scripts/profile.sh` sets
+that working directory before invoking the profiling CLI.

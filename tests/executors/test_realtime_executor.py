@@ -71,6 +71,7 @@ class ScriptedInferencePool:
         self.closed = False
         self._busy_worker_ids: set[int] = set()
         self._pending: list[tuple[RealtimeObservationTask, CompletionScript]] = []
+        self.episode_start_s = 0.0
 
     @property
     def in_flight_count(self) -> int:
@@ -85,6 +86,7 @@ class ScriptedInferencePool:
         return self.num_workers
 
     def drain_until_idle(self) -> dict[str, float | int]:
+        self.episode_start_s = self.time_fn()
         self.submitted.clear()
         self._busy_worker_ids.clear()
         self._pending.clear()
@@ -114,11 +116,11 @@ class ScriptedInferencePool:
         self._pending.append((task, script))
         return True
 
-    def drain_completed(self, now_ms: float) -> list[RealtimePolicyCompletion]:
+    def drain_completed(self) -> list[RealtimePolicyCompletion]:
         ready: list[RealtimePolicyCompletion] = []
         still_pending: list[tuple[RealtimeObservationTask, CompletionScript]] = []
         for task, script in self._pending:
-            if script.ready_time_ms <= now_ms:
+            if script.ready_time_ms <= (self.time_fn() - self.episode_start_s) * 1000.0:
                 self._busy_worker_ids.remove(script.worker_id)
                 if script.profile is not None and task.profile is not None:
                     task.profile.merge_measured(script.profile)
@@ -492,7 +494,7 @@ class LateCompletionAfterFinalizePool:
         self.submitted.append(task)
         return True
 
-    def drain_completed(self, now_ms: float) -> list[RealtimePolicyCompletion]:
+    def drain_completed(self) -> list[RealtimePolicyCompletion]:
         self.drain_calls += 1
         if self.drain_calls < 3:
             return []
@@ -502,7 +504,7 @@ class LateCompletionAfterFinalizePool:
             RealtimePolicyCompletion(
                 task=task,
                 policy_output=PolicyOutput(action=Action("late")),
-                completion_time_ms=now_ms,
+                completion_time_ms=self.time_fn() * 1000.0,
                 latency_record=LatencyRecord(obs_id=task.obs_id, latency_ms=1.0),
                 observation_to_action_latency_ms=1.0,
                 worker_service_time_ms=1.0,
@@ -688,6 +690,7 @@ def _executor(
         action_scheduler=action_scheduler,
         clock=clock,
     )
+    pool.time_fn = fake_clock.time
     return RealtimeLatencyExecutor(
         runtime=runtime,
         logger=logger,

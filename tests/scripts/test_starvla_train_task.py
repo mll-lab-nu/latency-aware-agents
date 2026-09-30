@@ -192,11 +192,18 @@ def test_resume_rejects_a_different_training_latency(tmp_path):
         'task': 'mikasa_conditioned_h8', 'model': 'qwenoft',
         'run_id': 'fixed-run', 'condition': 'fixed-1',
     })
+    (tmp_path / 'inference').mkdir()
+    (tmp_path / 'inference/provenance.json').write_text('{}')
     with pytest.raises(ValueError, match='condition'):
         train_task.main([
             '--task', 'mikasa_conditioned_h8', '--model', 'qwenoft', '--condition', 'fixed-3',
-            '--run-id', 'fixed-run', '--output-dir', str(tmp_path), '--resume',
+            '--run-id', 'fixed-run', '--output-dir', str(tmp_path), '--resume', '--train-only',
         ])
+
+    train_task.main([
+        '--task', 'mikasa_conditioned_h8', '--model', 'qwenoft', '--condition', 'fixed-1',
+        '--run-id', 'fixed-run', '--output-dir', str(tmp_path), '--resume', '--train-only',
+    ])
 
 
 def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path, monkeypatch):

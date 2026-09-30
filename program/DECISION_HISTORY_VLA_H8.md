@@ -63,10 +63,6 @@ CUDA_VISIBLE_DEVICES=0 conda run -n latency python -m scripts.tasks.decision_his
 
 在空闲双卡 slot 运行训练；四个位置参数依次为游戏、模型、GPU 对和分布式端口：
 
-```bash
-bash scripts/tasks/decision_history/launch_vla_hist8_train.sh flappy qwenoft 0,1 29740 \
-  --run-id flappy-qwenoft-hist8-scratch-s42-v2 --vlm-lr 3e-6
-```
 
 同一命令最后加 `--resume`，从最近完整的 optimizer/scheduler state 继续，不重新
 warmup。`--stop-after-steps 1000` 只设置暂停点，不缩短 5,000 步 scheduler。
@@ -91,8 +87,6 @@ PI 已完成 Demon 学习率选择，三游戏采用 `3e-6`，不再创建配对
 其配置与 checkpoint 已更新；学习率选优审计使用候选快照，不重新执行已完成的选优。
 学习率选择不代表正式环境性能已验收。
 
-`make_hist8_v2_queue.py` 根据已核验旧资产目录生成各主机任务图；
-`run_hist8_v2.py run --manifest <queue/manifest.json>` 持续调度空闲 GPU。
 训练按 Demon、Flappy、Deadly 优先级入队，训练优先保留双卡 slot。常规评测也按
 双卡任务占用和释放，32 个并行环境由两张卡分担推理；不会从一对空卡中拿一张
 做长评测而使另一张无法训练。第一台 H200 的单独余卡 7 可做采集/32 并行单卡评测；
@@ -106,15 +100,12 @@ H100 空闲时也可承接其他主机尚未启动的 zero 条件评测；迁移
 本机 `codex-hist8-v2-monitor.service` 每 1,200 秒（20 分钟）查询三台队列。任务失败、
 进程退出、30 分钟无日志、数据转换或正式评测完成时，使用 `codex queue`
 唤醒当前任务 `01a0ce66-e6e7-72d2-be90-4c33d8055a4e`；相同事件去重，状态未变时
-不发消息。监控脚本为 `monitor_hist8_v2.py`，回执在本地
 `outputs/tasks/decision_history_vla_hist8_v2/monitor/`；全部队列完成后监控退出。
 
 每条训练完成后封装本地 bundle，包含权重、训练配置、统计、质量报告、manifest、
 collection provenance、实际 training step、W&B run ID、checkpoint SHA 和评测协议
 `hist8-history01-par32-v3`。仅需要迁机时执行
-`bash scripts/tasks/decision_history/transfer_vla_hist8_bundle.sh <task> <model> <run-id>`，
 比较源和目标 SHA256。评测入口为
-`launch_vla_hist8_eval.sh <task> <model> <gpu> <run-id>`。
 
 新版每个游戏/架构各做 zero→zero、zero→profile、profile→profile 三组评测，共
 **27 组 × 100 局**，共同 seeds `1,000,000–1,000,099`、`capacity=1`、parallel 32。

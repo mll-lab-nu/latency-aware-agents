@@ -18,18 +18,16 @@ from latency_bench.data.filters import (
     FILTER_PRESET_CLEAN_V1,
     accepts_episode,
     accepts_episode_contract,
-    demon_raw_score_bin_counts,
     filter_train_rows,
 )
 from latency_bench.data.hf_parquet import (
     completed_episode_indices_from_shards,
-    episode_row_split_stats,
     write_episode_row_shard,
 )
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_episode_image_frames
 from latency_bench.data.rollout_image_io import RolloutImageWriter, frame_from_env_raw_rgb_info, frames_from_env_raw_rgb_info
-from latency_bench.data.rollout_schema import SCHEMA_VERSION
 from latency_bench.data.sf_teacher_rows import teacher_dataset_row
+from latency_bench.data import sf_teacher_probe as probe
 from latency_bench.data.sf_teacher_drivers import (
     BatchedTeacherRolloutDriver,
     RolloutStepResult,
@@ -72,36 +70,6 @@ def _g1_issued_absolute_request(
     if control_mode == "raw_body_target":
         return native.g1_absolute_request_from_raw_action(action)
     return action.copy()
-
-
-def _build_episode_plan(
-    *,
-    max_episodes: int,
-    val_fraction: float,
-    split_seed: int,
-    base_seed: int,
-) -> list[dict[str, Any]]:
-    """Create deterministic episode split and reset seed specs.
-
-    Args:
-        max_episodes: Number of episodes to collect.
-        val_fraction: Fraction assigned to validation.
-        split_seed: RNG seed for split assignment.
-        base_seed: First environment reset seed.
-
-    Returns:
-        Episode specs with index, split, and reset seed.
-    """
-    val_count = int(round(int(max_episodes) * float(val_fraction)))
-    val_indices = set(np.random.default_rng(int(split_seed)).choice(int(max_episodes), size=val_count, replace=False).tolist())
-    return [
-        {
-            "episode_idx": idx,
-            "split": "val" if idx in val_indices else "train",
-            "seed": int(base_seed) + idx,
-        }
-        for idx in range(int(max_episodes))
-    ]
 
 
 def _attempt_episode_spec(*, attempt_idx: int, base_seed: int) -> dict[str, Any]:
@@ -162,193 +130,6 @@ def _finalize_attempt_rows(
         finalized["image"] = str(final_dir / f"decision_step_{int(row['decision_step']):06d}.png")
         finalized_rows.append(finalized)
     return finalized_rows
-
-
-def _probe_state_path(output_dir: Path) -> Path:
-    """Build the state path used to resume probe/replay rollout.
-
-    Args:
-        output_dir: Rollout export directory.
-
-    Returns:
-        Path to the probe state JSON file.
-    """
-    return output_dir / "probe_state.json"
-
-
-def _new_probe_state() -> dict[str, Any]:
-    """Create probe state for a fresh export.
-
-    Returns:
-        Mutable state persisted after each completed rollout attempt.
-    """
-    return {
-        "next_attempt_idx": 0,
-        "attempted_episodes": 0,
-        "rejected_episodes": 0,
-        "accepted_specs": [],
-    }
-
-
-def _load_probe_state(
-    output_dir: Path,
-    *,
-    completed_episode_indices: set[int],
-) -> dict[str, Any]:
-    """Load or initialize probe resume state.
-
-    Args:
-        output_dir: Rollout export directory.
-        completed_episode_indices: Accepted episode shards already on disk.
-
-    Returns:
-        Probe state with attempt counters and accepted specs.
-    """
-    state_path = _probe_state_path(output_dir)
-    if state_path.exists():
-        return json.loads(state_path.read_text(encoding="utf-8"))
-    if completed_episode_indices:
-        raise FileNotFoundError(state_path)
-    return _new_probe_state()
-
-
-def _write_probe_state(output_dir: Path, state: Mapping[str, Any]) -> None:
-    """Atomically persist probe resume state.
-
-    Args:
-        output_dir: Rollout export directory.
-        state: JSON-serializable probe state.
-    """
-    output_dir.mkdir(parents=True, exist_ok=True)
-    state_path = _probe_state_path(output_dir)
-    tmp_path = state_path.with_name(f"{state_path.name}.tmp")
-    tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp_path.replace(state_path)
-
-
-def merge_probe_states(
-    shard_states: Sequence[Mapping[str, Any]],
-    *,
-    max_episodes: int,
-    val_fraction: float,
-    split_seed: int,
-) -> dict[str, Any]:
-    """Merge sharded probe states into one resume state for single-process replay.
-
-    Each shard explored a disjoint reset-seed range (see ``rollout_seed_offset``) and
-    persisted its own accepted specs. The merged state takes the first ``max_episodes``
-    accepted specs in deterministic shard order, dedupes by reset seed, and reassigns
-    contiguous ``episode_idx`` plus train/val split via the same plan the single-process
-    probe uses (``_build_episode_plan``) — so the downstream replay path is identical to a
-    normal resume. Each spec keeps its original reset seed so replay reproduces the episode.
-
-    Args:
-        shard_states: Probe states (parsed ``probe_state.json``) from each shard, in the
-            shard order that defines the deterministic merge order.
-        max_episodes: Number of episodes the merged dataset must contain.
-        val_fraction: Fraction assigned to validation (same plan as the probe).
-        split_seed: RNG seed for split assignment (same plan as the probe).
-
-    Returns:
-        A merged probe state with exactly ``max_episodes`` accepted specs, ready to write
-        to the final ``output_dir`` so ``collect_teacher_dataset`` skips probing and replays.
-    """
-    merged_specs: list[dict[str, Any]] = []
-    seen_seeds: set[int] = set()
-    for state in shard_states:
-        for spec in state.get("accepted_specs", []):
-            seed = int(spec["seed"])
-            if seed in seen_seeds:
-                continue
-            seen_seeds.add(seed)
-            merged_specs.append(dict(spec))
-
-    if len(merged_specs) < int(max_episodes):
-        raise ValueError(
-            f"sharded probe collected {len(merged_specs)} accepted episodes, "
-            f"fewer than max_episodes={int(max_episodes)}; increase per-shard quota."
-        )
-
-    final_splits = {
-        int(plan_spec["episode_idx"]): str(plan_spec["split"])
-        for plan_spec in _build_episode_plan(
-            max_episodes=int(max_episodes),
-            val_fraction=float(val_fraction),
-            split_seed=int(split_seed),
-            base_seed=0,
-        )
-    }
-
-    accepted_specs: list[dict[str, Any]] = []
-    for episode_idx, spec in enumerate(merged_specs[: int(max_episodes)]):
-        finalized = dict(spec)
-        finalized["episode_idx"] = int(episode_idx)
-        finalized["split"] = final_splits[int(episode_idx)]
-        accepted_specs.append(finalized)
-
-    merged = _new_probe_state()
-    merged["accepted_specs"] = accepted_specs
-    merged["attempted_episodes"] = sum(int(s.get("attempted_episodes", 0)) for s in shard_states)
-    merged["rejected_episodes"] = sum(int(s.get("rejected_episodes", 0)) for s in shard_states)
-    merged["next_attempt_idx"] = sum(int(s.get("next_attempt_idx", 0)) for s in shard_states)
-    for state in shard_states:
-        if "runtime_metadata" in state:
-            merged["runtime_metadata"] = dict(state["runtime_metadata"])
-            break
-    return merged
-
-
-def _filter_report_from_probe_state(
-    output_dir: Path,
-    probe_state: Mapping[str, Any],
-    *,
-    env_name: str,
-    episode_return_field: str,
-    filter_preset: str = FILTER_PRESET_CLEAN_V1,
-    episode_return_gt: float | None = None,
-    episode_acceptance: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build final filter report from probe state and written row shards.
-
-    Args:
-        output_dir: Rollout export directory containing episode row shards.
-        probe_state: Persisted probe state with accepted specs and attempt counters.
-        env_name: Canonical benchmark environment name.
-        filter_preset: Filter preset name recorded in the report.
-        episode_return_field: Canonical episode-return field used by the acceptance gate.
-        episode_return_gt: Optional strict lower bound for accepted episode returns.
-        episode_acceptance: Explicit task-specific episode acceptance contract.
-
-    Returns:
-        Filter report written to metadata and ``filter_report.json``.
-    """
-    split_stats = episode_row_split_stats(output_dir)
-    accepted_specs = probe_state["accepted_specs"]
-    train_specs = [spec for spec in accepted_specs if spec["split"] == "train"]
-    val_specs = [spec for spec in accepted_specs if spec["split"] == "val"]
-    report = {
-        "preset": filter_preset,
-        "attempted_episodes": int(probe_state["attempted_episodes"]),
-        "accepted_episodes": len(accepted_specs),
-        "rejected_episodes": int(probe_state["rejected_episodes"]),
-        "accepted_train_episodes": len(train_specs),
-        "accepted_val_episodes": len(val_specs),
-        "train_rows_before_row_filter": sum(int(spec["episode_length"]) for spec in train_specs),
-        "train_rows_after_row_filter": split_stats["train_rows"],
-        "val_rows_before_row_filter": sum(int(spec["episode_length"]) for spec in val_specs),
-        "val_rows_after_row_filter": split_stats["val_rows"],
-    }
-    if episode_acceptance is not None:
-        report["episode_acceptance"] = dict(episode_acceptance)
-    if episode_return_gt is not None:
-        report["episode_return_gate"] = {
-            "field": episode_return_field,
-            "operator": ">",
-            "threshold": float(episode_return_gt),
-        }
-    if env_name == "demon_attack":
-        report["raw_score_bins"] = demon_raw_score_bin_counts(accepted_specs)
-    return report
 
 
 def _context_decision_steps(
@@ -610,7 +391,7 @@ def _probe_accepted_specs(
     deterministic: bool,
     probe_state: dict[str, Any],
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
-    filter_kwargs: dict[str, Any] | None = None,
+    demon_episode_threshold: float | None = None,
     episode_return_gt: float | None = None,
     episode_acceptance: Mapping[str, Any] | None = None,
     rollout_seed_offset: int = 0,
@@ -632,7 +413,7 @@ def _probe_accepted_specs(
         deterministic: Whether to use deterministic teacher actions.
         probe_state: Mutable probe state persisted for resume.
         filter_preset: Filter preset name for episode-level gating.
-        filter_kwargs: Optional overrides forwarded to the episode gate.
+        demon_episode_threshold: Optional Demon raw-score threshold.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
         episode_acceptance: Explicit task-specific episode acceptance contract.
         action_spec: Explicit action layout carried by a generic checkpoint.
@@ -646,7 +427,7 @@ def _probe_accepted_specs(
     obs_stride_raw_frames = int(float(cfg.env_fps) / float(cfg.obs_fps))
     final_splits = {
         int(spec["episode_idx"]): str(spec["split"])
-        for spec in _build_episode_plan(
+        for spec in probe.build_episode_plan(
             max_episodes=int(max_episodes),
             val_fraction=float(val_fraction),
             split_seed=int(split_seed),
@@ -750,7 +531,7 @@ def _probe_accepted_specs(
                             behavior_env_name,
                             summary,
                             max_steps_per_episode=int(max_steps_per_episode),
-                            filter_kwargs=filter_kwargs,
+                            demon_episode_threshold=demon_episode_threshold,
                         )
                         if episode_acceptance is not None:
                             summary["final_info"] = step_result.info
@@ -812,7 +593,7 @@ def _probe_accepted_specs(
                             or accepted
                             or int(probe_state["attempted_episodes"]) % PROBE_STATE_WRITE_EVERY == 0
                         ):
-                            _write_probe_state(output_dir, probe_state)
+                            probe.write_probe_state(output_dir, probe_state)
                         _update_probe_progress(
                             progress,
                             probe_state,
@@ -845,7 +626,7 @@ def _probe_accepted_specs(
                         driver.sync_active([spec is not None for spec in active_specs])
         # Flush the final probe state once the loop ends so a clean run persists the
         # exact same accepted_specs/counters as writing on every completion did.
-        _write_probe_state(output_dir, probe_state)
+        probe.write_probe_state(output_dir, probe_state)
     finally:
         driver.close()
 
@@ -1309,7 +1090,7 @@ def collect_teacher_dataset(
     image_writer_workers: int,
     row_buffer_size: int,
     filter_preset: str = FILTER_PRESET_CLEAN_V1,
-    filter_kwargs: dict[str, Any] | None = None,
+    demon_episode_threshold: float | None = None,
     episode_return_gt: float | None = None,
     episode_acceptance: Mapping[str, Any] | None = None,
     context_window: int = 1,
@@ -1333,7 +1114,7 @@ def collect_teacher_dataset(
         image_writer_workers: Number of async image writer threads.
         row_buffer_size: Pending image write threshold.
         filter_preset: Filter preset name (``"none"`` or ``"clean_v1"``).
-        filter_kwargs: Temporary exporter experiment arguments retained at the public boundary.
+        demon_episode_threshold: Optional Demon raw-score threshold.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
         episode_acceptance: Explicit task-specific episode acceptance contract.
         context_window: Total image window length. Values 0 and 1 keep only the
@@ -1349,7 +1130,7 @@ def collect_teacher_dataset(
     base_prompt = config["base_prompt"]
     image_transform_config = image_transform_config or GhostTrailConfig()
     completed_episode_indices = completed_episode_indices_from_shards(output_dir)
-    probe_state = _load_probe_state(
+    probe_state = probe.load_probe_state(
         output_dir,
         completed_episode_indices=completed_episode_indices,
     )
@@ -1367,7 +1148,7 @@ def collect_teacher_dataset(
             "env_fps": float(probe_cfg.env_fps),
             "obs_fps": float(probe_cfg.obs_fps),
         }
-        _write_probe_state(output_dir, probe_state)
+        probe.write_probe_state(output_dir, probe_state)
         _probe_accepted_specs(
             probe_runtime,
             probe_driver,
@@ -1382,7 +1163,7 @@ def collect_teacher_dataset(
             deterministic=bool(deterministic),
             probe_state=probe_state,
             filter_preset=filter_preset,
-            filter_kwargs=filter_kwargs,
+            demon_episode_threshold=demon_episode_threshold,
             episode_return_gt=episode_return_gt,
             episode_acceptance=episode_acceptance,
             rollout_seed_offset=int(rollout_seed_offset),
@@ -1404,6 +1185,8 @@ def collect_teacher_dataset(
             "rollout_seed_offset": int(rollout_seed_offset),
             "filter_preset": filter_preset,
         }
+        if demon_episode_threshold is not None:
+            metadata["demon_episode_threshold"] = demon_episode_threshold
         if episode_acceptance is not None:
             metadata["episode_acceptance"] = dict(episode_acceptance)
         if episode_return_gt is not None:
@@ -1481,52 +1264,11 @@ def collect_teacher_dataset(
                                         if "export_zero_action_history" in config else None),
         )
 
-    runtime_metadata = probe_state["runtime_metadata"]
-    env_fps = float(runtime_metadata["env_fps"])
-    obs_fps = float(runtime_metadata["obs_fps"])
-    split_stats = episode_row_split_stats(output_dir)
-    filter_report = _filter_report_from_probe_state(
-        output_dir,
-        probe_state,
-        env_name=integration_name,
-        filter_preset=filter_preset,
-        episode_return_field=action_spec.episode_return_field,
-        episode_return_gt=episode_return_gt,
-        episode_acceptance=episode_acceptance,
+    return probe.finalize_metadata(
+        output_dir=output_dir, probe_state=probe_state, config=config,
+        action_spec=action_spec, filter_preset=filter_preset,
+        demon_episode_threshold=demon_episode_threshold,
+        episode_return_gt=episode_return_gt, episode_acceptance=episode_acceptance,
+        image_transform_config=image_transform_config, image_resolution=image_resolution,
+        context_window=context_window, replay_num_envs=replay_num_envs,
     )
-    metadata = {
-        "schema_version": SCHEMA_VERSION,
-        "action_layout": action_spec.layout,
-        "action_labels": list(action_spec.labels),
-        "reward_field": action_spec.reward_field,
-        "episode_return_field": action_spec.episode_return_field,
-        "reward_semantics": action_spec.reward_semantics,
-        "filter_preset": filter_preset,
-        "filter_report": filter_report,
-        "checkpoint_train_step": int(runtime_metadata["checkpoint_train_step"]),
-        "frame_stack": int(runtime_metadata["frame_stack"]),
-        "env_fps": env_fps,
-        "obs_fps": obs_fps,
-        "obs_stride_raw_frames": int(env_fps / obs_fps),
-        "max_steps_unit": "raw_frame",
-        "image_source": "env_raw_rgb"
-        if image_transform_config.normalized_transform() == "raw_rgb"
-        else f"env_raw_rgb_{image_transform_config.normalized_transform()}",
-        "image_transform": image_transform_config.metadata(),
-        "image_resolution": image_resolution,
-        "context_window": int(context_window),
-        "context_image_count": max(0, int(context_window) - 1),
-        "replay_num_envs": int(replay_num_envs),
-        "train_episodes": split_stats["train_episodes"],
-        "val_episodes": split_stats["val_episodes"],
-    }
-    if "flat_cfg" in config and config["flat_cfg"].get("action_history_decisions") is not None:
-        metadata["action_history_decisions"] = int(config["flat_cfg"]["action_history_decisions"])
-    if "export_zero_action_history" in config:
-        metadata["action_history_decisions"] = config["export_zero_action_history"]
-    if ("flat_cfg" in config and config["flat_cfg"].get("latency_type") == "profile_sample"
-            and metadata.get("action_history_decisions") == 8):
-        metadata["profile_seed_by_reset"] = "env_reset_seed"
-    if episode_return_gt is not None:
-        metadata["episode_return_gate"] = filter_report["episode_return_gate"]
-    return metadata

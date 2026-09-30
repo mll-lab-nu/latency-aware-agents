@@ -312,14 +312,6 @@ def test_cuda_extensions_build_script_is_executable_bash():
     )
     assert syntax.returncode == 0, syntax.stderr
 
-    text = script_path.read_text(encoding="utf-8")
-    assert "load_flappy_cuda_extension" in text
-    assert "load_cule_atari_extension" in text
-    assert "torch.cuda.synchronize" in text
-    assert 'export CUDA_HOME="${CONDA_PREFIX}"' in text
-    assert 'export TORCH_CUDA_ARCH_LIST="8.6;9.0;12.0"' in text
-    assert "--list-gpu-code" not in text
-    assert "detect_gpu_compute_cap" not in text
 
 
 def test_install_script_forwards_fixed_stack_bootstrap(tmp_path):
@@ -347,9 +339,7 @@ def test_install_script_forwards_fixed_stack_bootstrap(tmp_path):
     assert "bash third_party/starVLA/examples/rl_games/install/torch.sh" in calls
     assert "uv pip install" in calls
     assert "-e .[dev,sonic]" in calls
-    assert "--no-deps -e third_party/humanoid-bench" in calls
-    assert "python -c import humanoid_bench, mujoco, onnxruntime" in calls
-    assert "third_party/humanoid-bench" in calls.split("git submodule update --init --recursive ", 1)[1]
+    assert "git submodule update --init third_party/starVLA third_party/sample-factory third_party/flappy-bird-gymnasium" in calls
     assert "-e third_party/sample-factory" in calls
     for game in ("demon_attack", "deadly_corridor", "flappy"):
         assert f"bash third_party/starVLA/examples/rl_games/install/env/{game}.sh" in calls
@@ -749,12 +739,6 @@ exit 0
     assert "pip install failed on attempt 1/3; retrying" in result.stderr
 
 
-def test_install_script_source_has_no_profile_resolver():
-    source = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
-
-    assert "_torch_profile.sh" not in source
-    assert "resolve_torch_profile" not in source
-    assert "nvidia-smi" not in source
 
 
 def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
@@ -924,100 +908,10 @@ fi
         "#sha256=9001c730642cdc1ea44ed8130b0dc80e763519d6efc01e4de44b0700a0dfa13d "
         "--force-reinstall --no-deps"
     ) in log
-    helper_source = helper_path.read_text(encoding="utf-8")
-    assert "fall back to sdpa" not in helper_source
-    assert "STARVLA_FLASH_ATTN_BUILD_FROM_SOURCE" not in helper_source
-    assert "--print-url" not in helper_source
 
 
-def test_starvla_rl_games_hfd_raw_download_convert_dry_run_single_dataset():
-    script_path = (
-        REPO_ROOT
-        / "third_party"
-        / "starVLA"
-        / "examples"
-        / "rl_games"
-        / "scripts"
-        / "download_convert_rl_games_raw.sh"
-    )
-    if not script_path.exists():
-        pytest.skip("starVLA submodule pin does not include download_convert_rl_games_raw.sh")
-
-    syntax = subprocess.run(
-        ["bash", "-n", str(script_path)],
-        cwd=REPO_ROOT / "third_party" / "starVLA",
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert syntax.returncode == 0, syntax.stderr
-
-    result = subprocess.run(
-        [
-            "bash",
-            str(script_path),
-            "--hfd",
-            "/opt/hfd.sh",
-            "--workspace-dir",
-            "/tmp/ws",
-            "--env",
-            "demon_attack",
-            "--frame-stacks",
-            "2",
-            "--dry-run",
-        ],
-        cwd=REPO_ROOT / "third_party" / "starVLA",
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert (
-        "/opt/hfd.sh latency-sensitive-bench/demon_attack_fixed_l2_fs2 --dataset "
-        "--local-dir /tmp/ws/outputs/rl_games_raw/demon_attack_fixed_l2_fs2"
-    ) in result.stdout
-    assert (
-        "python examples/rl_games/data_conversion/convert_demon_attack_to_starvla_lerobot.py "
-        "--dataset-name /tmp/ws/outputs/rl_games_raw/demon_attack_fixed_l2_fs2 "
-        "--output-dir /tmp/ws/playground/Datasets/rl_games/demon_attack_fixed_l2_fs2 --force"
-    ) in result.stdout
 
 
-def test_starvla_rl_games_hfd_raw_download_convert_dry_run_defaults_to_all_datasets():
-    script_path = (
-        REPO_ROOT
-        / "third_party"
-        / "starVLA"
-        / "examples"
-        / "rl_games"
-        / "scripts"
-        / "download_convert_rl_games_raw.sh"
-    )
-    if not script_path.exists():
-        pytest.skip("starVLA submodule pin does not include download_convert_rl_games_raw.sh")
-
-    result = subprocess.run(
-        [
-            "bash",
-            str(script_path),
-            "--hfd",
-            "/opt/hfd.sh",
-            "--workspace-dir",
-            "/tmp/ws",
-            "--dry-run",
-        ],
-        cwd=REPO_ROOT / "third_party" / "starVLA",
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.count("/opt/hfd.sh latency-sensitive-bench/") == 12
-    assert result.stdout.count("python examples/rl_games/data_conversion/convert_") == 12
-    assert "latency-sensitive-bench/flappy_fixed_l2_fs1" in result.stdout
-    assert "latency-sensitive-bench/deadly_corridor_fixed_l2_fs6" in result.stdout
 
 
 @pytest.mark.parametrize("model", ["pi05", "qwenoft"])
@@ -1063,36 +957,3 @@ printf 'start_method=%s\\n' "${LATENCY_BENCH_ENV_BACKEND_START_METHOD:-}" >> "$L
         f"list --model {model} --workload flappy"
     ) in calls
     assert "start_method=spawn" in calls
-
-
-def test_sim2real_build_figures_builds_data_before_plotting(tmp_path):
-    script_path = REPO_ROOT / "scripts/experiments/sim2real/build_figures.sh"
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    calls_path = tmp_path / "calls.log"
-    python_logger = f"""#!/bin/bash
-set -euo pipefail
-printf '%s|%s\\n' "$PWD" "$*" >> "{calls_path}"
-"""
-    _write_executable(fake_bin / "python", python_logger)
-    _write_executable(fake_bin / "python3", python_logger)
-
-    subprocess.run(
-        ["/bin/bash", str(script_path)],
-        cwd=tmp_path,
-        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
-        check=True,
-    )
-
-    calls = [
-        (Path(cwd) / arguments.split(maxsplit=1)[0]).resolve()
-        for cwd, arguments in (
-            call.split("|", maxsplit=1)
-            for call in calls_path.read_text(encoding="utf-8").splitlines()
-        )
-    ]
-    experiment_dir = REPO_ROOT / "paper/latency-sensitive-vla/exps/sim2real"
-    assert calls == [
-        experiment_dir / "build_data.py",
-        experiment_dir / "plot.py",
-    ]

@@ -8,7 +8,7 @@
 
 | 文档 | 内容 / 主要用途 | 状态与边界 |
 |---|---|---|
-| [REFACTOR](REFACTOR.md) | 全仓库 40 项重构计划，附条目决定、代码与测试归属、状态和验收证据 | 累计 15 项已完成、25 项待推进；后续每批 10 条按依赖验收，代码重构与 Document 分别记录；删除、归档及语义变更须逐项讨论 |
+| [REFACTOR](REFACTOR.md) | 全仓库 40 项重构的当前决定、实施分组和验收证据 | 39 项完成、1 项测量后保留；[934 项测试及 CPU 对照](../outputs/refactor/consolidation/report.md)，已删除 39 个一次性脚本及部署配置 |
 
 ## 任务与运行手册
 
@@ -77,7 +77,6 @@ Demon Attack 旧 CuLE teacher 的首次丢命终评与奖励裁剪问题、300�
 | [archive/LATENCY_DEBUG_PLAN](archive/LATENCY_DEBUG_PLAN.md) | Balance history/critic、fixed1/F2、fixed2/profile、service/hold/admission 诊断 | 中文交接保留最新结论；fixed1 F2 成功与后续失败分开记录 |
 | [archive/LATENCY_PLAN](archive/LATENCY_PLAN.md) | 早期 fixed-latency 分阶段实验计划及执行摘要 | 实验 3–5 保持历史未执行状态，本轮产物已删除 |
 | [archive/LATENCY_RL_HANDOFF](archive/LATENCY_RL_HANDOFF.md) | 2026-09-09 英文 Balance PPO/FastTD3 交接及当时结论 | 中文交接与 PROGRESS 记录更新证据；旧结论按原日期阅读 |
-| [logs/PROGRESS-pre-cleanup-2026-09-17](logs/PROGRESS-pre-cleanup-2026-09-17.md) | PROGRESS 清理前的完整时间线与运行细节 | 仅供追溯；当前状态和结论以 PROGRESS 为准 |
 
 ## 进度
 

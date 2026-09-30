@@ -264,7 +264,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
 
 
 def _single_frame_data(frame: Any) -> np.ndarray:
-    value = frame.get("obs") if isinstance(frame, dict) else frame
+    value = frame["obs"] if isinstance(frame, dict) else frame
     arr = np.asarray(value, dtype=np.uint8)
     if arr.ndim == 2:
         return arr[..., None]
@@ -313,16 +313,15 @@ def _deadly_runtime_button_names(gym_env: Any) -> list[str]:
             names = [_button_name(button) for button in getter()]
             if names:
                 return names
-    return list(DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER)
+    raise ValueError("Deadly Corridor environment must expose its available buttons")
 
 
 def _semantic_to_runtime_multibinary(semantic_values: list[int], runtime_order: list[str]) -> list[int]:
     semantic_map = {
-        name: int(semantic_values[idx])
+        name: semantic_values[idx]
         for idx, name in enumerate(DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER)
-        if idx < len(semantic_values)
     }
-    return [semantic_map.get(name, 0) for name in runtime_order]
+    return [semantic_map[name] for name in runtime_order]
 
 
 class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
