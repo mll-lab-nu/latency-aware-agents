@@ -5,7 +5,7 @@ from typing import Any
 
 from latency_bench.core.types import ActionEvent, LatencyRecord, OrderingPolicy, PolicyOutput
 from latency_bench.latency.sample import LatencySample
-from latency_bench.logging.metrics import apply_latency_raw_fields, apply_latency_record_raw_fields
+from latency_bench.logging.metrics import apply_latency_record_raw_fields
 from latency_bench.scheduler.result_coordinator import ResultCoordinator
 
 __all__ = [
@@ -64,12 +64,6 @@ def build_simulated_action_event(
         ready_raw_frame=ready_raw_frame,
         action_chunk=policy_output.action_chunk,
         metadata=event_metadata,
-    )
-    apply_latency_raw_fields(
-        event=event,
-        latency_type=latency_type,
-        frame_ms=frame_ms,
-        profile_metadata=profile_metadata,
     )
     return latency_record, event
 

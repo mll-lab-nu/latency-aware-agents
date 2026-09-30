@@ -105,20 +105,6 @@ def profile_metadata_from_source(source: Any) -> dict[str, Any]:
     return metadata
 
 
-def apply_latency_raw_fields(
-    *,
-    event: ActionEvent,
-    latency_type: str,
-    frame_ms: float,
-    profile_metadata: dict[str, Any] | None = None,
-) -> None:
-    apply_latency_record_raw_fields(
-        record=event.latency,
-        latency_type=latency_type,
-        profile_metadata=profile_metadata,
-    )
-
-
 def apply_latency_record_raw_fields(
     *,
     record: Any,

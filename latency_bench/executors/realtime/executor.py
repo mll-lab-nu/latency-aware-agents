@@ -39,7 +39,6 @@ from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool
 from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.logging.metrics import (
-    apply_latency_raw_fields,
     apply_latency_record_raw_fields,
     compute_episode_metrics,
     episode_raw_fact_metadata,
@@ -890,12 +889,6 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             latency=latency_record,
             metadata=event_metadata,
             action_chunk=completion.policy_output.action_chunk,
-        )
-        apply_latency_raw_fields(
-            event=event,
-            latency_type="measured",
-            frame_ms=self.clock.frame_ms,
-            profile_metadata=self._profile_metadata,
         )
         event.dropped = bool(dropped)
         profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)

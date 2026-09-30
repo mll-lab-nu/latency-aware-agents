@@ -5,6 +5,8 @@ from netrc import netrc
 from pathlib import Path
 from typing import Any
 
+from latency_bench.logging.wandb_eval import normalize_wandb_tags
+
 
 _PATCHED = False
 _FILTERED_TENSORBOARD_PREFIXES = ("len/", "policy_stats/", "reward/", "stats/")
@@ -29,21 +31,6 @@ def _filtered_summary_writer_class(summary_writer_class: Any):
             super().__init__(summary_writer_class(*args, **kwargs))
 
     return FilteredSummaryWriter
-
-
-def _normalize_tags(value: Any) -> list[str] | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        tags = [item.strip() for item in value.split(",") if item.strip()]
-        return tags or None
-    tags = [
-        tag
-        for item in value
-        for tag in (part.strip() for part in str(item).split(","))
-        if tag
-    ]
-    return tags or None
 
 
 def _wandb_key_from_env_or_netrc() -> str | None:
@@ -99,7 +86,7 @@ def patch_sample_factory_wandb() -> None:
         os.environ["WANDB_RUN_ID"] = run_name
         os.environ["WANDB_NAME"] = run_name
         os.environ["WANDB_RESUME"] = "allow"
-        cfg.wandb_tags = _normalize_tags(getattr(cfg, "wandb_tags", None))
+        cfg.wandb_tags = normalize_wandb_tags(getattr(cfg, "wandb_tags", None))
 
         wandb_group = cfg.env if getattr(cfg, "wandb_group", None) is None else cfg.wandb_group
         init_kwargs = {

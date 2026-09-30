@@ -5,7 +5,6 @@ from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord,
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.logging.metrics import (
-    apply_latency_raw_fields,
     apply_latency_record_raw_fields,
     compute_episode_metrics,
     episode_raw_fact_metadata,
@@ -107,12 +106,6 @@ class PausedLatencyExecutor(EpisodeExecutor):
                     ready_step_float=self.clock.time_ms_to_step_float(ready_time_ms),
                     latency=latency_record,
                     metadata=event_metadata,
-                )
-                apply_latency_raw_fields(
-                    event=event,
-                    latency_type=latency_type,
-                    frame_ms=self.clock.frame_ms,
-                    profile_metadata={},
                 )
                 self._next_action_id += 1
                 self.action_scheduler.enqueue(event)
