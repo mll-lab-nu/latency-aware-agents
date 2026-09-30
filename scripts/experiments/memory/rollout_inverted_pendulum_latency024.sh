@@ -14,7 +14,7 @@ set -euo pipefail
 #   rollout_inverted_pendulum_l4
 #
 # Defaults can be overridden:
-#   MAX_EPISODES=200
+#   MAX_EPISODES=<override; defaults by latency: l0=200, l2=1000, l4=1000>
 #   MAX_STEPS=7200
 #   NUM_ENVS=32
 #   REPLAY_NUM_ENVS=32
@@ -104,6 +104,14 @@ _ip_default_episode_return_gt() {
     fixed_l0) echo 7000 ;;
     fixed_l2) echo 85 ;;
     fixed_l4) echo 24 ;;
+  esac
+}
+
+_ip_default_max_episodes() {
+  case "$(_ip_latency_label "$1")" in
+    fixed_l0) echo 200 ;;
+    fixed_l2) echo 1000 ;;
+    fixed_l4) echo 1000 ;;
   esac
 }
 
@@ -205,13 +213,14 @@ _ip_rollout_one() {
   _ip_need_repo_root || return 1
   _ip_setup_cuda_env
 
-  local label frames ckpt latency_config config_name out_dir steps_label gym_make_kwargs episode_return_gt
+  local label frames ckpt latency_config config_name out_dir steps_label gym_make_kwargs episode_return_gt max_episodes
   label="$(_ip_latency_label "${latency}")" || return 1
   frames="$(_ip_latency_frames "${latency}")" || return 1
   ckpt="$(download_best_inverted_pendulum_ckpt "${latency}")" || return 1
   latency_config="$(_ip_write_latency_config "${latency}")" || return 1
   steps_label="$(_ip_steps_label)"
-  config_name="inverted_pendulum_fixed_latency_${frames}_${MAX_EPISODES:-200}ep_${steps_label}"
+  max_episodes="${MAX_EPISODES:-$(_ip_default_max_episodes "${latency}")}"
+  config_name="inverted_pendulum_fixed_latency_${frames}_${max_episodes}ep_${steps_label}"
   out_dir="${ROLLOUT_DATA_ROOT}/${config_name}"
   gym_make_kwargs="{\"base_make_kwargs\":{\"max_episode_steps\":${MAX_STEPS:-7200}}}"
   episode_return_gt="${EPISODE_RETURN_GT:-$(_ip_default_episode_return_gt "${latency}")}"
@@ -221,7 +230,7 @@ _ip_rollout_one() {
   echo "[latency] ${latency_config}"
   echo "[out]  ${out_dir}"
   echo "[hf]   ${HF_ROLLOUT_REPO}/${config_name} (PUSH_TO_HUB=${PUSH_TO_HUB:-1})"
-  echo "[steps] MAX_EPISODES=${MAX_EPISODES:-200} MAX_STEPS=${MAX_STEPS:-7200}"
+  echo "[steps] MAX_EPISODES=${max_episodes} MAX_STEPS=${MAX_STEPS:-7200}"
   echo "[gate] FILTER_PRESET=${FILTER_PRESET:-none} EPISODE_RETURN_GT=${episode_return_gt}"
 
   local export_wrapper
@@ -250,7 +259,7 @@ raise SystemExit(main(sys.argv[1:]))
     --output-dir "${out_dir}"
     --latency-config "${latency_config}"
     --gym-make-kwargs-json "${gym_make_kwargs}"
-    --max-episodes "${MAX_EPISODES:-200}"
+    --max-episodes "${max_episodes}"
     --max-steps-per-episode "${MAX_STEPS:-7200}"
     --val-fraction "${VAL_FRACTION:-0.01}"
     --num-envs "${NUM_ENVS:-32}"
@@ -310,7 +319,8 @@ Functions when sourced:
   rollout_inverted_pendulum_all
 
 Defaults:
-  MAX_EPISODES=200
+  MAX_EPISODES defaults by latency: l0=200, l2=1000, l4=1000
+  Set MAX_EPISODES=<number> to override.
   MAX_STEPS=7200
   NUM_ENVS=32
   REPLAY_NUM_ENVS=32
