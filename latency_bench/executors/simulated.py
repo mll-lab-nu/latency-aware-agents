@@ -38,6 +38,15 @@ from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import DecisionScheduler
 
 
+def _latency_policy_metadata(latency_sample: LatencySample) -> dict[str, float | int]:
+    return {
+        "latency_ms": float(latency_sample.latency_ms),
+        "latency_raw_frames": int(latency_sample.action_ready_raw_frames),
+        "worker_service_ms": float(latency_sample.worker_service_ms),
+        "worker_service_raw_frames": int(latency_sample.worker_service_raw_frames),
+    }
+
+
 @dataclass
 class _PendingInference:
     """An observation whose forward pass is still on an inference worker.
@@ -249,6 +258,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                             "episode_id": episode_id,
                             "action_noise_seed": seed,
                             "slot_id": 0,
+                            **_latency_policy_metadata(latency_sample),
                         }
                     )
                     policy_observation = Observation(

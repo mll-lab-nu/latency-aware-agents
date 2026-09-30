@@ -40,6 +40,15 @@ from latency_bench.utils.io import write_json
 from latency_bench.utils.stats import series_stats
 
 
+def _latency_policy_metadata(latency_sample: LatencySample) -> dict[str, float | int]:
+    return {
+        "latency_ms": float(latency_sample.latency_ms),
+        "latency_raw_frames": int(latency_sample.action_ready_raw_frames),
+        "worker_service_ms": float(latency_sample.worker_service_ms),
+        "worker_service_raw_frames": int(latency_sample.worker_service_raw_frames),
+    }
+
+
 @dataclass
 class _EpisodeBuffers(EpisodeMetricAccumulator):
     step_records: list[StepRecord] | None = None
@@ -439,6 +448,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         latency_sample = slot.latency_source.sample(latency_context)
         metadata = dict(observation.metadata)
         metadata["obs_id"] = obs_id
+        metadata.update(_latency_policy_metadata(latency_sample))
         policy_observation = Observation(
             data=observation.data,
             env_step=observation.env_step,
