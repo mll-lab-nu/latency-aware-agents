@@ -3,7 +3,7 @@ backend:
   algo: APPO
   device: cuda
   train_dir: results/checkpoints/memory/small_model/inverted_pendulum
-  restart_behavior: resume
+  restart_behavior: restart
   run_mode: train
 
 executor:
@@ -20,7 +20,8 @@ env:
     base_env_id: InvertedPendulum-v4
     render_mode: rgb_array
     force_values: [-3.0, -1.5, 0.0, 1.5, 3.0]
-    base_make_kwargs: {}
+    base_make_kwargs:
+      max_episode_steps: 3600
   env_fps: 25
   obs_fps: 25
   frame_stack: 1
@@ -90,7 +91,7 @@ evaluation:
   eval_interval_steps: null
   eval_episodes: 5
   eval_parallel_envs: 1
-  eval_max_steps: 1000
+  eval_max_steps: 3600
   eval_deterministic: true
 
 logging:
