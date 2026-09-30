@@ -78,8 +78,10 @@ removing a patch or changing its installation order.
 
 ## Validation and remaining release gates
 
-See the [cleanup verification record](audits/infra_release_cleanup.md) for executed
-checks, baseline failures and the remaining release gates.
+See [the refactor acceptance record](../program/REFACTOR.md) for the current
+implementation decisions and scoped verification. The
+[2026-09-20 cleanup record](audits/infra_release_cleanup.md) records that revision's
+checks and baseline failures; it does not establish the current test status.
 
 Use the owning suites under `tests/` and the existing infrastructure acceleration
 benchmark. Compare fixed checkpoints, resolved configs, episode IDs, seeds,
@@ -92,12 +94,14 @@ throughput, CPU/GPU work, memory and realtime deadlines. A median regression ove
 5% requires investigation; it is not an accepted performance budget. Simulator,
 GPU and training checks that were not executed remain unverified.
 
-Streaming batched metrics and trace extraction currently differ for certain
-`score`/`game_score`, raw-return alias and missing-final-value inputs. Their
-interpretation is intentionally unchanged by infrastructure cleanup. A temporary
-probe confirmed, for example, that simultaneous `game_score=1` and `score=2`
-produce trace score 1 and streaming score 2; a missing final score also differs. Any fix
-must separately identify affected experiments and report the semantic change.
+Streaming batched metrics and retained-trace extraction share
+`EpisodeMetricAccumulator`. The final step's `game_score` takes precedence over
+`score`; neither field on that step means the score is absent. Raw return uses
+the latest available value, preferring top-level fields over `episode_extra_stats`
+and using the same alias order in both paths. Task metrics come from the final
+step. Record retention does not change these episode metrics; the existing
+[executor tests](../tests/executors/test_batched_simulated_executor.py) cover both
+retention modes. Historical result artifacts retain their original values.
 
 For release acceptance, exercise a fresh checkout with pinned submodules and
 explicit external artifacts, including evaluation from outside the checkout.

@@ -1,6 +1,6 @@
 # 全仓库重构计划与验收
 
-共 40 项，**39 项已完成，RF-003 测量后保留现有实现**。以下记录各项当前决定和验收证据；重叠批次按 RF 编号计数。
+共 40 项，**39 项实现或文档工作已完成，RF-003 测量后保留现有实现**。此状态限于已列条目，不代表当前全仓测试或真实环境发布验收全部通过。以下记录各项当前决定和验收证据；重叠批次按 RF 编号计数。
 
 ## 已确定原则
 
@@ -10,7 +10,7 @@
 - 数据、checkpoint、来源快照、正式结果报告按实验产物管理。
 - 优先更新行为所属的既有测试；热路径改动做固定输入、同硬件对照。
 
-## 本轮合并验收分组
+## 历史合并验收分组
 
 | 批次 | 条目 |
 |---|---|
@@ -26,14 +26,21 @@
 ## 验收记录
 
 - 首批 RF-002、013、029、030、036 已完成：[报告](../outputs/refactor/batch-01/report.md)。
-- 本轮以 HEAD `51ed017d` 加开始时的工作树为基准，在现有改动上完成处理。相关用例按最终结果去重为 **934 passed**；CPU 前后对照动作/时序/指标一致，整集最大中位数增幅 **2.08%**。
-- 批次 2–8 在最终工作树联合验收：[主报告](../outputs/refactor/consolidation/report.md)、[测试结果](../outputs/refactor/consolidation/verification-summary.json)、[删除清单](../outputs/refactor/consolidation/deleted-scripts.json)。
+- 历史合并批次以 HEAD `51ed017d` 加开始时的工作树为基准。该批相关用例按最终结果去重为 **934 passed**；CPU 前后对照动作/时序/指标一致，整集最大中位数增幅 **2.08%**。这些结果对应当时选定的用例与源码快照，不是当前全仓完整回归结果。
+- 批次 2–8 的历史联合验收：[主报告](../outputs/refactor/consolidation/report.md)、[测试结果](../outputs/refactor/consolidation/verification-summary.json)、[删除清单](../outputs/refactor/consolidation/deleted-scripts.json)。
 - RF-034 来源调查：17 个文件在 `aa728d0f` 中均匹配清单；差异来自 `558af6c2` 删除配置字段及 `bdafb10f` 添加 worker capacity。
 - RF-004 边界调查：35 FPS、ready step 为 `1 + 5e-10` 时，时间路径在第 1 帧应用，整数路径等到第 2 帧。纳入统一容差回归。
 
+## Profiling 拆分与收尾验收
+
+- 拆分实现为 `a180efe3`：共享部署能力归入 `latency_bench/profiling`，实验协议归入 `scripts/experiments/sim2real`，固定参数由实验配置初始化并冻结到 manifest；旧包路径及一次性 timing 迁移入口已删除。
+- 在该提交加本次测试/文档收尾改动上，profiling 相关 suites 复验 **227 passed**；训练入口、日志与 batched executor 用例 **75 passed**。两组选定用例有重叠，不累加，也不替代全仓回归。完整范围与命令见[收尾报告](../outputs/refactor/profiling-closeout/report.md)。
+- RF-038 遗漏的补跑专属测试已清除，有效的评测局数与 seed 合同归入现有训练入口 suite。脚本目录收集为 **223 collected、2 errors**，剩余原因是验证环境未安装 `datasets`、`humanoid_bench`，详见[收集日志](../outputs/refactor/profiling-closeout/collection.log)。
+- RF-040 同步当前指标语义，并明确旧批次证据的源码与范围。真实模型 GPU 性能、模拟器/训练链路、干净 checkout 的完整安装与复现矩阵仍待单独验收。
+
 <a id="batch-02"></a>
 
-## 独立批次记录：10条验收（2026-09-30）
+## 历史独立批次记录：10条验收（2026-09-30）
 
 本批完成 **RF-005、RF-010、RF-016、RF-021、RF-022、RF-023、RF-024、RF-025、RF-032、RF-040**：七项代码收敛、三项Document；加首批共15项。用户在本对话将后续批次改为每批10条。
 
@@ -83,7 +90,7 @@
 - [x] **状态：已完成（Document）**
 - **决定：** 字段说明明确 perf_counter 起止值为秒、duration 为毫秒以及 clock domain；字段名和数值格式保持。
 - **代码 / 验收归属：** [types.py](../latency_bench/core/types.py)；[realtime_pipeline_logging.md](../docs/realtime_pipeline_logging.md)。
-- **本对话第二批验收：** 计时字段单位与clock domain已按写入点说明；字段名、数值和测量边界保持，measurement/profiler用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** 计时字段单位与clock domain已按写入点说明；字段名、数值和测量边界保持，measurement/profiler用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-006"></a>
 
@@ -124,7 +131,7 @@
 - [x] **状态：已完成**
 - **决定：** 共用 single/batched 的 policy/pool 组装；各执行器保留自己的 slot、seed、sampler 与资源生命周期。
 - **代码 / 验收归属：** [factory.py](../latency_bench/executors/factory.py)；[test_executor_factory.py](../tests/executors/test_executor_factory.py)。
-- **本对话第二批验收：** single/batched在原构造位置共用私有policy/pool准备；设备、batch专属检查与cleanup保持。pool四组合用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** single/batched在原构造位置共用私有policy/pool准备；设备、batch专属检查与cleanup保持。pool四组合用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-011"></a>
 
@@ -173,7 +180,7 @@
 - [x] **状态：已完成**
 - **决定：** evaluation 与 training 共用 scripts.starvla.runtime；训练超参数继续由 train_task 持有。
 - **代码 / 验收归属：** [runtime.py](../scripts/starvla/runtime.py)；[test_starvla_train_task.py](../tests/scripts/test_starvla_train_task.py)。
-- **本对话第二批验收：** runtime持有三个process/evaluation helpers和canonical task输入键；训练参数留train_task。真实调用方迁移，配置/命令用例及独立导入探测通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** runtime持有三个process/evaluation helpers和canonical task输入键；训练参数留train_task。真实调用方迁移，配置/命令用例及独立导入探测通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-017"></a>
 
@@ -214,7 +221,7 @@
 - [x] **状态：已完成**
 - **决定：** Flappy 预算协议共用 55-run 总体及复用 runs 定义。
 - **代码 / 验收归属：** [budget.py](../scripts/experiments/sim2real/budget.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
-- **本对话第二批验收：** 实验配置定义55-run总体及复用run列表；original fit顺序、两frozen splits、五次partitions及55个latency seeds前后一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** 当时集中定义55-run总体及复用run列表；original fit顺序、两frozen splits、五次partitions及55个latency seeds前后一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-022"></a>
 
@@ -223,7 +230,7 @@
 - [x] **状态：已完成**
 - **决定：** 每 run 两 episode 的 session 宽度由一处定义，grouped replay、seed 和完成计数共同使用。
 - **代码 / 验收归属：** [replay.py](../scripts/experiments/sim2real/replay.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
-- **本对话第二批验收：** 每run局数由实验protocol配置定义，runtime与replay显式接收冻结值。session sampler、seed stride、trace/DONE与ten-slot公开ID用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** 当时在回放模块集中定义每run两局，调用方共享该值。session sampler、seed stride、trace/DONE与ten-slot公开ID用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-023"></a>
 
@@ -232,7 +239,7 @@
 - [x] **状态：已完成**
 - **决定：** 共用 clock/obs stride 和 latency summary 的相同变换；运行坐标和各任务专属配置由调用方提供。
 - **代码 / 验收归属：** [runtime_configs.py](../latency_bench/profiling/runtime_configs.py)；[test_profile_protocol.py](../tests/profiling/test_profile_protocol.py)。
-- **本对话第二批验收：** 仅共享clock/obs stride与profile scalar变换，IID/Temporal不读取summary；两builder差异留caller。184份config全部字段一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** 仅共享clock/obs stride与profile scalar变换，IID/Temporal不读取summary；两builder差异留caller。184份config全部字段一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-024"></a>
 
@@ -241,7 +248,7 @@
 - [x] **状态：已完成**
 - **决定：** resident replay 共用配置准备和 executor 生命周期；backend、warmup、close 的所有者明确。
 - **代码 / 验收归属：** [replay.py](../scripts/experiments/sim2real/replay.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
-- **本对话第二批验收：** 只共享resolve→checkpoint inputs→config seed，真实Python/NumPy/Torch下一抽样验证run seed并恢复测试RNG。backend/warmup计时/close保持caller。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** 只共享resolve→checkpoint inputs→config seed，真实Python/NumPy/Torch下一抽样验证run seed并恢复测试RNG。backend/warmup计时/close保持caller。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-025"></a>
 
@@ -250,7 +257,7 @@
 - [x] **状态：已完成**
 - **决定：** grouped replay 共用 episode 结果持久化；完整 trace 写完再产生 DONE 和 publication。
 - **代码 / 验收归属：** [replay.py](../scripts/experiments/sim2real/replay.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
-- **本对话第二批验收：** 五参数helper只flatten/run/flush/return；logger安装、cleanup、identity映射、publication与计时保持caller。grouped/ten-slot/resume用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** 五参数helper只flatten/run/flush/return；logger安装、cleanup、identity映射、publication与计时保持caller。grouped/ten-slot/resume用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-026"></a>
 
@@ -307,7 +314,7 @@
 - [x] **状态：已完成（Document）**
 - **决定：** 18 份来源 YAML 原样保留；明确 runtime overlay 的实际覆盖字段和模型/任务差异。
 - **代码 / 验收归属：** [assets.py](../scripts/experiments/sim2real/assets.py)；[test_sim2real.py](../tests/scripts/test_sim2real.py)。
-- **本对话第二批验收：** 18份archived YAML的per-task差异与overlay职责已写入sim2real README；文件/registry保持原样，按Document完成。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **历史第二批验收：** 18份archived YAML的per-task差异与overlay职责已写入sim2real README；文件/registry保持原样，按Document完成。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-033"></a>
 
@@ -356,6 +363,7 @@
 - [x] **状态：已完成**
 - **决定：** 全仓直接删除 agent 为一次监控、调度、补跑、迁移、收尾生成的临时脚本及专用配置、测试、失效引用。通用能力使用已有入口和参数。临时脚本放仓库外，用完清理。
 - **代码 / 验收归属：** [AGENTS.md](../AGENTS.md)；[run_manifest_jobs.py](../scripts/experiment_runner/run_manifest_jobs.py)。
+- **收尾：** 删除仍导入已移除补跑模块的孤儿测试；显式评测局数与 seed 的有效合同移入 [test_starvla_train_task.py](../tests/scripts/test_starvla_train_task.py)，直接测试现行 `eval_config`。
 
 <a id="rf-039"></a>
 
@@ -372,4 +380,5 @@
 - [x] **状态：已完成（Document）**
 - **决定：** 当前手册和 README 指向正式入口及当前协议；结果、模型和来源证据保持各自归属，状态只在验证后更新。
 - **代码 / 验收归属：** [README.md](../program/README.md)。
-- **本对话第二批验收：** 7D/71D/63D版本及9/24→9/25接续清楚，旧部署按历史日期读。HANDOFF绑定9/30收录原稿，原状态日期/逐行数值来源待核实，原表保留。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
+- **收尾：** [infra.md](../docs/infra.md) 同步 RF-001 的统一指标语义；验收记录区分历史批次、profiling 拆分与当前检查。历史 HANDOFF 的逐行来源核实仍属于实验记录整理，不作为当前运行状态。
+- **历史第二批验收：** 7D/71D/63D版本及9/24→9/25接续清楚，旧部署按历史日期读。HANDOFF绑定9/30收录原稿，原状态日期/逐行数值来源待核实，原表保留。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。

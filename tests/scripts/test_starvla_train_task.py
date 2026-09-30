@@ -138,6 +138,30 @@ def test_fixed_training_oom_preserves_requested_batch(tmp_path, monkeypatch):
     assert config['trainer']['gradient_accumulation_steps'] == 1
 
 
+@pytest.mark.parametrize('task', ['balance', 'mikasa'])
+def test_eval_config_preserves_explicit_episode_count_and_seed(tmp_path, monkeypatch, task):
+    """Long-lived train_task evaluation contract: explicit counts and seeds reach the evaluator."""
+    monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
+    monkeypatch.setenv('WANDB_RUN_GROUP', 'test-group')
+    teacher_config = tmp_path / 'teacher.json'
+    teacher_config.write_text(json.dumps({
+        'latency': {'method': 'zero'},
+        'scheduler': {'hold_policy': 'hold', 'ordering_policy': 'latest_ready',
+                      'hold_last_chunk_action': True},
+    }))
+    args = SimpleNamespace(
+        task=task, model='qwenoft', condition='zero-latency', smoke=False,
+        eval_seed=1234, inference_device='cuda:1', simulator_device='cuda:0',
+        vla_python=tmp_path / 'vla-python', backbone_path=tmp_path / 'backbone',
+        teacher_config=teacher_config,
+    )
+
+    config = train_task.eval_config(args, tmp_path / 'bundle', tmp_path / 'eval', eval_episodes=50)
+
+    assert config['evaluation']['eval_episodes'] == 50
+    assert config['experiment']['seed'] == 1234
+
+
 @pytest.mark.parametrize(('method', 'label'), [('zero', '0'), ('temporal', 'profile_sample')])
 @pytest.mark.parametrize('smoke', [False, True])
 def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_path, monkeypatch, method, label, smoke):
