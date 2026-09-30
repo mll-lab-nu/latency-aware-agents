@@ -24,7 +24,7 @@ set -euo pipefail
 #   MAX_ATTEMPTS=<optional maximum rollout attempts>
 #   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
 #   PUSH_TO_HUB=1
-#   ROLLOUT_MUJOCO_GL=glfw  # use xvfb-run on headless machines
+#   ROLLOUT_MUJOCO_GL=egl  # headless MuJoCo rendering backend
 
 export HF_MODEL_REPO="${HF_MODEL_REPO:-latency-sensitive-bench/paper-experiment-models}"
 export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-latency-sensitive-bench/inverted_pendulum_200ep}"
@@ -253,9 +253,10 @@ import os
 import sys
 from importlib import metadata
 
-# Gymnasium plugin discovery can import shimmy/dm_control. Filter third-party
-# Gymnasium plugin autoload here; our task registers explicitly through
-# registration_imports. Rendering backend is selected by ROLLOUT_MUJOCO_GL.
+# Gymnasium plugin discovery can import shimmy/dm_control and crash when EGL is
+# enabled. Filter third-party Gymnasium plugin autoload here; our task registers
+# explicitly through registration_imports. EGL is set by the shell command before
+# Python starts so PyOpenGL initializes the right platform for headless MuJoCo.
 _entry_points = metadata.entry_points
 
 def _entry_points_without_gym_plugins(*args, **kwargs):
@@ -267,15 +268,6 @@ def _entry_points_without_gym_plugins(*args, **kwargs):
     return _entry_points(*args, **kwargs)
 
 metadata.entry_points = _entry_points_without_gym_plugins
-
-backend = os.environ.get("ROLLOUT_MUJOCO_GL", "glfw")
-os.environ["MUJOCO_GL"] = backend
-if backend == "egl":
-    os.environ["PYOPENGL_PLATFORM"] = os.environ.get("ROLLOUT_PYOPENGL_PLATFORM", "egl")
-elif backend == "osmesa":
-    os.environ["PYOPENGL_PLATFORM"] = os.environ.get("ROLLOUT_PYOPENGL_PLATFORM", "osmesa")
-else:
-    os.environ.pop("PYOPENGL_PLATFORM", None)
 import gymnasium  # noqa: F401
 
 from scripts.rollout_data.export_sf_teacher_dataset import main
@@ -284,6 +276,9 @@ raise SystemExit(main(sys.argv[1:]))
 '
 
   local cmd=(
+    env
+    MUJOCO_GL="${ROLLOUT_MUJOCO_GL:-egl}"
+    PYOPENGL_PLATFORM="${ROLLOUT_PYOPENGL_PLATFORM:-egl}"
     python -c "${export_wrapper}"
     --checkpoint-root "${ckpt}"
     --output-dir "${out_dir}"
@@ -361,7 +356,7 @@ Defaults:
   MAX_ATTEMPTS=<optional maximum total rollout attempts>
   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
   PUSH_TO_HUB=1
-  ROLLOUT_MUJOCO_GL=glfw by default. On headless machines, run with xvfb-run.
+  ROLLOUT_MUJOCO_GL=egl by default for headless MuJoCo rendering.
 
 The script downloads the best seed10 small-model checkpoint for each latency
 from latency-sensitive-bench/paper-experiment-models, forces the Gymnasium
