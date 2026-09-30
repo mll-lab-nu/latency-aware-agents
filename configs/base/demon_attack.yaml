@@ -30,6 +30,14 @@ env:
   full_action_space: false
   max_episode_steps: 25000
   noop_action: 0
+  action_map:
+    noop: 0
+    fire: 1
+    right: 2
+    left: 3
+    rightfire: 4
+    leftfire: 5
+  action_order: [0, 1, 2, 3, 4, 5]
   simulator: gpu
   gpu_env_device: auto
 
@@ -44,8 +52,7 @@ scheduler:
 
 policy:
   type: random
-  actions:
-    - 0
+  actions: [0, 1, 2, 3, 4, 5]
 
 training:
   train_for_env_steps: 25000000
