@@ -6,7 +6,6 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../../.." && pwd)"
 cd "${REPO_ROOT}"
 
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
-export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-egl}"
 
 CONFIG_ROOT="configs/train/memory/small_model/inverted_pendulum/latency_024"
 FRAME_ROOT="${CONFIG_ROOT}/frame_stack"
