@@ -33,6 +33,26 @@ def measure_config(
     return config
 
 
+def _set_env_clock_preserving_observation_stride(
+    config: dict[str, Any], env_fps: float,
+) -> None:
+    """Change the simulation rate while keeping the configured observation stride."""
+    observation_stride = config["env"]["env_fps"] / config["env"]["obs_fps"]
+    config["env"]["env_fps"] = env_fps
+    config["env"]["obs_fps"] = env_fps / observation_stride
+
+
+def _apply_profile_latency_summary(
+    latency_config: dict[str, Any], method: str, profile: dict[str, Any],
+) -> None:
+    """Add fixed or normal latency parameters from the selected profile summary."""
+    if method == "fixed":
+        latency_config["fixed_latency_ms"] = profile["summary"]["mean_ms"]
+    elif method == "normal":
+        latency_config["mean_latency_ms"] = profile["summary"]["mean_ms"]
+        latency_config["std_latency_ms"] = profile["summary"]["std_ms"]
+
+
 def simulation_config(
     spec: dict[str, Any],
     *,
@@ -44,10 +64,7 @@ def simulation_config(
     latency_seed: int,
 ) -> dict[str, Any]:
     config = _base_config(spec, output_dir)
-    base_env_fps = config["env"]["env_fps"]
-    observation_stride = base_env_fps / config["env"]["obs_fps"]
-    config["env"]["env_fps"] = profile["env_fps"]
-    config["env"]["obs_fps"] = profile["env_fps"] / observation_stride
+    _set_env_clock_preserving_observation_stride(config, profile["env_fps"])
     config["env"].update(spec["simulation_env"])
     config["executor"] = {
         "mode": "simulated",
@@ -69,11 +86,7 @@ def simulation_config(
         "instance_id": profile["instance_id"],
         "source_run_id": profile["source_run_id"],
     }
-    if method == "fixed":
-        config["latency"]["fixed_latency_ms"] = profile["summary"]["mean_ms"]
-    elif method == "normal":
-        config["latency"]["mean_latency_ms"] = profile["summary"]["mean_ms"]
-        config["latency"]["std_latency_ms"] = profile["summary"]["std_ms"]
+    _apply_profile_latency_summary(config["latency"], method, profile)
     config["evaluation"]["eval_parallel_envs"] = spec["simulation_parallel_envs"]
     if "inference_batch_size" in spec:
         config["executor"]["inference_batch_size"] = spec["inference_batch_size"]

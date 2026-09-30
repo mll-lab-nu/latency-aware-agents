@@ -1615,3 +1615,23 @@ def test_live_starvla_wrapper_uses_shared_deadly_multibinary_decode():
 
     assert prediction["actions"].tolist() == [[[0, 1, 1, 0, 1, 0, 1]]]
     assert prediction["action_output_type"] == "rl_games_deadly_corridor_multibinary"
+
+
+
+def test_seeded_action_noise_uses_episode_and_frame_not_batch_slot(monkeypatch, tmp_path):
+    from latency_bench.policy import starvla
+
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    config = _config(tmp_path)
+    config["policy"]["action_noise_seeded"] = True
+    policy = build_policy(config, ActionResolver(config["env"]))
+    observations = [Observation(
+        data=np.zeros((1,), dtype=np.uint8), env_step=frame, sim_time_ms=0,
+        metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8),
+                  "slot_id": slot, "action_noise_seed": seed},
+    ) for frame, slot, seed in [(7, 0, 2000000), (7, 4, 2000000), (8, 0, 2000000), (7, 0, 2000020)]]
+    policy.predict_batch(observations[:2])
+    policy.predict_batch(observations[2:])
+    seeds = [e["action_noise_seed"] for call in FakePolicyServerWrapper.instances[-1].calls for e in call["examples"]]
+    assert seeds[0] == seeds[1]
+    assert len({seeds[0], seeds[2], seeds[3]}) == 3

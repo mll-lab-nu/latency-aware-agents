@@ -1,7 +1,13 @@
 # MIKASA prefix63：2026-09-25 重跑协议
 
-本协议记录本轮最新批准的五档 periodic eval 与阶段结束上传方案。Fixed-1/2/3/4 均从零重新
+本协议记录 2026-09-25 批准的 **63D v3、H8×7** 五档 periodic eval 与阶段结束上传方案。Fixed-1/2/3/4 均从零重新
 采集 teacher 数据、训练 SFT，再接 DAgger；不依赖已丢失的临时盘产物。
+
+它接续 [Fixed-2 输入修复](MIKASA_FIXED2_PREFIX_REPAIR.md)，与
+[7D baseline / 71D v2 历史合同](MIKASA_ACTION_CHUNK_H8.md) 分别对应自己的模型和输入尺度。
+下文部署与进度描述是 2026-09-25 的记录；最新核验状态见 [PROGRESS](PROGRESS.md)，
+接续背景见 [Fixed-2 修复与部署记录](logs/mikasa-fixed2-prefix63-2026-09-24.md)及
+[故障记录](logs/mikasa-prefix63-failure-2026-09-25.md)。
 
 ## 配方
 
@@ -33,7 +39,7 @@ DAgger结束并完成终评后发布最终恢复状态、选中的best模型及�
 `latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/fixedN-prefix63-restart-20260925`。
 训练数据、checkpoint、原始日志和图都在服务器；不向用户笔记本下载实验产物。
 
-## 当前入口
+## 2026-09-25 部署入口
 
 W&B 使用用户指定项目 `zihanwang-ai-northwestern-university/starvla_tasks`；
 SFT 显式设置 entity，DAgger 继承 SFT 的 entity/project。原 `saberrr-zju/starvla_tasks`

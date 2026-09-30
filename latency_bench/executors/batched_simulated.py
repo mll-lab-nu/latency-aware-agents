@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -208,7 +209,14 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         seeds: Sequence[int | None],
         eval_max_steps: int = 10000,
         on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
+        episode_groups: Sequence[Sequence[int]] | None = None,
+        latency_sources_by_episode: Mapping[int, LatencySampler] | None = None,
     ) -> list[EpisodeMetrics]:
+        """Run episodes, optionally keeping each ordered session on one slot.
+
+        Explicit sources let session callers share a Temporal sampler across
+        their episodes without tying its random stream to physical slot IDs.
+        """
         if eval_max_steps < 0:
             raise ValueError("eval_max_steps must be non-negative")
         episode_ids = [int(episode_id) for episode_id in episode_ids]
@@ -219,28 +227,36 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         if not episode_ids:
             return []
 
-        next_episode_index = 0
-        initial_slots = min(self.num_slots, len(episode_ids))
-        for slot in self.slots[:initial_slots]:
-            self._start_slot(
-                slot,
-                episode_id=episode_ids[next_episode_index],
-                seed=seeds[next_episode_index],
+        groups = deque(
+            deque(group) for group in (
+                episode_groups if episode_groups is not None else [[eid] for eid in episode_ids]
             )
-            next_episode_index += 1
+        )
+        slot_episodes = [deque() for _ in self.slots]
+        seeds_by_episode = dict(zip(episode_ids, seeds))
+
+        def start_next(slot):
+            pending = slot_episodes[slot.slot_id]
+            if not pending and groups:
+                pending.extend(groups.popleft())
+            if pending:
+                episode_id = pending.popleft()
+                self._start_slot(
+                    slot, episode_id=episode_id, seed=seeds_by_episode[episode_id],
+                    latency_source=(latency_sources_by_episode[episode_id]
+                                    if latency_sources_by_episode is not None else None),
+                )
+
+        for slot in self.slots:
+            start_next(slot)
 
         while self.completed_episodes < len(episode_ids):
             active_slots = self._active_slots()
             if eval_max_steps == 0:
                 for slot in active_slots:
-                    self._complete_slot(slot, on_episode_complete=on_episode_complete)
-                    if next_episode_index < len(episode_ids):
-                        self._start_slot(
-                            slot,
-                            episode_id=episode_ids[next_episode_index],
-                            seed=seeds[next_episode_index],
-                        )
-                        next_episode_index += 1
+                    self._complete_slot(slot, on_episode_complete=on_episode_complete,
+                                        preserve_episode_order=episode_groups is None)
+                    start_next(slot)
                 continue
 
             observations = []
@@ -388,14 +404,9 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
 
                 slot.env_step += 1
                 if episode_done or slot.env_step >= eval_max_steps:
-                    self._complete_slot(slot, on_episode_complete=on_episode_complete)
-                    if next_episode_index < len(episode_ids):
-                        self._start_slot(
-                            slot,
-                            episode_id=episode_ids[next_episode_index],
-                            seed=seeds[next_episode_index],
-                        )
-                        next_episode_index += 1
+                    self._complete_slot(slot, on_episode_complete=on_episode_complete,
+                                        preserve_episode_order=episode_groups is None)
+                    start_next(slot)
 
         self._write_pipeline_profile_summary()
         return self._ordered_metrics(episode_ids)
@@ -494,8 +505,11 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         for event in released:
             slot.action_scheduler.enqueue(event)
 
-    def _start_slot(self, slot: _SlotState, *, episode_id: int, seed: int | None) -> None:
-        if self.episode_latency_source_factory is not None:
+    def _start_slot(self, slot: _SlotState, *, episode_id: int, seed: int | None,
+                    latency_source: LatencySampler | None = None) -> None:
+        if latency_source is not None:
+            slot.latency_source = latency_source
+        elif self.episode_latency_source_factory is not None:
             slot.latency_source = self.episode_latency_source_factory(episode_id)
         slot.active = True
         slot.episode_id = int(episode_id)
@@ -523,6 +537,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot: _SlotState,
         *,
         on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
+        preserve_episode_order: bool = True,
     ) -> None:
         if not slot.active or slot.episode_id is None:
             return
@@ -569,7 +584,10 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         slot.worker_capacity.reset()
         if slot.decision_action_history is not None:
             slot.decision_action_history.reset()
-        self._flush_completed_in_episode_order()
+        if preserve_episode_order:
+            self._flush_completed_in_episode_order()
+        else:
+            self._flush_episode(episode_id)
         if on_episode_complete is not None:
             on_episode_complete(metrics)
 
@@ -626,19 +644,28 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
             episode_id = self._episode_log_order[self._next_episode_log_index]
             if episode_id not in self._completed_metrics:
                 break
-            buffers = self._completed_buffers[episode_id]
-            metrics = self._completed_metrics[episode_id]
-            if buffers.step_records is not None:
-                for record in buffers.step_records:
-                    self.logger.log_step(record)
-            if buffers.action_events is not None:
-                for event in buffers.action_events:
-                    self.logger.log_action_event(event)
-            if buffers.latency_records is not None:
-                for latency_record in buffers.latency_records:
-                    self.logger.log_latency(latency_record)
-            self.logger.log_episode_metrics(metrics)
+            self._flush_episode(episode_id)
             self._next_episode_log_index += 1
+
+    def _flush_episode(self, episode_id: int) -> None:
+        if self.logger is None:
+            return
+        buffers = self._completed_buffers[episode_id]
+        metrics = self._completed_metrics[episode_id]
+        if buffers.step_records is not None:
+            for record in buffers.step_records:
+                self.logger.log_step(record)
+        if buffers.action_events is not None:
+            for event in buffers.action_events:
+                self.logger.log_action_event(event)
+        if buffers.latency_records is not None:
+            for latency_record in buffers.latency_records:
+                self.logger.log_latency(latency_record)
+        self.logger.log_episode_metrics(metrics)
+        buffers.step_records = None
+        buffers.action_events = None
+        buffers.latency_records = None
+        buffers.latency_values_ms.clear()
 
     def _ordered_metrics(self, episode_ids: Sequence[int]) -> list[EpisodeMetrics]:
         return [self._completed_metrics[int(episode_id)] for episode_id in episode_ids]

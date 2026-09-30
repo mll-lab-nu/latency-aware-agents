@@ -453,9 +453,12 @@ def test_legacy_run_without_contract_cannot_resume(tmp_path):
         runner._assert_run_contract(spec, deployment, tmp_path)
 
 
-def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path):
+@pytest.mark.parametrize("method", ["fixed", "normal", "iid", "temporal"])
+def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path, method):
     spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
     spec["checkpoint_path"] = "/models/openvla"
+    base = load_config(spec["base_config"])
+    observation_stride = base["env"]["env_fps"] / base["env"]["obs_fps"]
     profile = {
         "model_id": "openvla",
         "gpu_class": "2x-rtx4090",
@@ -464,8 +467,9 @@ def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path):
         "source_run_id": "run_1",
         "env_fps": 20,
         "per_slot_summary": {"0": {}, "1": {}},
-        "summary": {"mean_ms": 50.0, "std_ms": 4.0},
     }
+    if method in {"fixed", "normal"}:
+        profile["summary"] = {"mean_ms": 50.0, "std_ms": 4.0}
 
     config = simulation_config(
         spec,
@@ -473,13 +477,25 @@ def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path):
         profile_path=tmp_path / "profile.json",
         profile_ref=Path("openvla/2x-rtx4090/flappy/instance_abc"),
         profile=profile,
-        method="temporal",
+        method=method,
         latency_seed=7,
     )
 
+    assert config["env"]["env_fps"] == 20
+    assert config["env"]["obs_fps"] == pytest.approx(20 / observation_stride)
     assert config["executor"]["simulated_worker_capacity"] == 2
     assert config["policy"]["checkpoint_path"] == spec["checkpoint_path"]
     assert config["latency"]["source_run_id"] == "run_1"
+    assert config["latency"]["seed"] == 7
+    if method == "fixed":
+        assert config["latency"]["fixed_latency_ms"] == 50.0
+    elif method == "normal":
+        assert config["latency"]["mean_latency_ms"] == 50.0
+        assert config["latency"]["std_latency_ms"] == 4.0
+    else:
+        assert "fixed_latency_ms" not in config["latency"]
+        assert "mean_latency_ms" not in config["latency"]
+        assert "std_latency_ms" not in config["latency"]
 
 
 def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatch):

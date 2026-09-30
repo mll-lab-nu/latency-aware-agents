@@ -12,8 +12,9 @@ from types import SimpleNamespace
 
 import yaml
 
+from latency_bench.utils.paths import REPO_ROOT as ROOT
 from scripts.starvla.train_task import (
-    ROOT, code_revisions, eval_config, evaluation_summary, mikasa_h8_execution_audit,
+    code_revisions, eval_config, evaluation_summary, mikasa_h8_execution_audit,
 )
 
 

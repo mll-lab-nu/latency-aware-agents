@@ -20,6 +20,11 @@ WORKER_TIMEOUT_ENV = "LATENCY_BENCH_ENV_WORKER_TIMEOUT_SEC"
 
 @dataclass(frozen=True)
 class EnvStepResponse:
+    """Environment result and metadata.
+
+    ``*_wall_sec`` fields are ``perf_counter`` duration seconds.
+    """
+
     result: StepResult
     worker_pid: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)

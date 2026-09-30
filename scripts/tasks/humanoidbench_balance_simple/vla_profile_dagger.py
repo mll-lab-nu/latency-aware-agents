@@ -33,19 +33,18 @@ from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.config import load_config
 from latency_bench.data.exporters.starvla_lerobot import convert_canonical_rollout_to_lerobot
 from latency_bench.executors.realtime.pool import ProcessInferencePool
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.integrations.starvla_resident_dagger import ResidentInferencePool
 from scripts.starvla.balance_dagger import (
     _balance_row_for_image_path,
     _student_observation,
     write_balance_dataset,
 )
-from scripts.starvla import artifacts
+from scripts.starvla import artifacts, runtime
 from scripts.starvla.dagger_mixture import write_dagger_mixture
 from latency_bench.policy.action_prefix import action_prefix_arrays, resolve_action_prefix
 from latency_bench.data.starvla_tasks import task_spec
 from scripts.starvla.prepare_dataset import prepare_lerobot
-from scripts.starvla.train_task import BACKBONES, STARVLA, environment, inference_bundle, run_command, training_config
+from scripts.starvla.train_task import BACKBONES, inference_bundle, training_config
 from latency_bench.data.rollout_image_io import RolloutImageWriter
 from latency_bench.integrations.sample_factory.actions import scale_box_action
 from sample_factory.algo.fast_td3.models import FastTD3ActorCritic
@@ -302,6 +301,7 @@ class VLAProfileRollout:
 
 def policy_config(config, bundle, vla_python, batch_size, backbone):
     result = copy.deepcopy(config)
+    input_keys = runtime.TASK_INPUT_KEYS[task_spec("balance").name]
     result["experiment"]["seed"] = INFERENCE_SEED
     result["executor"]["inference_batch_size"] = batch_size
     result["policy"] = {
@@ -309,7 +309,8 @@ def policy_config(config, bundle, vla_python, batch_size, backbone):
         "action_prefix": config["policy"]["action_prefix"],
         "task_contract_path": str(bundle / "task_contract.json"),
         "backbone_path": str(backbone),
-        "state_info_key": "gymnasium_state", "image_views_info_key": ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
+        "state_info_key": input_keys["state_info_key"],
+        "image_views_info_key": input_keys["image_views_info_key"],
         "worker_python_executable": str(vla_python), "device": "cuda:0",
     }
     return result
@@ -773,13 +774,13 @@ def _training_launch(
     stem = phase if stop_step is None else f"{phase}_{stop_step}"
     path = args.output_dir / f"{stem}.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False))
-    env = environment() | {"CUDA_HOME": str(args.vla_python.resolve().parent.parent),
+    env = runtime.environment() | {"CUDA_HOME": str(args.vla_python.resolve().parent.parent),
                            "WANDB_MODE": "disabled" if args.smoke else "online",
                            "WANDB_RUN_ID": args.wandb_runs[training_phase]["id"], "WANDB_RESUME": "allow"}
     command = [args.vla_python, "-m", "accelerate.commands.launch", "--config_file",
-               STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml", "--num_processes",
+               runtime.STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml", "--num_processes",
                args.num_gpus,
-               "--main_process_port", args.port, STARVLA / "starVLA/training/train_starvla.py",
+               "--main_process_port", args.port, runtime.STARVLA / "starVLA/training/train_starvla.py",
                "--config_yaml", path]
     return command, env, mixture_path, args.output_dir / f"{stem}.log"
 
@@ -788,7 +789,7 @@ def train_segment(args, bootstrap, deltas, phase, steps, boundary, pretrained, r
     """Run the one-process bootstrap segment."""
     command, env, _mixture_path, log = _training_launch(
         args, bootstrap, deltas, phase, steps, boundary, pretrained, resume)
-    run_command(command, log, cwd=STARVLA, env=env)
+    runtime.run_command(command, log, cwd=runtime.STARVLA, env=env)
     training_phase = "bootstrap" if phase == "bootstrap" else "dagger"
     trained = args.output_dir / "training" / training_phase
     weights = trained / "checkpoints" / f"steps_{boundary}_pytorch_model.pt"
@@ -809,8 +810,7 @@ def start_dagger_training(
         "socket_dir": str(socket_dir),
         "policy": {
             "task_contract_path": str(bootstrap / "lerobot/task_contract.json"),
-            "state_info_key": "gymnasium_state",
-            "image_views_info_key": ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
+            **runtime.TASK_INPUT_KEYS[task_spec("balance").name],
         },
     })
     if resume_step:
@@ -836,7 +836,7 @@ def start_dagger_training(
     with log.open("a" if resume else "w") as output:
         process = subprocess.Popen(
             [str(part) for part in command],
-            cwd=STARVLA,
+            cwd=runtime.STARVLA,
             env=env,
             stdout=output,
             stderr=subprocess.STDOUT,

@@ -8,7 +8,7 @@
 
 | 文档 | 内容 / 主要用途 | 状态与边界 |
 |---|---|---|
-| [REFACTOR](REFACTOR.md) | 全仓库 40 项重构候选，附代码证据、调用方、风险、验收方式与 16 类问题映射 | 首批 5 项已完成、35 项待推进；每批 5 条按依赖验收，删除、归档及语义变更须逐项讨论 |
+| [REFACTOR](REFACTOR.md) | 全仓库 40 项重构计划，附条目决定、代码与测试归属、状态和验收证据 | 累计 15 项已完成、25 项待推进；后续每批 10 条按依赖验收，代码重构与 Document 分别记录；删除、归档及语义变更须逐项讨论 |
 
 ## 任务与运行手册
 
@@ -16,10 +16,10 @@
 |---|---|---|
 | [BALANCE](BALANCE.md) | Balance Simple 早期 NVIDIA GR00T 实验和 10k 历史结果 | 历史记录；当前 H8 StarVLA 路线见 BALANCE_LOCAL_H8 和 PROGRESS |
 | [MIKASA](MIKASA.md) | InterceptGrabFast 环境、PPO teacher、275 条轨迹、LeRobot、QwenOFT 训练与评测 | 保留；早期 zero baseline，profile 详见 PROFILE |
-| [MIKASA_ACTION_CHUNK_H8](MIKASA_ACTION_CHUNK_H8.md) | InterceptGrabFast H8 baseline，以及 71D Profile/Fixed-2 prefix 数据、训练和 12 组评测合同 | Zero H8 baseline 已完成；conditioned H8 正式流水线见文档和运行记录 |
+| [MIKASA_ACTION_CHUNK_H8](MIKASA_ACTION_CHUNK_H8.md) | 7D H8 baseline，以及 71D v2 Profile/Fixed-2 prefix 历史合同与结果 | 按对应输入、checkpoint 和 seeds 阅读；63D v3 接续见 PREFIX63_RESTART，最新核验见 PROGRESS |
 | [MIKASA_FIXED_LATENCY_GRID](MIKASA_FIXED_LATENCY_GRID.md) | QwenOFT H8 固定 prefix 与 5×5 成功率矩阵的原方案 | 旧 Fixed-2 五档完成；因 71D 输入缺陷先转入合同修复 |
-| [MIKASA_PREFIX63_RESTART](MIKASA_PREFIX63_RESTART.md) | 四路从零重跑、matched periodic、最终五档与阶段结束直接发布 | 当前执行协议；新一轮采集已启动 |
-| [MIKASA_FIXED2_PREFIX_REPAIR](MIKASA_FIXED2_PREFIX_REPAIR.md) | 63D prefix、Fixed-2 SFT 5k + DAgger 5k、五档 periodic eval 与 L2 选优 | 本轮正式重训合同 |
+| [MIKASA_PREFIX63_RESTART](MIKASA_PREFIX63_RESTART.md) | 63D v3 四路重采集、五档 periodic、matched 选优与阶段结束发布协议 | 接续运行协议；部署与进度按 2026-09-25 快照读取，最新核验见 PROGRESS |
+| [MIKASA_FIXED2_PREFIX_REPAIR](MIKASA_FIXED2_PREFIX_REPAIR.md) | 63D v3 输入修复、Fixed-2 训练与旧数据复用方案 | 2026-09-24 修复依据；后续重新采集与发布使用 PREFIX63_RESTART |
 | [SCALE_MODELS](SCALE_MODELS.md) | Balance/MIKASA×qwenoft/qwengr00t/qwenpi_v3/wanoft 的 H1 公共入口与历史 smoke | 活跃公共运行手册；正式训练不能用两步 smoke 代替 |
 | [PROFILE](PROFILE.md) | MIKASA/QwenOFT 早期实机测量、五场采样、发布与回放结果 | 保留测量事实；当前 RTX 3090 覆盖与版本见 PROGRESS |
 | [ATLANTIS_ASTERIX_H8](ATLANTIS_ASTERIX_H8.md) | 两游戏 H8 zero/profile VLA、CPU teacher、3090 profiling 和三组评测合同 | 已完成：12 个 VLA、6 个 profile teacher、6 份 profiles 均发布回读；18/18 组、1800 局正式评测已核验；[完整结果](../outputs/tasks/atari_hist8_v1/evaluation_progress.md) / [执行记录](logs/atlantis-asterix-h8-2026-09-24.md) |
@@ -38,7 +38,8 @@ Demon Attack 旧 CuLE teacher 的首次丢命终评与奖励裁剪问题、300�
 | [BALANCE_DAGGER](BALANCE_DAGGER.md) | QwenOFT DAgger 标签修复短交接、十轮结果及终点验收待办 | 活跃交接；详版历史在 archive/DAGGER |
 | [BALANCE_CAUSAL_EVAL](BALANCE_CAUSAL_EVAL.md) | 现有 Balance 模型补评测协议、历史结果与统一入口用法 | 因果评测协议；正式结果见 PROGRESS 与实验报告 |
 | [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 保留任务 evaluator、固定均值 prefix、sampler/worker 与 seed/reset 合同 | 保留合同记录；实现验证与正式训练分别记录 |
-| [ARTIFACT_HANDOFF](ARTIFACT_HANDOFF.md) | Flappy/Demon/Deadly/Atlantis/Asterix 的 5 类历史资产、统一 100 局评测与中央 HF 路径 | 活跃交接；只有正式评测与远端回读通过后才在 PROGRESS 标记发布 |
+| [ARTIFACT_HANDOFF](ARTIFACT_HANDOFF.md) | Flappy/Demon/Deadly/Atlantis/Asterix 的 5 类历史资产、统一 100 局评测与中央 HF 路径 | 资产账本；正式评测、中央发布与 revision 回读分别以对应证据确认 |
+| [HANDOFF](HANDOFF.md) | 五环境原稿的接收、评测配置与发布状态快照 | 2026-09-30 收录；原稿状态日期与逐行分数来源待核实，最新任务证据见对应协议，正式结果索引见 RESULTS |
 | [DECISION_HISTORY_VLA_H8](DECISION_HISTORY_VLA_H8.md) | Flappy/Demon/Deadly × 三架构 × profile/zero 条件，共 18 路 H8 VLA 与 27 组交叉评测合同 | 18/18 模型已发布 HF 并回读；27/27 新版及 9/9 旧权重重评完成；[最终报告](../outputs/tasks/decision_history_vla_hist8_v2/final_report.md) |
 | [logs/decision-history-vla-v2-2026-09-23](logs/decision-history-vla-v2-2026-09-23.md) | history01 修复、PI LR 选优、18 路训练、zero teacher 采集与旧权重纠正评测 | Deadly 渲染合同已修正；全部结果核验完毕，监控正常退出 |
 | [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 保留任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |
@@ -82,4 +83,4 @@ Demon Attack 旧 CuLE teacher 的首次丢命终评与奖励裁剪问题、300�
 
 | 文档 | 用途 | 状态 |
 |---|---|---|
-| [PROGRESS](PROGRESS.md) | 四主任务的核心结果、关键决策、最新状态与下一步 | 只在已核验结果、决策或最新状态变化后更新 |
+| [PROGRESS](PROGRESS.md) | Balance Simple 与 MIKASA 的核心结果、关键决策、最新状态与下一步 | 只在已核验结果、决策或最新状态变化后更新 |

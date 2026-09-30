@@ -11,6 +11,7 @@ import pytest
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.cross_device.grouped_replay import RunTrajectoryLogger
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
@@ -1416,3 +1417,91 @@ def test_batched_prefix_requests_wait_for_worker_and_previous_result(
         executor.close()
 
     assert [call["raw_frame"] for call in latency_source.calls] == expected_submissions
+
+
+@pytest.mark.parametrize("num_slots", [1, 2, 4])
+def test_grouped_runs_keep_session_streams_and_seeds_when_slots_change(tmp_path, num_slots):
+    # Long-lived session replay contract: two episodes share one stream; a
+    # newly assigned run must never inherit the previous run's sampler.
+    groups = [[100, 101], [20, 21], [60, 61]]
+    lengths = {5: 4, 1: 1, 3: 2}
+    sources = {}
+    for group in groups:
+        length = lengths[group[0] // 20]
+        sampler = RawFrameLatencySource([0] * length + [1] * length, clock=_CLOCK)
+        sources.update((episode_id, sampler) for episode_id in group)
+    policy = MetadataCapturePolicy()
+    executor, envs = _executor(tmp_path, num_slots=num_slots, env_max_steps=4, policy=policy)
+    for env in envs:
+        reset = env.reset
+        def reset_session(seed=None, *, _env=env, _reset=reset):
+            run_id = (seed - 2000000) // 20
+            if num_slots == 2 and run_id == 3:
+                assert (tmp_path / "runs/1/DONE").exists()
+            _env.max_steps = lengths[run_id]
+            return _reset(seed=seed)
+        env.reset = reset_session
+    delivered = []
+    def complete(run_id, path):
+        assert (path / "DONE").exists()
+        assert len(load_jsonl_records(path / "episode_metrics.jsonl")) == 2
+        assert len(load_jsonl_records(path / "steps.jsonl")) == 2 * lengths[run_id]
+        delivered.append(run_id)
+    executor.logger = RunTrajectoryLogger(
+        tmp_path, complete, run_paths={group[0] // 20: tmp_path / "runs" / str(group[0] // 20)
+                                      for group in groups},
+        env_seed=2000000, env_seed_stride=20,
+    )
+    try:
+        metrics = executor.run_episodes(
+            episode_ids=[eid for group in groups for eid in group],
+            seeds=[2000000 + eid for group in groups for eid in group],
+            episode_groups=groups, latency_sources_by_episode=sources,
+            eval_max_steps=4,
+        )
+        executor.logger.flush()
+        assert delivered == ([5, 1, 3] if num_slots == 1 else [1, 3, 5])
+        assert [m.episode_id for m in metrics] == [100, 101, 20, 21, 60, 61]
+        for first, second in groups:
+            a, b = [m for m in metrics if m.episode_id in {first, second}]
+            assert a.mean_latency_ms == 0
+            assert b.mean_latency_ms == pytest.approx(_CLOCK.frame_ms)
+            assert a.metadata["episode_seed"] == 2000000 + first
+            assert b.metadata["episode_seed"] == 2000000 + second
+            assert len(sources[first].calls) == 2 * lengths[first // 20]
+        assert [m.episode_return_env for m in metrics] == [4.0, 4.0, 1.0, 1.0, 2.0, 2.0]
+        for batch in policy.batches:
+            for observation in batch:
+                assert observation["action_noise_seed"] == 2000000 + observation["episode_id"]
+    finally:
+        executor.close()
+
+
+def test_ten_run_slots_keep_repeated_run_ids_separate_across_settings(tmp_path):
+    # Long-lived grouped-replay contract: two settings may share run IDs and seeds.
+    from latency_bench.cross_device.budget import replay_settings
+    from types import SimpleNamespace
+    policy = MetadataCapturePolicy()
+    executor, _ = _executor(tmp_path / 'engine', num_slots=10, env_max_steps=4, policy=policy)
+    jobs = [(run_id, tmp_path / setting / str(run_id),
+             {'latency': {'method': 'fixed', 'fixed_latency_ms': delay, 'seed': 0},
+              'evaluation': {'eval_max_steps': 4}})
+            for setting, delay in [('a', 0), ('b', _CLOCK.frame_ms)] for run_id in range(5, 10)]
+    published = []
+    try:
+        replay_settings(executor, jobs, tmp_path,
+                        SimpleNamespace(publish=lambda stage, paths: published.append(stage)))
+    finally:
+        executor.close()
+    assert max(len(batch) for batch in policy.batches) == 10
+    for setting, delay in [('a', 0), ('b', _CLOCK.frame_ms)]:
+        for run_id in range(5, 10):
+            path = tmp_path / setting / str(run_id)
+            metrics = load_jsonl_records(path / 'episode_metrics.jsonl')
+            assert [m['episode_id'] for m in metrics] == [20 * run_id, 20 * run_id + 1]
+            assert [m['metadata']['episode_seed'] for m in metrics] == [2000000 + 20 * run_id, 2000001 + 20 * run_id]
+            assert all(m['metadata']['run_id'] == run_id for m in metrics)
+            assert all(m['mean_latency_ms'] == pytest.approx(delay) for m in metrics)
+            assert {s['episode_id'] for s in load_jsonl_records(path / 'steps.jsonl')} == {20 * run_id, 20 * run_id + 1}
+            assert (path / 'DONE').exists()
+            assert f'{setting}/{run_id}' in published

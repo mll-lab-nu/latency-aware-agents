@@ -9,7 +9,8 @@ from pathlib import Path
 import yaml
 
 from latency_bench.core.config import load_config
-from scripts.starvla.train_task import ROOT, mikasa_h8_profile_latency
+from latency_bench.utils.paths import REPO_ROOT as ROOT
+from scripts.starvla.train_task import mikasa_h8_profile_latency
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
 
 

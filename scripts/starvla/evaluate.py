@@ -11,9 +11,9 @@ import numpy as np
 import yaml
 
 from latency_bench.core.config import load_config
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.data.starvla_tasks import task_spec
 from latency_bench.policy.action_prefix import resolve_action_prefix
-from scripts.starvla.train_task import TASK_SETTINGS, environment, evaluation_command, run_command
+from scripts.starvla import runtime
 
 
 def main():
@@ -67,13 +67,13 @@ def main():
         )
         (args.output / "environment.json").write_text(json.dumps(config, indent=2) + "\n")
         (args.output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
-        runtime = SimpleNamespace(
+        rollout_args = SimpleNamespace(
             smoke=False, inference_batch_size=8, rollout_overlap=True, rollout_workers=16,
             num_gpus=1, vla_python=args.vla_python, backbone=args.backbone,
             teacher=TEACHER, teacher_config=TEACHER_CONFIG,
             horizon=contract["action_horizon"], collection_seed=0,
         )
-        result = rollout_batch(runtime, config, args.output, bundle=args.bundle, run=None,
+        result = rollout_batch(rollout_args, config, args.output, bundle=args.bundle, run=None,
                                seeds=provenance["seeds"])
         summary = {key: result[key] for key in ("n", "mean_length", "mean_return", "ge100", "ge500")}
         summary.update(
@@ -93,15 +93,15 @@ def main():
         (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         print(json.dumps(summary), flush=True)
     else:
+        input_keys = runtime.TASK_INPUT_KEYS[task_spec(args.task).name]
         config["policy"].update(
             type="starvla", checkpoint_path=str(args.bundle / "checkpoints/model.pt"),
             model_config_path=str(args.bundle / "config.yaml"),
             task_contract_path=str(args.bundle / "task_contract.json"),
             worker_python_executable=str(args.vla_python), backbone_path=str(args.backbone),
             device="cuda:0",
-            state_info_key=TASK_SETTINGS[args.task]["state_info_key"],
-            image_views_info_key=("mikasa_image_views" if args.task == "mikasa"
-                                  else ENV_RAW_RGB_FRAME_STACK_INFO_KEY),
+            state_info_key=input_keys["state_info_key"],
+            image_views_info_key=input_keys["image_views_info_key"],
         )
         config["evaluation"]["eval_episodes"] = args.episodes
         config["experiment"]["seed"] = args.seed_start
@@ -112,7 +112,11 @@ def main():
         if args.task == "balance":
             provenance["render_backend"] = os.environ["MUJOCO_GL"]
         (args.output / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
-        run_command(evaluation_command(args, config_path), args.output / "stdout.log", env=environment())
+        runtime.run_command(
+            runtime.evaluation_command(args, config_path),
+            args.output / "stdout.log",
+            env=runtime.environment(),
+        )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -12,6 +13,7 @@ from PIL import Image
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.data.action_layouts import (
@@ -76,8 +78,10 @@ class StarVlaPolicyRunner(PolicyRunner):
         state_source: str | None = None,
         image_views_info_key: str | None = None,
         action_output_type: str | None = None,
+        action_noise_seeded: bool = False,
     ) -> None:
         self._wrapper = wrapper
+        self._action_noise_seeded = action_noise_seeded
         self._obs_resize = tuple(obs_resize) if obs_resize else None
         self._checkpoint_path = checkpoint_path
         self._device = device
@@ -252,6 +256,10 @@ class StarVlaPolicyRunner(PolicyRunner):
             "image": images,
             "lang": prompt,
         }
+        if self._action_noise_seeded:
+            example["action_noise_seed"] = derive_seed(
+                observation.metadata["action_noise_seed"], stream=observation.env_step,
+            )
         if self._kv_memory_enabled:
             example["slot_id"] = observation.metadata["slot_id"]
         elif "slot_id" in observation.metadata:
@@ -912,6 +920,15 @@ def _validate_gymnasium_starvla_contract(
         "gymnasium_training_task_contract", manifest_task or eval_contract
     )
     comparable_eval_contract = {**eval_contract, "make_kwargs": expected["make_kwargs"]}
+    # Calibration changes wall-clock speed, while preserving physical steps per observation.
+    if math.isclose(
+        eval_contract["env_fps"] / eval_contract["obs_fps"],
+        expected["env_fps"] / expected["obs_fps"],
+        rel_tol=1e-12,
+    ):
+        comparable_eval_contract.update(
+            env_fps=expected["env_fps"], obs_fps=expected["obs_fps"]
+        )
     if _canonical_gymnasium_contract_namespace(
         comparable_eval_contract
     ) != _canonical_gymnasium_contract_namespace(expected):
@@ -1018,7 +1035,7 @@ def _starvla_runner_kwargs(
         semantic_env_name = env_cfg["name"]
         action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
         state_normalization = policy_cfg["state_normalization"] if "state_normalization" in policy_cfg else None
-    return dict(
+    kwargs = dict(
         unnorm_key=policy_cfg.get("unnorm_key"),
         env_name=semantic_env_name,
         action_resolver=action_resolver,
@@ -1038,6 +1055,10 @@ def _starvla_runner_kwargs(
         state_normalization=state_normalization,
         state_source=policy_cfg["state_source"] if "state_source" in policy_cfg else None,
     )
+    # Opt-in noise control; existing real/checkpoint callers retain global RNG.
+    if "action_noise_seeded" in policy_cfg:
+        kwargs["action_noise_seeded"] = policy_cfg["action_noise_seeded"]
+    return kwargs
 
 
 def build_starvla_policy(

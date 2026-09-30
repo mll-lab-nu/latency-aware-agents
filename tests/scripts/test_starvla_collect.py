@@ -526,10 +526,10 @@ def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path
     }
     monkeypatch.setenv("WANDB_ENTITY", "entity")
     monkeypatch.setattr(profile, "training_config", lambda *args, **kwargs: config)
-    monkeypatch.setattr(profile, "environment", lambda: {})
+    monkeypatch.setattr(profile.runtime, "environment", lambda: {})
     launched = {}
     monkeypatch.setattr(
-        profile, "run_command",
+        profile.runtime, "run_command",
         lambda *args, **kwargs: launched.update(env=kwargs["env"]))
     monkeypatch.setattr(profile, "inference_bundle", lambda trained, weights, destination, **kwargs: destination)
     args = SimpleNamespace(

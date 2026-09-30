@@ -9,7 +9,10 @@ from latency_bench.core.types import LatencyRecord
 
 
 class RuntimeLatencyMeasurer:
-    """Measure runtime policy latency and emit latency records."""
+    """Measure policy duration in milliseconds and emit latency records.
+
+    Record start and end values are raw ``perf_counter`` seconds.
+    """
 
     def __init__(self, device: str | None = None, sync_cuda: bool = True):
         self.device = device

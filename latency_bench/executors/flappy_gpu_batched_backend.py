@@ -148,7 +148,7 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
         step_info = dict(info)
         step_info.pop("numeric_obs", None)
         return SlotStepOutcome(
-            reward=float(np.float32(step_result.rewards[slot_id])),
+            reward=float(step_result.rewards[slot_id]),
             done=bool(step_result.terminated[slot_id]),
             truncated=bool(step_result.truncated[slot_id]),
             info=step_info,

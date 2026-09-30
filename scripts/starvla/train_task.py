@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
 import shutil
 import subprocess
 
@@ -21,16 +20,13 @@ from latency_bench.core.config import load_config
 from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.data.starvla_tasks import TASK_SPECS, read_task_contract, task_spec
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.eval.reporting import _log_corrected_eval_summaries_to_wandb, _summary_latency_label
 from latency_bench.utils.hf import resolve_token
-from scripts.starvla import artifacts
+from scripts.starvla import artifacts, runtime
 from scripts.starvla.model_config import make_model_config
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES, QWEN_BACKBONE_REVISION
 
 
-ROOT = Path(__file__).resolve().parents[2]
-STARVLA = ROOT / 'third_party/starVLA'
 _TRAINING_STATE_RE = re.compile(r'steps_(\d+)_state$')
 BACKBONES = {
     'qwen': {
@@ -45,7 +41,7 @@ BACKBONES = {
 _MIKASA_SETTINGS = {
     'teacher': 'ppo-v1/checkpoint.pt', 'conda_env': None,
     'eval_config': 'configs/examples/mikasa/official_starvla_profile.yaml',
-    'state_info_key': 'mikasa_proprio', 'global_batch': 128, 'sft_steps': 5000,
+    'global_batch': 128, 'sft_steps': 5000,
     'max_episode_steps': 60, 'seed': 4242424242,
 }
 _MIKASA_RTX3090_PROFILE_CONFIGS = {
@@ -56,7 +52,7 @@ TASK_SETTINGS = {
     'balance': {
         'teacher': 'fasttd3-h8-v1/checkpoint.pth', 'conda_env': 'latency',
         'eval_config': 'configs/examples/gymnasium/g1_sonic_balance_simple/starvla_profile.yaml',
-        'state_info_key': 'gymnasium_state', 'global_batch': 128, 'sft_steps': 5000,
+        'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
     },
     'mikasa': _MIKASA_SETTINGS,
@@ -66,9 +62,9 @@ TASK_SETTINGS = {
 
 
 def mikasa_h8_profile_latency(model: str) -> dict:
-    profile_config = load_config(ROOT / _MIKASA_RTX3090_PROFILE_CONFIGS[model])
+    profile_config = load_config(runtime.ROOT / _MIKASA_RTX3090_PROFILE_CONFIGS[model])
     source = profile_config['profile_source']
-    profile_path = ROOT / profile_config['latency']['profile_path']
+    profile_path = runtime.ROOT / profile_config['latency']['profile_path']
     if not profile_path.is_file():
         snapshot = Path(snapshot_download(
             source['repo_id'],
@@ -104,27 +100,6 @@ def conda_python(name: str) -> Path:
     return {Path(prefix).name: Path(prefix) / 'bin/python' for prefix in prefixes}[name]
 
 
-def environment() -> dict[str, str]:
-    return os.environ | {
-        'PYTHONPATH': os.pathsep.join([str(ROOT), str(STARVLA),
-                                      str(ROOT / 'third_party/humanoid-bench'),
-                                      str(ROOT / 'third_party/sample-factory')]),
-        'TOKENIZERS_PARALLELISM': 'false', 'MUJOCO_GL': 'egl',
-        'OMNI_KIT_ACCEPT_EULA': 'YES', 'NO_ALBUMENTATIONS_UPDATE': '1',
-        'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
-    }
-
-
-def run_command(command: list, log: Path, *, cwd: Path = ROOT, env: dict | None = None) -> None:
-    command = [str(part) for part in command]
-    log.parent.mkdir(parents=True, exist_ok=True)
-    print(shlex.join(command), flush=True)
-    print(f'Log: {log}', flush=True)
-    with log.open('w') as output:
-        subprocess.run(command, cwd=cwd, env=environment() if env is None else env,
-                       stdout=output, stderr=subprocess.STDOUT, check=True)
-
-
 def resolve_teacher(task: str, override: Path | None, condition: str = "zero-latency") -> tuple[Path, dict]:
     spec = task_spec(task)
     filename = f'{condition}/{spec.name.replace("_", "-")}/small-policy/{TASK_SETTINGS[task]["teacher"]}'
@@ -132,7 +107,7 @@ def resolve_teacher(task: str, override: Path | None, condition: str = "zero-lat
     if override is not None:
         return override.resolve(), {'source': 'local_override', 'filename': override.name}
     downloaded = hf_hub_download(artifacts.MODEL_REPO_ID, filename,
-                                 local_dir=ROOT / 'outputs/starvla/artifacts/models', token=resolve_token(''))
+                                 local_dir=runtime.ROOT / 'outputs/starvla/artifacts/models', token=resolve_token(''))
     return Path(downloaded).resolve(), reference
 
 
@@ -169,7 +144,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
     from scripts.starvla.collect import collect_bootstrap
 
     shared = (args.output_dir / 'bootstrap' if args.smoke else
-              ROOT / 'outputs/starvla/datasets' / task_spec(args.task).name /
+              runtime.ROOT / 'outputs/starvla/datasets' / task_spec(args.task).name /
               f'teacher-rollouts-h{task_spec(args.task).action_horizon}-state-v1')
     if args.task == 'mikasa_conditioned_h8' or args.dataset_dir is not None:
         shared = args.dataset_dir.resolve()
@@ -198,7 +173,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                        '--teacher-checkpoint', teacher, '--output-dir', shared / 'raw']
             if args.smoke:
                 command.append('--smoke')
-            run_command(command, args.output_dir / 'bootstrap_collect.log')
+            runtime.run_command(command, args.output_dir / 'bootstrap_collect.log')
             _prepare_balance_bootstrap(shared / 'raw', shared / 'lerobot')
             raw_metadata = json.loads((shared / 'raw/metadata.json').read_text())
             write_json(shared / 'provenance.json', {'teacher': teacher_reference,
@@ -346,7 +321,7 @@ def train(args, config: dict) -> tuple[Path, Path]:
     data = config['datasets']['vla_data']
     trainer = config['trainer']
     global_batch = args.num_gpus * data['per_device_batch_size'] * trainer['gradient_accumulation_steps']
-    env = environment()
+    env = runtime.environment()
     env['CUDA_HOME'] = str(args.vla_python.resolve().parent.parent)
     if 'WANDB_RUN_ID' not in env:
         env['WANDB_RUN_ID'] = f'{args.task}-{args.model}-{args.run_id}-{run_id}'
@@ -360,12 +335,12 @@ def train(args, config: dict) -> tuple[Path, Path]:
         print(f"Training microbatch={data['per_device_batch_size']}, "
               f"accumulation={trainer['gradient_accumulation_steps']}, global_batch={global_batch}", flush=True)
         try:
-            run_command([
+            runtime.run_command([
                 args.vla_python, '-m', 'accelerate.commands.launch',
-                '--config_file', STARVLA / 'starVLA/config/deepseeds/deepspeed_zero2.yaml',
+                '--config_file', runtime.STARVLA / 'starVLA/config/deepseeds/deepspeed_zero2.yaml',
                 '--num_processes', args.num_gpus, '--main_process_port', args.port,
-                STARVLA / 'starVLA/training/train_starvla.py', '--config_yaml', config_path,
-            ], log, cwd=STARVLA, env=env)
+                runtime.STARVLA / 'starVLA/training/train_starvla.py', '--config_yaml', config_path,
+            ], log, cwd=runtime.STARVLA, env=env)
             break
         except subprocess.CalledProcessError:
             if not args.oom_retry:
@@ -420,19 +395,20 @@ def eval_config(args, bundle: Path, output_dir: Path, *,
                 eval_latency_frames: int | None = None) -> dict:
     settings = TASK_SETTINGS[args.task]
     spec = task_spec(args.task)
-    config = load_config(ROOT / settings['eval_config'])
+    config = load_config(runtime.ROOT / settings['eval_config'])
     config['experiment'] = {'name': f'{spec.name}_{args.model}_{args.condition}', 'seed': args.eval_seed}
     config['executor'] = {'mode': 'simulated', 'simulated_inference_pool': True,
                           'inference_devices': [args.inference_device], 'inference_batch_size': 2 if args.smoke else 8}
     config['latency'] = {'method': 'zero', 'sync_cuda': False}
     config['env'].update({'obs_fps': spec.fps, 'frame_stack': 1, 'simulator_device': args.simulator_device})
+    input_keys = runtime.TASK_INPUT_KEYS[spec.name]
     config['policy'] = {
         'type': 'starvla', 'action_prefix': {'mode': 'none'}, 'checkpoint_path': str(bundle / 'checkpoints/model.pt'),
         'model_config_path': str(bundle / 'config.yaml'), 'task_contract_path': str(bundle / 'task_contract.json'),
         'worker_python_executable': str(args.vla_python), 'device': args.inference_device,
         'backbone_path': str(args.backbone_path),
-        'state_info_key': settings['state_info_key'],
-        'image_views_info_key': 'mikasa_image_views' if spec.name == 'mikasa_intercept_grab_fast' else ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
+        'state_info_key': input_keys['state_info_key'],
+        'image_views_info_key': input_keys['image_views_info_key'],
     }
     config['scheduler'] = {'hold_policy': 'hold', 'ordering_policy': 'latest_ready', 'hold_last_chunk_action': True}
     config['evaluation'] = {'eval_episodes': (2 if args.smoke else 100)
@@ -447,7 +423,7 @@ def eval_config(args, bundle: Path, output_dir: Path, *,
             else {'method': 'fixed', 'fixed_latency_ms': eval_latency_frames * 50.0}
         )
         if args.task == 'mikasa_conditioned_h8':
-            config['env']['action_prefix_state_key'] = settings['state_info_key']
+            config['env']['action_prefix_state_key'] = input_keys['state_info_key']
             config['policy']['action_prefix'] = json.loads(
                 (bundle / 'task_contract.json').read_text()
             )['action_prefix']
@@ -466,15 +442,6 @@ def eval_config(args, bundle: Path, output_dir: Path, *,
     return config
 
 
-def evaluation_command(args, config_path):
-    """Launch the task's native environment with the shared evaluation driver."""
-    if args.task == 'balance':
-        command = [args.task_python, '-m', 'latency_bench.run', '--config', config_path]
-    elif args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8'):
-        command = [args.task_python, ROOT / 'scripts/mikasa/evaluate.py', 'latency-eval', '--eval-config', config_path]
-    return command
-
-
 def evaluate(args, bundle: Path, *, label: str,
              wandb_checkpoint: tuple[str, int] | None = None,
              eval_latency_frames: int | None = None) -> Path:
@@ -485,13 +452,13 @@ def evaluate(args, bundle: Path, *, label: str,
     config = eval_config(args, bundle, output_dir,
                          eval_episodes=args.eval_episodes, eval_latency_frames=eval_latency_frames)
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
-    command = evaluation_command(args, config_path)
+    command = runtime.evaluation_command(args, config_path)
     if args.task in ('mikasa_h8', 'mikasa_conditioned_h8') and args.eval_cuda_visible_devices is not None:
-        eval_env = environment()
+        eval_env = runtime.environment()
         eval_env['CUDA_VISIBLE_DEVICES'] = args.eval_cuda_visible_devices
-        run_command(command, output_dir / 'stdout.log', env=eval_env)
+        runtime.run_command(command, output_dir / 'stdout.log', env=eval_env)
     else:
-        run_command(command, output_dir / 'stdout.log')
+        runtime.run_command(command, output_dir / 'stdout.log')
     if wandb_checkpoint is not None and not args.smoke:
         run_id, step = wandb_checkpoint
         # The task entries save summaries; this parent owns W&B reporting for all tasks.
@@ -657,7 +624,7 @@ def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict
     policy_path.write_text(yaml.safe_dump(policy, sort_keys=False))
     commands, collection = _balance_dagger_collection(args, teacher, policy_path, directory, round_number)
     for command, log in commands:
-        run_command(command, log)
+        runtime.run_command(command, log)
     metadata = json.loads((directory / 'raw/metadata.json').read_text())
     collection.update({key: metadata[key] for key in
                        ('label_provenance', 'student_raw_frames', 'teacher_branch_raw_frames')})
@@ -720,14 +687,14 @@ def _training_record(args, config, *, steps: int, dagger_updates: int, has_delta
 
 def code_revisions(task: str) -> dict:
     task_repo = {
-        'balance': ('humanoid_bench', ROOT / 'third_party/humanoid-bench'),
-        'mikasa': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
-        'mikasa_h8': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
-        'mikasa_conditioned_h8': ('mikasa', ROOT / 'third_party/MIKASA-Robo'),
+        'balance': ('humanoid_bench', runtime.ROOT / 'third_party/humanoid-bench'),
+        'mikasa': ('mikasa', runtime.ROOT / 'third_party/MIKASA-Robo'),
+        'mikasa_h8': ('mikasa', runtime.ROOT / 'third_party/MIKASA-Robo'),
+        'mikasa_conditioned_h8': ('mikasa', runtime.ROOT / 'third_party/MIKASA-Robo'),
     }[task]
     return {name: {'revision': subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip(),
                    'dirty': bool(subprocess.check_output(['git', '-C', str(path), 'status', '--porcelain'], text=True))}
-            for name, path in [('benchmark', ROOT), ('starvla', STARVLA), task_repo]}
+            for name, path in [('benchmark', runtime.ROOT), ('starvla', runtime.STARVLA), task_repo]}
 
 
 def publish_run(output_dir: Path) -> str:
@@ -811,7 +778,7 @@ def main(argv=None) -> None:
     if args.run_id is None:
         args.run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
     args.output_dir = (args.output_dir.resolve() if args.output_dir is not None else
-                       ROOT / 'outputs/starvla' / ('smoke' if args.smoke else 'runs') /
+                       runtime.ROOT / 'outputs/starvla' / ('smoke' if args.smoke else 'runs') /
                        task_spec(args.task).name / args.model / args.run_id)
     if args.force and not args.resume and args.output_dir.exists():
         shutil.rmtree(args.output_dir)
@@ -836,7 +803,7 @@ def main(argv=None) -> None:
     args.vla_python = (args.vla_python.absolute() if args.vla_python is not None else
                        conda_python('starvla_rl_games_openvla'))
     args.task_python = (args.task_python.absolute() if args.task_python is not None else
-                        ROOT / 'third_party/MIKASA-Robo/.venv/bin/python' if args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8') else
+                        runtime.ROOT / 'third_party/MIKASA-Robo/.venv/bin/python' if args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8') else
                         conda_python(TASK_SETTINGS[args.task]['conda_env']))
     teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint,
                                            args.condition if args.task == "balance" else "zero-latency")

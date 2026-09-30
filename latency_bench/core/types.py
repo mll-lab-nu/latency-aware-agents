@@ -56,6 +56,14 @@ class PolicyOutput:
 
 @dataclass
 class LatencyRecord:
+    """Latency data with duration fields in milliseconds.
+
+    ``start_wall_time`` and ``end_wall_time`` retain raw ``perf_counter``
+    readings in seconds despite their legacy names; they are monotonic clock
+    values, not Unix timestamps. Readings in the same clock domain, including
+    the existing same-host IPC paths, remain comparable.
+    """
+
     obs_id: int
     latency_ms: float
     start_wall_time: float | None = None

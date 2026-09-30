@@ -9,6 +9,8 @@ from typing import Iterator
 class StageProfiler:
     """Enabled-aware, CUDA-sync-aware stage timing collector.
 
+    Values in ``timings`` are stage durations in milliseconds.
+
     A disabled profiler is a no-op: ``time()`` returns a ``nullcontext`` so it
     records nothing and never synchronizes CUDA. Threading one through a hot
     path therefore costs nothing when profiling is off, which matters because

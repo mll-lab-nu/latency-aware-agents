@@ -1,6 +1,6 @@
 # 全仓库重构候选清单
 
-这是一份供后续逐项讨论、逐步实施的审计名单。**共 40 项，首批已完成 RF-002、RF-013、RF-029、RF-030、RF-036，余下 35 项继续按依赖分批推进。默认保留全仓库现有能力；删除实验分支、兼容路径、公共接口或归档证据，须与用户讨论后决定。** 勾选框表示该条已经完成约定的处理与验收，不表示“看过源码”或“提出建议”。
+这是一份供后续逐项讨论、逐步实施的审计名单。**共 40 项，首批已完成 RF-002、RF-013、RF-029、RF-030、RF-036，本对话累计15项完成、余下25项继续按依赖分批推进。默认保留全仓库现有能力；删除实验分支、兼容路径、公共接口或归档证据，须与用户讨论后决定。** 勾选框表示该条已经完成约定的处理与验收，不表示“看过源码”或“提出建议”。
 
 ## 审计范围与基准
 
@@ -42,9 +42,20 @@
 - **CPU 对照：** scheduler 组件全部输出一致，单 FIFO update 微操作仍有约 +0.164μs（+5.7%）开销；进一步对真实 SimulatedLatencyExecutor 的 CPU 单集循环做四组对照，动作、ready/apply 帧与指标一致，最大中位数增幅 1.4%。这是固定 DummyEnv/constant policy 的 CPU 证据，不代表真实模型、GPU 吞吐或正式实验结果。
 - **主证据：** [首批验收报告](../outputs/refactor/batch-01/report.md)，附 [前后测试结果比较](../outputs/refactor/batch-01/outcome-comparison.json)、[实现差异](../outputs/refactor/batch-01/implementation.patch)、原始日志、JUnit XML 和临时 probe 结果。
 
+<a id="batch-02"></a>
+
+## 本对话第二批：10条验收（2026-09-30）
+
+本批完成 **RF-005、RF-010、RF-016、RF-021、RF-022、RF-023、RF-024、RF-025、RF-032、RF-040**：七项代码收敛、三项Document；加首批共15项。用户在本对话将后续批次改为每批10条。
+
+- 基准为HEAD `51ed017dabd75d29ac26f52619c969e207347678` 加开始时完整工作树。四卡RTX PRO 6000主机建立独立before/after/venv，Python3.10.21，CUDA_VISIBLE_DEVICES为空，新增依赖仅入临时venv。
+- 主套件before **293通过、3失败**，after **303通过、同样3失败**；原296例结果及失败信息一致，新增10例通过。缺失backfill模块的collection error另行对照，也前后一致。详情见[报告](../outputs/refactor/batch-02/report.md)。
+- 180份study和四份generic config共184份全部字段一致，frozen splits、五次partitions与55个latency seeds一致，见[配置对照](../outputs/refactor/batch-02/config-comparison.json)。没有训练、GPU/model benchmark、正式评测、发布或自动commit。
+- RF-012/014/018/039未在本批实施。同期另有源码、脚本和测试清理及清单结构重写；这些改动保留，不计入本批通过声明。验收与[本批增量diff](../outputs/refactor/batch-02/implementation.patch)基于冻结快照；边界见[并行改动记录](../outputs/refactor/batch-02/concurrent-changes.json)。
+
 ## 优先级总表
 
-共 **40 项**：P1 9 项、P2 27 项、P3 4 项；其中 **5 项已完成，35 项未完成**。可从编号直达详细证据；未完成条目的动作仍是建议。
+共 **40 项**：P1 9 项、P2 27 项、P3 4 项；其中 **15 项已完成，25 项未完成**。可从编号直达详细证据；未完成条目的动作仍是建议。
 
 | 编号 | 优先级 | 候选 | 状态 | 动作 |
 |---|---|---|---|---|
@@ -52,34 +63,34 @@
 | [RF-002](#rf-002) | P2 | live scheduler 与 chunk peek 重复实现 ready-event 选择 | 已完成 | Consolidate |
 | [RF-003](#rf-003) | P2 | action-prefix projection 每次都深拷贝完整 scheduler | 待核实 | Redesign（性能收益验证后） |
 | [RF-004](#rf-004) | P2 | raw-frame 边界容差分别散落在 clock、scheduler、日志回填 | 待核实 | Document / Consolidate（边界验证后） |
-| [RF-005](#rf-005) | P2 | 时间记录字段混用秒、毫秒与进程内 monotonic 时间 | 候选 | Document |
+| [RF-005](#rf-005) | P2 | 时间记录字段混用秒、毫秒与进程内 monotonic 时间 | 已完成（Document） | Document |
 | [RF-006](#rf-006) | P2 | executor clock 与 EnvAdapter 各自计算 simulation time | 待核实 | Document / Redesign（支持合同确认后） |
 | [RF-007](#rf-007) | P3 | ProcessInferencePool 接收但丢弃 `now_ms` | 待讨论 | Prune（接口讨论后） |
 | [RF-008](#rf-008) | P1 | Deadly Corridor runtime button order 存在静默假设和静默映射 | 待核实 | Document / Prune（fallback 合同讨论后） |
 | [RF-009](#rf-009) | P3 | `latencies.jsonl` 与 `infer_latencies.jsonl` 写入相同 latency records | 待讨论 | Document / Prune（artifact 讨论后） |
-| [RF-010](#rf-010) | P2 | single 与 batched executor factory 只在部分 assembly 上重复 | 候选 | Consolidate |
+| [RF-010](#rf-010) | P2 | single 与 batched executor factory 只在部分 assembly 上重复 | 已完成 | Consolidate |
 | [RF-011](#rf-011) | P2 | 按边界拆分通用 StarVLA 适配器 | 候选 | Redesign（现有职责整理） |
 | [RF-012](#rf-012) | P1 | 合并 StarVLA 模型输入栈的重复解析 | 候选 | Consolidate |
 | [RF-013](#rf-013) | P2 | 让 policy action label 引用 canonical label 表 | 已完成 | Consolidate |
 | [RF-014](#rf-014) | P2 | 共用状态归一化数值核心 | 待核实（数值合同） | Consolidate |
 | [RF-015](#rf-015) | P1 | 明确 mapless latency prompt 的时钟来源 | 待核实 | Document / Consolidate（生产路径核实后） |
-| [RF-016](#rf-016) | P2 | 切开StarVLA evaluation对training CLI的依赖 | 候选 | Consolidate |
+| [RF-016](#rf-016) | P2 | 切开StarVLA evaluation对training CLI的依赖 | 已完成 | Consolidate |
 | [RF-017](#rf-017) | P2 | 将teacher rollout的大型双阶段collector恢复成清晰编排边界 | 候选 | Redesign（现有编排边界整理） |
 | [RF-018](#rf-018) | P2 | 整理checkpoint文件内部边界，不改变保留生命周期 | 候选 | Redesign（文件职责整理） |
 | [RF-019](#rf-019) | P1 | 先决定两种SF checkpoint loader的坏文件合同 | 待讨论 | Document → Consolidate（失败策略讨论后） |
 | [RF-020](#rf-020) | P2 | 明确filter kwargs是否是长期公开接口 | 待讨论 | Document / Consolidate（现有 filter 合同讨论后） |
-| [RF-021](#rf-021) | P1 | 统一 Flappy 预算实验的 55-run 总体定义 | 候选 | Consolidate |
-| [RF-022](#rf-022) | P1 | 让两 episode session 宽度只有一个内部定义 | 候选 | Consolidate |
-| [RF-023](#rf-023) | P2 | 收敛 generic profile 与 sim2real 的重复 runtime overlay | 候选 | Consolidate |
-| [RF-024](#rf-024) | P2 | 合并 resident replay 的共同准备与资源生命周期 | 候选 | Consolidate |
-| [RF-025](#rf-025) | P2 | 合并 grouped replay 的 episode 持久化公共路径 | 候选 | Consolidate |
+| [RF-021](#rf-021) | P1 | 统一 Flappy 预算实验的 55-run 总体定义 | 已完成 | Consolidate |
+| [RF-022](#rf-022) | P1 | 让两 episode session 宽度只有一个内部定义 | 已完成 | Consolidate |
+| [RF-023](#rf-023) | P2 | 收敛 generic profile 与 sim2real 的重复 runtime overlay | 已完成 | Consolidate |
+| [RF-024](#rf-024) | P2 | 合并 resident replay 的共同准备与资源生命周期 | 已完成 | Consolidate |
+| [RF-025](#rf-025) | P2 | 合并 grouped replay 的 episode 持久化公共路径 | 已完成 | Consolidate |
 | [RF-026](#rf-026) | P2 | 成本汇总从 timing JSON 读语义字段，不解析 artifact 路径 | 待讨论 | Consolidate（producer/report 坐标归属） |
 | [RF-027](#rf-027) | P2 | 共用每 case 归一化误差公式，保持统计汇总分开 | 待讨论 | Consolidate 或 Document（净收益讨论后） |
 | [RF-028](#rf-028) | P2 | 明确 evaluation config resolution 的嵌套边界 | 待讨论 | Document / Consolidate（入口合同确认后） |
 | [RF-029](#rf-029) | P2 | 将 Sample Factory policy type 分类集中到单一出处 | 已完成 | Consolidate |
 | [RF-030](#rf-030) | P2 | 抽取 fixed-latency sweep 的配置准备，不动运行汇总层 | 已完成 | Consolidate |
 | [RF-031](#rf-031) | P2 | 明确 generic profile 命令的工作目录契约 | 待核实 | Document / Consolidate（CWD 支持范围讨论后） |
-| [RF-032](#rf-032) | P3 | 评估 18 份 sim2real archived eval snapshot 的重复，不覆盖来源档案 | 待讨论 | Document（runtime overlay 提取另议） |
+| [RF-032](#rf-032) | P3 | 评估 18 份 sim2real archived eval snapshot 的重复，不覆盖来源档案 | 已完成（Document） | Document（runtime overlay 提取另议） |
 | [RF-033](#rf-033) | P1 | 已不存在的 formal_chain_watchdog 仍有测试调用 | 待讨论 | Prune 或 Consolidate（原测试合同讨论后） |
 | [RF-034](#rf-034) | P1 | pi0.5 来源快照与 source_map 的摘要、大小不一致 | 待讨论 | Document（来源调查后决定修复） |
 | [RF-035](#rf-035) | P2 | 一部分测试锁定源码表达或生产对象私有状态 | 候选（删减具体测试需讨论） | Consolidate（删减测试另议） |
@@ -87,7 +98,7 @@
 | [RF-037](#rf-037) | P2 | MIKASA 多代 launcher 继续维护相近的完整实验编排 | 待讨论 | Consolidate / Prune（逐入口讨论后） |
 | [RF-038](#rf-038) | P2 | 跨主机实验入口绑定固定主机、解释器和 GPU 布局 | 待讨论 | Document / Consolidate / Prune（用途讨论后） |
 | [RF-039](#rf-039) | P2 | MIKASA publisher 重复上传和 revision 回读机制 | 候选（发布/兼容行为改动待讨论） | Consolidate（发布语义变更另议） |
-| [RF-040](#rf-040) | P3 | 协议版本、历史状态与正式结果的文档入口需要更明确 | 候选（文档职责调整） | Document（归档/删文档另议） |
+| [RF-040](#rf-040) | P3 | 协议版本、历史状态与正式结果的文档入口需要更明确 | 已完成（Document） | Document（归档/删文档另议） |
 
 ## 16 类问题覆盖映射
 
@@ -184,7 +195,7 @@
 
 ### RF-005 — 时间记录字段混用秒、毫秒与进程内 monotonic 时间
 
-- [ ] **状态：候选**
+- [x] **状态：已完成（Document）**
 - **动作层级**：Document。
 - **优先级 / 置信度 / 变更类型：** P2 / 高 / 文档与字段责任说明，不改 wire schema。
 - **分类：** C03、C10。
@@ -195,6 +206,7 @@
 - **需保留 / 风险：** `perf_counter` 起止时刻不能跨机器或跨独立 clock domain 直接比较；不同模块测得的 stage durations 是同类毫秒持续时间，但不能把绝对起止点混加到 episode simulation time。
 - **验收与依赖：** 文档逐字段对照写入点；测试补充适当的量级/单位 contract 时，应避免基于运行时长设脆弱门槛。Realtime Pipeline 文档“durations are ms”适用于其表格，不应被误认为包括所有 backend metadata。
 - **必须讨论：** 不改 `start_wall_time`/`end_wall_time` 名称或导出格式；任何重命名、换 epoch clock 的提议都需另做 schema/下游兼容评估。
+- **本对话第二批验收：** 计时字段单位与clock domain已按写入点说明；字段名、数值和测量边界保持，measurement/profiler用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-006"></a>
 
@@ -264,7 +276,7 @@
 
 ### RF-010 — single 与 batched executor factory 只在部分 assembly 上重复
 
-- [ ] **状态：候选**
+- [x] **状态：已完成**
 - **动作层级**：Consolidate。
 - **优先级 / 置信度 / 变更类型：** P2 / 中 / 只合并可证明相同的 preparation。
 - **分类：** C04、C05、C11。
@@ -277,6 +289,7 @@
 - **必须讨论：** 要抽取哪些 preparation 字段、是否保留私有 helper；不能以统一抽象为由合并单集/批量 scheduling loop。性能影响只在确实挪动执行热路径时测量。
 
 ## Policy、数据与训练
+- **本对话第二批验收：** single/batched在原构造位置共用私有policy/pool准备；设备、batch专属检查与cleanup保持。pool四组合用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-011"></a>
 
@@ -356,7 +369,7 @@
 
 ### RF-016 — 切开StarVLA evaluation对training CLI的依赖
 
-- [ ] **状态：候选**
+- [x] **状态：已完成**
 - **动作层级**：Consolidate。
 - **优先级 / 置信度 / 改动类型 / 分类：** P2 / 高 / 将evaluation可复用部分移到中立模块，不搬训练算法 / C06 隐式状态/隐藏耦合；C12 API泄漏实现细节；C07 配置债务。
 - **证据与当前消费者：** [evaluate.py](../scripts/starvla/evaluate.py) L13–16 直接从 scripts.starvla.train_task 导入 TASK_SETTINGS、environment、evaluation_command、run_command，L95–105再从训练表拼evaluation policy。训练表本身在 [train_task.py](../scripts/starvla/train_task.py) L45–65 同时放teacher、conda env、task config、state key、batch size、SFT steps、episode cap和seed；数据合同的name/dim/horizon/fps则在 [starvla_tasks.py](../latency_bench/data/starvla_tasks.py) L35–104。表中的训练超参与数据合同并非完全重复，不应粗暴合成一个更大的全局registry。
@@ -365,6 +378,7 @@
 - **价值与最小建议：** 把共享的环境准备、命令构造和evaluation可用状态/image key映射放进轻量runtime helper；evaluate.py和train_task.py都调用它。训练teacher路径、batch和step设置留在训练owner；不要把这些值塞进StarVLATaskSpec。
 - **风险与保持项：** task alias（H1/H8/conditioned H8）可能共享teacher和config但不共享state_dim/action_horizon；必须从task_spec与task contract读取数据维度，不能被runtime setting alias覆盖。
 - **验收与依赖：** 针对balance、Mikasa H1、H8、conditioned H8对比生成的env/policy/eval config、seed和launcher命令；保持两个既有测试owner。
+- **本对话第二批验收：** runtime持有三个process/evaluation helpers和canonical task输入键；训练参数留train_task。真实调用方迁移，配置/命令用例及独立导入探测通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-017"></a>
 
@@ -430,7 +444,7 @@
 
 ### RF-021 — 统一 Flappy 预算实验的 55-run 总体定义
 
-- [ ] **状态：候选**
+- [x] **状态：已完成**
 - **动作层级**：Consolidate。
 - **分类：** C08 实验协议债务、C14 可复现性
 - **优先级 / 置信度 / 变更类型：** P1 / 高 / 收敛重复协议常量，不改实验协议。
@@ -442,12 +456,13 @@
 - **风险与必须保留的契约：** 保持 55 个 run、原始数据 0–9、新采集 10–54、原始 validation 5–9、固定随机种子 20260929、原有 fit 顺序、两个模型共用 split、source revision 和 reference return。禁止把原始 validation 的 run 混入其自身 profile 拟合，也禁止用 episode 级重排替代 run 级划分。
 - **依赖：** 依赖现有 budget protocol 常量与 freeze/resume 语义；不要为了收敛引入新的 manifest 版本或恢复兼容分支。
 - **后续验收：** 复用上述四个 cross-device 测试；对相同 frozen split 比较 fit/valid ID、导入目录、新采集数、延迟诊断的旧/新标签和报告成本归属。若拟改 manifest wire shape 或历史 campaign resume 格式，先讨论兼容范围。
+- **本对话第二批验收：** ALL_RUN_IDS与REUSED_RUN_IDS共用固定55-run协议；original fit顺序、两frozen splits、五次partitions及55个latency seeds前后一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-022"></a>
 
 ### RF-022 — 让两 episode session 宽度只有一个内部定义
 
-- [ ] **状态：候选**
+- [x] **状态：已完成**
 - **动作层级**：Consolidate。
 - **分类：** C04 重复实现、C08 实验协议债务、C11 状态/资源所有权
 - **优先级 / 置信度 / 变更类型：** P1 / 高 / 合并固定协议宽度；不开放新的泛化参数。
@@ -459,12 +474,13 @@
 - **风险与必须保留的契约：** 保持 logical episode ID = 20*run_id + episode_in_run、环境 seed = 2,000,000 + episode_id、Temporal 在同一 run 两 episode 中的连续状态、下一 Temporal run 的 sampler 隔离，以及 seeded IID/Normal 已有的 per-episode 随机流、仅两份 metrics 和 trace 完整写入后才落 DONE。Temporal replica-zero seed、episode action-noise seed 也必须保持。
 - **依赖：** 依赖固定 EPISODES=2 与当前 ENV_SEED_STRIDE=20 的协议所有者；不新增任意 session width 配置。
 - **后续验收：** 复用 grouped session 与 ten-slot 两个 executor 测试，以及 test_budget_split_sizes_and_total_replay_budget。检查 slots=1/2/4/8/10 时 run 顺序、logical IDs、seed、latency source 生命周期、DONE 写入时机和 run publication 位置相同。不要仅比较平均 return。
+- **本对话第二批验收：** grouped_replay持有唯一EPISODES=2，study同名导入。session sampler、seed stride、trace/DONE与ten-slot公开ID用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-023"></a>
 
 ### RF-023 — 收敛 generic profile 与 sim2real 的重复 runtime overlay
 
-- [ ] **状态：候选**
+- [x] **状态：已完成**
 - **动作层级**：Consolidate。
 - **分类：** C04 重复实现、C03 概念/语义漂移、C09 训练/评测/部署漂移、C10 时间单位
 - **优先级 / 置信度 / 变更类型：** P2 / 重复事实高、可共享范围中 / 只抽取确实相同的 overlay。
@@ -476,12 +492,13 @@
 - **风险与必须保留的契约：** Study 保留原任务 physics、frame skip、action mapping、history/prompt/normalization/horizon 和 seed；generic profile 保留 profile artifact identity、worker slot、capacity 和 GPU mapping。env FPS 改动仍按原 stride 缩放 obs FPS，不替换训练 profile FPS。
 - **依赖：** 依赖逐字段确认 generic profile 与 archived study 的配置差异；未证明相同的字段继续由原 builder 所有。
 - **后续验收：** 对 archived 18 task/model configs 逐项验证 run_config 仅改变既有运行坐标；对 generic profile 验证 simulation_config 写出的 profile provenance、slots 和 simulator/inference device 不变。复用上述两个测试，不比较配置文本顺序作为验收目标。
+- **本对话第二批验收：** 仅共享clock/obs stride与profile scalar变换，IID/Temporal不读取summary；两builder差异留caller。184份config全部字段一致。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-024"></a>
 
 ### RF-024 — 合并 resident replay 的共同准备与资源生命周期
 
-- [ ] **状态：候选**
+- [x] **状态：已完成**
 - **动作层级**：Consolidate。
 - **分类：** C04 重复实现、C11 状态/资源所有权、C15 依赖/环境债务
 - **优先级 / 置信度 / 变更类型：** P2 / 高 / 小范围提取 executor 准备和关闭边界。
@@ -493,12 +510,13 @@
 - **风险与必须保留的契约：** 保留 Mikasa 可选依赖的局部 import、simulator interpreter 与 worker_python 分离、device map、action_noise_seeded 的模型范围、每个 executor 恰好关闭一次。不得因初始化失败被吞掉异常或自动降低 parallelism。
 - **依赖：** 依赖明确执行端选择 env backend、模型 worker interpreter 和可选 MIKASA import 的责任边界。
 - **后续验收：** 用 pinned replay 的 parallel_runs 参数化测试、预算模拟恢复测试和现有 GPU serial/batch gate。对照 executor warmup 数、输入配置、seeds、action traces、latency traces、close 后 worker/backend 退出。
+- **本对话第二批验收：** 只共享resolve→checkpoint inputs→config seed，真实Python/NumPy/Torch下一抽样验证run seed并恢复测试RNG。backend/warmup计时/close保持caller。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-025"></a>
 
 ### RF-025 — 合并 grouped replay 的 episode 持久化公共路径
 
-- [ ] **状态：候选**
+- [x] **状态：已完成**
 - **动作层级**：Consolidate。
 - **分类：** C04 重复实现、C11 状态/资源所有权、C12 API 泄漏实现细节
 - **优先级 / 置信度 / 变更类型：** P2 / 高 / 提取窄小公共执行过程，保留两种调度器。
@@ -510,6 +528,7 @@
 - **风险与必须保留的契约：** 仅不完整 run 可清理重跑；DONE 只在 run 内两个 episode metrics 和 raw traces 写完之后建立；publication callback 在 DONE 后按既有目录生效。保留 across-settings 重复 run ID 不冲突，以及Temporal sampler 只跨同一 run 的两 episode，seeded IID/Normal 按既有 episode factory 分配。
 - **依赖：** 依赖 RunTrajectoryLogger 与 grouped_inputs 已有接口；调度策略、出版路径和内部 ID 映射仍由各流程持有。
 - **后续验收：** 复用 test_grouped_runs_keep_session_streams_and_seeds_when_slots_change、test_ten_run_slots_keep_repeated_run_ids_separate_across_settings、预算模拟恢复测试。核对 raw trace episode ids、metadata run_id/episode_in_run、发布路径和 run completion 次序。
+- **本对话第二批验收：** 五参数helper只flatten/run/flush/return；logger安装、cleanup、identity映射、publication与计时保持caller。grouped/ten-slot/resume用例通过。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-026"></a>
 
@@ -623,7 +642,7 @@
 
 ### RF-032 — 评估 18 份 sim2real archived eval snapshot 的重复，不覆盖来源档案
 
-- [ ] **状态：待讨论**
+- [x] **状态：已完成（Document）**
 - **动作层级**：Document（runtime overlay 提取另议）。
 - **分类：** C07 配置债务、C09 训练/评测/部署漂移、C14 可复现性
 - **优先级 / 置信度 / 变更类型：** P3 / 重复矩阵高、可安全收敛范围中 / 先做差异盘点，再考虑仅限 runtime overlay 的提取。
@@ -637,6 +656,7 @@
 - **后续验收：** 复用 asset pinning、archived task contract、pinned cross-host replay 三个现有 tests；逐 pair 比较 resolved runtime config 与原 archive，明确每个覆盖字段及原因。若要改变任何 archive 内容、条目数量或 task/model 能力，必须先单独讨论；默认不删除任何 variant。
 
 ## 测试、实验脚本与文档
+- **本对话第二批验收：** 18份archived YAML的per-task差异与overlay职责已写入sim2real README；文件/registry保持原样，按Document完成。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 <a id="rf-033"></a>
 
@@ -774,7 +794,7 @@
 
 ### RF-040 — 协议版本、历史状态与正式结果的文档入口需要更明确
 
-- [ ] **状态：候选（文档职责调整）**
+- [x] **状态：已完成（Document）**
 - **动作层级**：Document（归档/删文档另议）。
 - **优先级 / 置信度 / 动作**：P3；高（多文档角色和版本说明已定位，未查询实际运行状态）；Document。
 - **分类**：C03 语义漂移、C08 实验协议债务、C14 可复现性、C16 仓库卫生。
@@ -786,6 +806,7 @@
 - **风险与保留行为**：保留 71D 结果的失效原因、63D 输入尺度与重跑决策，以及训练/评测/acceptance/publication 四种独立状态。不能为清理文档移动或改写原始证据，也不把游戏状态全部塞入只负责 Balance/MIKASA 的 PROGRESS。
 - **验收与依赖**：新读者从 README 能唯一定位指定协议的入口与合同，历史页指向准确接续页；对照相同模型/输入/seed/FPS 的结果才核对数值。涉及最新状态只在有新验证证据时更新；本次候选清单不替各实验刷新状态。为 RF-032、RF-037 的入口保留决策提供依据。
 - **待讨论**：哪些旧手册需要继续可执行复现，哪些只需历史证据？若要归档或删除文档，先确认保留基线和外部引用。
+- **本对话第二批验收：** 7D/71D/63D版本及9/24→9/25接续清楚，旧部署按历史日期读。HANDOFF绑定9/30收录原稿，原状态日期/逐行数值来源待核实，原表保留。 [证据](../outputs/refactor/batch-02/report.md)，验收范围见[批次记录](#batch-02)。
 
 ## 删除、归档与语义变更讨论区
 
@@ -836,7 +857,7 @@
 3. **按调用责任收敛准备与编排**：RF-016、RF-023/RF-024/RF-025、RF-026/RF-027/RF-028。先保留统计粒度、路径、seed 和资源合同，再决定最小提取；如果提取需要新 framework、marker 或大量 mode flag，重新评估净收益。
 4. **最后整理大型模块与历史入口**：RF-011、RF-017、RF-018 的拆分沿现有职责开展，不以行数为目标；RF-037/RF-038/RF-039/RF-040 根据入口/资产盘点和用户选择精简或归档。RF-003 与 RF-004 在性能/边界验证前保持现状，RF-006/RF-031 先明确支持合同。
 
-上述顺序是建议，独立条目可以单独做；“依赖”指完成该条前必须弄清的合同，不要求先把整组重构做完。用户已确定**每批 5 条，按依赖排期**；每条仍保持能独立验收的行为边界，记录编号、决定、实际修改和一份主验收证据。遇到数值或实验语义差异时先保留当前行为、后移该条，不把整批合成一次大型重写。
+上述顺序是建议，独立条目可以单独做；“依赖”指完成该条前必须弄清的合同，不要求先把整组重构做完。用户已确定**首批5条、后续每批10条，按依赖排期**；每条仍保持能独立验收的行为边界，记录编号、决定、实际修改和一份主验收证据。遇到数值或实验语义差异时先保留当前行为、后移该条，不把整批合成一次大型重写。
 
 **行为保持的改动**：对照同 checkpoint、resolved config、episode IDs、环境/latency seeds、profile输入和 FPS，核对 action、ready/apply frames、termination、returns 与输出字段。只运行拥有该合同的既有 suite；新增失败或边界改动才扩大检查，不做无关的全仓回归循环。
 

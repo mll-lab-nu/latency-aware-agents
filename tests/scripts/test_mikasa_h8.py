@@ -15,7 +15,7 @@ from latency_bench.data.starvla_tasks import normalize, task_spec, write_task_co
 from latency_bench.core.types import Action, Observation
 from latency_bench.policy.action_prefix import encode_prefix_state, resolve_action_prefix, with_action_prefix
 from scripts.mikasa.evaluate import _reset_seeded_slot, _reset_seeded_slots
-from scripts.starvla import train_task
+from scripts.starvla import runtime, train_task
 from scripts.tasks.mikasa_intercept_grab_fast import fixed_latency_grid as grid
 from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
     _copy_branch_state,
@@ -1062,6 +1062,8 @@ def test_mikasa_h8_eval_uses_20hz_rtx3090_profile_capacity_one(tmp_path, monkeyp
         "seed": 0,
         "profile_path": str(profile_path),
     }
+    assert config["policy"]["state_info_key"] == "mikasa_proprio"
+    assert config["policy"]["image_views_info_key"] == "mikasa_image_views"
     assert config["evaluation"]["eval_parallel_envs"] == 10
 
     zero_config = train_task.eval_config(
@@ -1134,6 +1136,11 @@ def test_mikasa_conditioned_eval_keeps_causal_action_context_in_all_settings(
     assert profile["env"]["action_prefix_state_key"] == "mikasa_proprio"
     assert zero["env"]["action_prefix_state_key"] == "mikasa_proprio"
     assert fixed["env"]["action_prefix_state_key"] == "mikasa_proprio"
+    assert all(
+        config["policy"]["state_info_key"] == "mikasa_proprio"
+        and config["policy"]["image_views_info_key"] == "mikasa_image_views"
+        for config in (profile, zero, fixed)
+    )
     assert profile["policy"]["action_prefix"] == profile_prefix
     assert zero["policy"]["action_prefix"] == profile_prefix
     assert fixed["latency"] == {"method": "fixed", "fixed_latency_ms": 100.0}
@@ -1151,7 +1158,7 @@ def test_mikasa_h8_eval_reorders_physical_simulator_and_inference_gpus(tmp_path,
     monkeypatch.setattr(train_task, "eval_config", lambda *args, **kwargs: {})
     calls = []
     monkeypatch.setattr(
-        train_task,
+        runtime,
         "run_command",
         lambda command, log, *, env: calls.append((command, log, env)),
     )

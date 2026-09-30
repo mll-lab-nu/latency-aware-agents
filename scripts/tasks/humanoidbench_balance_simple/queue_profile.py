@@ -10,7 +10,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-from scripts.starvla.train_task import environment
+from scripts.starvla import runtime
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -64,7 +64,7 @@ def main():
                    "--rollout-overlap", "--no-gradient-checkpointing"]
         if stage == "smoke":
             command.append("--smoke")
-        env = environment() | {"CUDA_VISIBLE_DEVICES": pair,
+        env = runtime.environment() | {"CUDA_VISIBLE_DEVICES": pair,
                                "MUJOCO_EGL_DEVICE_ID": pair.split(",")[0],
                                "WANDB_MODE": "disabled" if stage == "smoke" else "online"}
         log_name = f"{mode}_{stage}.log"

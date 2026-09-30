@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from latency_bench.utils.paths import REPO_ROOT
+from scripts.starvla import runtime
 from scripts.starvla import train_task
 
 
@@ -76,7 +78,7 @@ def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
         num_gpus=2,
         port=29521,
     )
-    monkeypatch.setattr(train_task, 'run_command', lambda *call_args, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(runtime, 'run_command', lambda *call_args, **kwargs: calls.append(kwargs))
 
     config = {
         'run_id': 'bootstrap',
@@ -128,7 +130,7 @@ def test_fixed_training_oom_preserves_requested_batch(tmp_path, monkeypatch):
         log.write_text('CUDA out of memory')
         raise subprocess.CalledProcessError(1, command)
 
-    monkeypatch.setattr(train_task, 'run_command', fail)
+    monkeypatch.setattr(runtime, 'run_command', fail)
     with pytest.raises(subprocess.CalledProcessError):
         train_task.train(args, config)
     assert len(calls) == 1
@@ -156,7 +158,7 @@ def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_pat
         commands.append(command)
         (output / f'queue_eval_latency_{label}.json').write_text(json.dumps({'returns': [1.0]}))
 
-    monkeypatch.setattr(train_task, 'run_command', run)
+    monkeypatch.setattr(runtime, 'run_command', run)
     monkeypatch.setattr(train_task, '_log_corrected_eval_summaries_to_wandb',
                         lambda config, values: summaries.extend(values))
     result = train_task.evaluate(args, tmp_path / 'bundle', label='checkpoint', wandb_checkpoint=('run', 500))
@@ -243,7 +245,7 @@ def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path
     configs = []
     monkeypatch.setattr(train_task, 'resolve_teacher', lambda *args: (tmp_path / 'teacher', {}))
     monkeypatch.setattr(train_task, 'resolve_backbone', lambda *args: (tmp_path / 'backbone', {}))
-    monkeypatch.setattr(train_task, 'run_command', lambda *args, **kwargs: None)
+    monkeypatch.setattr(runtime, 'run_command', lambda *args, **kwargs: None)
 
     def fake_train(args, config):
         configs.append(config)
@@ -378,14 +380,22 @@ def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_pat
         '--episodes', '2', '--seed-start', '810001',
     ])
     calls = []
-    monkeypatch.setattr(evaluate, 'run_command', lambda command, *args, **kwargs: calls.append(command))
+    monkeypatch.setattr(
+        evaluate.runtime,
+        'run_command',
+        lambda command, *args, **kwargs: calls.append(command),
+    )
     evaluate.main()
     config = yaml.safe_load((output / 'eval_config.yaml').read_text())
     assert config['policy']['action_prefix']['frames'] == 3
     assert config['policy']['action_prefix']['mean_ms'] == 40.001
-    assert config['policy']['state_info_key'] == train_task.TASK_SETTINGS[task]['state_info_key']
-    assert config['policy']['image_views_info_key'] == (
-        'mikasa_image_views' if task == 'mikasa' else 'env_raw_rgb_frame_stack')
+    expected_input_keys = {
+        'balance': ('gymnasium_state', 'env_raw_rgb_frame_stack'),
+        'mikasa': ('mikasa_proprio', 'mikasa_image_views'),
+    }
+    assert (
+        config['policy']['state_info_key'], config['policy']['image_views_info_key']
+    ) == expected_input_keys[task]
     assert config['policy']['device'] == 'cuda:0'
     assert config['experiment']['seed'] == 810001
     assert config['evaluation']['eval_episodes'] == 2
@@ -397,3 +407,34 @@ def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_pat
         assert config['env']['action_context_horizon'] == 8
     with pytest.raises(FileExistsError):
         evaluate.main()
+
+
+@pytest.mark.parametrize(
+    ('task', 'driver', 'config_flag'),
+    [
+        ('balance', ('-m', 'latency_bench.run'), '--config'),
+        (
+            'mikasa',
+            (REPO_ROOT / 'scripts/mikasa/evaluate.py', 'latency-eval'),
+            '--eval-config',
+        ),
+        (
+            'mikasa_h8',
+            (REPO_ROOT / 'scripts/mikasa/evaluate.py', 'latency-eval'),
+            '--eval-config',
+        ),
+        (
+            'mikasa_conditioned_h8',
+            (REPO_ROOT / 'scripts/mikasa/evaluate.py', 'latency-eval'),
+            '--eval-config',
+        ),
+    ],
+)
+def test_runtime_evaluation_command_keeps_native_task_entrypoints(
+    tmp_path, task, driver, config_flag
+):
+    python = tmp_path / 'task-python'
+    config = tmp_path / 'eval.yaml'
+    args = SimpleNamespace(task=task, task_python=python)
+
+    assert runtime.evaluation_command(args, config) == [python, *driver, config_flag, config]

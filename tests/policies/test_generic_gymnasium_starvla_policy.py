@@ -625,3 +625,26 @@ def test_explicit_generic_base_prompt_supports_timing_suffix_without_registry_en
 
     assert prompt.startswith("Drive the car up the mountain.")
     assert "3 raw frames (100.00 ms)" in prompt
+
+
+@pytest.mark.parametrize("mutation", ["scaled_clock", "changed_ratio", "changed_prompt"])
+def test_generic_policy_calibrated_clock_preserves_training_semantics(
+    monkeypatch, tmp_path: Path, mutation,
+):
+    from latency_bench.policy import starvla
+
+    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla, "_normalized_model_cfg", lambda config: config)
+    monkeypatch.setattr(starvla, "_load_starvla_model_config", _read_model_config)
+    config = _generic_config(tmp_path)
+    config["env"].update(env_fps=101.88019608871818, obs_fps=101.88019608871818 / 3)
+    if mutation == "changed_ratio":
+        config["env"]["obs_fps"] /= 2
+    elif mutation == "changed_prompt":
+        config["env"]["base_prompt"] = "A different task."
+    if mutation == "scaled_clock":
+        policy = build_policy(config, ActionResolver(config["env"]))
+        assert policy.predict(_observation()).action.value == 2
+    else:
+        with pytest.raises(ValueError, match="training contract"):
+            build_policy(config, ActionResolver(config["env"]))

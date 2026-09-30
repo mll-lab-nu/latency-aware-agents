@@ -93,6 +93,32 @@ def _resolve_policy(
     return policy if policy is not None else build_policy(config, action_resolver)
 
 
+def _build_simulated_policy_and_pool(
+    config: dict[str, Any],
+    action_resolver: ActionResolver,
+    policy: PolicyRunner | None,
+    inference_devices: list[str] | None,
+) -> tuple[PolicyRunner | None, ProcessInferencePool | None]:
+    inference_pool = None
+    if config["executor"]["simulated_inference_pool"]:
+        if policy is not None:
+            raise ValueError(
+                "executor.simulated_inference_pool builds its policy inside subprocess "
+                "workers; an injected in-process policy cannot cross the process boundary"
+            )
+        inference_pool = ProcessInferencePool(
+            config=config,
+            inference_devices=(
+                _resolve_realtime_inference_devices()
+                if inference_devices is None
+                else inference_devices
+            ),
+        )
+    else:
+        policy = _resolve_policy(config, action_resolver, policy)
+    return policy, inference_pool
+
+
 def _build_trajectory_logger(config: dict[str, Any]) -> TrajectoryLogger:
     logging_cfg = config["logging"]
     return TrajectoryLogger(
@@ -189,23 +215,9 @@ def _build_single_simulated_executor(
     inference_devices: list[str] | None = None,
 ) -> SimulatedLatencyExecutor:
     c = _build_executor_runtime_components(config, env=env)
-    inference_pool = None
-    if config["executor"]["simulated_inference_pool"]:
-        if policy is not None:
-            raise ValueError(
-                "executor.simulated_inference_pool builds its policy inside subprocess "
-                "workers; an injected in-process policy cannot cross the process boundary"
-            )
-        inference_pool = ProcessInferencePool(
-            config=config,
-            inference_devices=(
-                _resolve_realtime_inference_devices()
-                if inference_devices is None
-                else inference_devices
-            ),
-        )
-    else:
-        policy = _resolve_policy(config, c.action_resolver, policy)
+    policy, inference_pool = _build_simulated_policy_and_pool(
+        config, c.action_resolver, policy, inference_devices
+    )
     episode_latency_source_factory = build_episode_sampler_factory(config["latency"], c.clock)
     latency_source = (
         episode_latency_source_factory(0)
@@ -250,22 +262,10 @@ def _build_batched_simulated_executor(
         raise_if_unsupported_batched_action_space(env_backend.slot_handles)
 
         clock = _build_clock(config)
-        if config["executor"]["simulated_inference_pool"]:
-            if policy is not None:
-                raise ValueError(
-                    "executor.simulated_inference_pool builds its policy inside subprocess "
-                    "workers; an injected in-process policy cannot cross the process boundary"
-                )
-            inference_pool = ProcessInferencePool(
-                config=config,
-                inference_devices=(
-                    _resolve_realtime_inference_devices()
-                    if inference_devices is None
-                    else inference_devices
-                ),
-            )
-        else:
-            policy = _resolve_policy(config, action_resolver, policy)
+        policy, inference_pool = _build_simulated_policy_and_pool(
+            config, action_resolver, policy, inference_devices
+        )
+        if inference_pool is None:
             if type(policy).predict_batch is PolicyRunner.predict_batch:
                 raise ValueError(
                     f"policy.type={config['policy']['type']} does not support safe batched simulated eval yet; "

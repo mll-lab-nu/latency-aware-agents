@@ -10,6 +10,7 @@ from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.factory import build_executor
 import latency_bench.executors.factory as executor_factory
+from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
@@ -225,8 +226,11 @@ def test_simulated_inference_pool_requires_cuda_when_enabled(tmp_path, monkeypat
         build_executor(config)
 
 
-@pytest.mark.parametrize('configured_devices', [None, ['cuda:1']])
-def test_simulated_inference_pool_builds_pool_and_no_parent_policy(tmp_path, monkeypatch, configured_devices):
+@pytest.mark.parametrize("parallel", [False, True])
+@pytest.mark.parametrize("configured_devices", [None, ["cuda:1"]])
+def test_simulated_inference_pool_builds_pool_and_no_parent_policy(
+    tmp_path, monkeypatch, parallel, configured_devices
+):
     created = {}
 
     class FakePool:
@@ -245,11 +249,18 @@ def test_simulated_inference_pool_builds_pool_and_no_parent_policy(tmp_path, mon
     config = _config(output_dir=str(tmp_path))
     config["executor"]["simulated_inference_pool"] = True
     config["policy"]["device"] = "cuda"
+    if parallel:
+        config["evaluation"]["eval_episodes"] = 2
+        config["evaluation"]["eval_parallel_envs"] = 2
     if configured_devices is not None:
         config['executor']['inference_devices'] = configured_devices
 
     executor = build_executor(config)
     try:
+        if parallel:
+            assert isinstance(executor, BatchedSimulatedLatencyExecutor)
+        else:
+            assert isinstance(executor, SimulatedLatencyExecutor)
         assert isinstance(executor.inference_pool, FakePool)
         assert created["devices"] == (configured_devices if configured_devices is not None else ["cuda:0", "cuda:1"])
         assert executor.policy is None

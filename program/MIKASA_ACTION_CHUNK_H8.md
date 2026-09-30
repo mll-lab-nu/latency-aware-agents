@@ -3,6 +3,12 @@
 本文冻结 MIKASA `InterceptGrabFast-VLA-v0` 的 H8 action-chunk 数据、训练和评测合同。
 H1 历史基线仍以 [MIKASA](MIKASA.md) 和 [PROGRESS](PROGRESS.md) 为准。
 
+本页前半部分是 **7D proprio、H8×7、无 prefix 的 baseline 合同**；后半部分
+“Conditioned H8”保留 **71D v2** 来源与结果。63D v3 的输入修复说明见
+[Fixed-2 修复方案](MIKASA_FIXED2_PREFIX_REPAIR.md)，后续四档重采集、训练、评测和
+阶段发布协议见 [prefix63 重跑协议](MIKASA_PREFIX63_RESTART.md)。各版本的 state、
+normalization、checkpoint 和评测证据应成套读取，最新核验状态见 [PROGRESS](PROGRESS.md)。
+
 ## 数据合同
 
 - 任务键：`mikasa_h8`；原 `mikasa` H1 合同不变。
@@ -58,7 +64,7 @@ head、双相机 RGB、7D proprio、ZeRO-2 和 gradient checkpointing。seed 为
 global batch 为 128，训练 5,000 optimizer steps；保存 step-2,500 recovery state 和
 完整 step-5,000 model/state，只使用 step-5,000。
 
-当前 GPU 分配为每模型单卡：物理 GPU 1/2/3 分别运行 QwenOFT/QwenPI v3/QwenGR00T。
+该次 baseline 训练采用每模型单卡：物理 GPU 1/2/3 分别运行 QwenOFT/QwenPI v3/QwenGR00T。
 每路从 micro batch 128、accumulation 1 开始；只在真实 CUDA OOM 时将 micro batch
 减半并相应增加 accumulation，保持 global batch 128。
 
