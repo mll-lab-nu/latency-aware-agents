@@ -5,8 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../../.." && pwd)"
 cd "${REPO_ROOT}"
 
-export MUJOCO_GL="${MUJOCO_GL:-egl}"
-
 CONFIG_ROOT="configs/train/memory/small_model/inverted_pendulum/latency_024"
 FRAME_ROOT="${CONFIG_ROOT}/frame_stack"
 MANIFEST="${CONFIG_ROOT}/manifest.tsv"
@@ -128,7 +126,7 @@ evaluation:
 logging:
   output_dir: ${OUTPUT_ROOT}/latency_bench/frame_stack/${label}/fs1/seed_${seed}
   video:
-    enabled: true
+    enabled: false
     num_bins: 1
   save_step_records: true
   save_action_records: true
