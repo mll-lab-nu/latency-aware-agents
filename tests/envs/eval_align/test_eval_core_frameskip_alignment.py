@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import numpy as np
 import pytest
 from helpers import REPO_ROOT
@@ -58,7 +55,7 @@ def test_eval_core_frameskip_4_matches_four_frameskip_1_steps_from_same_ale_stat
         env_fs4.close()
 
 
-def test_eval_core_noop_reset_fs1_matches_sb3_noop_reset_without_fire_reset():
+def test_eval_core_noop_reset_fs1_matches_sb3_noop_reset_without_fire_reset(monkeypatch):
     pytest.importorskip("ale_py")
     pytest.importorskip("cv2")
 
@@ -67,7 +64,7 @@ def test_eval_core_noop_reset_fs1_matches_sb3_noop_reset_without_fire_reset():
     from stable_baselines3.common.atari_wrappers import NoopResetEnv
     from training.common.atari_cv2_obs import native_rgb_to_obs84
 
-    _ensure_starvla_on_path()
+    monkeypatch.syspath_prepend(REPO_ROOT / "third_party" / "starVLA")
     eval_core = pytest.importorskip("starVLA.training.rl_games.eval_core", exc_type=ImportError)
     DemonAttackNoopResetWrapper = eval_core.DemonAttackNoopResetWrapper
 
@@ -137,9 +134,3 @@ def _register_ale(gym) -> None:
     import ale_py
 
     gym.register_envs(ale_py)
-
-
-def _ensure_starvla_on_path() -> None:
-    starvla_root = REPO_ROOT / "third_party" / "starVLA"
-    if str(starvla_root) not in sys.path:
-        sys.path.insert(0, str(starvla_root))

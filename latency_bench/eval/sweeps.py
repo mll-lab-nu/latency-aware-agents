@@ -36,6 +36,18 @@ from latency_bench.logging.summary import write_queue_eval_summary
 from latency_bench.policy.factory import build_policy
 
 
+def _prepare_fixed_sweep_config(
+    config: dict[str, Any],
+    latency_steps: int,
+    output_dir: Path,
+) -> tuple[dict[str, Any], float]:
+    sweep_config = deepcopy(config)
+    configured_latency_ms = _latency_steps_to_ms(sweep_config, latency_steps)
+    _apply_eval_latency(sweep_config, latency_steps, configured_latency_ms)
+    sweep_config["logging"]["output_dir"] = str(output_dir)
+    return sweep_config, configured_latency_ms
+
+
 def _run_one_sweep(
     sweep_config: dict[str, Any],
     *,
@@ -156,10 +168,9 @@ def run_eval_sweep_from_config(
                 file=sys.stderr,
                 flush=True,
             )
-        sweep_config = deepcopy(config)
-        configured_latency_ms = _latency_steps_to_ms(sweep_config, eval_latency_steps)
-        _apply_eval_latency(sweep_config, eval_latency_steps, configured_latency_ms)
-        sweep_config["logging"]["output_dir"] = str(base_output_dir / f"eval_latency_{eval_latency_steps}")
+        sweep_config, configured_latency_ms = _prepare_fixed_sweep_config(
+            config, eval_latency_steps, base_output_dir / f"eval_latency_{eval_latency_steps}"
+        )
         summary_metadata = {
             "train_latency_steps": train_latency_steps,
             "eval_latency_steps": eval_latency_steps,
@@ -218,10 +229,10 @@ def run_eval_suites_from_config(
                         file=sys.stderr,
                         flush=True,
                     )
-                sweep_config = deepcopy(config)
-                configured_latency_ms = _latency_steps_to_ms(sweep_config, eval_latency_steps)
-                _apply_eval_latency(sweep_config, eval_latency_steps, configured_latency_ms)
-                sweep_config["logging"]["output_dir"] = str(suite_output_dir / f"eval_latency_{eval_latency_steps}")
+                sweep_config, configured_latency_ms = _prepare_fixed_sweep_config(
+                    config, eval_latency_steps,
+                    suite_output_dir / f"eval_latency_{eval_latency_steps}",
+                )
                 summary_metadata = {
                     "train_latency_steps": train_latency_steps,
                     "eval_latency_steps": int(eval_latency_steps),

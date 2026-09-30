@@ -14,6 +14,13 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, PolicyOutput
+from latency_bench.data.action_layouts import (
+    DEADLY_CORRIDOR_ATTACK_LABELS as _DEADLY_CORRIDOR_ATTACK_LABELS,
+    DEADLY_CORRIDOR_MOVE_LABELS as _DEADLY_CORRIDOR_MOVE_LABELS,
+    DEADLY_CORRIDOR_STRAFE_LABELS as _DEADLY_CORRIDOR_STRAFE_LABELS,
+    DEADLY_CORRIDOR_TURN_LABELS as _DEADLY_CORRIDOR_TURN_LABELS,
+    DEMON_ATTACK_ACTION_LABELS as _DEMON_ATTACK_ACTION_LABELS,
+)
 from latency_bench.data.ghost_trail import GhostTrailConfig, build_flappy_ghost_trail_window
 from latency_bench.data.state_normalization import min_max_normalize_state
 from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
@@ -41,34 +48,6 @@ STATEFUL_STARVLA_MODEL_IDS: tuple[str, ...] = (
 STATELESS_STARVLA_MODEL_IDS: tuple[str, ...] = (
     "openvla",
     "qwenoft",
-)
-
-DEMON_ATTACK_ACTION_LABELS: tuple[str, ...] = (
-    "NOOP",
-    "FIRE",
-    "RIGHT",
-    "LEFT",
-    "RIGHTFIRE",
-    "LEFTFIRE",
-)
-DEADLY_CORRIDOR_TURN_LABELS: tuple[str, ...] = (
-    "TURN_NOOP",
-    "TURN_LEFT",
-    "TURN_RIGHT",
-)
-DEADLY_CORRIDOR_MOVE_LABELS: tuple[str, ...] = (
-    "MOVE_NOOP",
-    "MOVE_FORWARD",
-    "MOVE_BACKWARD",
-)
-DEADLY_CORRIDOR_STRAFE_LABELS: tuple[str, ...] = (
-    "STRAFE_NOOP",
-    "MOVE_LEFT",
-    "MOVE_RIGHT",
-)
-DEADLY_CORRIDOR_ATTACK_LABELS: tuple[str, ...] = (
-    "ATTACK_NOOP",
-    "ATTACK",
 )
 
 
@@ -555,7 +534,7 @@ def to_jsonable_action_payload(payload: npt.NDArray[Any]) -> Any:
 def demon_attack_action_from_id(action_id: int) -> tuple[Action, dict[str, Any]]:
     action = Action(
         value=action_id,
-        name=DEMON_ATTACK_ACTION_LABELS[action_id],
+        name=_DEMON_ATTACK_ACTION_LABELS[action_id],
         is_noop=action_id == 0,
         is_oneshot=False,
     )
@@ -569,10 +548,10 @@ def deadly_corridor_action_from_tuple(
 ) -> tuple[Action, dict[str, Any]]:
     turn, move, strafe, attack = action_value
     action_value = [turn, move, strafe, attack]
-    turn_label = DEADLY_CORRIDOR_TURN_LABELS[turn]
-    move_label = DEADLY_CORRIDOR_MOVE_LABELS[move]
-    strafe_label = DEADLY_CORRIDOR_STRAFE_LABELS[strafe]
-    attack_label = DEADLY_CORRIDOR_ATTACK_LABELS[attack]
+    turn_label = _DEADLY_CORRIDOR_TURN_LABELS[turn]
+    move_label = _DEADLY_CORRIDOR_MOVE_LABELS[move]
+    strafe_label = _DEADLY_CORRIDOR_STRAFE_LABELS[strafe]
+    attack_label = _DEADLY_CORRIDOR_ATTACK_LABELS[attack]
     active_labels = [
         label
         for label in (turn_label, move_label, strafe_label, attack_label)

@@ -324,15 +324,11 @@ def test_starvla_policy_uses_wrapper_default_unnorm_key(monkeypatch, tmp_path: P
 
 
 def test_starvla_policy_uses_saved_checkpoint_no_state_config(monkeypatch, tmp_path: Path):
-    import sys
-
     from omegaconf import OmegaConf
 
     from latency_bench.policy import starvla
 
-    starvla_root = str(starvla.STARVLA_ROOT)
-    if starvla_root not in sys.path:
-        sys.path.insert(0, starvla_root)
+    monkeypatch.syspath_prepend(starvla.STARVLA_ROOT)
     from starVLA.model.framework.share_tools import apply_config_compat
 
     class SavedCheckpointPolicyServerWrapper(FakePolicyServerWrapper):

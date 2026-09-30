@@ -74,32 +74,43 @@ class ActionScheduler:
         self._pending_events.append(event)
         self._pending_events.sort(key=lambda item: item.action_id)
 
+    def _select_ready_events(
+        self,
+        current_step: int,
+        current_time_ms: float,
+    ) -> tuple[ActionEvent | None, list[ActionEvent] | None]:
+        """Return the selected event and latest-ready drop candidates.
+
+        FIFO returns ``None`` for candidates because it never drops other ready
+        events; latest-ready returns every ready event in queue order.
+        """
+        if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO:
+            head = self._pending_events[0]
+            if self._is_ready(head, current_step, current_time_ms):
+                return head, None
+            return None, None
+        ready = [
+            event
+            for event in self._pending_events
+            if self._is_ready(event, current_step, current_time_ms)
+        ]
+        return (ready[-1] if ready else None), ready
+
     def update(self, current_step: int, current_time_ms: float) -> Action:
         selected: ActionEvent | None = None
         if self._pending_events:
-            if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO:
-                head = self._pending_events[0]
-                if self._is_ready(head, current_step, current_time_ms):
-                    selected = head
+            selected, ready = self._select_ready_events(current_step, current_time_ms)
+            if ready is None:
+                if selected is not None:
                     self._pending_events = self._pending_events[1:]
-            else:
-                ready = [
-                    event
-                    for event in self._pending_events
-                    if self._is_ready(event, current_step, current_time_ms)
-                ]
-                not_ready = [
+            elif selected is not None:
+                for event in ready[:-1]:
+                    self._mark_dropped(event)
+                self._pending_events = [
                     event
                     for event in self._pending_events
                     if not self._is_ready(event, current_step, current_time_ms)
                 ]
-                if not ready:
-                    selected = None
-                else:
-                    selected = ready[-1]
-                    for event in ready[:-1]:
-                        self._mark_dropped(event)
-                    self._pending_events = not_ready
         if selected is not None:
             selected.applied = True
             selected.apply_raw_frame = current_step
@@ -123,15 +134,7 @@ class ActionScheduler:
         """Peek at the returned chunk used by the next scheduler update."""
         selected = None
         if self._pending_events:
-            if self.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO:
-                head = self._pending_events[0]
-                if self._is_ready(head, current_step, current_time_ms):
-                    selected = head
-            else:
-                ready = [event for event in self._pending_events
-                         if self._is_ready(event, current_step, current_time_ms)]
-                if ready:
-                    selected = ready[-1]
+            selected, _ = self._select_ready_events(current_step, current_time_ms)
         event = selected if selected is not None else self._active_chunk_event
         if event is None or event.action_chunk is None:
             return None, -1

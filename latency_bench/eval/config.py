@@ -10,12 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-_SAMPLE_FACTORY_POLICY_TYPES = {
-    "flappy_sf",
-    "demon_attack_sf",
-    "deadly_corridor_sf",
-    "gymnasium_sf",
-}
+from latency_bench.policy.factory import _SAMPLE_FACTORY_POLICY_TYPES
 
 
 def resolve_evaluation_config(config: dict[str, Any]) -> None:

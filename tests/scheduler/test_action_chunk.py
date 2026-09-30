@@ -255,3 +255,77 @@ def test_returned_action_state_and_prefix_share_the_observation_snapshot():
     assert "action_prefix" not in request.metadata
     assert "returned_action_context" not in request.metadata
     assert scheduler.update(1, 20) is old[1]
+
+
+@pytest.mark.parametrize(
+    ("ordering_policy", "expected_action_id", "expected_chunk_values"),
+    [
+        (OrderingPolicy.ISSUE_ORDER_FIFO, 0, [0.5, 1.0, 1.5, 2.0]),
+        (OrderingPolicy.LATEST_READY, 1, [2.0, 2.5, 3.0, 3.5]),
+    ],
+)
+def test_pending_returned_chunk_peek_matches_next_update_without_mutating(
+    ordering_policy, expected_action_id, expected_chunk_values
+):
+    clock = EnvClock(env_fps=10, obs_fps=10)
+    scheduler = ActionScheduler(
+        clock, Action([0.0]), HoldPolicy(), ordering_policy, hold_last_chunk_action=True
+    )
+    chunks = {
+        action_id: [Action([value]) for value in values]
+        for action_id, values in enumerate(
+            ([0.5, 1.0, 1.5, 2.0], [2.0, 2.5, 3.0, 3.5])
+        )
+    }
+    events = []
+    for action_id, chunk in chunks.items():
+        event = _chunk_event(
+            action_id=action_id,
+            obs_env_step=1,
+            ready_raw_frame=1,
+            latency_ms=0.0,
+            chunk=chunk,
+        )
+        events.append(event)
+        scheduler.enqueue(event)
+
+    observation = Observation(
+        data=None,
+        env_step=1,
+        sim_time_ms=100.0,
+        metadata={
+            "gymnasium_state": np.array([42.0]),
+            "returned_action_context": {
+                "state_key": "gymnasium_state",
+                "horizon": 4,
+                "frames": None,
+                "order": [0],
+                "low": np.array([0.0]),
+                "high": np.array([4.0]),
+            },
+        },
+    )
+    request = with_action_prefix(observation, scheduler, {"mode": "none"})
+    expected_prefix = 2 * (np.asarray(expected_chunk_values) / 4.0) - 1
+    np.testing.assert_array_equal(
+        request.metadata["gymnasium_state"],
+        np.concatenate((np.array([42.0]), expected_prefix, np.array([1.0, 0.0, 0.0, 0.0]))),
+    )
+
+    assert [event.action_id for event in scheduler.get_pending_events()] == [0, 1]
+    assert scheduler.applied_event_count == 0
+    assert scheduler.dropped_events_count == 0
+    assert scheduler.underflow_frames == 0
+    assert scheduler.chunk_metrics() == {}
+    assert all(
+        event.metadata == {} and not event.applied and not event.dropped
+        for event in events
+    )
+
+    active_action = scheduler.update(1, 100.0)
+    np.testing.assert_array_equal(active_action.value, chunks[expected_action_id][0].value)
+    assert [event.action_id for event in scheduler.get_applied_events()] == [expected_action_id]
+    assert scheduler.dropped_events_count == (1 if ordering_policy == OrderingPolicy.LATEST_READY else 0)
+    assert [event.action_id for event in scheduler.get_pending_events()] == (
+        [] if ordering_policy == OrderingPolicy.LATEST_READY else [1]
+    )

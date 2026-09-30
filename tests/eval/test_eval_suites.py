@@ -375,6 +375,8 @@ def test_checkpoint_eval_suites_leave_subprocess_policy_construction_to_executor
 def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
     import latency_bench.eval.sweeps as eval_sweeps
 
+    config = _suite_config(tmp_path)
+    original_latency_config = dict(config["latency"])
     seen_configs: list[dict] = []
 
     def fake_run_from_config(config, extra_metadata=None, write_summary=True, on_episode_complete=None, episode_ids=None):
@@ -392,7 +394,7 @@ def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr(eval_sweeps, "run_from_config", fake_run_from_config)
 
-    summaries = eval_sweeps.run_eval_suites_from_config(_suite_config(tmp_path), progress=False)
+    summaries = eval_sweeps.run_eval_suites_from_config(config, progress=False)
 
     assert [summary["suite_name"] for summary in summaries] == [
         "fixed_0_to_2",
@@ -411,6 +413,14 @@ def test_run_eval_suites_writes_per_suite_outputs(monkeypatch, tmp_path: Path):
         "uniform_min_4_max_12",
     ]
     assert seen_configs[0]["logging"]["output_dir"] == str(tmp_path / "fixed_0_to_2" / "eval_latency_0")
+    assert seen_configs[0]["latency"]["method"] == "zero"
+    assert "fixed_latency_ms" not in seen_configs[0]["latency"]
+    assert summaries[0]["configured_latency_ms"] == 0.0
+    assert seen_configs[1]["logging"]["output_dir"] == str(tmp_path / "fixed_0_to_2" / "eval_latency_1")
+    assert seen_configs[1]["latency"]["method"] == "fixed"
+    assert seen_configs[1]["latency"]["fixed_latency_ms"] == pytest.approx(1000.0 / 30.0)
+    assert summaries[1]["configured_latency_ms"] == pytest.approx(1000.0 / 30.0)
+    assert config["latency"] == original_latency_config
     assert seen_configs[3]["logging"]["output_dir"] == str(tmp_path / "normal_mean_2_std_1_min_0_max_15")
     assert seen_configs[3]["latency"]["method"] == "normal"
     assert seen_configs[5]["latency"]["method"] == "uniform"

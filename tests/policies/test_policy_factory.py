@@ -56,7 +56,9 @@ def test_unknown_policy_type_is_rejected():
         build_policy(config, ActionResolver(config["env"]))
 
 
-@pytest.mark.parametrize("policy_type", ["flappy_sf", "demon_attack_sf", "deadly_corridor_sf"])
+@pytest.mark.parametrize("policy_type", [
+    "flappy_sf", "demon_attack_sf", "deadly_corridor_sf", "gymnasium_sf",
+])
 def test_sample_factory_policy_types_are_supported(monkeypatch, policy_type):
     policy_module = ModuleType("latency_bench.policy.sample_factory")
     built = []

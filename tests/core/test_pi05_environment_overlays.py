@@ -2,25 +2,24 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
-import sys
 
 import pytest
 
 from latency_bench.core.config import load_config
+from helpers import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parents[2]
-CONFIGS = ROOT / 'configs/examples/gymnasium'
+CONFIGS = REPO_ROOT / 'configs/examples/gymnasium'
 SOURCES = CONFIGS / 'pi05_sources'
-sys.path.insert(0, str(ROOT / 'third_party/starVLA'))
-from examples.rl_games.scripts import launch_train
 
 
 @pytest.mark.parametrize('env,state_dim,action_dim', [
     ('air_raid', 0, 6), ('inverted_pendulum', 4, 5), ('hopper', 11, 3),
     ('half_cheetah', 17, 6), ('walker2d', 17, 6), ('ant', 27, 8), ('humanoid', 376, 17),
 ])
-def test_pinned_pi05_environment_overlay(env, state_dim, action_dim):
+def test_pinned_pi05_environment_overlay(monkeypatch, env, state_dim, action_dim):
+    monkeypatch.syspath_prepend(REPO_ROOT / 'third_party/starVLA')
+    from examples.rl_games.scripts import launch_train
+
     path = CONFIGS / env / 'pi05_train.yaml'
     overlay = load_config(path)
     manifest = json.loads((path.parent / overlay['source_manifest']).read_text())
