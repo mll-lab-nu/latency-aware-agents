@@ -1,0 +1,126 @@
+experiment:
+  name: air_raid_base
+  seed: 0
+
+backend:
+  type: sample_factory
+  algo: APPO
+  device: cuda
+  train_dir: results/sample_factory
+  restart_behavior: resume
+  run_mode: train
+  extra_args:
+    - --encoder_conv_architecture
+    - convnet_simple
+
+executor:
+  mode: simulated
+  simulated_worker_capacity: null
+
+env:
+  name: gymnasium
+  task_name: air_raid
+  env_id: LatencyBench/AirRaid-v0
+  registration_imports: [latency_bench.envs.gymnasium_air_raid]
+  make_kwargs:
+    base_env_id: ALE/AirRaid-v5
+    render_mode: rgb_array
+    screen_size: 84
+    noop_max: 30
+    fire_reset: true
+    base_make_kwargs:
+      obs_type: rgb
+      frameskip: 1
+      repeat_action_probability: 0.0
+      full_action_space: false
+      mode: 1
+      difficulty: 0
+      max_num_frames_per_episode: 108000
+  env_fps: 50
+  obs_fps: 12.5
+  frame_stack: 4
+  noop_action: noop
+  action_map:
+    noop: 0
+    fire: 1
+    right: 2
+    left: 3
+    rightfire: 4
+    leftfire: 5
+  action_order: [noop, fire, right, left, rightfire, leftfire]
+  base_prompt: >-
+    Protect both buildings from flying saucers. Choose exactly one action from:
+    noop, fire, right, left, rightfire, leftfire.
+
+latency:
+  method: zero
+  add_latency_info: false
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+
+policy:
+  type: random
+  actions: [noop, fire, right, left, rightfire, leftfire]
+
+training:
+  train_for_env_steps: 1000000
+  num_workers: 4
+  num_envs_per_worker: 16
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  max_policy_lag: 300
+  learning_rate: 0.000303
+  lr_schedule: constant
+  nonlinearity: elu
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  exploration_loss: entropy
+  exploration_loss_coeff: 0.003
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.0
+  adam_eps: 0.000001
+  obs_scale: 1.0
+  adaptive_stddev: false
+  with_vtrace: false
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+
+evaluation:
+  eval_interval_steps: null
+  eval_episodes: 5
+  eval_parallel_envs: 1
+  eval_max_steps: 3600
+  eval_deterministic: true
+  eval_suites:
+    fixed:
+      - [0]
+    normal: []
+    uniform: []
+
+logging:
+  output_dir: outputs/air_raid_base
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: false
+  save_action_records: false
+  save_latency_records: false
+  wandb_project: latency-sensitive-bench
+  wandb_group: air_raid
+  wandb_job_type: sample_factory
+  wandb_tags: ""

@@ -616,10 +616,14 @@ def _validate_gymnasium_starvla_contract(
         raise ValueError(
             "StarVLA dataset active_action_dim does not match its Gymnasium action catalog"
         )
-    if (
-        model_cfg["framework"]["action_model"]["action_env_dim"]
-        != manifest["active_action_dim"]
-    ):
+    model_action_dim = int(model_cfg["framework"]["action_model"]["action_env_dim"])
+    manifest_action_dim = int(manifest["active_action_dim"])
+    if policy_cfg.get("gymnasium_cross_task_eval"):
+        if model_action_dim < manifest_action_dim:
+            raise ValueError(
+                "StarVLA model action_env_dim is smaller than the evaluation action space"
+            )
+    elif model_action_dim != manifest_action_dim:
         raise ValueError(
             "StarVLA model action_env_dim does not match the dataset manifest"
         )
@@ -672,9 +676,24 @@ def _starvla_runner_kwargs(
     env_cfg = config["env"]
     policy_cfg = config["policy"]
     if env_cfg["name"] == "gymnasium":
-        task_manifest = json.loads(
-            Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
-        )
+        if "task_manifest_path" in policy_cfg:
+            task_manifest = json.loads(
+                Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
+            )
+        else:
+            task_manifest = {
+                "integration_name": "gymnasium",
+                "gymnasium_task": policy_cfg.get(
+                    "gymnasium_training_task_contract",
+                    gymnasium_task_contract(env_cfg),
+                ),
+                "active_action_dim": int(
+                    policy_cfg.get(
+                        "gymnasium_active_action_dim",
+                        len(env_cfg.get("action_order", [])),
+                    )
+                ),
+            }
         _validate_gymnasium_starvla_contract(
             env_cfg=env_cfg,
             policy_cfg=policy_cfg,

@@ -55,6 +55,7 @@ BASE_CONFIGS = {
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
     "asterix": REPO_ROOT / "configs" / "base" / "asterix.yaml",
     "atlantis": REPO_ROOT / "configs" / "base" / "atlantis.yaml",
+    "air_raid": REPO_ROOT / "configs" / "base" / "air_raid.yaml",
 }
 
 
@@ -103,6 +104,19 @@ def _starvla_latency_label_to_raw_frames(
         return entry["latency"]
 
     return latency_steps * round(config["env"]["env_fps"] / config["env"]["obs_fps"])
+
+
+def _gymnasium_cross_task_action_dim(config: dict[str, Any], action_layout: str | None) -> int:
+    task_name = str(config["env"].get("task_name", ""))
+    layout = str(action_layout or "").strip().lower()
+    if task_name == "asterix" and layout in {
+        "factorized_6",
+        "factorized6",
+        "asterix_factorized_6",
+        "asterix_factorized6",
+    }:
+        return 6
+    return len(config["env"].get("action_order", []))
 
 
 class _EvalProgressReporter:
@@ -305,13 +319,18 @@ def build_latency_bench_config_for_rl_games(
     }
     if str(config["env"].get("name", "")) == "gymnasium":
         data_cfg = model_cfg["datasets"]["vla_data"]
-        task_manifest_path = Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
-        policy["task_manifest_path"] = str(task_manifest_path)
-        if "gymnasium_task_contract" in data_cfg:
-            task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
+        if env_name == "gymnasium":
+            task_manifest_path = Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
+            policy["task_manifest_path"] = str(task_manifest_path)
+            if "gymnasium_task_contract" in data_cfg:
+                task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
+            else:
+                task_manifest = json.loads(task_manifest_path.read_text(encoding="utf-8"))
+                task_contract = task_manifest.get("gymnasium_task", gymnasium_task_contract(config["env"]))
         else:
-            task_manifest = json.loads(task_manifest_path.read_text(encoding="utf-8"))
-            task_contract = task_manifest.get("gymnasium_task", gymnasium_task_contract(config["env"]))
+            task_contract = gymnasium_task_contract(config["env"])
+            policy["gymnasium_cross_task_eval"] = True
+            policy["gymnasium_active_action_dim"] = _gymnasium_cross_task_action_dim(config, action_layout)
         policy["gymnasium_training_task_contract"] = task_contract
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key
