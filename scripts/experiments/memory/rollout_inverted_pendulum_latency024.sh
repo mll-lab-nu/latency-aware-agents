@@ -27,8 +27,9 @@ set -euo pipefail
 
 export HF_MODEL_REPO="${HF_MODEL_REPO:-latency-sensitive-bench/paper-experiment-models}"
 export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-latency-sensitive-bench/inverted_pendulum_200ep}"
-export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-/mnt/local/talha/inverted_pendulum_latency024_small_model_ckpts}"
-export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-/mnt/local/talha/inverted_pendulum_latency024_rollout_datasets}"
+export INVERTED_PENDULUM_ROLLOUT_ROOT="${INVERTED_PENDULUM_ROLLOUT_ROOT:-${HOME}/talha}"
+export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_small_model_ckpts}"
+export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_rollout_datasets}"
 
 _ip_need_repo_root() {
   if [[ ! -f scripts/rollout_data/export_sf_teacher_dataset.py ]]; then
