@@ -250,17 +250,26 @@ _ip_rollout_one() {
   export_wrapper='
 import os
 import sys
+from importlib import metadata
 
-# Gymnasium plugin discovery imports shimmy/dm_control. On headless machines,
-# importing those plugins with MUJOCO_GL=egl can fail before our own task starts.
-# Load Gymnasium plugins first, then set MuJoCo EGL for the actual rgb_array
-# renderer used by InvertedPendulum-v4 replay.
-os.environ.pop("MUJOCO_GL", None)
-os.environ.pop("PYOPENGL_PLATFORM", None)
-import gymnasium  # noqa: F401
+# Gymnasium plugin discovery can import shimmy/dm_control, while MuJoCo RGB
+# replay needs EGL on headless machines. Filter third-party Gymnasium plugin
+# autoload here; our task registers explicitly through registration_imports.
+_entry_points = metadata.entry_points
+
+def _entry_points_without_gym_plugins(*args, **kwargs):
+    group = kwargs.get("group")
+    if group is None and args:
+        group = args[0]
+    if group == "gymnasium.envs":
+        return ()
+    return _entry_points(*args, **kwargs)
+
+metadata.entry_points = _entry_points_without_gym_plugins
 
 os.environ["MUJOCO_GL"] = os.environ.get("ROLLOUT_MUJOCO_GL", "egl")
 os.environ["PYOPENGL_PLATFORM"] = os.environ.get("ROLLOUT_PYOPENGL_PLATFORM", "egl")
+import gymnasium  # noqa: F401
 
 from scripts.rollout_data.export_sf_teacher_dataset import main
 
