@@ -3,7 +3,7 @@ backend:
   algo: APPO
   device: cuda
   train_dir: results/checkpoints/memory/small_model/inverted_pendulum
-  restart_behavior: resume
+  restart_behavior: restart
   run_mode: train
 
 executor:
