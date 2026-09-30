@@ -1,0 +1,15 @@
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l0/fs1/seed_10/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l0/fs1/seed_11/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l0/fs1/seed_12/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l0/fs1/seed_13/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l0/fs1/seed_14/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l2/fs1/seed_10/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l2/fs1/seed_11/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l2/fs1/seed_12/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l2/fs1/seed_13/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l2/fs1/seed_14/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l4/fs1/seed_10/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l4/fs1/seed_11/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l4/fs1/seed_12/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l4/fs1/seed_13/train.yaml
+python -m training.train --config configs/train/memory/small_model/inverted_pendulum/latency_024/frame_stack/fixed_l4/fs1/seed_14/train.yaml
