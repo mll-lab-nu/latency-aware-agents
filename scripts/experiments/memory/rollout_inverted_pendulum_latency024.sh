@@ -254,7 +254,7 @@ raise SystemExit(main(sys.argv[1:]))
 '
 
   local cmd=(
-    python -c "${export_wrapper}" rollout_export
+    python -c "${export_wrapper}"
     --checkpoint-root "${ckpt}"
     --output-dir "${out_dir}"
     --latency-config "${latency_config}"
