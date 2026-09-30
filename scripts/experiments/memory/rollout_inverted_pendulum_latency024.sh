@@ -24,13 +24,34 @@ set -euo pipefail
 #   MAX_ATTEMPTS=<optional maximum rollout attempts>
 #   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
 #   PUSH_TO_HUB=1
-#   ROLLOUT_MUJOCO_GL=egl  # headless MuJoCo rendering backend
+#   ROLLOUT_MUJOCO_GL=glfw  # auto-runs under xvfb-run when DISPLAY is absent
 
 export HF_MODEL_REPO="${HF_MODEL_REPO:-latency-sensitive-bench/paper-experiment-models}"
 export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-latency-sensitive-bench/inverted_pendulum_200ep}"
 export INVERTED_PENDULUM_ROLLOUT_ROOT="${INVERTED_PENDULUM_ROLLOUT_ROOT:-${HOME}/talha}"
 export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_small_model_ckpts}"
 export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_rollout_datasets}"
+
+_ip_maybe_reexec_with_xvfb() {
+  if [[ "${IP_ROLLOUT_XVFB_WRAPPED:-0}" == "1" ]]; then
+    return 0
+  fi
+  if [[ -n "${DISPLAY:-}" ]]; then
+    return 0
+  fi
+  if [[ "${ROLLOUT_MUJOCO_GL:-glfw}" != "glfw" ]]; then
+    return 0
+  fi
+  if ! command -v xvfb-run >/dev/null 2>&1; then
+    echo "[error] No DISPLAY is available and xvfb-run is not installed." >&2
+    echo "[hint] Install it once with: sudo apt-get update && sudo apt-get install -y xvfb" >&2
+    return 1
+  fi
+
+  echo "[render] No DISPLAY found; re-running under xvfb-run for headless GLFW rendering." >&2
+  export IP_ROLLOUT_XVFB_WRAPPED=1
+  exec xvfb-run -a "$0" "$@"
+}
 
 _ip_prepare_output_roots() {
   local root
@@ -253,10 +274,10 @@ import os
 import sys
 from importlib import metadata
 
-# Gymnasium plugin discovery can import shimmy/dm_control and crash when EGL is
-# enabled. Filter third-party Gymnasium plugin autoload here; our task registers
-# explicitly through registration_imports. EGL is set by the shell command before
-# Python starts so PyOpenGL initializes the right platform for headless MuJoCo.
+# Gymnasium plugin discovery can import shimmy/dm_control and crash on machines
+# with partial GL stacks. Filter third-party Gymnasium plugin autoload here; our
+# task registers explicitly through registration_imports. Rendering backend is
+# selected by the shell command before Python starts.
 _entry_points = metadata.entry_points
 
 def _entry_points_without_gym_plugins(*args, **kwargs):
@@ -277,8 +298,7 @@ raise SystemExit(main(sys.argv[1:]))
 
   local cmd=(
     env
-    MUJOCO_GL="${ROLLOUT_MUJOCO_GL:-egl}"
-    PYOPENGL_PLATFORM="${ROLLOUT_PYOPENGL_PLATFORM:-egl}"
+    MUJOCO_GL="${ROLLOUT_MUJOCO_GL:-glfw}"
     python -c "${export_wrapper}"
     --checkpoint-root "${ckpt}"
     --output-dir "${out_dir}"
@@ -356,7 +376,7 @@ Defaults:
   MAX_ATTEMPTS=<optional maximum total rollout attempts>
   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
   PUSH_TO_HUB=1
-  ROLLOUT_MUJOCO_GL=egl by default for headless MuJoCo rendering.
+  ROLLOUT_MUJOCO_GL=glfw by default; without DISPLAY the script auto-wraps itself in xvfb-run.
 
 The script downloads the best seed10 small-model checkpoint for each latency
 from latency-sensitive-bench/paper-experiment-models, forces the Gymnasium
@@ -366,6 +386,7 @@ EOF
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  _ip_maybe_reexec_with_xvfb "$@" || exit 1
   case "${1:-help}" in
     l0|0|fixed_l0) rollout_inverted_pendulum_l0 ;;
     l2|2|fixed_l2) rollout_inverted_pendulum_l2 ;;
