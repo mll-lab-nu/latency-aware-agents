@@ -402,10 +402,7 @@ def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
 
 @pytest.mark.parametrize("delay", [1, 3, 5])
 @pytest.mark.parametrize("prefix_mode", ["none", "profile_mean"])
-def test_policy_observation_does_not_leak_sampled_latency(delay, prefix_mode):
-    # Realtime execution cannot know an action's latency before inference runs,
-    # so simulated replay must not reveal it either: leaking the sampled value
-    # changed the StarVLA prompt per step and skewed sim-vs-real returns.
+def test_policy_observation_includes_sampled_latency_for_latency_conditioning(delay, prefix_mode):
     policy = CapturingPolicyRunner(Action([1.0]))
     executor, _, _, _ = _executor(
         RawFrameLatencySource([delay]),
@@ -419,8 +416,10 @@ def test_policy_observation_does_not_leak_sampled_latency(delay, prefix_mode):
     executor.run_episode(episode_id=0, eval_max_steps=6)
 
     assert policy.observations[0].metadata["obs_id"] == 0
-    assert "latency_ms" not in policy.observations[0].metadata
-    assert "latency_raw_frames" not in policy.observations[0].metadata
+    assert policy.observations[0].metadata["latency_raw_frames"] == delay
+    assert policy.observations[0].metadata["latency_ms"] == pytest.approx(delay * (1000.0 / 30.0))
+    assert policy.observations[0].metadata["worker_service_raw_frames"] == delay
+    assert policy.observations[0].metadata["worker_service_ms"] == pytest.approx(delay * (1000.0 / 30.0))
     metadata = policy.observations[0].metadata
     if prefix_mode == "none":
         assert "action_prefix" not in metadata

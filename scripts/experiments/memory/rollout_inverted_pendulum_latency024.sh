@@ -14,20 +14,56 @@ set -euo pipefail
 #   rollout_inverted_pendulum_l4
 #
 # Defaults can be overridden:
-#   MAX_EPISODES=200
+#   MAX_EPISODES=<override; defaults by latency: l0=200, l2=1000, l4=1000>
 #   MAX_STEPS=7200
 #   NUM_ENVS=32
 #   REPLAY_NUM_ENVS=32
 #   DEVICE=cuda
 #   FILTER_PRESET=none
-#   EPISODE_RETURN_GT=<optional acceptance gate>
+#   EPISODE_RETURN_GT=<override acceptance gate, or none to disable>
+#   MAX_ATTEMPTS=<optional maximum rollout attempts>
 #   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
 #   PUSH_TO_HUB=1
+#   ROLLOUT_MUJOCO_GL=glfw  # auto-runs under xvfb-run when DISPLAY is absent
 
 export HF_MODEL_REPO="${HF_MODEL_REPO:-latency-sensitive-bench/paper-experiment-models}"
 export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-latency-sensitive-bench/inverted_pendulum_200ep}"
-export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-/mnt/local/talha/inverted_pendulum_latency024_small_model_ckpts}"
-export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-/mnt/local/talha/inverted_pendulum_latency024_rollout_datasets}"
+export INVERTED_PENDULUM_ROLLOUT_ROOT="${INVERTED_PENDULUM_ROLLOUT_ROOT:-${HOME}/talha}"
+export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_small_model_ckpts}"
+export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_rollout_datasets}"
+
+_ip_maybe_reexec_with_xvfb() {
+  if [[ "${IP_ROLLOUT_XVFB_WRAPPED:-0}" == "1" ]]; then
+    return 0
+  fi
+  if [[ -n "${DISPLAY:-}" ]]; then
+    return 0
+  fi
+  if [[ "${ROLLOUT_MUJOCO_GL:-glfw}" != "glfw" ]]; then
+    return 0
+  fi
+  if ! command -v xvfb-run >/dev/null 2>&1; then
+    echo "[error] No DISPLAY is available and xvfb-run is not installed." >&2
+    echo "[hint] Install it once with: sudo apt-get update && sudo apt-get install -y xvfb" >&2
+    return 1
+  fi
+
+  echo "[render] No DISPLAY found; re-running under xvfb-run for headless GLFW rendering." >&2
+  export IP_ROLLOUT_XVFB_WRAPPED=1
+  exec xvfb-run -a "$0" "$@"
+}
+
+_ip_prepare_output_roots() {
+  local root
+  root="${INVERTED_PENDULUM_ROLLOUT_ROOT}"
+  if ! mkdir -p "${root}" 2>/dev/null; then
+    echo "[error] INVERTED_PENDULUM_ROLLOUT_ROOT is not writable: ${root}" >&2
+    echo "[hint] Use a writable path, for example:" >&2
+    echo "       export INVERTED_PENDULUM_ROLLOUT_ROOT=\${HOME}/talha" >&2
+    return 1
+  fi
+  mkdir -p "${SMALL_MODEL_CKPT_ROOT}" "${ROLLOUT_DATA_ROOT}"
+}
 
 _ip_need_repo_root() {
   if [[ ! -f scripts/rollout_data/export_sf_teacher_dataset.py ]]; then
@@ -94,6 +130,22 @@ _ip_steps_label() {
     7200) echo "7k2steps" ;;
     3600) echo "3k6steps" ;;
     *) echo "${MAX_STEPS:-7200}steps" ;;
+  esac
+}
+
+_ip_default_episode_return_gt() {
+  case "$(_ip_latency_label "$1")" in
+    fixed_l0) echo 7000 ;;
+    fixed_l2) echo 85 ;;
+    fixed_l4) echo 24 ;;
+  esac
+}
+
+_ip_default_max_episodes() {
+  case "$(_ip_latency_label "$1")" in
+    fixed_l0) echo 200 ;;
+    fixed_l2) echo 1000 ;;
+    fixed_l4) echo 1000 ;;
   esac
 }
 
@@ -193,40 +245,51 @@ _ip_rollout_one() {
   local latency="$1"
 
   _ip_need_repo_root || return 1
+  _ip_prepare_output_roots || return 1
   _ip_setup_cuda_env
 
-  local label frames ckpt latency_config config_name out_dir steps_label gym_make_kwargs
+  local label frames ckpt latency_config config_name out_dir steps_label gym_make_kwargs episode_return_gt max_episodes
   label="$(_ip_latency_label "${latency}")" || return 1
   frames="$(_ip_latency_frames "${latency}")" || return 1
   ckpt="$(download_best_inverted_pendulum_ckpt "${latency}")" || return 1
   latency_config="$(_ip_write_latency_config "${latency}")" || return 1
   steps_label="$(_ip_steps_label)"
-  config_name="inverted_pendulum_fixed_latency_${frames}_${MAX_EPISODES:-200}ep_${steps_label}"
+  max_episodes="${MAX_EPISODES:-$(_ip_default_max_episodes "${latency}")}"
+  config_name="inverted_pendulum_fixed_latency_${frames}_${max_episodes}ep_${steps_label}"
   out_dir="${ROLLOUT_DATA_ROOT}/${config_name}"
   gym_make_kwargs="{\"base_make_kwargs\":{\"max_episode_steps\":${MAX_STEPS:-7200}}}"
+  episode_return_gt="${EPISODE_RETURN_GT:-$(_ip_default_episode_return_gt "${latency}")}"
 
   echo "[run] inverted_pendulum ${label}"
   echo "[ckpt] ${ckpt}"
   echo "[latency] ${latency_config}"
   echo "[out]  ${out_dir}"
   echo "[hf]   ${HF_ROLLOUT_REPO}/${config_name} (PUSH_TO_HUB=${PUSH_TO_HUB:-1})"
-  echo "[steps] MAX_EPISODES=${MAX_EPISODES:-200} MAX_STEPS=${MAX_STEPS:-7200}"
-  echo "[gate] FILTER_PRESET=${FILTER_PRESET:-none} EPISODE_RETURN_GT=${EPISODE_RETURN_GT:-<none>}"
+  echo "[steps] MAX_EPISODES=${max_episodes} MAX_STEPS=${MAX_STEPS:-7200}"
+  echo "[gate] FILTER_PRESET=${FILTER_PRESET:-none} EPISODE_RETURN_GT=${episode_return_gt}"
 
   local export_wrapper
   export_wrapper='
 import os
 import sys
+from importlib import metadata
 
-# Gymnasium plugin discovery imports shimmy/dm_control. On headless machines,
-# importing those plugins with MUJOCO_GL=egl can fail before our own task starts.
-# Load Gymnasium plugins first, then set MuJoCo EGL for the actual rgb_array
-# renderer used by InvertedPendulum-v4 replay.
-os.environ.pop("MUJOCO_GL", None)
-os.environ.pop("PYOPENGL_PLATFORM", None)
+# Gymnasium plugin discovery can import shimmy/dm_control and crash on machines
+# with partial GL stacks. Filter third-party Gymnasium plugin autoload here; our
+# task registers explicitly through registration_imports. Rendering backend is
+# selected by the shell command before Python starts.
+_entry_points = metadata.entry_points
+
+def _entry_points_without_gym_plugins(*args, **kwargs):
+    group = kwargs.get("group")
+    if group is None and args:
+        group = args[0]
+    if group == "gymnasium.envs":
+        return ()
+    return _entry_points(*args, **kwargs)
+
+metadata.entry_points = _entry_points_without_gym_plugins
 import gymnasium  # noqa: F401
-
-os.environ["MUJOCO_GL"] = os.environ.get("ROLLOUT_MUJOCO_GL", "egl")
 
 from scripts.rollout_data.export_sf_teacher_dataset import main
 
@@ -234,12 +297,14 @@ raise SystemExit(main(sys.argv[1:]))
 '
 
   local cmd=(
-    python -c "${export_wrapper}" rollout_export
+    env
+    MUJOCO_GL="${ROLLOUT_MUJOCO_GL:-glfw}"
+    python -c "${export_wrapper}"
     --checkpoint-root "${ckpt}"
     --output-dir "${out_dir}"
     --latency-config "${latency_config}"
     --gym-make-kwargs-json "${gym_make_kwargs}"
-    --max-episodes "${MAX_EPISODES:-200}"
+    --max-episodes "${max_episodes}"
     --max-steps-per-episode "${MAX_STEPS:-7200}"
     --val-fraction "${VAL_FRACTION:-0.01}"
     --num-envs "${NUM_ENVS:-32}"
@@ -251,11 +316,14 @@ raise SystemExit(main(sys.argv[1:]))
     --filter-preset "${FILTER_PRESET:-none}"
   )
 
+  if [[ -n "${MAX_ATTEMPTS:-}" ]]; then
+    cmd+=(--max-attempts "${MAX_ATTEMPTS}")
+  fi
   if [[ -n "${EXPORT_IMAGE_SIZE:-}" ]]; then
     cmd+=(--export-image-size "${EXPORT_IMAGE_SIZE}")
   fi
-  if [[ -n "${EPISODE_RETURN_GT:-}" ]]; then
-    cmd+=(--episode-return-gt "${EPISODE_RETURN_GT}")
+  if [[ -n "${episode_return_gt}" && "${episode_return_gt}" != "none" && "${episode_return_gt}" != "NONE" ]]; then
+    cmd+=(--episode-return-gt "${episode_return_gt}")
   fi
   if [[ "${PROBE_ONLY:-0}" == "1" || "${PROBE_ONLY:-0}" == "true" ]]; then
     cmd+=(--probe-only)
@@ -296,14 +364,19 @@ Functions when sourced:
   rollout_inverted_pendulum_all
 
 Defaults:
-  MAX_EPISODES=200
+  MAX_EPISODES defaults by latency: l0=200, l2=1000, l4=1000
+  Set MAX_EPISODES=<number> to override.
   MAX_STEPS=7200
   NUM_ENVS=32
   REPLAY_NUM_ENVS=32
   DEVICE=cuda
   FILTER_PRESET=none
+  EPISODE_RETURN_GT defaults by latency: l0 > 7000, l2 > 85, l4 > 24
+  Set EPISODE_RETURN_GT=none to disable, or EPISODE_RETURN_GT=<number> to override.
+  MAX_ATTEMPTS=<optional maximum total rollout attempts>
   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
   PUSH_TO_HUB=1
+  ROLLOUT_MUJOCO_GL=glfw by default; without DISPLAY the script auto-wraps itself in xvfb-run.
 
 The script downloads the best seed10 small-model checkpoint for each latency
 from latency-sensitive-bench/paper-experiment-models, forces the Gymnasium
@@ -313,6 +386,7 @@ EOF
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  _ip_maybe_reexec_with_xvfb "$@" || exit 1
   case "${1:-help}" in
     l0|0|fixed_l0) rollout_inverted_pendulum_l0 ;;
     l2|2|fixed_l2) rollout_inverted_pendulum_l2 ;;

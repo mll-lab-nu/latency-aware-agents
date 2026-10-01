@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 import shutil
 import sys
@@ -55,6 +56,7 @@ BASE_CONFIGS = {
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
     "asterix": REPO_ROOT / "configs" / "base" / "asterix.yaml",
     "atlantis": REPO_ROOT / "configs" / "base" / "atlantis.yaml",
+    "air_raid": REPO_ROOT / "configs" / "base" / "air_raid.yaml",
 }
 
 
@@ -70,6 +72,14 @@ def _plain_mapping(value: Any) -> dict[str, Any]:
     except Exception:
         pass
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _obs_stride_raw_frames(env_cfg: Mapping[str, Any]) -> int:
+    env_fps = float(env_cfg["env_fps"])
+    obs_fps = float(env_cfg["obs_fps"])
+    if obs_fps <= 0:
+        raise ValueError(f"obs_fps must be positive, got {obs_fps}")
+    return max(1, int(round(env_fps / obs_fps)))
 
 
 def _cfg_get(container: Any, key: str, default_value: Any = None) -> Any:
@@ -103,6 +113,19 @@ def _starvla_latency_label_to_raw_frames(
         return entry["latency"]
 
     return latency_steps * round(config["env"]["env_fps"] / config["env"]["obs_fps"])
+
+
+def _gymnasium_cross_task_action_dim(config: dict[str, Any], action_layout: str | None) -> int:
+    task_name = str(config["env"].get("task_name", ""))
+    layout = str(action_layout or "").strip().lower()
+    if task_name == "asterix" and layout in {
+        "factorized_6",
+        "factorized6",
+        "asterix_factorized_6",
+        "asterix_factorized6",
+    }:
+        return 6
+    return len(config["env"].get("action_order", []))
 
 
 class _EvalProgressReporter:
@@ -305,13 +328,18 @@ def build_latency_bench_config_for_rl_games(
     }
     if str(config["env"].get("name", "")) == "gymnasium":
         data_cfg = model_cfg["datasets"]["vla_data"]
-        task_manifest_path = Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
-        policy["task_manifest_path"] = str(task_manifest_path)
-        if "gymnasium_task_contract" in data_cfg:
-            task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
+        if env_name == "gymnasium":
+            task_manifest_path = Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
+            policy["task_manifest_path"] = str(task_manifest_path)
+            if "gymnasium_task_contract" in data_cfg:
+                task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
+            else:
+                task_manifest = json.loads(task_manifest_path.read_text(encoding="utf-8"))
+                task_contract = task_manifest.get("gymnasium_task", gymnasium_task_contract(config["env"]))
         else:
-            task_manifest = json.loads(task_manifest_path.read_text(encoding="utf-8"))
-            task_contract = task_manifest.get("gymnasium_task", gymnasium_task_contract(config["env"]))
+            task_contract = gymnasium_task_contract(config["env"])
+            policy["gymnasium_cross_task_eval"] = True
+            policy["gymnasium_active_action_dim"] = _gymnasium_cross_task_action_dim(config, action_layout)
         policy["gymnasium_training_task_contract"] = task_contract
     if unnorm_key is not None:
         policy["unnorm_key"] = unnorm_key
@@ -340,11 +368,13 @@ def build_latency_bench_config_for_rl_games(
         policy["actions"] = list(actions)
     config["policy"] = policy
 
+    raw_frame_eval_max_steps = int(eval_max_steps) * _obs_stride_raw_frames(config["env"])
     config["evaluation"] = {
         **config.get("evaluation", {}),
         "eval_episodes": int(num_episodes),
         "eval_parallel_envs": max(1, int(eval_parallel_envs)),
-        "eval_max_steps": int(eval_max_steps),
+        "eval_max_steps": int(raw_frame_eval_max_steps),
+        "eval_max_decision_steps": int(eval_max_steps),
         "eval_deterministic": True,
     }
     # We drive one fixed latency per call, so suites / sweeps must not re-expand.
@@ -501,11 +531,15 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         *,
         latency: int,
         eval_seed: int,
+        obs_stride_raw_frames: int,
     ) -> dict[str, Any]:
         """Fold latency_bench EpisodeMetrics into eval_core's per-latency dict."""
         ordered = sorted(metrics_list, key=lambda m: int(m.episode_id))
         rewards = [float(m.episode_return) for m in ordered]
-        lengths = [int(m.survival_steps) for m in ordered]
+        lengths = [
+            int(math.ceil(int(m.survival_steps) / max(1, int(obs_stride_raw_frames))))
+            for m in ordered
+        ]
         indices = [int(m.episode_id) for m in ordered]
         return {
             "latency": int(latency),
@@ -602,7 +636,10 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 on_episode_complete=progress.on_episode_complete,
             )
             per_latency[f"{task_name}/latency_{latency}"] = self._fold_episode_metrics(
-                metrics_list, latency=int(latency), eval_seed=eval_seed
+                metrics_list,
+                latency=int(latency),
+                eval_seed=eval_seed,
+                obs_stride_raw_frames=_obs_stride_raw_frames(lb_config["env"]),
             )
         progress.finish()
 

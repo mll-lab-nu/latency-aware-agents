@@ -63,6 +63,8 @@ def test_translation_flappy_fixed_latency(tmp_path):
     assert cfg["policy"]["unnorm_key"] == "flappy"
     assert cfg["evaluation"]["eval_episodes"] == 5
     assert cfg["evaluation"]["eval_parallel_envs"] == 8
+    assert cfg["evaluation"]["eval_max_steps"] == 2000
+    assert cfg["evaluation"]["eval_max_decision_steps"] == 2000
     assert "eval_suites" not in cfg["evaluation"]
     assert cfg["logging"]["video"]["enabled"] is False
     assert cfg["logging"]["save_step_records"] is False
@@ -100,6 +102,26 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
     assert cfg["latency"]["method"] == "fixed"
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(2 * 1000.0 / obs_fps)
     assert cfg["policy"]["latency_prompt_key"] == 2
+    assert cfg["evaluation"]["eval_max_steps"] == pytest.approx(
+        2000 * float(cfg["env"]["env_fps"]) / float(cfg["env"]["obs_fps"])
+    )
+    assert cfg["evaluation"]["eval_max_decision_steps"] == 2000
+
+
+def test_fold_episode_metrics_reports_decision_step_lengths():
+    runner = LatencyBenchRlGamesEvalRunner.__new__(LatencyBenchRlGamesEvalRunner)
+    metrics = runner._fold_episode_metrics(
+        [
+            EpisodeMetrics(episode_id=0, episode_return=40.0, survival_steps=876),
+            EpisodeMetrics(episode_id=1, episode_return=400.0, survival_steps=14400),
+        ],
+        latency=0,
+        eval_seed=42,
+        obs_stride_raw_frames=4,
+    )
+
+    assert metrics["episode_lengths"] == [219, 3600]
+    assert metrics["mean_length"] == pytest.approx((219 + 3600) / 2)
 
 
 @pytest.mark.parametrize(
