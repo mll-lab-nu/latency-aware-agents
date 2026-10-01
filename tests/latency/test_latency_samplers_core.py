@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
+from functools import partial
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.latency.burst_profile import (
@@ -15,6 +16,10 @@ from latency_bench.latency.samplers import (
     HiddenRegimeSampler,
     IidInverseCdfSampler,
 )
+
+
+# These fixtures retain the v12 writer/sampler contract used by historical profiles.
+build_hidden_regime_burst_model = partial(build_hidden_regime_burst_model, model_version=12)
 
 
 def _inverse_cdf(samples: list[float]) -> dict:

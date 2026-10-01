@@ -22,10 +22,7 @@ from latency_bench.executors.gpu_batched_env_step_backend import (  # noqa: E402
     GpuBatchedEnvStepBackendBase,
     SlotStepOutcome,
 )
-from mikasa_robo_suite.seed_reset import (  # noqa: E402
-    reset_seeded_slot as _reset_seeded_slot,
-    reset_seeded_slots as _reset_seeded_slots,
-)
+
 
 
 ENV_ID = "InterceptGrabFast-VLA-v0"
@@ -144,9 +141,12 @@ class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
         self._observation, _ = self.env.reset(seed=self._episode_seeds)
 
     def _reset_slot_observation(self, slot_id: int, *, seed: int | None) -> Observation:
+        # The inference interpreter does not need the native task suite at spawn.
+        from mikasa_robo_suite.seed_reset import reset_seeded_slot
+
         if seed is not None:
             self._episode_seeds[slot_id] = int(seed)
-        self._observation, _ = _reset_seeded_slot(
+        self._observation, _ = reset_seeded_slot(
             self.env,
             slot_id=slot_id,
             seed=self._episode_seeds[slot_id],
@@ -310,10 +310,12 @@ def _latency_eval(argv: list[str]) -> None:
     (output_dir / "eval_config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
     )
-    backend = MikasaEnvStepBackend(
-        config=config,
-        num_slots=int(config["evaluation"]["eval_parallel_envs"]),
-    )
+    backend = None
+    if config["executor"]["mode"] == "simulated":
+        backend = MikasaEnvStepBackend(
+            config=config,
+            num_slots=int(config["evaluation"]["eval_parallel_envs"]),
+        )
     run_from_config(
         config,
         env_backend=backend,

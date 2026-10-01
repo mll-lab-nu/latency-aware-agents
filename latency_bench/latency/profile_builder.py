@@ -29,6 +29,7 @@ def build_profile_from_traces(
     source_run_id: str,
     env_fps: float,
     metadata: dict[str, Any],
+    temporal_model_version: int = 13,
 ) -> dict[str, Any]:
     """Build one profile from independent measurement sessions.
 
@@ -67,7 +68,9 @@ def build_profile_from_traces(
         for session in sessions
     ]
     burst_samples = [sample for samples in session_burst_samples for sample in samples]
-    burst_model = build_hidden_regime_burst_model_from_sessions(session_burst_samples)
+    burst_model = build_hidden_regime_burst_model_from_sessions(
+        session_burst_samples, model_version=temporal_model_version,
+    )
     distribution = build_worker_slot_distributions_from_sessions(
         session_burst_samples,
         spike_threshold_ms_by_worker_slot=burst_model[

@@ -149,7 +149,7 @@ _STANDARD_NORMAL = NormalDist()
 
 
 class HiddenRegimeSampler(LatencySampler):
-    """Two-regime (calm/burst) hidden-Markov chain over worker-service latency.
+    """Legacy v12 sampler for archived profiles and paired method-version controls.
 
     Real latency spikes arrive in clusters with normal-valued samples in
     between, so a chain keyed on the latency value itself forgets it is inside
@@ -370,6 +370,64 @@ class HiddenRegimeSampler(LatencySampler):
         )
 
 
+class JointBurstSampler(LatencySampler):
+    """Resample complete burst events, preserving duration and per-slot emissions."""
+    latency_type = "profile_sample"
+
+    def __init__(self, model, distributions, *, clock, seed=None):
+        self.model = model
+        self.distributions = distributions["worker_slots"]
+        self.clock = clock
+        self.rng = random.Random(seed)
+        self.current_episode_id = None
+        self.regime = "calm"
+        self._event = None
+        self._remaining = 0
+        self._enter_burst_prob = 0.0
+
+    def __deepcopy__(self, memo):
+        clone = copy.copy(self)
+        memo[id(self)] = clone
+        clone.rng = random.Random()
+        clone.rng.setstate(self.rng.getstate())
+        return clone
+
+    def _start_burst(self, event):
+        self._event = event
+        self._remaining = event["length"] - 1
+        self.regime = "burst"
+
+    def sample(self, context=None):
+        episode_id = context["episode_id"]
+        slot = str(context["worker_slot"])
+        first = self.current_episode_id is None
+        if episode_id != self.current_episode_id:
+            self.current_episode_id = episode_id
+            if self.model["burst_events"]:
+                counts = self.model["regime_transition_counts"]["calm"]
+                switch = self.rng.gammavariate(counts["burst"] + 0.5, 1.0)
+                stay = self.rng.gammavariate(counts["calm"] + 0.5, 1.0)
+                self._enter_burst_prob = switch / (switch + stay)
+        if first:
+            event = self.rng.choice(self.model["initial_events"])
+            if event is not None:
+                self._start_burst(event)
+        elif self.regime == "calm":
+            if self.rng.random() < self._enter_burst_prob:
+                self._start_burst(self.rng.choice(self.model["burst_events"]))
+        elif self._remaining:
+            self._remaining -= 1
+        else:
+            self.regime = "calm"
+            self._event = None
+
+        distribution = self.distributions[slot]["steady"]
+        if self._event is not None and slot in self._event["worker_slots"]:
+            worker = self._event["worker_slots"][slot]
+            distribution = worker["spike" if self.rng.random() < worker["severity"] else "steady"]
+        return _sample_joint_emission(distribution, rng=self.rng, clock=self.clock)
+
+
 def _sample_joint_emission(
     distribution: dict[str, Any],
     *,
@@ -577,7 +635,8 @@ def _build_temporal(
     distribution_path = _profile_relative_path(
         profile_path, profile["distribution_path"]
     )
-    return HiddenRegimeSampler(
+    sampler_class = {12: HiddenRegimeSampler, 13: JointBurstSampler}[model["schema_version"]]
+    return sampler_class(
         model,
         read_json(distribution_path),
         clock=clock,
@@ -591,7 +650,7 @@ def _load_temporal_model(
     model_path = _profile_relative_path(profile_path, profile["burst_model_path"])
     model = read_json(model_path)
     contract = (model["schema_version"], model["reset_scope"])
-    if model["model_type"] != "hidden_regime" or contract != (12, "session"):
+    if model["model_type"] != "hidden_regime" or contract not in {(12, "session"), (13, "session")}:
         raise ValueError(
             f"Unsupported temporal burst model (model_type={model['model_type']!r}, "
             f"reset_scope={model['reset_scope']!r}, "

@@ -101,6 +101,15 @@ def _build_gymnasium_env(config: dict[str, Any], noop_action: Action) -> EnvAdap
     )
 
 
+@register_env_adapter("mikasa_intercept_grab_fast")
+def _build_mikasa_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
+    # ManiSkill is installed in the environment interpreter, not the model worker.
+    from scripts.mikasa.evaluate import MikasaEnvStepBackend
+    from latency_bench.executors.env_step_backend import EnvStepBackendEnvAdapter
+
+    return EnvStepBackendEnvAdapter(MikasaEnvStepBackend(config=config, num_slots=1))
+
+
 @register_env_adapter("balance_profile")
 def _build_balance_profile_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     os.environ["MUJOCO_GL"] = "egl"

@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import pytest
+from functools import partial
+from copy import deepcopy
+from statistics import mean
+
+from latency_bench.core.clock import EnvClock
+from latency_bench.latency.samplers import JointBurstSampler
 
 from latency_bench.latency.burst_profile import (
     _fit_inverse_cdf,
@@ -9,6 +15,11 @@ from latency_bench.latency.burst_profile import (
     build_hidden_regime_burst_model_from_sessions,
     build_worker_slot_distributions_from_sessions,
 )
+
+
+# These fixtures retain the v12 writer/sampler contract used by historical profiles.
+build_hidden_regime_burst_model = partial(build_hidden_regime_burst_model, model_version=12)
+build_hidden_regime_burst_model_from_sessions = partial(build_hidden_regime_burst_model_from_sessions, model_version=12)
 
 
 def _model_sample(
@@ -26,6 +37,46 @@ def _model_sample(
         "worker_service_time_ms": worker_service_time_ms,
         "worker_service_time_ms_bin": int(worker_service_time_ms // 1.0),
     }
+
+
+@pytest.mark.parametrize("levels", [(60.0, 100.0), (100.0, 60.0), (80.0, 80.0)])
+def test_joint_bursts_preserve_request_weighted_levels(levels):
+    """Long-lived regression: duration/level coupling survives fit and sampling."""
+    short, long = levels
+    values = [30.0] * 40 + [short] + [30.0] * 40 + [long] * 9 + [30.0] * 40
+    samples = _episode(0, values)
+    model = build_hidden_regime_burst_model(samples, model_version=13)
+    distribution = build_worker_slot_distributions_from_sessions(
+        [samples], spike_threshold_ms_by_worker_slot=model["spike_threshold_ms_by_worker_slot"],
+    )
+    sampler = JointBurstSampler(model, distribution, clock=EnvClock(env_fps=25, obs_fps=25), seed=20261001)
+    slow = []
+    for i in range(100000):
+        value = sampler.sample({"episode_id": i // 250, "worker_slot": 0}).worker_service_ms
+        if value > 37.5:
+            slow.append(value)
+    assert mean(slow) == pytest.approx((short + 9 * long) / 10, abs=2.0)
+
+
+def test_joint_burst_initial_state_and_episode_continuation():
+    """Initial bursts belong to sessions; resetting an episode must not erase them."""
+    sessions = [_episode(0, [120.0] * 2 + [40.0] * 40), [], _episode(0, [40.0] * 42)]
+    model = build_hidden_regime_burst_model_from_sessions(sessions, model_version=13)
+    distribution = build_worker_slot_distributions_from_sessions(
+        sessions, spike_threshold_ms_by_worker_slot=model["spike_threshold_ms_by_worker_slot"],
+    )
+    initial = []
+    for seed in range(1000):
+        sampler = JointBurstSampler(model, distribution, clock=EnvClock(env_fps=25, obs_fps=25), seed=seed)
+        first = sampler.sample({"episode_id": 0, "worker_slot": 0}).worker_service_ms
+        initial.append(first)
+        cloned = deepcopy(sampler)
+        context = {"episode_id": 1, "worker_slot": 0}
+        assert sampler.sample(context) == cloned.sample(context)
+        assert cloned.sample(context).worker_service_ms == 40.0
+        for _ in range(20):
+            assert sampler.sample(context).worker_service_ms == 40.0
+    assert 0.45 < initial.count(120.0) / len(initial) < 0.55
 
 
 def _episode(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import json
+from types import SimpleNamespace
 from dataclasses import dataclass
 
 import numpy as np
@@ -365,15 +366,20 @@ class AliveUntilTerminatedProcess:
         self.terminated = True
 
 
-class ClosedActionEventPipeContext:
-    def __init__(self, parent_conn: ClosedActionEventPipe):
-        self.parent_conn = parent_conn
+class ScriptedEnvProcess:
+    def __init__(self, connection):
+        self.connection = connection
+        self.process = AliveUntilTerminatedProcess()
 
-    def Pipe(self):
-        return self.parent_conn, DummyChildPipe()
+    def start_episode(self, **kwargs):
+        return 0.0
 
-    def Process(self, *args, **kwargs):
-        return AliveUntilTerminatedProcess(*args, **kwargs)
+    def finish_episode(self):
+        self.connection.send(("finish_episode", {}))
+
+    def close(self):
+        self.connection.close()
+        self.process.terminate()
 
 
 class QueuedEnvMessagePipe:
@@ -415,15 +421,6 @@ class TimedEnvMessagePipe:
         return self.messages.pop(0)
 
 
-class QueuedEnvMessageContext:
-    def __init__(self, parent_conn: QueuedEnvMessagePipe):
-        self.parent_conn = parent_conn
-
-    def Pipe(self):
-        return self.parent_conn, DummyChildPipe()
-
-    def Process(self, *args, **kwargs):
-        return AliveUntilTerminatedProcess(*args, **kwargs)
 
 
 class DrainBeforeSubmitPool:
@@ -720,7 +717,7 @@ def test_realtime_history_joins_late_results_to_source_windows_and_resets():
         np.testing.assert_array_equal(second.observation.data["transport"], expected.reshape(-1))
 
 
-def test_env_process_ignores_late_action_when_pipe_is_closed(monkeypatch):
+def test_env_process_fails_when_action_pipe_is_closed(monkeypatch):
     parent_conn = ClosedActionEventPipe()
     pool = ScriptedInferencePool([], num_workers=1)
     executor = _executor(pool=pool)
@@ -743,19 +740,12 @@ def test_env_process_ignores_late_action_when_pipe_is_closed(monkeypatch):
             return [event]
         return []
 
-    monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: ClosedActionEventPipeContext(parent_conn))
+    executor.env = ScriptedEnvProcess(parent_conn)
     monkeypatch.setattr(executor, "_drain_and_release_results", fake_drain_and_release_results)
 
-    metrics = executor._run_episode_with_env_process(
-        pool=pool,
-        episode_id=0,
-        seed=0,
-        eval_max_steps=1,
-    )
-
+    with pytest.raises(BrokenPipeError):
+        executor._run_episode_with_env_process(pool=pool, episode_id=0, seed=0, eval_max_steps=1)
     assert parent_conn.closed
-    assert metrics.num_actions == 1
-    assert metrics.mean_latency_ms == 1.0
 
 
 def test_env_process_drains_ready_results_before_submitting_observation(monkeypatch):
@@ -794,7 +784,7 @@ def test_env_process_drains_ready_results_before_submitting_observation(monkeypa
         kwargs["pool"].drained = True
         return []
 
-    monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+    executor.env = ScriptedEnvProcess(parent_conn)
     monkeypatch.setattr(executor, "_drain_and_release_results", fake_drain_and_release_results)
 
     metrics = executor._run_episode_with_env_process(
@@ -844,7 +834,7 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
     )
     executor = _executor(pool=pool, max_steps=1)
 
-    monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+    executor.env = ScriptedEnvProcess(parent_conn)
 
     metrics = executor._run_episode_with_env_process(
         pool=pool,
@@ -859,7 +849,7 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
     assert ("release_observation", {"obs_id": 0}) in parent_conn.sent
 
 
-def test_env_process_records_tail_attempt_and_releases_observation_before_close(
+def test_env_process_records_tail_attempt_and_releases_observation_before_episode_boundary(
     monkeypatch,
     tmp_path,
 ):
@@ -900,7 +890,7 @@ def test_env_process_records_tail_attempt_and_releases_observation_before_close(
     )
     executor = _executor(pool=pool, max_steps=1, logger=logger)
 
-    monkeypatch.setattr(realtime_executor.mp, "get_context", lambda _method: QueuedEnvMessageContext(parent_conn))
+    executor.env = ScriptedEnvProcess(parent_conn)
 
     metrics = executor._run_episode_with_env_process(
         pool=pool,
@@ -910,7 +900,7 @@ def test_env_process_records_tail_attempt_and_releases_observation_before_close(
     )
 
     assert metrics.num_actions == 0
-    assert parent_conn.sent.index(("release_observation", {"obs_id": 42})) < parent_conn.sent.index(("close", {}))
+    assert parent_conn.sent.index(("release_observation", {"obs_id": 42})) < parent_conn.sent.index(("finish_episode", {}))
     attempts = [
         json.loads(line)
         for line in (tmp_path / "observation_attempts.jsonl").read_text().splitlines()
@@ -1581,7 +1571,7 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path, histor
     monkeypatch.setattr(realtime_warmup, "WARMUP_WINDOW_SIZE", 1)
     monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 3)
 
-    action = Action("jump")
+    action = Action(2)
     profile = PipelineProfile(
         worker_observation_attach_ms=0.1,
         worker_observation_localize_ms=0.2,
@@ -1631,7 +1621,7 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path, histor
     warmup_dir = tmp_path / "warmup/episode_000000"
     summary = executor.run_warmup(artifact_dir=warmup_dir)
 
-    assert summary["warmup_mode"] == "stress_policy"
+    assert summary["warmup_mode"] == "realtime_pipeline"
     assert summary["warmup_status"] == "stable"
     assert summary["warmup_samples"] == 3
     assert summary["warmup_stage_summary"]["policy_wrapper_predict_action_ms"]["p50"] == pytest.approx(0.4)
@@ -1647,7 +1637,9 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path, histor
     assert not (tmp_path / "latencies.jsonl").exists()
     if history:
         assert len(history_snapshots) == 3
-        np.testing.assert_array_equal(history_snapshots, np.zeros((3, 56)))
+        np.testing.assert_array_equal(history_snapshots[0], np.zeros(56))
+        assert np.any(history_snapshots[1])
+        np.testing.assert_array_equal(history_snapshots[2], np.zeros(56))
 
 
 def test_realtime_warmup_uses_stress_policy_samples(monkeypatch, tmp_path):
@@ -1680,7 +1672,7 @@ def test_realtime_warmup_uses_stress_policy_samples(monkeypatch, tmp_path):
     assert summary["warmup_samples"] == 4
 
 
-def test_realtime_stress_warmup_does_not_run_episodes(monkeypatch, tmp_path):
+def test_realtime_pipeline_warmup_keeps_steps_out_of_formal_episodes(monkeypatch, tmp_path):
     from latency_bench.executors import realtime_warmup
 
     monkeypatch.setattr(realtime_warmup, "MIN_WARMUP_LATENCY_SAMPLES", 2)
@@ -1726,7 +1718,7 @@ def test_realtime_stress_warmup_does_not_run_episodes(monkeypatch, tmp_path):
 
     summary = executor.run_warmup()
 
-    assert summary["warmup_mode"] == "stress_policy"
+    assert summary["warmup_mode"] == "realtime_pipeline"
     assert summary["warmup_samples"] == 2
 
     assert len(snapshots) == 2
@@ -1876,14 +1868,21 @@ def test_environment_worker_freezes_prefix_before_shared_memory(monkeypatch):
     from latency_bench.envs import factory as env_factory
 
     class Connection:
-        closed = False
         snapshot = None
 
-        def poll(self):
-            return self.closed
+        def __init__(self):
+            self.commands = [
+                ("episode", {"episode_id": 0, "seed": 1, "eval_max_steps": 1}),
+                ("release_observation", {"obs_id": 0}),
+                ("finish_episode", {}),
+                ("close", {}),
+            ]
+
+        def poll(self, timeout=None):
+            return False
 
         def recv(self):
-            return "close", {}
+            return self.commands.pop(0)
 
         def send(self, message):
             tag, payload = message
@@ -1896,8 +1895,6 @@ def test_environment_worker_freezes_prefix_before_shared_memory(monkeypatch):
                     self.mask = attached.observation.metadata["action_prefix_mask"].copy()
                 finally:
                     attached.close()
-            if tag == "episode_done":
-                self.closed = True
 
     env = DummyEnvAdapter(env_fps=50, max_steps=1, noop_action=Action([7.0]))
     monkeypatch.setattr(env_factory, "build_env_adapter", lambda *args: env)
@@ -1906,10 +1903,91 @@ def test_environment_worker_freezes_prefix_before_shared_memory(monkeypatch):
                 "action_space": {"type": "box", "low": [0.0], "high": [10.0]}},
         "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
         "policy": {"action_prefix": {"mode": "profile_mean", "frames": 2, "action_horizon": 4, "action_dim": 1}},
-        "logging": {},
+        "logging": {"realtime_pipeline_profile": True},
     }
     connection = Connection()
-    _env_loop_worker(connection, config, 0, 1, 1, None, None)
+    _env_loop_worker(connection, config, None, None)
     np.testing.assert_array_equal(connection.snapshot[:, 0], [7, 7, 0, 0])
     np.testing.assert_array_equal(connection.mask, [True, True, False, False])
+    assert env.closed
+
+
+def test_resident_environment_warms_first_step_and_resets_formal_episodes(monkeypatch):
+    """Long-lived regression: cold step cost and warm state stay outside episodes."""
+    from latency_bench.executors.realtime import env_worker
+    from latency_bench.envs import factory as env_factory
+
+    clock = FakeClock()
+
+    class ColdEnv(DummyEnvAdapter):
+        warmed = False
+
+        def reset(self, seed=None):
+            self.seed = seed
+            return super().reset(seed)
+
+        def observe(self):
+            observation = super().observe()
+            observation.metadata["seed"] = self.seed
+            return observation
+
+        def step(self, action):
+            clock.now += 0.001 if self.warmed else 0.5
+            self.warmed = True
+            return super().step(action)
+
+    env = ColdEnv(env_fps=50, max_steps=2, noop_action=Action(0))
+    env.action_space = Discrete(2)
+    monkeypatch.setattr(env_factory, "build_env_adapter", lambda *args: env)
+    monkeypatch.setattr(env_worker, "time", SimpleNamespace(perf_counter=clock.time, sleep=clock.sleep))
+    monkeypatch.setattr(env_worker, "monotonic_ms", lambda: clock.now * 1000)
+
+    class Connection:
+        def __init__(self):
+            self.commands = [("observe", {}), ("release_observation", {"obs_id": 0}),
+                             ("step", {"action": Action(1)})]
+            for episode in range(2):
+                self.commands.extend([
+                    ("episode", {"episode_id": episode, "seed": 100 + episode, "eval_max_steps": 2}),
+                    ("release_observation", {"obs_id": 0}),
+                    ("release_observation", {"obs_id": 1}), ("finish_episode", {}),
+                ])
+            self.commands.append(("close", {}))
+            self.records, self.observations, self.warmup_steps = [], [], []
+
+        def recv(self):
+            return self.commands.pop(0)
+
+        def poll(self, timeout=None):
+            if timeout is not None:
+                clock.sleep(timeout)
+            return False
+
+        def send(self, message):
+            tag, payload = message
+            if tag == "error":
+                pytest.fail(payload["traceback"])
+            if tag == "observation":
+                task = payload["task"]
+                self.observations.append((task.observation.env_step, task.observation.metadata["seed"]))
+            elif tag == "step":
+                if "record" in payload:
+                    self.records.append(payload["record"])
+                else:
+                    self.warmup_steps.append(payload["result"].info["env_step_ms"])
+
+    config = {
+        "env": {"env_fps": 50, "obs_fps": 50, "noop_action": 0,
+                "action_map": {"noop": 0, "jump": 1}},
+        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
+        "policy": {"action_prefix": {"mode": "none"}},
+        "logging": {"realtime_pipeline_profile": True},
+    }
+    connection = Connection()
+    env_worker._env_loop_worker(connection, config, None, None)
+    assert connection.warmup_steps == [500.0]
+    assert connection.observations == [(0, None), (0, 100), (1, 100), (0, 101), (1, 101)]
+    assert [r.episode_id for r in connection.records] == [0, 0, 1, 1]
+    assert [r.info["env_step_ms"] for r in connection.records] == pytest.approx([1.0] * 4)
+    assert max(r.info["wall_clock_lag_ms"] for r in connection.records) == pytest.approx(0)
     assert env.closed

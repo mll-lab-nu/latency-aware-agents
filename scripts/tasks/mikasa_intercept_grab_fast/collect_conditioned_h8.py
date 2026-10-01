@@ -31,8 +31,9 @@ from scripts.mikasa.evaluate import (
     _PpoPolicy,
     _make_ppo_env,
     _make_vla_env,
-    _reset_seeded_slots,
 )
+
+from mikasa_robo_suite.seed_reset import reset_seeded_slots
 
 
 ACTION_DIM = 7
@@ -253,9 +254,9 @@ def collect(args: argparse.Namespace, *, student_pool=None, seed_start: int = 0,
             if student_pool is not None:
                 for slot_id in range(args.num_envs):
                     student_pool.reset_state(slot_id)
-            rgb_observation = _reset_seeded_slots(rgb_env, seeds)
+            rgb_observation = reset_seeded_slots(rgb_env, seeds)
             if student_pool is None:
-                _reset_seeded_slots(branch_env, seeds)
+                reset_seeded_slots(branch_env, seeds)
             else:
                 # Each teacher query replaces the branch with an exact copy of main state.
                 branch_env.reset(seed=0)

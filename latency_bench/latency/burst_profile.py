@@ -4,71 +4,12 @@ import math
 from statistics import median
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Hidden-regime burst model: a two-state (calm/burst) hidden Markov chain over
-# worker-service latency, with excursions modeled as objects inside bursts.
-#
-# Real latency spikes arrive in clusters with normal-valued samples in
-# between, so a chain keyed on the latency value itself forgets it is inside a
-# burst as soon as one normal sample lands. The hidden regime carries that
-# memory. Fitting is a deterministic labeling pass (no EM): samples above
-# ``SPIKE_MEDIAN_MULTIPLIER x median`` are spikes, spikes within
-# ``BURST_MERGE_GAP_RECORDS`` of each other belong to one burst, and every
-# record from a burst's first to last spike (including the interleaved normal
-# ones) is labeled burst.
-#
-# The regime is machine state, not episode state: a degraded machine stays
-# degraded through env resets (observed as one slow condition spanning tens of
-# consecutive episodes). Labeling therefore treats the whole sample stream as
-# one machine timeline — bursts, excursions, and transitions bridge episode
-# boundaries — and the sampler carries the regime across episode resets.
-# Separate measurement sessions remain separate timelines: they share fitted
-# distributions but contribute no synthetic boundary transition or dwell.
-#
-# Within a burst, structure is fitted per WORKER, not on the merged stream.
-# Real degradations are worker states: one slow GPU serving every other
-# request makes the merged stream alternate spike/normal, so merged-stream
-# excursions fit the interleaving artifact (durations ~1) instead of the
-# constant-slow worker underneath — and a sampler replaying that artifact
-# spreads the slow draws iid across workers, so no single worker saturates
-# and the real failure mode (one worker at utilization > 1 dropping half the
-# observations) never reproduces. Inside each dwell, workers are ranked by
-# severity (in-dwell spike rate — an order statistic, no boundary), and each
-# rank pools its own excursion structure across dwells: rank-1 carries the
-# degraded worker's near-constant slowness, lower ranks carry whatever mild
-# elevation the remaining workers actually showed. Calm emissions are fitted
-# independently per worker slot below, so they are not duplicated here.
-# A binary "participating worker set" cannot express the observed continuum
-# (100%/0% single-worker events, 89%/7% degradations, 48%/35% host-wide
-# wobble) without a classification boundary; ranks express it directly.
-#
-# How severe a degradation is belongs to the DWELL, not to any sub-stretch of
-# it: observed dwells range from constant-slow (every serve above threshold)
-# to mild wobble (a third of serves), and pooling their internal run/gap
-# structure regresses every generated dwell to the average severity — the
-# constant-slow shape that saturates a worker then never reproduces. Each
-# rank therefore carries two per-dwell continuous latents, both drawn once at
-# dwell entry: its severity (that rank's above-threshold fraction of serves
-# in the dwell) and its level (the dwell's mean above-threshold service).
-# Within the dwell each serve is then above threshold with probability
-# severity, emitting level plus a draw from the fitted asymmetric residual
-# distribution (spike values hug their dwell level with a long right tail; a
-# symmetric sigma would leak mass across the frame-boundary below). Run-length
-# closure on all fitted devices shows no within-dwell autocorrelation beyond
-# what severity carries, so the serve order is memoryless by evidence, not
-# assumption; plateaus are dwells whose severity sits near one, not a model
-# class. Severity is NOT independent of dwell length: on every fitted device
-# the host-wide events are short blips while the long degradations belong to
-# a single worker, so lower ranks' severities fall sharply with dwell length
-# (sampling them independently hands a long degradation's healthy worker a
-# blip's severity and over-generates the fitted in-dwell spike mass 1.4-2x on
-# every device). Each rank therefore carries a fitted dwell-length/severity
-# Spearman rho, applied through the same Gaussian-copula draw the emission
-# joints use. Severity–level and cross-rank severity dependencies tested
-# absent, so those latents sample independently. The fitted joint emission
-# distribution per regime carries both observation-to-action latency and worker-service
-# time so control staleness and worker occupancy stay correlated.
-# ---------------------------------------------------------------------------
+# Spikes are labeled per worker and merged into session-local burst dwells.
+# Episode resets retain machine state; independent measurement sessions never
+# contribute a synthetic boundary transition. Version 12 reproduces archived
+# rank/severity/level fits. Version 13 samples whole events, retaining their
+# duration and per-worker conditional emissions, and fits initial session
+# states separately from interior burst arrivals.
 
 
 LATENCY_MS_BIN_WIDTH = 1.0
@@ -114,14 +55,15 @@ def build_burst_samples(
     return samples
 
 
-def build_hidden_regime_burst_model(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    return build_hidden_regime_burst_model_from_sessions([samples])
+def build_hidden_regime_burst_model(samples: list[dict[str, Any]], *, model_version: int = 13) -> dict[str, Any]:
+    return build_hidden_regime_burst_model_from_sessions([samples], model_version=model_version)
 
 
 def build_hidden_regime_burst_model_from_sessions(
     session_samples: list[list[dict[str, Any]]],
+    *, model_version: int = 13,
 ) -> dict[str, Any]:
-    """Fit one model while preserving independent measurement boundaries."""
+    """Fit session-scoped bursts; v12 remains available for paired historical controls."""
     pooled_samples = [sample for samples in session_samples for sample in samples]
     spike_thresholds_by_slot = _worker_slot_spike_thresholds(session_samples)
 
@@ -160,38 +102,66 @@ def build_hidden_regime_burst_model_from_sessions(
         for begin, end in dwells
     ]
 
-    rank_processes, pre_worker_times, slot_rank_templates = _fit_rank_processes_from_sessions(
-        list(zip(ordered_sessions, session_dwells)), spike_thresholds_by_slot
+    fields = {12: _legacy_burst_fields, 13: _joint_burst_fields}[model_version](
+        ordered_sessions, session_dwells, spike_thresholds_by_slot,
     )
-
-    model = {
-        "schema_version": 12,
+    return {
+        "schema_version": model_version,
         "model_type": "hidden_regime",
         "reset_scope": "session",
         "spike_threshold_ms_by_worker_slot": spike_thresholds_by_slot,
         "spike_median_multiplier": SPIKE_MEDIAN_MULTIPLIER,
         "burst_merge_gap_records": BURST_MERGE_GAP_RECORDS,
-        "worker_count": len({int(sample["worker_id"]) for sample in pooled_samples}),
+        "worker_count": len({sample["worker_id"] for sample in pooled_samples}),
         "regime_transition_counts": transition_counts,
         "regime_step_counts": regime_step_counts,
         "burst_dwell_lengths": sorted(burst_dwell_lengths),
-        # Burst dwell is a fitted continuous duration, sampled fresh at each
-        # burst entry. A geometric (per-draw exit) dwell rejects the observed
-        # mixture of draw-scale blips and minutes-long degradations.
-        "burst_dwell_distribution": (
-            _fit_inverse_cdf([float(length) for length in burst_dwell_lengths])
-            if burst_dwell_lengths
-            else None
-        ),
-        "burst_rank_processes": rank_processes,
-        "burst_slot_rank_templates": slot_rank_templates,
-        "pre_worker_time_ms": (
-            _fit_inverse_cdf(pre_worker_times)
-            if rank_processes and pre_worker_times
-            else None
-        ),
+        **fields,
     }
-    return model
+
+
+def _legacy_burst_fields(sessions, session_dwells, thresholds):
+    ranks, pre_worker_times, templates = _fit_rank_processes_from_sessions(
+        list(zip(sessions, session_dwells)), thresholds,
+    )
+    lengths = [end - begin + 1 for dwells in session_dwells for begin, end in dwells]
+    return {
+        "burst_dwell_distribution": _fit_inverse_cdf([float(n) for n in lengths]) if lengths else None,
+        "burst_rank_processes": ranks,
+        "burst_slot_rank_templates": templates,
+        "pre_worker_time_ms": _fit_inverse_cdf(pre_worker_times) if ranks and pre_worker_times else None,
+    }
+
+
+def _joint_burst_fields(sessions, session_dwells, thresholds):
+    # Session-leading dwells describe the initial state, not new burst arrivals.
+    initial_events, burst_events = [], []
+    for samples, dwells in zip(sessions, session_dwells):
+        initial = None
+        for begin, end in dwells:
+            by_slot = {}
+            for sample in samples[begin:end + 1]:
+                by_slot.setdefault(str(sample["worker_id"]), []).append(sample)
+            slots = {}
+            for slot, stream in by_slot.items():
+                spikes = [s for s in stream if s["worker_service_time_ms"] > thresholds[slot]]
+                steady = [s for s in stream if s["worker_service_time_ms"] <= thresholds[slot]]
+                # Each event retains its own level and residual distribution through
+                # its emissions, including sub-threshold samples inside the dwell.
+                slots[slot] = {
+                    "severity": len(spikes) / len(stream),
+                    "spike": _fit_joint_emission_distribution(spikes) if spikes else None,
+                    "steady": _fit_joint_emission_distribution(steady) if steady else None,
+                }
+            event = {"length": end - begin + 1, "worker_slots": slots}
+            if begin == 0:
+                initial = event
+            else:
+                burst_events.append(event)
+        # An unobserved session says nothing about its initial machine state.
+        if samples:
+            initial_events.append(initial)
+    return {"initial_events": initial_events, "burst_events": burst_events}
 
 
 def build_worker_slot_distributions_from_sessions(

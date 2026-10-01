@@ -22,7 +22,7 @@ from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, Late
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
 from latency_bench.executors._simulated_timeline import SimulatedResultTimeline, SimulatedWorkerCapacity
 from latency_bench.latency.sample import LatencySample
-from latency_bench.latency.samplers import HiddenRegimeSampler, IidInverseCdfSampler, build_episode_sampler_factory
+from latency_bench.latency.samplers import HiddenRegimeSampler, JointBurstSampler, IidInverseCdfSampler, build_episode_sampler_factory
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.factory import build_persistence_policy
 from training.common.latency_config import (
@@ -294,7 +294,7 @@ class ActionLatencyWrapper(gym.Wrapper):
         """
         shadow = copy.copy(self)
         memo = {}
-        if isinstance(self.profile_sampler, (HiddenRegimeSampler, IidInverseCdfSampler)):
+        if isinstance(self.profile_sampler, (HiddenRegimeSampler, JointBurstSampler, IidInverseCdfSampler)):
             memo[id(self.profile_sampler.distributions)] = self.profile_sampler.distributions
         if isinstance(self.profile_sampler, HiddenRegimeSampler):
             for table in (self.profile_sampler.model, self.profile_sampler.rank_processes, self.profile_sampler.pre_worker_time):

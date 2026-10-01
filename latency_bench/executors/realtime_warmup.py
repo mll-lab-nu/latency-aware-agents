@@ -104,7 +104,7 @@ def realtime_warmup_status(latency_values_ms: Sequence[float]) -> RealtimeWarmup
     )
 
 
-def write_realtime_stress_warmup_artifacts(
+def write_realtime_warmup_artifacts(
     output_dir: str | Path,
     latency_records: Sequence[LatencyRecord],
     profiles: Sequence[PipelineProfile],
@@ -116,7 +116,7 @@ def write_realtime_stress_warmup_artifacts(
     profile_rows = [profile.__jsonable__() for profile in profiles]
     summary = {
         **_summary_payload(status, latency_values),
-        "warmup_mode": "stress_policy",
+        "warmup_mode": "realtime_pipeline",
         "warmup_profiled_samples": len(profile_rows),
         "warmup_stage_summary": _profile_stage_summary(profile_rows),
     }

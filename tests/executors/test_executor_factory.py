@@ -20,6 +20,7 @@ from latency_bench.latency.burst_profile import (
     build_worker_slot_distributions_from_sessions,
 )
 from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
+from latency_bench.latency.samplers import JointBurstSampler
 from latency_bench.core.clock import EnvClock
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 from latency_bench.policy.action_prefix import prepare_action_prefix
@@ -87,7 +88,7 @@ def _config(mode: str = "simulated", output_dir: str = "outputs/executor_factory
             "mode": mode,
         },
         "env": {
-            "name": "normalized_noop_test",
+            "name": "dummy" if mode == "realtime" else "normalized_noop_test",
             "env_fps": 30,
             "obs_fps": 30,
             "noop_action": "config-noop",
@@ -300,28 +301,11 @@ def test_build_executor_realtime_rejects_injected_policy(tmp_path):
         build_executor(_config(mode="realtime", output_dir=str(tmp_path)), policy=object())
 
 
-def test_realtime_uses_injected_task_backend_locally(tmp_path):
-    import gymnasium as gym
-
-    from latency_bench.executors.env_step_backend import (
-        EnvStepBackendEnvAdapter,
-        SerialEnvStepBackend,
-    )
-
+def test_realtime_rejects_live_task_backend(tmp_path):
+    """Native GPU environments must be constructed by their owning process."""
     config = _config(mode="realtime", output_dir=str(tmp_path))
-    config["executor"]["inference_devices"] = ["cpu"]
-    env = _build_normalized_noop_env(config, Action(value="env-noop"))
-    env.action_space = gym.spaces.Discrete(2)
-    backend = SerialEnvStepBackend([env])
-
-    executor = build_executor(config, env_backend=backend)
-
-    try:
-        assert isinstance(executor.env, EnvStepBackendEnvAdapter)
-        assert executor.env.backend is backend
-        assert executor.use_env_process is False
-    finally:
-        executor.close()
+    with pytest.raises(ValueError, match="cannot cross the process boundary"):
+        build_executor(config, env_backend=object(), inference_devices=["cpu"])
 
 
 def test_factory_requires_ordering_policy(tmp_path):
@@ -676,7 +660,6 @@ def test_realtime_flappy_starvla_ignores_env_backend_selection_and_keeps_cpu_ren
     process and must never share resources with policy inference. The batched
     GPU backend auto-selection is simulated-only; realtime must not consult it
     and must keep the CPU (pygame) render adapter from its config."""
-    from latency_bench.envs.flappy import FlappyBirdEnvAdapter
 
     monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
 
@@ -703,8 +686,11 @@ def test_realtime_flappy_starvla_ignores_env_backend_selection_and_keeps_cpu_ren
     executor = build_executor(config)
     try:
         assert isinstance(executor, RealtimeLatencyExecutor)
-        assert isinstance(executor.env, FlappyBirdEnvAdapter)
-        assert executor.env.use_gpu_render is False
+        executor.env.reset(seed=0)
+        task = executor.env.warmup_observation()
+        assert task.observation.env_step == 0
+        executor.env.release_observation(task.shared_obs_id)
+        assert config["env"]["use_gpu_render"] is False
     finally:
         executor.close()
 
@@ -752,21 +738,45 @@ def test_realtime_mode_builds_realtime_executor(monkeypatch, tmp_path):
         executor.close()
 
 
-def test_realtime_mode_uses_injected_env_and_inference_devices(tmp_path):
+def test_realtime_mode_owns_environment_in_another_process(tmp_path):
+    import os
+    from latency_bench.executors.realtime.env_process import RealtimeEnvProcess
+
     config = _config(mode="realtime", output_dir=str(tmp_path))
-    env = DummyEnvAdapter(env_fps=config["env"]["env_fps"],
-                          noop_action=Action(value="env-noop", is_noop=True))
-
-    executor = build_executor(config, env=env, inference_devices=["cuda:1"])
-
+    executor = build_executor(config, inference_devices=["cuda:1"])
     try:
-        assert executor.env is env
+        assert isinstance(executor.env, RealtimeEnvProcess)
+        assert executor.env.process.pid != os.getpid()
         assert executor.inference_devices == ["cuda:1"]
-        assert executor.use_env_process is False
-        assert env.reset(seed=7).sim_time_ms == executor.clock.step_to_time_ms(0)
-        assert env.step(env.noop_action).observation.sim_time_ms == executor.clock.step_to_time_ms(1)
+        executor.env.reset(seed=7)
+        task = executor.env.warmup_observation()
+        assert task.observation.env_step == 0
+        executor.env.release_observation(task.shared_obs_id)
+        assert executor.env.step(executor.env.noop_action).observation.env_step == 1
     finally:
         executor.close()
+    assert not executor.env.process.is_alive()
+
+
+def test_realtime_factory_releases_environment_after_setup_failure(monkeypatch, tmp_path):
+    """The factory owns worker cleanup until executor construction succeeds."""
+    from latency_bench.executors.realtime.env_process import RealtimeEnvProcess
+
+    environments = []
+
+    def create(config, **kwargs):
+        environment = RealtimeEnvProcess(config, **kwargs)
+        environments.append(environment)
+        return environment
+
+    def fail_logger(config):
+        raise OSError("cannot create log")
+
+    monkeypatch.setattr(executor_factory, "RealtimeEnvProcess", create)
+    monkeypatch.setattr(executor_factory, "_build_trajectory_logger", fail_logger)
+    with pytest.raises(OSError, match="cannot create log"):
+        build_executor(_config(mode="realtime", output_dir=str(tmp_path)), inference_devices=["cpu"])
+    assert not environments[0].process.is_alive()
 
 
 def test_realtime_devices_follow_cuda_visible_devices(monkeypatch):
@@ -904,7 +914,7 @@ def test_parallel_simulated_profile_sample_builds_batched_executor(tmp_path):
 
 
 def test_temporal_latency_source_gets_no_per_episode_streams(tmp_path):
-    from latency_bench.latency.samplers import HiddenRegimeSampler, build_episode_sampler_factory
+    from latency_bench.latency.samplers import build_episode_sampler_factory
 
     profile_dir = _write_latency_profile(tmp_path)
     latency_cfg = {
@@ -923,14 +933,13 @@ def test_temporal_latency_source_gets_no_per_episode_streams(tmp_path):
     executor = build_executor(config)
     try:
         assert executor.episode_latency_source_factory is None
-        assert isinstance(executor.latency_source, HiddenRegimeSampler)
+        assert isinstance(executor.latency_source, JointBurstSampler)
     finally:
         executor.close()
 
 
 def test_parallel_simulated_temporal_keeps_one_timeline_per_replica(tmp_path):
     from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
-    from latency_bench.latency.samplers import HiddenRegimeSampler
 
     profile_dir = _write_latency_profile(tmp_path)
     config = _config(output_dir=str(tmp_path))
@@ -953,7 +962,7 @@ def test_parallel_simulated_temporal_keeps_one_timeline_per_replica(tmp_path):
         assert executor.episode_latency_source_factory is None
         sources = {id(slot.latency_source) for slot in executor.slots}
         assert len(sources) == 3
-        assert isinstance(executor.slots[0].latency_source, HiddenRegimeSampler)
+        assert isinstance(executor.slots[0].latency_source, JointBurstSampler)
         # Identical seeds in distinct RNG objects would still couple replicas.
         streams = [tuple(slot.latency_source.rng.random() for _ in range(8)) for slot in executor.slots]
         assert len(set(streams)) == 3
@@ -993,6 +1002,8 @@ def test_parallel_simulated_policy_without_predict_batch_fails_fast(tmp_path):
 def test_executor_scheduler_uses_env_normalized_noop(monkeypatch, mode: str, tmp_path):
     if mode == "realtime":
         monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cuda:0"])
+        monkeypatch.setattr(executor_factory, "RealtimeEnvProcess", lambda config, **kwargs:
+                            _build_normalized_noop_env(config, Action(value="env-noop", is_noop=True)))
     executor = build_executor(_config(mode=mode, output_dir=str(tmp_path)))
 
     try:

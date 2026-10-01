@@ -91,7 +91,8 @@ def test_profile_builder_emits_per_slot_bundle_and_preserves_session_boundaries(
     assert profile["per_slot_summary"]["0"]["admitted_count"] == 4
     burst = json.loads((output / "latency_burst_model.json").read_text())
     assert burst["burst_dwell_lengths"] == [1, 1]
-    assert len(burst["burst_slot_rank_templates"]) == 2
+    assert len(burst["burst_events"]) + sum(event is not None for event in burst["initial_events"]) == 2
+    assert burst["schema_version"] == 13
 
     with pytest.raises(FileExistsError):
         build_profile_from_traces(

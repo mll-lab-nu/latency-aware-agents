@@ -14,7 +14,6 @@ import yaml
 from latency_bench.data.starvla_tasks import normalize, task_spec, write_task_contract
 from latency_bench.core.types import Action, Observation
 from latency_bench.policy.action_prefix import encode_prefix_state, resolve_action_prefix, with_action_prefix
-from scripts.mikasa.evaluate import _reset_seeded_slot, _reset_seeded_slots
 from scripts.starvla import runtime, train_task
 from scripts.tasks.mikasa_intercept_grab_fast import fixed_latency_grid as grid
 from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
@@ -24,6 +23,7 @@ from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
     _selected_slots,
     _teacher_chunks,
 )
+from mikasa_robo_suite.seed_reset import reset_seeded_slot, reset_seeded_slots
 from scripts.tasks.mikasa_intercept_grab_fast.diagnose_conditioned_h8 import suffix_errors
 from scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset import (
     _features as conditioned_h8_features,
@@ -293,12 +293,12 @@ def test_mikasa_batched_slots_use_their_scalar_seeds():
 
     seeds = [101, 203, 307]
     batched = SeededEnv(len(seeds))
-    batched_observation = _reset_seeded_slots(batched, seeds)
+    batched_observation = reset_seeded_slots(batched, seeds)
 
     isolated_observations = []
     for seed in seeds:
         isolated = SeededEnv(1)
-        observation, _ = _reset_seeded_slot(isolated, slot_id=0, seed=seed)
+        observation, _ = reset_seeded_slot(isolated, slot_id=0, seed=seed)
         isolated_observations.append(int(observation[0]))
 
     assert batched_observation.tolist() == isolated_observations == seeds

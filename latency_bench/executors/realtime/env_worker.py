@@ -22,7 +22,7 @@ from latency_bench.scheduler.factory import build_action_scheduler
 from latency_bench.policy.action_prefix import with_action_prefix
 
 
-# Number of shared-memory slots pre-allocated per episode. In-flight observations
+# Number of shared-memory slots pre-allocated per environment process. In-flight observations
 # (written but not yet released) ~= inference_latency / obs_stride; should_observe
 # applies no backpressure, so this must stay well above the worst-case in-flight
 # count. 64 is generous for realistic latency distributions.
@@ -85,206 +85,223 @@ def _drain_env_actions_until_wall_time(
         return False
 
 
-def _env_loop_worker(
-    connection: Any,
-    config: dict[str, Any] | None,
-    episode_id: int,
-    seed: int | None,
-    eval_max_steps: int,
-    video_output_dir: str | None,
-    video_fps: float | None,
-) -> None:
-    gc_was_enabled = gc.isenabled()
+def _env_loop_worker(connection, config, video_output_dir, video_fps):
+    """Construct, warm, and run the environment in its owning process."""
+    # Native environment dependencies belong only in the environment interpreter.
+    from latency_bench.core.actions import ActionResolver
+    from latency_bench.envs.factory import build_env_adapter
+    from latency_bench.executors.env_step_backend import env_action_space
+
+    was_enabled = gc.isenabled()
+    gc.disable()
+    env = None
+    observation_pool = None
     try:
-        from latency_bench.core.actions import ActionResolver
-        from latency_bench.envs.factory import build_env_adapter
-        from latency_bench.logging.video import EpisodeVideoRecorder
-        from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
-
-        # This process lives for exactly one episode; a GC pause here misses
-        # frame deadlines, and the heap is reclaimed at process exit anyway.
-        gc.disable()
-
-        runtime_config = config or {}
-        profile_enabled = bool(runtime_config.get("logging", {}).get("realtime_pipeline_profile", False))
-        action_resolver = ActionResolver(runtime_config["env"])
-        env = build_env_adapter(runtime_config, action_resolver.noop_action)
-        clock = EnvClock(
-            env_fps=float(runtime_config["env"]["env_fps"]),
-            obs_fps=float(runtime_config["env"]["obs_fps"]),
-        )
-        action_scheduler = build_action_scheduler(
-            runtime_config["scheduler"],
-            clock=clock,
-            noop_action=env.noop_action,
-        )
-        decision_scheduler = ObservationCadenceDecisionScheduler(clock)
-        env.reset(seed=seed)
-        video_recorder = None
-        if video_output_dir is not None:
-            video_recorder = EpisodeVideoRecorder(video_output_dir, fps=video_fps)
-            video_recorder.start_episode(episode_id=episode_id, metadata={})
-            video_recorder.record_frame(env.render_game_frame())
-        episode_start_s = time.perf_counter()
-        next_obs_id = 0
-        applied_event_count = 0
+        env = build_env_adapter(config, ActionResolver(config["env"]).noop_action)
+        clock = EnvClock(env_fps=config["env"]["env_fps"], obs_fps=config["env"]["obs_fps"])
+        scheduler = build_action_scheduler(config["scheduler"], clock=clock, noop_action=env.noop_action)
         action_prefix = config["policy"]["action_prefix"]
-        observation_pool: ObservationSlotPool | None = None
-
-        def release_shared_observation(obs_id: int) -> None:
-            observation_pool.release(obs_id)
-
-        def release_all_shared_observations() -> None:
-            if observation_pool is not None:
-                for obs_id in list(observation_pool.obs_slots):
-                    release_shared_observation(obs_id)
-
-        def close_env_and_pool() -> None:
-            if observation_pool is not None:
-                observation_pool.close()
-            env.close()
-
-        for env_step in range(int(eval_max_steps)):
-            scheduled_time_ms = clock.step_to_time_ms(env_step)
-            target_wall_s = episode_start_s + scheduled_time_ms / 1000.0
-            now_s = time.perf_counter()
-            if now_s < target_wall_s:
-                if _drain_env_actions_until_wall_time(
-                    connection=connection,
-                    action_scheduler=action_scheduler,
-                    release_observation=release_shared_observation,
-                    target_wall_s=target_wall_s,
-                ):
-                    close_env_and_pool()
-                    return
-            wall_elapsed_ms = (time.perf_counter() - episode_start_s) * 1000.0
-            wall_clock_lag_ms = max(0.0, wall_elapsed_ms - scheduled_time_ms)
-
-            if _drain_env_action_messages(
-                connection=connection,
-                action_scheduler=action_scheduler,
-                release_observation=release_shared_observation,
-            ):
-                close_env_and_pool()
-                return
-
-            if decision_scheduler.should_observe(env_step, scheduled_time_ms):
-                observe_start_ms = monotonic_ms()
-                observation = with_action_prefix(
-                    env.observe(), action_scheduler, action_prefix
-                )
-                observe_end_ms = monotonic_ms()
-                obs_id = next_obs_id
-                next_obs_id += 1
-                if observation_pool is None:
-                    observation_pool = ObservationSlotPool.from_observation(
-                        observation,
-                        capacity=DEFAULT_OBSERVATION_SLOT_POOL_CAPACITY,
-                    )
-                shared_observation = observation_pool.write(obs_id=obs_id, observation=observation)
-                profile = None
-                if profile_enabled:
-                    profile = PipelineProfile(
-                        env_observe_ms=observe_end_ms - observe_start_ms,
-                        env_wall_lag_ms=wall_clock_lag_ms,
-                    )
-                task = RealtimeObservationTask(
-                    obs_id=obs_id,
-                    observation=shared_observation,
-                    submit_env_step=env_step,
-                    submit_time_ms=wall_elapsed_ms,
-                    observation_start_time_ms=observe_start_ms,
-                    profile=profile,
-                    shared_obs_id=obs_id,
-                )
-                if profile is not None:
-                    profile.env_observation_send_start_ms = monotonic_ms()
-                connection.send(("observation", {"task": task}))
-
-            if _drain_env_action_messages(
-                connection=connection,
-                action_scheduler=action_scheduler,
-                release_observation=release_shared_observation,
-            ):
-                close_env_and_pool()
-                return
-
-            scheduler_update_start_ms = monotonic_ms()
-            active_action = action_scheduler.update(env_step, scheduled_time_ms)
-            scheduler_update_ms = monotonic_ms() - scheduler_update_start_ms
-            new_applied_events = action_scheduler.get_applied_events_since(applied_event_count)
-            for event in new_applied_events:
-                if event.profile is not None:
-                    event.profile.env_scheduler_update_ms = scheduler_update_ms
-
-            env_step_start_ms = monotonic_ms()
-            result = env.step(active_action)
-            env_step_ms = monotonic_ms() - env_step_start_ms
-            for event in new_applied_events:
-                if event.profile is not None:
-                    event.profile.env_step_ms = env_step_ms
-                connection.send(("action_ack", _action_event_ack_payload(event)))
-            applied_event_count = action_scheduler.applied_event_count
-            episode_done = bool(result.done or result.truncated)
-            if video_recorder is not None and not episode_done:
-                video_recorder.record_frame(env.render_game_frame())
-            connection.send((
-                "step",
-                {
-                    "record": build_step_record(
-                        episode_id=episode_id,
-                        env_step=env_step,
-                        scheduled_time_ms=scheduled_time_ms,
-                        active_action=active_action,
-                        reward=result.reward,
-                        done=episode_done,
-                        info=result.info,
-                        active_event=action_scheduler.latest_applied_event,
-                        frame_ms=clock.frame_ms,
-                        latency_type="measured",
-                        pre_active_info={
-                            "scheduled_time_ms": scheduled_time_ms,
-                            "wall_elapsed_ms": wall_elapsed_ms,
-                            "frame_time_ms": clock.frame_ms,
-                            "wall_clock_lag_ms": wall_clock_lag_ms,
-                            "observation_submitted": False,
-                            "observation_dropped": False,
-                            "in_flight_count": None,
-                            "idle_worker_count": None,
-                        },
-                    )
-                },
-            ))
-            if episode_done:
-                break
-
-        if video_recorder is not None:
-            video_recorder.close_episode({})
-        connection.send(("episode_done", {}))
+        env.reset(seed=None)
+        observation_pool = ObservationSlotPool.from_observation(
+            with_action_prefix(env.observe(), scheduler, action_prefix),
+            capacity=DEFAULT_OBSERVATION_SLOT_POOL_CAPACITY,
+        )
+        connection.send(("ready", {
+            "env_fps": env.env_fps, "noop_action": env.noop_action,
+            "action_space": env_action_space(env),
+        }))
+        next_obs_id = 0
         while True:
-            if _drain_env_action_messages(
+            command, payload = connection.recv()
+            if command == "close":
+                return
+            if command == "release_observation":
+                observation_pool.release(payload["obs_id"])
+            elif command == "reset":
+                scheduler.reset()
+                env.reset(seed=payload["seed"])
+                connection.send(("reset", {}))
+            elif command == "observe":
+                observe_start_ms = monotonic_ms()
+                observation = with_action_prefix(env.observe(), scheduler, action_prefix)
+                shared = observation_pool.write(obs_id=next_obs_id, observation=observation)
+                profile = PipelineProfile(
+                    env_observe_ms=monotonic_ms() - observe_start_ms,
+                    env_wall_lag_ms=0.0,
+                    parent_to_env_ipc_ms=0.0,
+                    env_action_recv_to_enqueue_ms=0.0,
+                )
+                task = RealtimeObservationTask(
+                    obs_id=next_obs_id, observation=shared,
+                    submit_env_step=observation.env_step, submit_time_ms=0.0,
+                    observation_start_time_ms=observe_start_ms, profile=profile,
+                    shared_obs_id=next_obs_id,
+                )
+                next_obs_id += 1
+                profile.env_observation_send_start_ms = monotonic_ms()
+                connection.send(("observation", {"task": task}))
+            elif command == "step":
+                start_ms = monotonic_ms()
+                result = env.step(payload["action"])
+                result.info["env_step_ms"] = monotonic_ms() - start_ms
+                connection.send(("step", {"result": result}))
+            elif command == "episode":
+                # The worker now survives resets; collect only outside paced time.
+                gc.collect()
+                if not _run_episode(
+                    connection, config, env, clock, scheduler, observation_pool,
+                    video_output_dir=video_output_dir, video_fps=video_fps, **payload,
+                ):
+                    return
+    except BaseException:
+        connection.send(("error", {"traceback": traceback.format_exc()}))
+    finally:
+        if observation_pool is not None:
+            observation_pool.close()
+        if env is not None:
+            env.close()
+        if was_enabled:
+            gc.enable()
+
+
+def _run_episode(connection, config, env, clock, action_scheduler, observation_pool,
+                 *, episode_id, seed, eval_max_steps, video_output_dir, video_fps):
+    from latency_bench.logging.video import EpisodeVideoRecorder
+    from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
+
+    action_scheduler.reset()
+    env.reset(seed=seed)
+    profile_enabled = config["logging"]["realtime_pipeline_profile"]
+    decision_scheduler = ObservationCadenceDecisionScheduler(clock)
+    action_prefix = config["policy"]["action_prefix"]
+    video_recorder = None
+    if video_output_dir is not None:
+        video_recorder = EpisodeVideoRecorder(video_output_dir, fps=video_fps)
+        video_recorder.start_episode(episode_id=episode_id, metadata={})
+        video_recorder.record_frame(env.render_game_frame())
+    episode_start_s = time.perf_counter()
+    connection.send(("episode_started", {"episode_start_s": episode_start_s}))
+    next_obs_id = 0
+    applied_event_count = 0
+    release_shared_observation = observation_pool.release
+    for env_step in range(int(eval_max_steps)):
+        scheduled_time_ms = clock.step_to_time_ms(env_step)
+        target_wall_s = episode_start_s + scheduled_time_ms / 1000.0
+        now_s = time.perf_counter()
+        if now_s < target_wall_s:
+            if _drain_env_actions_until_wall_time(
                 connection=connection,
                 action_scheduler=action_scheduler,
                 release_observation=release_shared_observation,
+                target_wall_s=target_wall_s,
             ):
-                release_all_shared_observations()
-                close_env_and_pool()
-                return
-            time.sleep(0.001)
-    except BaseException:
-        error_traceback = traceback.format_exc()
-        # Best-effort: unlink the slot pool's shared memory so a crash (e.g. pool
-        # exhaustion) does not leak it. close_env_and_pool only exists if we got
-        # past env construction; it already no-ops when the pool was never created.
-        cleanup = locals().get("close_env_and_pool")
-        if cleanup is not None:
-            try:
-                cleanup()
-            except BaseException:
-                pass
-        connection.send(("error", {"traceback": error_traceback}))
-    finally:
-        # The real env process exits with this function; restoring GC state
-        # only matters for in-process callers (tests).
-        if gc_was_enabled:
-            gc.enable()
+                return False
+        wall_elapsed_ms = (time.perf_counter() - episode_start_s) * 1000.0
+        wall_clock_lag_ms = max(0.0, wall_elapsed_ms - scheduled_time_ms)
+
+        if _drain_env_action_messages(
+            connection=connection,
+            action_scheduler=action_scheduler,
+            release_observation=release_shared_observation,
+        ):
+            return False
+
+        if decision_scheduler.should_observe(env_step, scheduled_time_ms):
+            observe_start_ms = monotonic_ms()
+            observation = with_action_prefix(
+                env.observe(), action_scheduler, action_prefix
+            )
+            observe_end_ms = monotonic_ms()
+            obs_id = next_obs_id
+            next_obs_id += 1
+            shared_observation = observation_pool.write(obs_id=obs_id, observation=observation)
+            profile = None
+            if profile_enabled:
+                profile = PipelineProfile(
+                    env_observe_ms=observe_end_ms - observe_start_ms,
+                    env_wall_lag_ms=wall_clock_lag_ms,
+                )
+            task = RealtimeObservationTask(
+                obs_id=obs_id,
+                observation=shared_observation,
+                submit_env_step=env_step,
+                submit_time_ms=wall_elapsed_ms,
+                observation_start_time_ms=observe_start_ms,
+                profile=profile,
+                shared_obs_id=obs_id,
+            )
+            if profile is not None:
+                profile.env_observation_send_start_ms = monotonic_ms()
+            connection.send(("observation", {"task": task}))
+
+        if _drain_env_action_messages(
+            connection=connection,
+            action_scheduler=action_scheduler,
+            release_observation=release_shared_observation,
+        ):
+            return False
+
+        scheduler_update_start_ms = monotonic_ms()
+        active_action = action_scheduler.update(env_step, scheduled_time_ms)
+        scheduler_update_ms = monotonic_ms() - scheduler_update_start_ms
+        new_applied_events = action_scheduler.get_applied_events_since(applied_event_count)
+        for event in new_applied_events:
+            if event.profile is not None:
+                event.profile.env_scheduler_update_ms = scheduler_update_ms
+
+        env_step_start_ms = monotonic_ms()
+        result = env.step(active_action)
+        env_step_ms = monotonic_ms() - env_step_start_ms
+        result.info["env_step_ms"] = env_step_ms
+        for event in new_applied_events:
+            if event.profile is not None:
+                event.profile.env_step_ms = env_step_ms
+            connection.send(("action_ack", _action_event_ack_payload(event)))
+        applied_event_count = action_scheduler.applied_event_count
+        episode_done = bool(result.done or result.truncated)
+        if video_recorder is not None and not episode_done:
+            video_recorder.record_frame(env.render_game_frame())
+        connection.send((
+            "step",
+            {
+                "record": build_step_record(
+                    episode_id=episode_id,
+                    env_step=env_step,
+                    scheduled_time_ms=scheduled_time_ms,
+                    active_action=active_action,
+                    reward=result.reward,
+                    done=episode_done,
+                    info=result.info,
+                    active_event=action_scheduler.latest_applied_event,
+                    frame_ms=clock.frame_ms,
+                    latency_type="measured",
+                    pre_active_info={
+                        "scheduled_time_ms": scheduled_time_ms,
+                        "wall_elapsed_ms": wall_elapsed_ms,
+                        "frame_time_ms": clock.frame_ms,
+                        "wall_clock_lag_ms": wall_clock_lag_ms,
+                        "observation_submitted": False,
+                        "observation_dropped": False,
+                        "in_flight_count": None,
+                        "idle_worker_count": None,
+                    },
+                )
+            },
+        ))
+        if episode_done:
+            break
+
+    if video_recorder is not None:
+        video_recorder.close_episode({})
+    connection.send(("episode_done", {}))
+    # The parent drains every admitted request before acknowledging the boundary.
+    while True:
+        command, payload = connection.recv()
+        if command == "release_observation":
+            observation_pool.release(payload["obs_id"])
+        elif command == "finish_episode":
+            gc.collect()
+            connection.send(("episode_finished", {}))
+            return True
+        elif command == "close":
+            return False

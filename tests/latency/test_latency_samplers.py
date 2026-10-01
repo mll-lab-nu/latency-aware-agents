@@ -17,6 +17,7 @@ from latency_bench.latency.profile import (
 from latency_bench.latency.samplers import (
     FixedSampler,
     HiddenRegimeSampler,
+    JointBurstSampler,
     NormalSampler,
     UniformSampler,
     ZeroSampler,
@@ -219,7 +220,7 @@ def test_per_episode_modifier_freezes_draw_per_episode():
 def test_temporal_method_builds_hidden_regime_sampler(tmp_path: Path):
     profile_dir = _write_latency_profile(tmp_path)
     sampler = _profile_sampler(profile_dir, seed=0)
-    assert isinstance(sampler, HiddenRegimeSampler)
+    assert isinstance(sampler, JointBurstSampler)
     draws = [sampler.sample({"episode_id": 0, "worker_slot": 0}) for _ in range(5)]
     assert all(s.worker_service_raw_frames in {1, 2, 3} for s in draws)
     assert all(s.action_ready_raw_frames in {1, 2, 3} for s in draws)

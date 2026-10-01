@@ -30,7 +30,7 @@ def resolve_evaluation_config(config: dict[str, Any]) -> None:
             "simulated_inference_pool": False,
             "simulated_worker_capacity": None,
         },
-        "logging": {"simulated_pipeline_profile": False},
+        "logging": {"simulated_pipeline_profile": False, "realtime_pipeline_profile": False},
     }
     for section, fields in defaults.items():
         for name, value in fields.items():

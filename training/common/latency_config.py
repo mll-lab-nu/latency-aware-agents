@@ -7,7 +7,7 @@ from typing import Any
 
 from latency_bench.core.clock import EnvClock, ms_to_raw_frames
 from latency_bench.core.latency_distribution import LatencyDistributionSpec
-from latency_bench.latency.samplers import HiddenRegimeSampler, build_sampler
+from latency_bench.latency.samplers import HiddenRegimeSampler, JointBurstSampler, build_sampler
 
 from training.common.utils import env_instance_seed, str2bool
 
@@ -178,9 +178,11 @@ def build_profile_sampler(
     )
 
 
-def temporal_profile_sampler_for_reset(sampler: HiddenRegimeSampler, seed: int) -> HiddenRegimeSampler:
+def temporal_profile_sampler_for_reset(
+    sampler: HiddenRegimeSampler | JointBurstSampler, seed: int,
+) -> HiddenRegimeSampler | JointBurstSampler:
     """Start an independent temporal stream for one explicitly seeded rollout."""
-    return HiddenRegimeSampler(
+    return type(sampler)(
         sampler.model,
         {"worker_slots": sampler.distributions},
         clock=sampler.clock,
@@ -207,7 +209,7 @@ def build_iid_profile_sampler(
 def profile_sampler_max_latency_raw_frames(sampler: Any, *, worker_slot: int, env_fps: float) -> int:
     """Maximum ready delay over the sampler's generated support."""
     slot = str(worker_slot)
-    distribution = sampler.distributions[slot]["steady" if isinstance(sampler, HiddenRegimeSampler) else "all"]
+    distribution = sampler.distributions[slot]["steady" if isinstance(sampler, (HiddenRegimeSampler, JointBurstSampler)) else "all"]
     max_latency_ms = max(distribution["observation_to_action_latency_ms"]["latency_ms"])
     if isinstance(sampler, HiddenRegimeSampler):
         for rank in sampler.rank_processes:
@@ -217,6 +219,13 @@ def profile_sampler_max_latency_raw_frames(sampler: Any, *, worker_slot: int, en
                 math.nextafter(sampler.model["spike_threshold_ms_by_worker_slot"][slot], math.inf),
             )
             max_latency_ms = max(max_latency_ms, spike_ms + max(sampler.pre_worker_time["latency_ms"]))
+    elif isinstance(sampler, JointBurstSampler):
+        for event in [*sampler.model["initial_events"], *sampler.model["burst_events"]]:
+            if event is not None and slot in event["worker_slots"]:
+                worker = event["worker_slots"][slot]
+                for name in ("spike", "steady"):
+                    if worker[name] is not None:
+                        max_latency_ms = max(max_latency_ms, max(worker[name]["observation_to_action_latency_ms"]["latency_ms"]))
     return latency_ms_to_raw_frames(max_latency_ms, env_fps=env_fps)
 
 

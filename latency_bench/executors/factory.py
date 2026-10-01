@@ -18,9 +18,10 @@ from latency_bench.executors.backend_selection import (
 )
 from latency_bench.executors.base import Executor
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
-from latency_bench.executors.env_step_backend import EnvStepBackend, EnvStepBackendEnvAdapter
+from latency_bench.executors.env_step_backend import EnvStepBackend
 from latency_bench.executors.paused import PausedLatencyExecutor
 from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor, RealtimeRuntime
+from latency_bench.executors.realtime.env_process import RealtimeEnvProcess
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.config import (
@@ -60,8 +61,6 @@ def build_executor(
         inference_devices = executor_cfg["inference_devices"]
     mode = ExecutorMode(executor_cfg["mode"])
     eval_parallel_envs = _eval_parallel_envs(config)
-    if env_backend is not None and mode == ExecutorMode.REALTIME:
-        env = EnvStepBackendEnvAdapter(env_backend)
     if eval_parallel_envs > 1 and mode in {ExecutorMode.PAUSED, ExecutorMode.REALTIME}:
         raise ValueError(
             "evaluation.eval_parallel_envs > 1 is only supported for executor.mode=simulated; "
@@ -81,6 +80,7 @@ def build_executor(
         config,
         policy=policy,
         env=env,
+        env_backend=env_backend,
         inference_devices=inference_devices,
     )
 
@@ -156,20 +156,6 @@ def _build_executor_runtime_components(
         clock=clock,
         decision_scheduler=decision_scheduler,
         action_scheduler=action_scheduler,
-    )
-
-
-def _build_realtime_runtime(
-    config: dict[str, Any],
-    *,
-    env: EnvAdapter | None = None,
-) -> RealtimeRuntime:
-    runtime = _build_executor_runtime_components(config, env=env)
-    return RealtimeRuntime(
-        env=runtime.env,
-        decision_scheduler=runtime.decision_scheduler,
-        action_scheduler=runtime.action_scheduler,
-        clock=runtime.clock,
     )
 
 
@@ -342,12 +328,13 @@ def _build_realtime_executor(
     *,
     policy: PolicyRunner | None = None,
     env: EnvAdapter | None = None,
+    env_backend: EnvStepBackend | None = None,
     inference_devices: list[str] | None = None,
 ) -> RealtimeLatencyExecutor:
-    if policy is not None:
+    if policy is not None or env is not None or env_backend is not None:
         raise ValueError(
-            "realtime executor builds its policy inside subprocess workers; "
-            "an injected in-process policy cannot cross the process boundary"
+            "realtime constructs environments and policies inside subprocess workers; "
+            "injected live objects cannot cross the process boundary"
         )
     latency_cfg = config["latency"]
     if resolve_latency_method(latency_cfg) != "measured":
@@ -359,18 +346,30 @@ def _build_realtime_executor(
             else _resolve_realtime_inference_devices()
         )
 
-    runtime = _build_realtime_runtime(config, env=env)
     video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
-    return RealtimeLatencyExecutor(
-        runtime=runtime,
-        logger=_build_trajectory_logger(config),
-        config=config,
-        inference_devices=inference_devices,
-        use_env_process=env is None,
-        video_output_dir=video_output_dir,
-        video_fps=runtime.clock.env_fps,
-        action_prefix=config["policy"]["action_prefix"],
+    clock = _build_clock(config)
+    environment = RealtimeEnvProcess(
+        config, video_output_dir=video_output_dir, video_fps=clock.env_fps,
     )
+    try:
+        runtime = RealtimeRuntime(
+            env=environment,
+            decision_scheduler=ObservationCadenceDecisionScheduler(clock),
+            action_scheduler=build_action_scheduler(
+                config["scheduler"], clock=clock, noop_action=environment.noop_action,
+            ),
+            clock=clock,
+        )
+        return RealtimeLatencyExecutor(
+            runtime=runtime,
+            logger=_build_trajectory_logger(config),
+            config=config,
+            inference_devices=inference_devices,
+            action_prefix=config["policy"]["action_prefix"],
+        )
+    except BaseException:
+        environment.close()
+        raise
 
 
 def _resolve_realtime_inference_devices() -> list[str]:

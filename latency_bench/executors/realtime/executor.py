@@ -1,14 +1,12 @@
 """The realtime executor: drives episodes against a wall clock while a process
 pool runs inference, coordinating in-flight results back into the action schedule.
 
-Both episode paths (env-in-process and env-in-subprocess) accumulate into a shared
-:class:`_EpisodeAccumulators` and converge on :meth:`_finalize_episode`, so the
-per-path code is just the two genuinely different control loops.
+Production runtimes own a persistent environment subprocess. Injected local
+runtimes support deterministic clock tests; both paths share episode accounting.
 """
 from __future__ import annotations
 
 import gc
-import multiprocessing as mp
 import sys
 import time
 from collections.abc import Callable, Mapping
@@ -28,8 +26,8 @@ from latency_bench.core.types import (
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.executors import realtime_warmup
 from latency_bench.executors.base import EpisodeExecutor
-from latency_bench.executors.env_step_backend import env_action_space, resolve_start_method
-from latency_bench.executors.realtime.env_worker import _env_loop_worker
+from latency_bench.executors.env_step_backend import env_action_space
+from latency_bench.executors.realtime.env_process import RealtimeEnvProcess
 from latency_bench.executors.realtime.messages import (
     RealtimeObservationTask,
     RealtimePolicyCompletion,
@@ -90,7 +88,7 @@ class _EpisodeAccumulators:
 @dataclass(frozen=True)
 class RealtimeRuntime:
     """Environment and scheduling dependencies for wall-clock execution."""
-    env: EnvAdapter
+    env: EnvAdapter | RealtimeEnvProcess
     decision_scheduler: DecisionScheduler
     action_scheduler: ActionScheduler
     clock: EnvClock
@@ -146,10 +144,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         inference_pool: Any | None = None,
         config: dict[str, Any] | None = None,
         inference_devices: list[str] | None = None,
-        use_env_process: bool = False,
         video_recorder: Any | None = None,
-        video_output_dir: str | None = None,
-        video_fps: float | None = None,
         action_prefix=None,
     ):
         self._install_runtime(runtime)
@@ -162,10 +157,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
         self.action_prefix = action_prefix
         self._profile_pipeline = bool((config or {}).get("logging", {}).get("realtime_pipeline_profile", False))
         self.inference_devices = list(inference_devices or [])
-        self.use_env_process = bool(use_env_process)
+        self.use_env_process = isinstance(runtime.env, RealtimeEnvProcess)
         self.video_recorder = video_recorder
-        self.video_output_dir = video_output_dir
-        self.video_fps = video_fps
         self._owns_inference_pool = inference_pool is None
         self._episode_start_s = 0.0
         self._next_obs_id = 0
@@ -206,88 +199,89 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
 
     def _run_warmup_impl(self, artifact_dir: str | Path | None) -> dict[str, Any]:
         pool = self._ensure_inference_pool()
+        pool.drain_until_idle()
+        pool.reset_state(0)
         if self._decision_history is not None:
             self._decision_history.reset()
-        latency_records = []
-        profiles = []
-        sample_target = realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES
-        submitted_count = 0
         self.action_scheduler.reset()
         self.env.reset(seed=None)
-        template_observation = self._with_episode_metadata(
-            with_action_prefix(self.env.observe(), self.action_scheduler, self.action_prefix),
-            episode_id=-1, episode_seed=0
-        )
-        observation_pool = ObservationSlotPool.from_observation(
-            template_observation,
-            capacity=pool.worker_count,
-        )
+        latency_records, profiles = [], []
+        submitted_count = 0
+        sample_target = realtime_warmup.MAX_WARMUP_LATENCY_SAMPLES
+        observation_pool = None
+        if not self.use_env_process:
+            template = self._with_episode_metadata(
+                with_action_prefix(self.env.observe(), self.action_scheduler, self.action_prefix),
+                episode_id=-1, episode_seed=0,
+            )
+            observation_pool = ObservationSlotPool.from_observation(template, capacity=pool.worker_count)
         try:
             while len(latency_records) < sample_target:
                 while pool.idle_worker_count and submitted_count < sample_target:
-                    observe_start_ms = monotonic_ms()
-                    observation = with_action_prefix(
-                        self.env.observe(), self.action_scheduler, self.action_prefix
-                    )
-                    observation = self._with_episode_metadata(
-                        observation,
-                        episode_id=-1,
-                        episode_seed=0,
-                    )
-                    observe_end_ms = monotonic_ms()
-                    obs_id = self._next_obs_id
-                    self._next_obs_id += 1
-                    shared_observation = observation_pool.write(obs_id=obs_id, observation=observation)
-                    profile = PipelineProfile(
-                        env_observe_ms=observe_end_ms - observe_start_ms,
-                        env_wall_lag_ms=0.0,
-                        env_to_parent_ipc_ms=0.0,
-                        parent_observation_handle_start_ms=monotonic_ms(),
-                        parent_to_env_ipc_ms=0.0,
-                        env_action_recv_to_enqueue_ms=0.0,
-                    )
-                    task = RealtimeObservationTask(
-                        obs_id=obs_id,
-                        observation=shared_observation,
-                        submit_env_step=observation.env_step,
-                        submit_time_ms=0.0,
-                        observation_start_time_ms=observe_start_ms,
-                        profile=profile,
-                        shared_obs_id=obs_id,
-                    )
-                    if pool.submit(task):
-                        profile.parent_observation_handle_ms = (
-                            monotonic_ms() - profile.parent_observation_handle_start_ms
+                    if self.use_env_process:
+                        incoming = self.env.warmup_observation()
+                        received = monotonic_ms()
+                        incoming.profile.env_to_parent_ipc_ms = received - incoming.profile.env_observation_send_start_ms
+                        task = RealtimeObservationTask(
+                            obs_id=self._next_obs_id,
+                            observation=self._with_episode_metadata(incoming.observation, episode_id=-1, episode_seed=0),
+                            submit_env_step=incoming.submit_env_step, submit_time_ms=0.0,
+                            observation_start_time_ms=incoming.observation_start_time_ms,
+                            profile=incoming.profile, shared_obs_id=incoming.shared_obs_id,
                         )
-                        submitted_count += 1
                     else:
-                        observation_pool.release(obs_id)
-                        break
+                        observe_start = monotonic_ms()
+                        observation = self._with_episode_metadata(
+                            with_action_prefix(self.env.observe(), self.action_scheduler, self.action_prefix),
+                            episode_id=-1, episode_seed=0,
+                        )
+                        shared = observation_pool.write(obs_id=self._next_obs_id, observation=observation)
+                        task = RealtimeObservationTask(
+                            obs_id=self._next_obs_id, observation=shared,
+                            submit_env_step=observation.env_step, submit_time_ms=0.0,
+                            observation_start_time_ms=observe_start,
+                            shared_obs_id=self._next_obs_id,
+                            profile=PipelineProfile(
+                                env_observe_ms=monotonic_ms() - observe_start,
+                                env_wall_lag_ms=0.0, env_to_parent_ipc_ms=0.0,
+                                parent_to_env_ipc_ms=0.0, env_action_recv_to_enqueue_ms=0.0,
+                            ),
+                        )
+                    self._next_obs_id += 1
+                    task.profile.parent_observation_handle_start_ms = monotonic_ms()
+                    pool.submit(task)
+                    task.profile.parent_observation_handle_ms = monotonic_ms() - task.profile.parent_observation_handle_start_ms
+                    submitted_count += 1
                 completions = pool.drain_completed()
                 for completion in completions:
-                    observation_pool.release(completion.task.shared_obs_id)
+                    if self.use_env_process:
+                        self.env.release_observation(completion.task.shared_obs_id)
+                    else:
+                        observation_pool.release(completion.task.shared_obs_id)
+                    action = completion.policy_output.action
+                    start = monotonic_ms()
+                    result = self.env.step(action)
+                    step_ms = result.info["env_step_ms"] if self.use_env_process else monotonic_ms() - start
+                    if self._decision_history is not None:
+                        self._decision_history.history.append([0], [True], [action.value], [action.value])
                     latency_records.append(completion.latency_record)
                     if completion.profile is not None:
+                        completion.profile.env_step_ms = step_ms
                         profiles.append(completion.profile)
+                    if result.done or result.truncated:
+                        self.env.reset(seed=None)
+                        if self._decision_history is not None:
+                            self._decision_history.reset()
                 if not completions:
                     self.sleep_fn(0.001)
         finally:
-            observation_pool.close()
-
+            if observation_pool is not None:
+                observation_pool.close()
         output_dir = self.config["logging"]["output_dir"] if artifact_dir is None else artifact_dir
-        summary = realtime_warmup.write_realtime_stress_warmup_artifacts(
-            output_dir, latency_records, profiles
-        )
+        summary = realtime_warmup.write_realtime_warmup_artifacts(output_dir, latency_records, profiles)
         if summary["warmup_status"] != "stable":
-            print(
-                "WARNING: realtime stress warmup did not stabilize; proceeding with the measured "
-                f"episode anyway (inspect warmup artifacts in {output_dir}). "
-                f"reason={summary.get('warmup_stability_reason')} "
-                f"trimmed_mean_span_ms={summary.get('warmup_trimmed_mean_span_ms')} "
-                f"median_span_ms={summary.get('warmup_median_span_ms')}",
-                file=sys.stderr,
-                flush=True,
-            )
+            print(f"WARNING: realtime pipeline warmup did not stabilize; inspect {output_dir}.",
+                  file=sys.stderr, flush=True)
         return summary
 
     def close(self) -> None:
@@ -470,6 +464,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             if self._decision_history is not None:
                 self._decision_history.finish_frame(env_step, active_action.value)
             env_step_ms = monotonic_ms() - env_step_start_ms
+            result.info["env_step_ms"] = env_step_ms
             for event in new_applied_events:
                 profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
                 if profile is not None:
@@ -530,26 +525,13 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
     ) -> EpisodeMetrics:
         pre_episode_drain = pool.drain_until_idle()
         pool.reset_state(0)
-        ctx = mp.get_context(resolve_start_method())
-        parent_conn, child_conn = ctx.Pipe()
-        process = ctx.Process(
-            target=_env_loop_worker,
-            args=(
-                child_conn,
-                self.config,
-                episode_id,
-                seed,
-                eval_max_steps,
-                self.video_output_dir,
-                self.video_fps,
-            ),
-            name="latency-bench-realtime-env",
+        parent_conn = self.env.connection
+        process = self.env.process
+        self.action_scheduler.reset()
+        self._episode_start_s = self.env.start_episode(
+            episode_id=episode_id, seed=seed, eval_max_steps=eval_max_steps,
         )
-        process.start()
-        child_conn.close()
-
         coordinator = ResultCoordinator(ordering_policy=self.action_scheduler.ordering_policy)
-        self._episode_start_s = self.time_fn()
         acc = _EpisodeAccumulators()
         action_event_index: dict[int, int] = {}
         pending_step_info: dict[int, dict[str, Any]] = {}
@@ -557,11 +539,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
 
         try:
             def release_observation(obs_id: int | None) -> None:
-                nonlocal done
-                try:
-                    parent_conn.send(("release_observation", {"obs_id": obs_id}))
-                except BrokenPipeError:
-                    done = True
+                parent_conn.send(("release_observation", {"obs_id": obs_id}))
 
             def release_ready_actions(now_ms: float) -> None:
                 nonlocal done
@@ -580,11 +558,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
                     if profile is not None:
                         profile.parent_to_env_send_start_ms = monotonic_ms()
-                    try:
-                        parent_conn.send(("action_dispatch", _action_event_dispatch_payload(event)))
-                    except BrokenPipeError:
-                        done = True
-                        break
+                    parent_conn.send(("action_dispatch", _action_event_dispatch_payload(event)))
                     if profile is not None:
                         profile.parent_to_env_send_call_ms = (
                             monotonic_ms() - profile.parent_to_env_send_start_ms
@@ -703,7 +677,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
 
                 if not parent_conn.poll(0.001):
                     if not process.is_alive():
-                        done = True
+                        raise ChildProcessError(f"Environment worker exited: {process.exitcode}")
                     continue
 
                 tag, payload = parent_conn.recv()
@@ -723,17 +697,11 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 pool=pool,
                 release_observation=release_observation,
             )
+            self.env.finish_episode()
             return metrics
-        finally:
-            try:
-                parent_conn.send(("close", {}))
-            except (BrokenPipeError, EOFError, OSError):
-                pass
-            parent_conn.close()
-            process.join(timeout=1.0)
-            if process.is_alive():
-                process.terminate()
-                process.join(timeout=1.0)
+        except BaseException:
+            self.close()
+            raise
 
     def _release_in_flight_observations(
         self,
