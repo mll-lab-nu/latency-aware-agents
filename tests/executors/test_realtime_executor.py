@@ -770,7 +770,7 @@ def test_env_process_drains_ready_results_before_submitting_observation(monkeypa
                         active_action=Action("noop", name="noop", is_noop=True),
                         reward=0.0,
                         done=True,
-                        info={"wall_clock_lag_ms": 0.0},
+                        info={"wall_clock_lag_ms": 0.0, "wall_elapsed_ms": 0.0},
                     )
                 },
             ),
@@ -821,7 +821,7 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
                         active_action=Action("noop", name="noop", is_noop=True),
                         reward=0.0,
                         done=True,
-                        info={"wall_clock_lag_ms": 0.0},
+                        info={"wall_clock_lag_ms": 0.0, "wall_elapsed_ms": 0.0},
                     )
                 },
             ),
@@ -874,7 +874,7 @@ def test_env_process_records_tail_attempt_and_releases_observation_before_episod
                         active_action=Action("noop", name="noop", is_noop=True),
                         reward=0.0,
                         done=True,
-                        info={"wall_clock_lag_ms": 0.0},
+                        info={"wall_clock_lag_ms": 0.0, "wall_elapsed_ms": 0.0},
                     )
                 },
             ),
@@ -1537,6 +1537,96 @@ def test_realtime_records_worker_id_once_on_latency_metadata(tmp_path):
     assert latency["metadata"]["worker_id"] == 1
     assert "worker_id" not in event["metadata"]
     assert "device" not in event["metadata"]
+
+
+def test_realtime_overrun_uses_wall_readiness_for_actions_and_prefix(tmp_path):
+    """Long-lived realtime regression: a slow env step cannot delay a returned action twice."""
+    clock = FakeClock()
+    pool = ScriptedInferencePool([
+        CompletionScript(Action([value]), ready_time_ms=25 + 100 * index, worker_id=0, device="cpu")
+        for index, value in enumerate([1, 2, 3, 4])
+    ], num_workers=1)
+    logger = TrajectoryLogger(tmp_path, save_step_records=True, save_action_records=True,
+                              save_latency_records=True)
+    executor = _executor(pool=pool, env_fps=20, obs_fps=20, max_steps=4,
+                         fake_clock=clock, logger=logger)
+    executor.action_scheduler.noop_action = Action([0], is_noop=True)
+    executor.action_prefix = {"mode": "fixed_frames", "frames": 2, "action_horizon": 4, "action_dim": 1}
+    step = executor.env.step
+
+    def slow_step(action):
+        clock.now += 0.1
+        return step(action)
+
+    executor.env.step = slow_step
+    executor.run_episode(episode_id=0, eval_max_steps=4)
+    rows = [json.loads(line) for line in (tmp_path / "steps.jsonl").read_text().splitlines()]
+    assert [row["active_action"]["value"] for row in rows] == [[0], [1], [2], [3]]
+    np.testing.assert_array_equal(pool.submitted[2].observation.metadata["action_prefix"][:, 0], [2, 2, 0, 0])
+    events = [json.loads(line) for line in (tmp_path / "actions.jsonl").read_text().splitlines()]
+    assert [event["ready_raw_frame"] for event in events] == [1, 2, 3, None]
+    assert [event["apply_raw_frame"] for event in events] == [1, 2, 3, None]
+
+
+def test_environment_worker_uses_wall_readiness_after_slow_steps(monkeypatch):
+    """Long-lived IPC-loop regression: delivered actions remain usable after a deadline miss."""
+    from latency_bench.executors.realtime import env_worker
+
+    time = FakeClock()
+    clock = EnvClock(env_fps=20, obs_fps=20)
+    env = DummyEnvAdapter(env_fps=20, max_steps=4, noop_action=Action(0, is_noop=True))
+    step = env.step
+
+    def slow_step(action):
+        time.now += 0.1
+        return step(action)
+
+    env.step = slow_step
+    env.reset()
+    scheduler = ActionScheduler(clock, env.noop_action, HoldPolicy(), OrderingPolicy.LATEST_READY)
+    monkeypatch.setattr(env_worker, "time", SimpleNamespace(perf_counter=time.time, sleep=time.sleep))
+    monkeypatch.setattr(env_worker, "monotonic_ms", lambda: time.now * 1000)
+
+    class Connection:
+        def __init__(self):
+            self.pending, self.records = [], []
+
+        def poll(self, timeout=None):
+            if timeout is not None:
+                time.sleep(timeout)
+            return bool(self.pending and self.pending[0][0] <= time.now * 1000)
+
+        def recv(self):
+            return self.pending.pop(0)[1]
+
+        def send(self, message):
+            tag, payload = message
+            if tag == "observation":
+                task = payload["task"]
+                ready = task.submit_time_ms + 25
+                event = ActionEvent(task.obs_id, Action(task.submit_env_step + 1), task.submit_env_step,
+                                    ready, ready / clock.frame_ms, LatencyRecord(task.obs_id, 25))
+                self.pending.extend([
+                    (ready, ("release_observation", {"obs_id": task.shared_obs_id})),
+                    (ready, ("action_dispatch", _action_event_dispatch_payload(event))),
+                ])
+            elif tag == "step":
+                self.records.append(payload["record"])
+            elif tag == "episode_done":
+                self.pending = [item for item in self.pending if item[1][0] == "release_observation"]
+                self.pending.append((time.now * 1000, ("finish_episode", {})))
+
+    connection = Connection()
+    owner = ObservationSlotPool.from_observation(env.observe(), capacity=4)
+    try:
+        assert env_worker._run_episode(
+            connection, {"logging": {"realtime_pipeline_profile": False}, "policy": {"action_prefix": {"mode": "none"}}},
+            env, clock, scheduler, owner, episode_id=0, seed=1, eval_max_steps=4,
+            video_output_dir=None, video_fps=None,
+        )
+    finally:
+        owner.close()
+    assert [record.active_action.value for record in connection.records] == [0, 1, 2, 3]
 
 
 def test_realtime_records_current_episode_video(tmp_path):

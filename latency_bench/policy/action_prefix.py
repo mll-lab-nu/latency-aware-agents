@@ -62,13 +62,13 @@ def prepare_action_prefix(config):
     return settings
 
 
-def action_prefix_arrays(scheduler, frame, settings):
+def action_prefix_arrays(scheduler, frame, settings, *, current_time_ms=None):
     """Project only controller-visible actions, without advancing the live queue."""
     if settings is None or settings["mode"] == "none":
         return None, None
     frames, horizon = settings["frames"], settings["action_horizon"]
     actions = np.zeros((horizon, settings["action_dim"]), dtype=np.float32)
-    for index, action in enumerate(scheduler.project_actions(frame, frames)):
+    for index, action in enumerate(scheduler.project_actions(frame, frames, current_time_ms=current_time_ms)):
         actions[index] = action.value
     return actions, np.arange(horizon) < frames
 
@@ -79,9 +79,10 @@ def encode_prefix_state(proprio, action_chunk, prefix_mask):
     return np.concatenate((proprio, prefix.reshape(-1))).astype(np.float32)
 
 
-def with_action_prefix(observation, scheduler, settings):
+def with_action_prefix(observation, scheduler, settings, *, current_time_ms=None):
     """Freeze prefix and any environment-provided action context before IPC."""
-    prefix, mask = action_prefix_arrays(scheduler, observation.env_step, settings)
+    current_time_ms = observation.sim_time_ms if current_time_ms is None else current_time_ms
+    prefix, mask = action_prefix_arrays(scheduler, observation.env_step, settings, current_time_ms=current_time_ms)
     metadata = observation.metadata.copy()
     if "action_prefix_state_key" in metadata:
         key = metadata.pop("action_prefix_state_key")
@@ -92,7 +93,7 @@ def with_action_prefix(observation, scheduler, settings):
         chunk = np.zeros((horizon, len(context["low"])), dtype=np.float32)
         indices = np.zeros(horizon, dtype=np.float32)
         event, index = scheduler.scheduled_chunk_event(
-            observation.env_step, observation.sim_time_ms)
+            observation.env_step, current_time_ms)
         if event is not None:
             end = horizon if context["frames"] is None else min(horizon, index + context["frames"])
             for head in range(index, end):

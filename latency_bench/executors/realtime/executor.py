@@ -6,6 +6,7 @@ runtimes support deterministic clock tests; both paths share episode accounting.
 """
 from __future__ import annotations
 
+from bisect import bisect_left
 import gc
 import sys
 import time
@@ -364,6 +365,10 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                 latency_type="measured",
             ),
         }
+        wall_times = [record.info["wall_elapsed_ms"] for record in acc.step_records]
+        for event in acc.action_events:
+            index = bisect_left(wall_times, event.ready_time_ms - self.action_scheduler.ready_time_epsilon_ms)
+            event.ready_raw_frame = acc.step_records[index].env_step if index < len(wall_times) else None
         metrics = compute_episode_metrics(
             episode_id=episode_id,
             step_records=acc.step_records,
@@ -451,7 +456,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
                     observation_dropped = True
 
             scheduler_update_start_ms = monotonic_ms()
-            active_action = self.action_scheduler.update(env_step, scheduled_time_ms)
+            active_action = self.action_scheduler.update(env_step, current_wall_elapsed_ms)
             scheduler_update_ms = monotonic_ms() - scheduler_update_start_ms
             new_applied_events = self.action_scheduler.get_applied_events_since(applied_event_count)
             for event in new_applied_events:
@@ -881,7 +886,8 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
     ) -> RealtimeObservationTask:
         observe_start_ms = monotonic_ms()
         observation = self._with_episode_metadata(
-            with_action_prefix(self.env.observe(), self.action_scheduler, self.action_prefix),
+            with_action_prefix(self.env.observe(), self.action_scheduler, self.action_prefix,
+                               current_time_ms=submit_time_ms),
             episode_id=episode_id,
             episode_seed=episode_seed,
         )

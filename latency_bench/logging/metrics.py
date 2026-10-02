@@ -199,7 +199,7 @@ def _backfill_action_event_raw_fields(event: ActionEvent, *, frame_ms: float | N
         latency_raw_frames = _latency_ms_to_raw_frames(event.latency.latency_ms, frame_ms=frame_ms)
         if latency_raw_frames is not None:
             event.latency_raw_frames = latency_raw_frames
-    if event.ready_raw_frame is None:
+    if event.ready_raw_frame is None and event.latency.latency_type != "measured":
         if event.latency_raw_frames is not None:
             event.ready_raw_frame = int(event.obs_env_step) + int(event.latency_raw_frames)
         elif event.ready_step_float is not None:

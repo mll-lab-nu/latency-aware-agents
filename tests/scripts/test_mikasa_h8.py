@@ -231,7 +231,7 @@ def test_prefix_state_is_observation_relative_and_excludes_teacher_suffix(frames
     prefix = {"mode": "fixed_frames", "frames": frames, "action_horizon": 8, "action_dim": 7}
     for old_head in (1, 2, 4, 7):
         # Different ages can expose the same projected prefix, including hold-last.
-        scheduler = SimpleNamespace(project_actions=lambda frame, count: [Action(a) for a in chunk[:count]])
+        scheduler = SimpleNamespace(project_actions=lambda frame, count, **kwargs: [Action(a) for a in chunk[:count]])
         live, actions, live_mask = _conditioned_observation(proprio, scheduler, prefix, old_head)
         np.testing.assert_array_equal(live, offline)
         np.testing.assert_array_equal(live_mask, mask)

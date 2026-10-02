@@ -209,7 +209,8 @@ def _run_episode(connection, config, env, clock, action_scheduler, observation_p
         if decision_scheduler.should_observe(env_step, scheduled_time_ms):
             observe_start_ms = monotonic_ms()
             observation = with_action_prefix(
-                env.observe(), action_scheduler, action_prefix
+                env.observe(), action_scheduler, action_prefix,
+                current_time_ms=wall_elapsed_ms,
             )
             observe_end_ms = monotonic_ms()
             obs_id = next_obs_id
@@ -242,7 +243,8 @@ def _run_episode(connection, config, env, clock, action_scheduler, observation_p
             return False
 
         scheduler_update_start_ms = monotonic_ms()
-        active_action = action_scheduler.update(env_step, scheduled_time_ms)
+        # Completion timestamps use wall time even when a physical step overruns.
+        active_action = action_scheduler.update(env_step, wall_elapsed_ms)
         scheduler_update_ms = monotonic_ms() - scheduler_update_start_ms
         new_applied_events = action_scheduler.get_applied_events_since(applied_event_count)
         for event in new_applied_events:

@@ -60,15 +60,16 @@ class ActionScheduler:
         self._chunk_seen = False
         self.persistence_policy.reset()
 
-    def project_actions(self, start_frame: int, count: int) -> list[Action]:
+    def project_actions(self, start_frame: int, count: int, *, current_time_ms=None) -> list[Action]:
         """Project received actions with the live scheduling rules, without mutation.
 
         Completed history is not part of the controller state needed for projection.
         Unreturned results live outside this scheduler and are never consulted.
         """
         projected = deepcopy(self, {id(self._applied_events): []})
-        return [projected.update(frame, self.clock.step_to_time_ms(frame))
-                for frame in range(start_frame, start_frame + count)]
+        start_time_ms = self.clock.step_to_time_ms(start_frame) if current_time_ms is None else current_time_ms
+        return [projected.update(start_frame + offset, start_time_ms + offset * self.clock.frame_ms)
+                for offset in range(count)]
 
     def enqueue(self, event: ActionEvent) -> None:
         self._pending_events.append(event)
