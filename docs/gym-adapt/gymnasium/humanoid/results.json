@@ -1,0 +1,138 @@
+{
+  "environment": "humanoid",
+  "title": "Humanoid",
+  "updated": "2026-09-22",
+  "models": [
+    {
+      "id": "GR00T",
+      "name": "GR00T",
+      "status": "Scientific stop",
+      "protocol": "VLA 5/5 FPS, H1, RGB224, native state/action 376 / 17; L0/B 20 episodes, seeds 42\u201361, cap 1000. B RTX 3090 measured-only, one worker. P 5\u00d710 episodes. E10 simulated IID; seeds 104771\u2013104780 repeat first ten selection seeds. Historical L0 teacher 66.6667/66.6667 FPS, n=20. P raw-step cap: 900.",
+      "metrics": {
+        "profile": "118.38 / 125.04 ms",
+        "l0_teacher": "6,331.47 \u00b1 407.20",
+        "l0_vla": "6,225.77 \u00b1 1,077.26",
+        "baseline": "1,158.63 \u00b1 646.19",
+        "profile_teacher": "2,883.10 \u00b1 1,804.11",
+        "final": "\u2014"
+      },
+      "training": "Fresh VLA 5,000 updates, seed 42, global 64; DiT-B, 4 inference timesteps / 8 diffusion repeats. L0 micro 16 \u00d7 accumulation 4 on one H200. Fresh APPO 10M; training-best selected at step 19288 / 9875456 frames.",
+      "data": "L0 reused 100 source episodes. Profile strict >5000:16 qualifying specs /120 attempts, target 100; specs were not replayed, no profile dataset.",
+      "limitations": [
+        "L0/P/B/E audited; stopped at 120-attempt collection ceiling; no profile VLA/F. Stop evidence published.",
+        "Returns are mean \u00b1 population SD across episodes from one training run; no controlled architecture ranking or equal-latency causal claim.",
+        "L0 teacher is the historical shared source teacher at its original clock, not reevaluated at the current VLA clock.",
+        "Teacher return gates apply to demonstrations, not VLA acceptance. Native clipping is preserved; logged actions can be preclip commands.",
+        "E10 repeats selection seeds; it is not independent validation.",
+        "Full runtime traces were audited server-side; compact publication does not contain every raw trace.",
+        "Selected teacher selection20:3036.04 \u00b11802.44, 4/20>5000; E10:2/10>5000. Collection-budget stop does not mean all candidates failed."
+      ],
+      "sources": [
+        {
+          "label": "Pinned GR00T evidence",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/a260732e0bce9771ca62a3c336bb446ecd0ea5df/humanoid/profile_latency/GR00T/h1_5fps_20260917"
+        },
+        {
+          "label": "Original teacher archive",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model"
+        },
+        {
+          "label": "L0 VLA checkpoint (profile branch stopped)",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/7aa5afb6f20d52509849e8d8156b5d8583ea288f/humanoid/zero_latency/GR00T"
+        }
+      ]
+    },
+    {
+      "id": "OpenVLA",
+      "name": "OpenVLA",
+      "status": "Scientific stop",
+      "protocol": "B/E 10/10 FPS; B 20 episodes, seeds 42\u201361, cap 1000, measured-only RTX 3090; E10 simulated IID, one worker. H1, RGB224, state/action 376 / 17. Historical L0 teacher 66.6667/66.6667 FPS, n=20; historical L0 VLA 20 episodes at 66.6667/66.6667 FPS.",
+      "metrics": {
+        "profile": "286.64 / 292.69 ms",
+        "l0_teacher": "6,331.47 \u00b1 407.20",
+        "l0_vla": "272.06 \u00b1 36.17",
+        "baseline": "226.92 \u00b1 56.90",
+        "profile_teacher": "1,036.93 \u00b1 280.76",
+        "final": "\u2014"
+      },
+      "training": "QwenOFT / Qwen3-VL-4B, continuous state projector, native action regression, L1, 5,000 updates, seed 42. L0 batch 4 \u00d7 accumulation 4=16; ZeRO-2 CPU optimizer offload. No profile VLA training.",
+      "data": "L0 strict>5000 accepted 100/119; 90/10 episodes, 88,608/9,614 rows. Profile probe had no qualifying episode; no replay or bulk collection.",
+      "limitations": [
+        "Historical L0/P/B/E complete; teacher quality gate stopped profile collection/VLA/F.",
+        "Returns are mean \u00b1 population SD across episodes from one training run; no controlled architecture ranking or equal-latency causal claim.",
+        "L0 teacher is the historical shared source teacher at its original clock, not reevaluated at the current VLA clock.",
+        "Teacher return gates apply to demonstrations, not VLA acceptance. Native clipping is preserved; logged actions can be preclip commands.",
+        "OpenVLA is this project\u2019s QwenOFT implementation, not an architecture-matched comparison with GR00T/Pi0.5.",
+        "Formal shared L0 teacher6331.47 supersedes the separate5571.3 threshold probe. No F or paired gain.",
+        "Historical E10 is the simulated profile-teacher evaluation; overlap with selection seeds is not established in local evidence."
+      ],
+      "sources": [
+        {
+          "label": "Pinned complete historical archive",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid"
+        },
+        {
+          "label": "Profile teacher E10",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/profile_latency/small_model/evaluation/summary.json"
+        },
+        {
+          "label": "L0 VLA checkpoint",
+          "url": "https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/humanoid/zero_latency/OpenVLA"
+        }
+      ]
+    },
+    {
+      "id": "Pi05",
+      "name": "Pi0.5",
+      "status": "Scientific stop",
+      "protocol": "5/5 FPS, H1, RGB224, native state/action 376 / 17; L0/B 20 episodes, seeds 42\u201361, cap 1000. B measured-only CUDA-synchronized latency, one worker, no added IID. P 5\u00d710 episodes, 100 warmups/session, cap 900 and 60-second sampling cap. Historical L0 teacher 66.6667/66.6667 FPS, n=20.",
+      "metrics": {
+        "profile": "182.02 / 198.61 ms",
+        "l0_teacher": "6,331.47 \u00b1 407.20",
+        "l0_vla": "6,667.56 \u00b1 46.18",
+        "baseline": "891.67 \u00b1 623.80",
+        "profile_teacher": "\u2014",
+        "final": "\u2014"
+      },
+      "training": "Fresh QwenPI_v3, 5,000 updates, seed 42, global 128, GC off, ZeRO-2, 4 inference timesteps/2 diffusion repeats. L0 micro 32 \u00d7 accumulation 2 \u00d7 two GPUs after approved micro 64 OOM change. Profile APPO 10M, seed 2222; Final step 19536 /10002432 selected on tie.",
+      "data": "L0 source 100 episodes, 90/10 split. Both profile candidates 0/20>5000; no E10, probe, replay, profile data or profile VLA.",
+      "limitations": [
+        "L0/P/B audited; profile branch stopped at teacher selection gate; no E10/data/profile VLA/F. B locally audited, not uploaded.",
+        "Returns are mean \u00b1 population SD across episodes from one training run; no controlled architecture ranking or equal-latency causal claim.",
+        "L0 teacher is the historical shared source teacher at its original clock, not reevaluated at the current VLA clock.",
+        "Teacher return gates apply to demonstrations, not VLA acceptance. Native clipping is preserved; logged actions can be preclip commands.",
+        "Final and training-best selection20 both1538.29 \u00b1686.65; 0/20>5000, max3329.05. Selection20 is not substituted for absent E10.",
+        "P retained warmup drift warnings for sessions 0, 2, 3; 500 warmups excluded.",
+        "B evidence is local/server-only in this update; publication is separate from audit.",
+        "State provenance is verified through manifest/loader/saved reload; no per-step state vectors were logged.",
+        "P uses a 60-second sampling cap per episode, excluding initialization/reset/warmup; this does not change B/F or teacher caps."
+      ],
+      "sources": [
+        {
+          "label": "Current B full-step audit",
+          "url": "docs/gym-adapt/gymnasium/humanoid/assets/evidence/B-verification.json"
+        },
+        {
+          "label": "Pi0.5 stage summary",
+          "url": "docs/gym-adapt/gymnasium/humanoid/assets/evidence/pi05-pipeline-summary-20260922.md"
+        },
+        {
+          "label": "L0 pinned model",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/eee96ac0fae3889d5108e6ae00701a6502fd5f80/humanoid/zero_latency/Pi05"
+        },
+        {
+          "label": "Original teacher archive",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model"
+        },
+        {
+          "label": "Published failed teacher evaluation",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/3391ea3f8e962dba3d40063f60138b8d4991c3c2/humanoid/profile_latency/Pi05/h1_5fps_g128_20260921/small_model/evaluation"
+        },
+        {
+          "label": "Pinned P evidence",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/8ccefb9dc676bc35e56c253319951b2c2a6934f6/humanoid/profile_latency/Pi05/h1_5fps_g128_20260921/profiling"
+        }
+      ]
+    }
+  ]
+}

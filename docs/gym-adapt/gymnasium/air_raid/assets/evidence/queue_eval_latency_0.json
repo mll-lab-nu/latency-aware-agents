@@ -1,0 +1,36 @@
+{
+  "checkpoint_kind": "best",
+  "checkpoint_path": "/mnt/checkpoints/latency-sensitive-bench/small_models/air_raid/gymnasium_air_raid_zero_latency_atari_official_fast_10m/checkpoint_p0/best_000038656_9895936_reward_10593.000.pth",
+  "experiment_name": "gymnasium_air_raid_zero_latency_atari_official_fast_10m_random_noop_eval",
+  "latency": 0,
+  "latency_type": "zero",
+  "lengths": [
+    3600,
+    3600,
+    3600,
+    3600,
+    3600,
+    3600,
+    3600,
+    3600,
+    3600,
+    3600
+  ],
+  "mean_length": 3600.0,
+  "mean_return": 2557.5,
+  "returns": [
+    2300.0,
+    3050.0,
+    2050.0,
+    3150.0,
+    2125.0,
+    3150.0,
+    1825.0,
+    2125.0,
+    2950.0,
+    2850.0
+  ],
+  "seed": 0,
+  "std_return": 491.81424338870056,
+  "timestamp_utc": "2026-08-29T12:55:47.785412+00:00"
+}

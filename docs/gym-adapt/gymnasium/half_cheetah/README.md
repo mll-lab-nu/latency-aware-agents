@@ -1,62 +1,116 @@
-# HalfCheetah — GR00T and OpenVLA
+# HalfCheetah
 
-[Open the experiment report](index.html). Updated 2026-09-18 from verified checkpoint-selection records and fixed HF revisions.
+[HTML report](index.html) · [All environments](../index.html) · [Results JSON](results.json)
 
-## GR00T H1 / 5 FPS: stopped at the profile-teacher gate
+| Model | Profile mean / P95 (ms) | L0 teacher → L0 | L0 VLA → L0 | L0 VLA → real-time (B) | Profile teacher → profile (E10) | Profile VLA → real-time (F) |
+| --- | --- | --- | --- | --- | --- | --- |
+| GR00T · Scientific stop | 110.88 / 117.14 ms | 5,414.26 ± 740.00 | 5,012.47 ± 742.29 | -262.47 ± 74.94 | — | — |
+| OpenVLA · Completed | 71.82 / 73.09 ms | 5,414.26 ± 740.00 | 3,675.25 ± 1,032.71 | 357.85 ± 285.91 | 5,217.47 ± 108.45 | 288.53 ± 248.11 |
+| Pi0.5 · Scientific stop | 145.71 / 151.53 ms | 5,414.26 ± 740.00 | 5,357.98 ± 736.99 | -347.44 ± 82.66 | — | — |
 
-The fresh APPO teacher completed its **10M-step target** (actual **10,002,432 frames**). Final and training-best each scored **0/20 above the strict return >3000 data gate**. Training-best was selected by mean return. **E10, probe, profile data collection, profile VLA and F were not run.** RTX3090 B20 completed with its interrupted-run recovery audited; the profile branch remains stopped.
+Returns are mean ± population standard deviation across episodes. The profile column reports latency mean / P95 in milliseconds. L0 is simulated zero latency; B/F use measured real-time inference latency. E10 is the ten-episode simulated profile-teacher evaluation, not selection20; repeated selection seeds are disclosed per model. Source L0 teachers retain their stated clocks. A dash means unavailable or not run; the model status explains which. One training run and separately realized delays do not establish controlled architecture rankings or equal-latency causal effects. Teacher data gates are not VLA acceptance thresholds.
 
-| Stage | Episodes | Return mean ± population SD | State |
-| --- | ---: | ---: | --- |
-| L0 VLA, simulated zero latency | 20 | 5012.47 ± 742.29 | Completed |
-| B, measured real-time | 20 | -262.47 ± 74.94 | Complete; recovery audited |
-| Profile teacher Final | 20 | 1843.16 ± 29.76 | 0/20 >3000 |
-| Profile teacher training-best | 20 | 1847.22 ± 27.63 | Selected; 0/20 >3000 |
-| E10 / probe / profile data / profile VLA / F | — | — | Not run: teacher gate |
+## GR00T
 
-- B20: seeds 42–61, cap 1000, measured-only RTX3090 latency. Mean episode latency **109.17ms**; mean frame interval **200.000701ms**;0 observation drops, action drops or invalid actions.
-- Recovery: container restart at20:44 UTC interrupted the sweep. Complete seeds 42–57 were preserved and core metrics reconstructed using the frozen implementation; only seeds58–61 were evaluated afterward, following a new warmup. Original/resumed traces and ID-remapping provenance are retained. Some aggregate metadata for the first16 (actual_env_fps, end-drain counters) were lost and remain unavailable, without estimation. P and completed episodes were not repeated.
-- Teacher selection: deterministic seeds 104771–104790 for each checkpoint, cap 1000, simulated IID from the new RTX3090 profile. All 40,000 steps were audited for seeds, timing, contiguous indices and reward sums; no invalid/dropped actions. The threshold is for teacher-data eligibility, not VLA acceptance.
-- Final checkpoint: step 19,536 / 10,002,432 frames. Selected training-best: step 18,736 / 9,592,832 frames; SHA `01e50eb4902c9c6cc99879bbd8bc34333921ffc02a7371f092f51b7e8795bd59`. Target budget, original APPO seed 2222 and strict gate were preserved.
-- P: 5×10 sessions, seeds 42–51 in every session, cap 900, no FPS calibration. All 50 episodes reached 900 steps; 45,000 samples, 0 capacity drops. Mean **110.88ms**, P95 **117.14ms**, maximum **140.55ms**, all below the 200 ms frame period. These are separate from B20.
-- L0 VLA: fresh 5000 updates, seed 42, global 64=2×micro32×acc1; single RGB224 + state17, native 6D actions, H1. Original APPO H1 data were reused (90,000/10,000 rows, 90/10 episodes), changing only FPS metadata/prompt. No L0 teacher retraining.
-- Native physics are unchanged. QwenGR00T uses DiT-B, 4 inference timesteps, 8 diffusion repeats, train-only state minmax once, native action units, VLM/action LR1e-5/1e-4, warmup 100, held-out 200 batches/save every 500. Profile teacher remains original APPO 10M/seed 2222/8×8/LR0.00295, fresh initialization, IID seed 0 and no latency-info feature.
+Scientific stop
 
-This run did not produce an eligible profile teacher under the agreed seed and budget. No profile VLA checkpoint or GR00T B/F improvement is claimed. A full HalfCheetah horizon measures neither successful locomotion nor data eligibility by itself.
+### Protocol
 
-[Teacher checkpoints and gate evidence](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/profile_latency/small_model/GR00T) · [Profile / gate archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/223f2106c10b264b820963391ec546d8dce039a5/half_cheetah/profile_latency/GR00T/h1_5fps_20260917) · [L0 model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/zero_latency/GR00T) · [L0 data](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/324664672c0d45666d6aded0b81af0c900ca1d28/half_cheetah/zero_latency/GR00T/h1_5fps_20260917) · [Per-seed teacher plot](gr00t-teacher-returns.svg) · [Compact results](results-summary.json) · [Publication index](gr00t-publication.json).
+H1; RGB224 + native continuous state/actions; env/obs 5/5 FPS; L0 simulated zero latency and B RTX 3090 measured-only CUDA-synchronized latency, one worker; L0/B n=20, seeds 42–61, cap 1000; F not run. P: 5×10 episodes, seeds 42–51 each session, cap 900, no FPS calibration. State 17/action 6. Historical shared L0 teacher: n=10, original 20 FPS, seed 2222.
 
-## Historical OpenVLA / 10 FPS
+### Training
 
-The earlier QwenOFT run completed its full pipeline: B20 **357.85±285.91**, F20 **288.53±248.11**, with 8/20 seeds improving. These within-run results and their original evidence remain in the report. Different FPS, recipes and measured latency distributions prevent a controlled cross-model ranking.
+QwenGR00T, 5000 updates, seed 42, global batch 64; DiT-B, 4 inference timesteps, 8 diffusion repeats, VLM/action LR 1e-5/1e-4, warmup 100, held-out 200 batches and saves every 500. L0 batch 2×micro 32×acc 1. Fresh APPO profile teacher: seed 2222, 10M target, actual 10002432 frames, final step 19536; selected training-best step 18736 / 9592832 frames. APPO 8×8 workers, 64×64 tanh, LR 0.00295, IID seed 0, no latency-info feature.
 
-<details>
-<summary>Original OpenVLA adaptation and archive notes</summary>
+### Data
 
-# HalfCheetah adaptation
+L0 reused 100 original APPO H1 episodes: 90/10 split, 90000/10000 rows, clock metadata 20→5 FPS; native physics unchanged. Strict profile teacher-data gate >3000; both candidates 0/20; no profile data.
 
-Latest experiment: [September 2026 profile-latency results](index.html#profile-pipeline-20260912). Earlier L0/L2 results below refer to historical experiments with their own evaluation conditions.
+### Evaluation scope
 
-Open [`index.html`](index.html) for the verified HalfCheetah-v4 native continuous-action record.
-The adaptation uses a task-owned wrapper around the native six-dimensional torque space and
-trains its zero-latency small model with the vendored Sample Factory MuJoCo recipe. The completed
-RGB+state path includes 100 teacher episodes, native LeRobot conversion, 5k-step QwenOFT training,
-and L0/L2 latency-bench evaluation of the final checkpoint.
+- Scientific stop: profile teacher gate failed; L0/P/B complete; E10/data/profile VLA/F not run.
+- One training run; population SD describes episode variation. Different clocks, recipes and realized latency distributions do not establish controlled architecture rankings or equal-latency causal effects.
+- Selected training-best selection20: 1847.22 ± 27.63; Final: 1843.16 ± 29.76, seeds 104771–104790. These are selection metrics, not E10.
+- B recovered preserved seeds 42–57 and evaluated only 58–61 after fresh warmup. First16 actual_env_fps/end-drain metadata were lost; no estimates substituted.
+- Historical L0 teacher result is shared source evidence, not a new 5 FPS evaluation.
 
-Fresh profiling-only run: [20260911T023128Z-p-only4](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/profiling/status.md), env/obs FPS 10 / 10. Profiling and publication are complete; the subsequent full pipeline is recorded below.
+### Models, data and evidence
 
-- [September 11 realtime baseline](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/baseline/status.md): completed 20 episodes at 10 FPS; return 357.85 ± 285.91.
+- [Profile, B recovery and gate evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/223f2106c10b264b820963391ec546d8dce039a5/half_cheetah/profile_latency/GR00T/h1_5fps_20260917)
 
-- [September 12 pipeline continuation](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/provenance/pipeline/status.md): reuses completed P/B at 10 FPS; teacher training and publication complete; simulated E return 5,217.47 ± 108.45, all 10 episodes pass the original >3000 gate. R/C is complete: 100 episodes / 100,000 rows (90/10 split), all actual returns >3000 and exactly matched to the probe. All 123 raw/converted files are published and verified. VLA completed5000 steps/exit0; all22 inference files are published and verified. Matched3090 F is complete:288.53±248.11 versus baseline357.85±285.91 (−19.4%;8/20 seeds improve). Full traces verified; no average control-return improvement in this run.
+- [teacher archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah)
 
-## Standard Pipeline archive
+- [L0 evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/324664672c0d45666d6aded0b81af0c900ca1d28/half_cheetah/zero_latency/GR00T/h1_5fps_20260917)
 
-[Complete experiment archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
+- [L0 checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/zero_latency/GR00T)
 
-</details>
+## OpenVLA
 
+Completed
 
-[OpenVLA per-seed real-time comparison](openvla-paired-returns.svg) · [Plot data and fixed-revision sources](openvla-paired-results.json). 8 wins, 0 ties, 12 losses; mean paired gain -69.32.
+### Protocol
 
+Historical P/B/E/F at env/obs 10/10 FPS, one worker; B/F measured RTX 3090, n=20, seeds 42–61, native cap 1000 (configured evaluation cap 3600). P: 5×10 episodes, 60 s per episode. E10: simulated IID, n=10. Historical L0 VLA n=20 at original clock. State 17/action 6. L0 teacher: n=10, original 20 FPS, seed 2222; L0 VLA original 20 FPS.
 
-The HTML tables follow the AirRaid schema: B/F mean gain and percentage; separate L0/B/E/F evaluation rows with episode counts and mean raw steps; measured runtime audit; pipeline stages; publication index. [Normalized table values and provenance](report-tables.json). Unrun stages and unrecorded fields are explicitly distinct.
+### Training
+
+QwenOFT discretized-text state, L1 action loss, 5000 steps, batch 16×1, seed 42. Profile teacher: original APPO 10M recipe, seed 2222, actual 10006528 frames, training-best selected at final frame.
+
+### Data
+
+L0: 100 teacher episodes, 90/10 split, 90000/10000 rows. Profile: strict return>3000; 100 accepted/106 attempts, 100000 rows, 90/10 split; all123 data files and22 final inference files verified.
+
+### Evaluation scope
+
+- Completed historical pipeline; F mean return decreased relative to B.
+- One training run; population SD describes episode variation. Different clocks, recipes and realized latency distributions do not establish controlled architecture rankings or equal-latency causal effects.
+- E10 is the historical simulated teacher evaluation; selection-seed overlap is not established in local evidence (historical HTML describes independent E).
+- B→F mean paired gain -69.32 (-19.37%); 8/20 seeds improve. Full horizon alone does not establish successful locomotion.
+- Historical L0 teacher and VLA clocks differ from 10 FPS P/B/E/F; their episodes are not a matched B/F block.
+
+### Models, data and evidence
+
+- [Complete fixed-revision archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah)
+
+- [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/half_cheetah/zero_latency/OpenVLA)
+
+- [Profile-trained VLA checkpoint](https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/half_cheetah/profile_latency/OpenVLA)
+
+## Pi0.5
+
+Scientific stop
+
+### Protocol
+
+H1; RGB224 + native continuous state/actions; env/obs 5/5 FPS; L0 simulated zero latency and B RTX 3090 measured-only CUDA-synchronized latency, one worker; L0/B n=20, seeds 42–61, cap 1000; F not run. P: 5×10 episodes, seeds 42–51 each session, cap 900, no FPS calibration. State 17/action 6. Teacher selection n=20 per candidate, seeds 104771–104790. Historical L0 teacher n=10 at 20 FPS, seed 2222. P additionally uses a 60 s sampling wall-time cap excluding reset/init/warmup; 100 warmup samples per session, 500 total, excluded from canonical latency samples.
+
+### Training
+
+QwenPI_v3, 5000 updates, seed 42, global batch 128 = micro 64 × accumulation 1 × 2 GPUs; GC off, ZeRO-2; train-only state min-max applied once. Fresh profile APPO seed 2222, original 10M target, actual 10002432 frames / step 19536; selected Final.
+
+### Data
+
+L0: original 100 APPO H1 episodes, 90/10 split, 90000/10000 rows; clock/prompt metadata20→5 FPS. Strict profile gate>3000: 0/20 for both candidates; no profile data.
+
+### Evaluation scope
+
+- Scientific stop: profile teacher gate failed; L0/P complete, B 20 summary verified; E10/data/profile VLA/F not run.
+- One training run; population SD describes episode variation. Different clocks, recipes and realized latency distributions do not establish controlled architecture rankings or equal-latency causal effects.
+- B 20 is verified from completed status plus20 episode summaries, not a full-step trace audit.
+- Selected Final selection20: 1889.53 ± 44.32; training-best tied. E10 was not run; no substitute selection metric is placed in the E10 column.
+- Teacher completion is established by actual Final checkpoint frames and user report; transient-service exit code is not proven.
+- L0 audit passed20000 steps/actions; state vectors are not logged per step. Native clipping is preserved. Historical teacher result remains at original 20 FPS.
+
+### Models, data and evidence
+
+- [P verification](assets/evidence/P-verification.json)
+
+- [L0 audit](assets/evidence/l0-audit.json)
+
+- [B summary-only verification](assets/evidence/B-summary-for-table.json)
+
+- [Teacher scientific-stop audit](assets/evidence/teacher-verification.json)
+
+- [Published selected teacher](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/cf5763197b16922b14121ad982c4128e92607e1d/half_cheetah/profile_latency/small_model/Pi05)
+
+- [L0 checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/ae2efeb81414f262e1839874e4691aef62b0b879/half_cheetah/zero_latency/Pi05)

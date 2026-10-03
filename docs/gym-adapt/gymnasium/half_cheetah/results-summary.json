@@ -1,5 +1,5 @@
 {
-  "report_date": "2026-09-18",
+  "report_date": "2026-09-21",
   "evaluation_date_utc": "2026-09-17",
   "GR00T": {
     "state": "STOPPED_AT_TEACHER_GATE",
@@ -445,5 +445,130 @@
     "L0_data": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/324664672c0d45666d6aded0b81af0c900ca1d28/half_cheetah/zero_latency/GR00T/h1_5fps_20260917",
     "teacher": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/profile_latency/small_model/GR00T",
     "profile_evidence": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/223f2106c10b264b820963391ec546d8dce039a5/half_cheetah/profile_latency/GR00T/h1_5fps_20260917"
+  },
+  "Pi05": {
+    "state": "L0_SIM20_AUDITED_PUBLISHED_PROFILE_BRANCH_PENDING",
+    "clock_fps": 5,
+    "L0_simulated": {
+      "episodes": 20,
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61
+      ],
+      "returns": [
+        5337.916122320154,
+        5415.169048230088,
+        5511.944552806734,
+        5405.365903034978,
+        5455.199783117596,
+        5698.114093196522,
+        5059.839456192497,
+        5460.912368443357,
+        5680.612254339954,
+        5592.2274530296345,
+        5779.8235467411705,
+        2256.969247304382,
+        5582.101069268192,
+        5321.51853023671,
+        5406.17039030938,
+        5781.622346249628,
+        5564.114182839705,
+        5768.623744500366,
+        5271.809796410032,
+        5809.51719026463
+      ],
+      "mean_return": 5357.978553941785,
+      "population_std_return": 736.9945071984794,
+      "lengths": [
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000
+      ],
+      "raw_steps": 20000,
+      "actions": 20000,
+      "invalid_actions": 0,
+      "dropped_actions": 0,
+      "dropped_observations": 0,
+      "model_revision": "ae2efeb81414f262e1839874e4691aef62b0b879",
+      "checkpoint_sha256": "58a8cf13cd5cae8071c7da2085410c1a039eaab255486c3814308bbaf561c2c4",
+      "prompt_sha256": "850c73764d0eea050ba4f881ec79deedae9a32b8b7ef849706c1d74ba98a4b02",
+      "evaluation_finished_at": "2026-09-21T01:05:43.015941+00:00",
+      "state_contract": "state17/minmax/continuous_projector bound to manifest, prior actual train/val loader QA and saved real-state forward; state vectors are not logged per step",
+      "action_contract": "Six finite preclip torque commands; HalfCheetahContinuousActionEnv casts float32 and clips to native Box[-1,1] before physics. GymnasiumEnvAdapter logs the original command as applied_action.",
+      "preclip_command_range": [
+        -1.294217586517334,
+        1.2890392541885376
+      ],
+      "commands_requiring_native_clip": 19500,
+      "state": "COMPLETED_FULL_STEP_AUDIT_PASSED_PUBLISHED",
+      "env_fps": 5,
+      "obs_fps": 5,
+      "frame_ms": 200,
+      "mode": "simulated",
+      "latency": "zero",
+      "hardware": "H200",
+      "max_raw_steps": 1000,
+      "inference_workers": 1,
+      "action_horizon": 1,
+      "latency_prompt_key": 0,
+      "dataset_revision": "e3fb00d0cde61166d8cffadaf798d100b55f36c1",
+      "evidence_url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/e3fb00d0cde61166d8cffadaf798d100b55f36c1/half_cheetah/zero_latency/Pi05/h1_5fps_g128_20260921/vla/evaluation/l0-simulated"
+    },
+    "P": {
+      "state": "PENDING"
+    },
+    "B": {
+      "state": "PENDING"
+    },
+    "profile_teacher": {
+      "state": "PENDING"
+    },
+    "profile_VLA": {
+      "state": "PENDING"
+    },
+    "F": {
+      "state": "PENDING"
+    },
+    "links": {
+      "model": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/ae2efeb81414f262e1839874e4691aef62b0b879/half_cheetah/zero_latency/Pi05",
+      "training_evidence": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/1887daf23ff945dcedcb4355a762b8c19dbfe1e3/half_cheetah/zero_latency/Pi05/h1_5fps_g128_20260921/vla/training",
+      "prepared_data": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/84dc9dd8cd3715df68538fa86670094ef131c4a7/half_cheetah/zero_latency/Pi05/h1_5fps_g128_20260921",
+      "L0_evidence": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/e3fb00d0cde61166d8cffadaf798d100b55f36c1/half_cheetah/zero_latency/Pi05/h1_5fps_g128_20260921/vla/evaluation/l0-simulated"
+    }
   }
 }

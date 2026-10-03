@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-18",
+  "updated": "2026-09-21",
   "gain_definition": "F-B; percent=(F-B)/B*100",
   "mean_gain": {
     "GR00T": {
@@ -75,5 +75,53 @@
     "results-summary.json",
     "openvla-paired-results.json"
   ],
-  "unknown": "Not recorded means the inspected published evidence omits the field; not run means the experiment did not execute."
+  "unknown": "Not recorded means the inspected published evidence omits the field; not run means the experiment did not execute.",
+  "Pi05_evaluation": [
+    {
+      "stage": "L0",
+      "execution": "H200 simulated, zero latency; full-step audit passed",
+      "episodes": 20,
+      "mean": 5357.978553941785,
+      "std": 736.9945071984794,
+      "mean_length": 1000,
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61
+      ]
+    },
+    {
+      "stage": "B",
+      "execution": "Pending RTX3090 measurement",
+      "episodes": 0,
+      "mean": null,
+      "std": null,
+      "mean_length": null
+    },
+    {
+      "stage": "F",
+      "execution": "Pending profile branch and RTX3090 evaluation",
+      "episodes": 0,
+      "mean": null,
+      "std": null,
+      "mean_length": null
+    }
+  ]
 }

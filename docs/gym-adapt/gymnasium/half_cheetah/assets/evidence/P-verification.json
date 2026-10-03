@@ -1,0 +1,1264 @@
+{
+  "state": "PROFILE_PROTOCOL_AND_CANONICAL_SAMPLES_VERIFIED",
+  "verified_at": "2026-09-21T11:33:23.215909+00:00",
+  "task": "half_cheetah",
+  "source_run_id": "20260921T083916029567Z",
+  "profile_ref": "pi05/1x-rtx3090/half_cheetah/instance_859cf1e47bca6046",
+  "profile_path": "/workspace/lzj/latency-sensitive-bench/runs/half_cheetah/pi05_h1_5fps_g128_20260921/profiling/profiles/pi05/1x-rtx3090/half_cheetah/instance_859cf1e47bca6046/profile.json",
+  "profile_sha256": "0701721a6111157054fb2e374970afbbffafa2355835b1acc23a1d69184bc132",
+  "profile_files": {
+    "profile.json": {
+      "size": 2034,
+      "sha256": "0701721a6111157054fb2e374970afbbffafa2355835b1acc23a1d69184bc132"
+    },
+    "latency_distribution.json": {
+      "size": 25468,
+      "sha256": "2b2eae3acc378eeccaf728de1ff52e8530dd4e801b43f89ef491d86239ef74dd"
+    },
+    "latency_burst_model.json": {
+      "size": 22349,
+      "sha256": "501daf6afa2979b2a43e6f951b29e14a0a7d2c7d538e83899879ac80b41acde2"
+    },
+    "hardware.json": {
+      "size": 988,
+      "sha256": "96bcbee23e82762b3c411a16fcd96227c3029457b5a40114bb4070ff7fda910e"
+    },
+    "latency_profile.png": {
+      "size": 61409,
+      "sha256": "732411a4b5921074aa77cb65bbd4a9e033eb9065e55d6128d6215d4c6f6b4f53"
+    },
+    "DONE": {
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "model_revision": "ae2efeb81414f262e1839874e4691aef62b0b879",
+  "checkpoint_sha256": "58a8cf13cd5cae8071c7da2085410c1a039eaab255486c3814308bbaf561c2c4",
+  "post_P_checkpoint_hash_observation": {
+    "sha256": "58a8cf13cd5cae8071c7da2085410c1a039eaab255486c3814308bbaf561c2c4",
+    "bytes": 10922653853,
+    "observed_at_utc": "2026-09-21T11:11:53.590185+00:00",
+    "source": "outputs/pi05/half_cheetah/h1_5fps_g128_20260921/p60-audit-input.json",
+    "source_path": "/workspace/lzj/latency-sensitive-bench/runs/half_cheetah/pi05_h1_5fps_g128_20260921/download/half_cheetah/zero_latency/Pi05/checkpoints/model.pt",
+    "rehash_performed_by_auditor": false
+  },
+  "state_dim": 17,
+  "action_dim": 6,
+  "episodes": 50,
+  "warmup_samples_excluded": 500,
+  "n_samples": 14999,
+  "mean_ms": 145.71347546925568,
+  "p95_ms": 151.5252248287201,
+  "observation_attempts": 15000,
+  "capacity_drops": 1,
+  "capacity_drop_fraction": 6.666666666666667e-05,
+  "invalid_actions": 0,
+  "dropped_actions": 0,
+  "preclip_action_component_range": [
+    -1.362180233001709,
+    1.3146131038665771
+  ],
+  "preclip_action_components_outside_box": 19866,
+  "action_contract": "Finite native continuous action vectors are logged before the environment Box clip; values outside [-1,1] are retained, with no argmax or return threshold.",
+  "state_contract": "Manifest min-max normalization, continuous projector config, actual loader validation and saved reload bind the state dimension; step logs contain no per-step state vectors.",
+  "sessions": [
+    {
+      "session": 0,
+      "episodes": 10,
+      "raw_steps": 3000,
+      "admitted_samples": 3000,
+      "capacity_drops": 0,
+      "mean_ms": 144.8104298658371,
+      "returns": [
+        -142.36746289612176,
+        -159.74587123947586,
+        -108.84030346535151,
+        -107.35627973730371,
+        -89.53299780016621,
+        -90.78650885611515,
+        33.33716921895761,
+        -95.17514550182149,
+        -108.13809631974603,
+        -117.78058877206837
+      ],
+      "mean_actual_env_fps": 4.875094582771104,
+      "termination_reasons": {
+        "wall_time_limit": 10
+      },
+      "warmup_status": "stable",
+      "warmup_stability_reason": "stable",
+      "warmup_summary": {
+        "warmup_mean_latency_ms": 132.06629861611873,
+        "warmup_median_rel_span": 0.000932852208908565,
+        "warmup_median_span_ms": 0.11710450053215027,
+        "warmup_median_tolerance_ms": 3.766014575958252,
+        "warmup_mode": "stress_policy",
+        "warmup_p50_latency_ms": 125.56714611127973,
+        "warmup_p90_latency_ms": 126.60999675281346,
+        "warmup_p90_rel_span": 0.004586442656506034,
+        "warmup_p90_span_ms": 0.5786192137748003,
+        "warmup_profiled_samples": 100,
+        "warmup_samples": 100,
+        "warmup_stability_reason": "stable",
+        "warmup_stage_summary": {
+          "env_action_recv_to_enqueue_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_observe_ms": {
+            "count": 100,
+            "max": 0.18717622756958008,
+            "mean": 0.08426096439361572,
+            "p50": 0.08144879341125488,
+            "p90": 0.09031724929809569
+          },
+          "env_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_wall_lag_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_observation_handle_ms": {
+            "count": 100,
+            "max": 0.12877988815307617,
+            "mean": 0.05282205581665039,
+            "p50": 0.05058765411376953,
+            "p90": 0.053444147109985345
+          },
+          "parent_to_env_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_to_worker_ipc_ms": {
+            "count": 100,
+            "max": 0.24021625518798828,
+            "mean": 0.11989790916442872,
+            "p50": 0.11895489692687988,
+            "p90": 0.1246089458465576
+          },
+          "policy_build_example_ms": {
+            "count": 100,
+            "max": 4.388513974845409,
+            "mean": 1.8555789766833186,
+            "p50": 1.7933889757841825,
+            "p90": 1.8260566983371973
+          },
+          "policy_decode_ms": {
+            "count": 100,
+            "max": 0.4551331512629986,
+            "mean": 0.035419948399066925,
+            "p50": 0.030319206416606903,
+            "p90": 0.031769927591085434
+          },
+          "policy_wrapper_predict_action_ms": {
+            "count": 100,
+            "max": 643.0649128742516,
+            "mean": 130.06605326663703,
+            "p50": 123.63187572918832,
+            "p90": 124.65536994859576
+          },
+          "worker_observation_attach_ms": {
+            "count": 100,
+            "max": 0.3060317039489746,
+            "mean": 0.051877408027648925,
+            "p50": 0.04839515686035156,
+            "p90": 0.04986791610717773
+          },
+          "worker_observation_localize_ms": {
+            "count": 100,
+            "max": 0.19911813735961914,
+            "mean": 0.05044544219970703,
+            "p50": 0.047608375549316406,
+            "p90": 0.049631786346435544
+          },
+          "worker_recv_overhead_ms": {
+            "count": 100,
+            "max": 0.3122386932373047,
+            "mean": 0.055458874702453614,
+            "p50": 0.05188918113708496,
+            "p90": 0.053308725357055664
+          },
+          "worker_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 1.349708080291748,
+            "mean": 0.8277928400039672,
+            "p50": 0.8708705902099609,
+            "p90": 1.1869400024414063
+          }
+        },
+        "warmup_status": "stable",
+        "warmup_stop_sample": 100,
+        "warmup_trimmed_mean_rel_span": 0.0013786535432070447,
+        "warmup_trimmed_mean_span_ms": 0.17314532306045294,
+        "warmup_trimmed_mean_tolerance_ms": 3.7677048867044505
+      }
+    },
+    {
+      "session": 1,
+      "episodes": 10,
+      "raw_steps": 3000,
+      "admitted_samples": 3000,
+      "capacity_drops": 0,
+      "mean_ms": 145.58950850868226,
+      "returns": [
+        -142.36746289612176,
+        -159.74587123947586,
+        -108.84030346535151,
+        -107.35627973730371,
+        -89.53299780016621,
+        -90.78650885611515,
+        33.33716921895761,
+        -95.17514550182149,
+        -108.13809631974603,
+        -117.78058877206837
+      ],
+      "mean_actual_env_fps": 4.876943099703093,
+      "termination_reasons": {
+        "wall_time_limit": 10
+      },
+      "warmup_status": "stable",
+      "warmup_stability_reason": "stable",
+      "warmup_summary": {
+        "warmup_mean_latency_ms": 130.05740413907915,
+        "warmup_median_rel_span": 0.0010016324448795858,
+        "warmup_median_span_ms": 0.12643798254430294,
+        "warmup_median_tolerance_ms": 3.786957476986572,
+        "warmup_mode": "stress_policy",
+        "warmup_p50_latency_ms": 126.2081463355571,
+        "warmup_p90_latency_ms": 127.06860220059752,
+        "warmup_p90_rel_span": 0.004120233432948602,
+        "warmup_p90_span_ms": 0.5229052156209946,
+        "warmup_profiled_samples": 100,
+        "warmup_samples": 100,
+        "warmup_stability_reason": "stable",
+        "warmup_stage_summary": {
+          "env_action_recv_to_enqueue_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_observe_ms": {
+            "count": 100,
+            "max": 0.10244369506835938,
+            "mean": 0.08044415473937988,
+            "p50": 0.07973170280456543,
+            "p90": 0.08243360519409179
+          },
+          "env_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_wall_lag_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_observation_handle_ms": {
+            "count": 100,
+            "max": 0.08555984497070312,
+            "mean": 0.051696271896362306,
+            "p50": 0.05095982551574707,
+            "p90": 0.052719926834106444
+          },
+          "parent_to_env_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_to_worker_ipc_ms": {
+            "count": 100,
+            "max": 0.17992877960205078,
+            "mean": 0.11659780025482178,
+            "p50": 0.1187140941619873,
+            "p90": 0.1225083351135254
+          },
+          "policy_build_example_ms": {
+            "count": 100,
+            "max": 2.8951717540621758,
+            "mean": 1.8206813093274832,
+            "p50": 1.7968413885682821,
+            "p90": 1.831003651022911
+          },
+          "policy_decode_ms": {
+            "count": 100,
+            "max": 0.046469271183013916,
+            "mean": 0.03152312710881233,
+            "p50": 0.03125704824924469,
+            "p90": 0.03250138834118843
+          },
+          "policy_wrapper_predict_action_ms": {
+            "count": 100,
+            "max": 490.3262280859053,
+            "mean": 128.09749570675194,
+            "p50": 124.26657881587744,
+            "p90": 125.02648415975273
+          },
+          "worker_observation_attach_ms": {
+            "count": 100,
+            "max": 0.20096254348754883,
+            "mean": 0.04987922191619873,
+            "p50": 0.0484311580657959,
+            "p90": 0.04987492561340332
+          },
+          "worker_observation_localize_ms": {
+            "count": 100,
+            "max": 0.08977556228637695,
+            "mean": 0.04945433616638183,
+            "p50": 0.04866814613342285,
+            "p90": 0.04996609687805176
+          },
+          "worker_recv_overhead_ms": {
+            "count": 100,
+            "max": 0.20418405532836914,
+            "mean": 0.05347673892974854,
+            "p50": 0.05202889442443848,
+            "p90": 0.05346560478210449
+          },
+          "worker_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 1.3619427680969238,
+            "mean": 0.7125766277313232,
+            "p50": 0.6848323345184326,
+            "p90": 1.242584800720215
+          }
+        },
+        "warmup_status": "stable",
+        "warmup_stop_sample": 100,
+        "warmup_trimmed_mean_rel_span": 0.0004042041514309843,
+        "warmup_trimmed_mean_span_ms": 0.05103793228045106,
+        "warmup_trimmed_mean_tolerance_ms": 3.7880312782363035
+      }
+    },
+    {
+      "session": 2,
+      "episodes": 10,
+      "raw_steps": 3000,
+      "admitted_samples": 3000,
+      "capacity_drops": 0,
+      "mean_ms": 145.80071562306085,
+      "returns": [
+        -142.36746289612176,
+        -159.74587123947586,
+        -108.84030346535151,
+        -107.35627973730371,
+        -89.53299780016621,
+        -90.78650885611515,
+        33.33716921895761,
+        -95.17514550182149,
+        -108.13809631974603,
+        -117.78058877206837
+      ],
+      "mean_actual_env_fps": 4.87610756443952,
+      "termination_reasons": {
+        "wall_time_limit": 10
+      },
+      "warmup_status": "stable",
+      "warmup_stability_reason": "stable",
+      "warmup_summary": {
+        "warmup_mean_latency_ms": 132.54720021039248,
+        "warmup_median_rel_span": 0.00348318160413737,
+        "warmup_median_span_ms": 0.44210348278284073,
+        "warmup_median_tolerance_ms": 3.8077556644566357,
+        "warmup_mode": "stress_policy",
+        "warmup_p50_latency_ms": 126.95681094191968,
+        "warmup_p90_latency_ms": 129.66811428777874,
+        "warmup_p90_rel_span": 0.027036533680263083,
+        "warmup_p90_span_ms": 3.500128537416458,
+        "warmup_profiled_samples": 100,
+        "warmup_samples": 100,
+        "warmup_stability_reason": "stable",
+        "warmup_stage_summary": {
+          "env_action_recv_to_enqueue_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_observe_ms": {
+            "count": 100,
+            "max": 0.2915306091308594,
+            "mean": 0.08460938930511475,
+            "p50": 0.08091187477111816,
+            "p90": 0.08730087280273437
+          },
+          "env_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_wall_lag_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_observation_handle_ms": {
+            "count": 100,
+            "max": 0.10395526885986328,
+            "mean": 0.05386509895324707,
+            "p50": 0.05330848693847656,
+            "p90": 0.05467920303344727
+          },
+          "parent_to_env_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_to_worker_ipc_ms": {
+            "count": 100,
+            "max": 0.2183690071105957,
+            "mean": 0.11307980537414551,
+            "p50": 0.12006974220275879,
+            "p90": 0.12442049980163575
+          },
+          "policy_build_example_ms": {
+            "count": 100,
+            "max": 3.62915126606822,
+            "mean": 1.842019222676754,
+            "p50": 1.822024118155241,
+            "p90": 1.8597578164190054
+          },
+          "policy_decode_ms": {
+            "count": 100,
+            "max": 0.4015718586742878,
+            "mean": 0.03489072900265455,
+            "p50": 0.03084796480834484,
+            "p90": 0.0329350121319294
+          },
+          "policy_wrapper_predict_action_ms": {
+            "count": 100,
+            "max": 607.6748422347009,
+            "mean": 130.56138240732253,
+            "p50": 125.02118921838701,
+            "p90": 127.70517272874713
+          },
+          "worker_observation_attach_ms": {
+            "count": 100,
+            "max": 0.1818408966064453,
+            "mean": 0.0499094820022583,
+            "p50": 0.04813528060913086,
+            "p90": 0.05052533149719238
+          },
+          "worker_observation_localize_ms": {
+            "count": 100,
+            "max": 0.12768793106079102,
+            "mean": 0.04910233020782471,
+            "p50": 0.04784965515136719,
+            "p90": 0.04959325790405273
+          },
+          "worker_recv_overhead_ms": {
+            "count": 100,
+            "max": 0.1856060028076172,
+            "mean": 0.05342452049255371,
+            "p50": 0.05178093910217285,
+            "p90": 0.054463958740234374
+          },
+          "worker_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 1.3592371940612793,
+            "mean": 0.6597098016738892,
+            "p50": 0.635786771774292,
+            "p90": 1.0683335781097412
+          }
+        },
+        "warmup_status": "stable",
+        "warmup_stop_sample": 100,
+        "warmup_trimmed_mean_rel_span": 0.006969188826319543,
+        "warmup_trimmed_mean_span_ms": 0.8869119046721607,
+        "warmup_trimmed_mean_tolerance_ms": 3.8178556792263407
+      }
+    },
+    {
+      "session": 3,
+      "episodes": 10,
+      "raw_steps": 3000,
+      "admitted_samples": 3000,
+      "capacity_drops": 0,
+      "mean_ms": 145.21879081074397,
+      "returns": [
+        -142.36746289612176,
+        -159.74587123947586,
+        -108.84030346535151,
+        -107.35627973730371,
+        -89.53299780016621,
+        -90.78650885611515,
+        33.33716921895761,
+        -95.17514550182149,
+        -108.13809631974603,
+        -117.78058877206837
+      ],
+      "mean_actual_env_fps": 4.877257070289841,
+      "termination_reasons": {
+        "wall_time_limit": 10
+      },
+      "warmup_status": "stable",
+      "warmup_stability_reason": "stable",
+      "warmup_summary": {
+        "warmup_mean_latency_ms": 130.03112704493105,
+        "warmup_median_rel_span": 0.0004823950638973498,
+        "warmup_median_span_ms": 0.05956715904176235,
+        "warmup_median_tolerance_ms": 3.7044632190372795,
+        "warmup_mode": "stress_policy",
+        "warmup_p50_latency_ms": 123.45912214368582,
+        "warmup_p90_latency_ms": 126.52791617438197,
+        "warmup_p90_rel_span": 0.017003045083840592,
+        "warmup_p90_span_ms": 2.1281988825649023,
+        "warmup_profiled_samples": 100,
+        "warmup_samples": 100,
+        "warmup_stability_reason": "stable",
+        "warmup_stage_summary": {
+          "env_action_recv_to_enqueue_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_observe_ms": {
+            "count": 100,
+            "max": 0.16510772705078125,
+            "mean": 0.08318236351013183,
+            "p50": 0.08027005195617676,
+            "p90": 0.09025712013244629
+          },
+          "env_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_wall_lag_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_observation_handle_ms": {
+            "count": 100,
+            "max": 0.08669757843017578,
+            "mean": 0.05184036731719971,
+            "p50": 0.05086493492126465,
+            "p90": 0.05259008407592774
+          },
+          "parent_to_env_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_to_worker_ipc_ms": {
+            "count": 100,
+            "max": 0.16635465621948242,
+            "mean": 0.11864956855773925,
+            "p50": 0.11917757987976074,
+            "p90": 0.1284584522247314
+          },
+          "policy_build_example_ms": {
+            "count": 100,
+            "max": 2.654499839991331,
+            "mean": 1.846373532898724,
+            "p50": 1.791960559785366,
+            "p90": 1.8584813922643661
+          },
+          "policy_decode_ms": {
+            "count": 100,
+            "max": 0.07283594459295273,
+            "mean": 0.03284492064267397,
+            "p50": 0.031142262741923332,
+            "p90": 0.034335535019636154
+          },
+          "policy_wrapper_predict_action_ms": {
+            "count": 100,
+            "max": 587.2915191575885,
+            "mean": 128.04452107753605,
+            "p50": 121.52567715384066,
+            "p90": 124.56557769328356
+          },
+          "worker_observation_attach_ms": {
+            "count": 100,
+            "max": 0.14759206771850586,
+            "mean": 0.05096775531768799,
+            "p50": 0.04765129089355469,
+            "p90": 0.05195393562316895
+          },
+          "worker_observation_localize_ms": {
+            "count": 100,
+            "max": 0.07731008529663086,
+            "mean": 0.046758446693420413,
+            "p50": 0.04536175727844238,
+            "p90": 0.04765572547912597
+          },
+          "worker_recv_overhead_ms": {
+            "count": 100,
+            "max": 0.15018177032470703,
+            "mean": 0.05488312244415283,
+            "p50": 0.05146384239196777,
+            "p90": 0.05608649253845214
+          },
+          "worker_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 1.3600692749023438,
+            "mean": 0.8198542118072509,
+            "p50": 0.8554730415344238,
+            "p90": 1.1704079151153564
+          }
+        },
+        "warmup_status": "stable",
+        "warmup_stop_sample": 100,
+        "warmup_trimmed_mean_rel_span": 0.003801997269400962,
+        "warmup_trimmed_mean_span_ms": 0.470211889478378,
+        "warmup_trimmed_mean_tolerance_ms": 3.7102490309189307
+      }
+    },
+    {
+      "session": 4,
+      "episodes": 10,
+      "raw_steps": 3000,
+      "admitted_samples": 2999,
+      "capacity_drops": 1,
+      "mean_ms": 147.1484108497477,
+      "returns": [
+        -142.36746289612176,
+        -159.74587123947586,
+        -113.30889716270829,
+        -94.63653565007822,
+        -106.1251846191165,
+        -106.8418363923529,
+        -61.01942287195458,
+        -120.77013164083975,
+        -80.48958587549112,
+        -76.33756372571092
+      ],
+      "mean_actual_env_fps": 4.876767304438789,
+      "termination_reasons": {
+        "wall_time_limit": 10
+      },
+      "warmup_status": "stable",
+      "warmup_stability_reason": "stable",
+      "warmup_summary": {
+        "warmup_mean_latency_ms": 129.4971532560885,
+        "warmup_median_rel_span": 0.001689645554625587,
+        "warmup_median_span_ms": 0.21240697242319584,
+        "warmup_median_tolerance_ms": 3.7713289365638047,
+        "warmup_mode": "stress_policy",
+        "warmup_p50_latency_ms": 125.72579807601869,
+        "warmup_p90_latency_ms": 126.43325035460293,
+        "warmup_p90_rel_span": 0.013272765084724318,
+        "warmup_p90_span_ms": 1.6844553407281637,
+        "warmup_profiled_samples": 100,
+        "warmup_samples": 100,
+        "warmup_stability_reason": "stable",
+        "warmup_stage_summary": {
+          "env_action_recv_to_enqueue_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_observe_ms": {
+            "count": 100,
+            "max": 0.23441076278686523,
+            "mean": 0.08204297542572021,
+            "p50": 0.0802147388458252,
+            "p90": 0.08283119201660155
+          },
+          "env_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "env_wall_lag_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_observation_handle_ms": {
+            "count": 100,
+            "max": 0.08404731750488281,
+            "mean": 0.05172859191894531,
+            "p50": 0.05087852478027344,
+            "p90": 0.05233492851257324
+          },
+          "parent_to_env_ipc_ms": {
+            "count": 100,
+            "max": 0.0,
+            "mean": 0.0,
+            "p50": 0.0,
+            "p90": 0.0
+          },
+          "parent_to_worker_ipc_ms": {
+            "count": 100,
+            "max": 0.17222118377685547,
+            "mean": 0.11345502376556396,
+            "p50": 0.11784553527832031,
+            "p90": 0.1211423397064209
+          },
+          "policy_build_example_ms": {
+            "count": 100,
+            "max": 2.5577647611498833,
+            "mean": 1.8172593135386705,
+            "p50": 1.804994884878397,
+            "p90": 1.8284252379089594
+          },
+          "policy_decode_ms": {
+            "count": 100,
+            "max": 0.04545925185084343,
+            "mean": 0.03196322824805975,
+            "p50": 0.031312694773077965,
+            "p90": 0.032832613214850426
+          },
+          "policy_wrapper_predict_action_ms": {
+            "count": 100,
+            "max": 477.401090785861,
+            "mean": 127.54291830584407,
+            "p50": 123.78698890097439,
+            "p90": 124.5148014742881
+          },
+          "worker_observation_attach_ms": {
+            "count": 100,
+            "max": 0.1782054901123047,
+            "mean": 0.0483409309387207,
+            "p50": 0.04702138900756836,
+            "p90": 0.04832091331481933
+          },
+          "worker_observation_localize_ms": {
+            "count": 100,
+            "max": 0.07692527770996094,
+            "mean": 0.047482023239135744,
+            "p50": 0.046602725982666016,
+            "p90": 0.048039722442626956
+          },
+          "worker_recv_overhead_ms": {
+            "count": 100,
+            "max": 0.18213319778442383,
+            "mean": 0.05175905704498291,
+            "p50": 0.05057954788208008,
+            "p90": 0.05201106071472168
+          },
+          "worker_to_parent_ipc_ms": {
+            "count": 100,
+            "max": 1.3428311347961426,
+            "mean": 0.7418811178207397,
+            "p50": 0.7143802642822266,
+            "p90": 1.2268975257873536
+          }
+        },
+        "warmup_status": "stable",
+        "warmup_stop_sample": 100,
+        "warmup_trimmed_mean_rel_span": 0.0022218487316876105,
+        "warmup_trimmed_mean_span_ms": 0.27945885085500777,
+        "warmup_trimmed_mean_tolerance_ms": 3.7733286726870574
+      }
+    }
+  ],
+  "selected_sample_metadata": {
+    "0": [
+      {
+        "episode_id": 0,
+        "episode_seed": 42,
+        "obs_env_step": 0,
+        "obs_id": 100,
+        "latency_ms": 139.4672589302063,
+        "worker_service_time_ms": 138.81168794631958
+      },
+      {
+        "episode_id": 5,
+        "episode_seed": 47,
+        "obs_env_step": 0,
+        "obs_id": 1600,
+        "latency_ms": 140.76431322097778,
+        "worker_service_time_ms": 140.07021808624268
+      },
+      {
+        "episode_id": 9,
+        "episode_seed": 51,
+        "obs_env_step": 299,
+        "obs_id": 3099,
+        "latency_ms": 146.13845682144165,
+        "worker_service_time_ms": 144.81538009643555
+      }
+    ],
+    "1": [
+      {
+        "episode_id": 0,
+        "episode_seed": 42,
+        "obs_env_step": 0,
+        "obs_id": 100,
+        "latency_ms": 141.62433528900146,
+        "worker_service_time_ms": 140.93285131454468
+      },
+      {
+        "episode_id": 5,
+        "episode_seed": 47,
+        "obs_env_step": 0,
+        "obs_id": 1600,
+        "latency_ms": 138.0953049659729,
+        "worker_service_time_ms": 137.40978479385376
+      },
+      {
+        "episode_id": 9,
+        "episode_seed": 51,
+        "obs_env_step": 299,
+        "obs_id": 3099,
+        "latency_ms": 149.1029510498047,
+        "worker_service_time_ms": 147.82552289962769
+      }
+    ],
+    "2": [
+      {
+        "episode_id": 0,
+        "episode_seed": 42,
+        "obs_env_step": 0,
+        "obs_id": 100,
+        "latency_ms": 140.57180976867676,
+        "worker_service_time_ms": 139.90475463867188
+      },
+      {
+        "episode_id": 5,
+        "episode_seed": 47,
+        "obs_env_step": 0,
+        "obs_id": 1600,
+        "latency_ms": 137.86928272247314,
+        "worker_service_time_ms": 137.19976902008057
+      },
+      {
+        "episode_id": 9,
+        "episode_seed": 51,
+        "obs_env_step": 299,
+        "obs_id": 3099,
+        "latency_ms": 141.51891803741455,
+        "worker_service_time_ms": 140.16382026672363
+      }
+    ],
+    "3": [
+      {
+        "episode_id": 0,
+        "episode_seed": 42,
+        "obs_env_step": 0,
+        "obs_id": 100,
+        "latency_ms": 136.3703908920288,
+        "worker_service_time_ms": 135.71870708465576
+      },
+      {
+        "episode_id": 5,
+        "episode_seed": 47,
+        "obs_env_step": 0,
+        "obs_id": 1600,
+        "latency_ms": 137.68515014648438,
+        "worker_service_time_ms": 137.06265544891357
+      },
+      {
+        "episode_id": 9,
+        "episode_seed": 51,
+        "obs_env_step": 299,
+        "obs_id": 3099,
+        "latency_ms": 149.98645401000977,
+        "worker_service_time_ms": 148.62340211868286
+      }
+    ],
+    "4": [
+      {
+        "episode_id": 0,
+        "episode_seed": 42,
+        "obs_env_step": 0,
+        "obs_id": 100,
+        "latency_ms": 141.0939826965332,
+        "worker_service_time_ms": 140.38084650039673
+      },
+      {
+        "episode_id": 5,
+        "episode_seed": 47,
+        "obs_env_step": 0,
+        "obs_id": 1600,
+        "latency_ms": 142.52230787277222,
+        "worker_service_time_ms": 141.85433912277222
+      },
+      {
+        "episode_id": 9,
+        "episode_seed": 51,
+        "obs_env_step": 299,
+        "obs_id": 3099,
+        "latency_ms": 146.33325147628784,
+        "worker_service_time_ms": 145.1236653327942
+      }
+    ]
+  },
+  "warnings": [],
+  "source_checksums": {
+    "sessions/0/generated.yaml": {
+      "size": 4586,
+      "sha256": "a61daf3b2ef55646586c988371bef5f45870a908263d55c453b8dd94a52e98fe"
+    },
+    "sessions/0/warmup_summary.json": {
+      "size": 3256,
+      "sha256": "c198344bd251362a6ca318b3e053e5d3e0eb0bee6677e7449c686bc66960dcbf"
+    },
+    "sessions/0/warmup_latencies.jsonl": {
+      "bytes": 74937,
+      "sha256": "91a8a502f2fd83b36687772996eafdad126ac4ec2f8c7b65dda8020142101771"
+    },
+    "sessions/0/warmup_pipeline_profile.jsonl": {
+      "size": 60824,
+      "sha256": "e907bde1e2f8066b77c148dcb79b2cca00c963f6857beed5833378ff2300fd2f"
+    },
+    "sessions/0/observation_attempts.jsonl": {
+      "bytes": 572123,
+      "sha256": "ea15b0e03e4cc8873bb75c8b55cf95fbf384eb0c63ebbcb7fca34b440f9a21cf"
+    },
+    "sessions/0/steps.jsonl": {
+      "bytes": 3091716,
+      "sha256": "8a0b0d6155425f8ea0a38018ac6e18bb08950fd7c09ac12f0cc2a091fe0c3e9a"
+    },
+    "sessions/0/actions.jsonl": {
+      "bytes": 9175793,
+      "sha256": "9598247446b83707f131fb87b82d728ffcf4b779dd6511333eed3f6ccf282380"
+    },
+    "sessions/0/episode_metrics.jsonl": {
+      "bytes": 44720,
+      "sha256": "4ee6dc5d5db978f86bd8ed21b97ddf0dfb0d20ebf48b9c91154a98a2822b7c1c"
+    },
+    "sessions/0/realtime_pipeline_profile.jsonl": {
+      "size": 3145030,
+      "sha256": "1c2a7c467066f5db6c186e1953e66d28703487d5c06093267fa09aff37323a78"
+    },
+    "sessions/0/realtime_pipeline_summary.json": {
+      "size": 3690,
+      "sha256": "fd6bd6b3605ee1eca28ed7a16f8b6e998275afbeaf4c49b08365f440aaece350"
+    },
+    "sessions/0/latencies.jsonl": {
+      "size": 2252547,
+      "sha256": "ac93fec8264df2982b72f80bb715352021b78ccda36520cdf3dd68ce01922764"
+    },
+    "sessions/0/infer_latencies.jsonl": {
+      "size": 2252547,
+      "sha256": "ac93fec8264df2982b72f80bb715352021b78ccda36520cdf3dd68ce01922764"
+    },
+    "sessions/0/e2e_latencies.jsonl": {
+      "size": 829554,
+      "sha256": "dd9a1ba3dfc4d971731c4e7903a3479235f37d626fc87093e5fd8d8caa965ea5"
+    },
+    "sessions/1/generated.yaml": {
+      "size": 4586,
+      "sha256": "a20275136990b7c4b20629652d6848858568aff57816da9b1a3623a4341f7a50"
+    },
+    "sessions/1/warmup_summary.json": {
+      "size": 3251,
+      "sha256": "f4b04cf96d0576d3aa4ecee8fb5288b2632fd00f8cfe49f7de21e51fdfd97ecd"
+    },
+    "sessions/1/warmup_latencies.jsonl": {
+      "bytes": 74915,
+      "sha256": "fa70be2a30da70d977180e291f9e11c680b70f5c27fe41e880f4ec226df62b8f"
+    },
+    "sessions/1/warmup_pipeline_profile.jsonl": {
+      "size": 60820,
+      "sha256": "4e3360156dd5c8ce08e8bc4d473f733ac6f5ba53900d1bba7e727c65d78a7c39"
+    },
+    "sessions/1/observation_attempts.jsonl": {
+      "bytes": 572063,
+      "sha256": "348aca2f95eb576829efac214a82ae966536fd10bf5fe8b5f5f8fc6ab49ed5eb"
+    },
+    "sessions/1/steps.jsonl": {
+      "bytes": 3091697,
+      "sha256": "fa75a3e2afa71efdaa56312a6a8af910e8a2cbb90b7d300976f347c713f03499"
+    },
+    "sessions/1/actions.jsonl": {
+      "bytes": 9175721,
+      "sha256": "eeb6d98be65a124148ff7f9829d0887203ade025606b859dbe9b9a5c2bd64538"
+    },
+    "sessions/1/episode_metrics.jsonl": {
+      "bytes": 44673,
+      "sha256": "c1f21ee5b038b52dd98a467cd37daeb557298691fde825dd2b907564fb95a226"
+    },
+    "sessions/1/realtime_pipeline_profile.jsonl": {
+      "size": 3144997,
+      "sha256": "c0a3cc70f73326e9bc25e120aa3a2dcba91918f59ba7005e93fff573bc0d0cc1"
+    },
+    "sessions/1/realtime_pipeline_summary.json": {
+      "size": 3695,
+      "sha256": "81a402754717992c7fc6f9d6978edd4d64f80bd6f0cd3a6445f1bdc6608eead8"
+    },
+    "sessions/1/latencies.jsonl": {
+      "size": 2252599,
+      "sha256": "542d0d8bdd572226ba25e8740fa611e06355e40c4400dfbbbdab1b0ab87b336f"
+    },
+    "sessions/1/infer_latencies.jsonl": {
+      "size": 2252599,
+      "sha256": "542d0d8bdd572226ba25e8740fa611e06355e40c4400dfbbbdab1b0ab87b336f"
+    },
+    "sessions/1/e2e_latencies.jsonl": {
+      "size": 829683,
+      "sha256": "bf9bd4a298daa73eb48e2a76de73b878a0b35866a95858e8448569b06c7453dd"
+    },
+    "sessions/2/generated.yaml": {
+      "size": 4586,
+      "sha256": "674635afbd82df766ecff08540bf01e03a18ce30644631f91fae388a35e81fbb"
+    },
+    "sessions/2/warmup_summary.json": {
+      "size": 3239,
+      "sha256": "8c62c00670a8aa7bfb02682cc3ea3678dd984b6b44590ab0a74f7af9a408588b"
+    },
+    "sessions/2/warmup_latencies.jsonl": {
+      "bytes": 74924,
+      "sha256": "3fc269b9c6a6ec6f3c9d00cb949022b582e5c4999053a9d28b7953f8f52ed38c"
+    },
+    "sessions/2/warmup_pipeline_profile.jsonl": {
+      "size": 60809,
+      "sha256": "88abc1d09a0cedd54767052edc4371ac5ec7c14ce13dba6d1d5302fd476f9419"
+    },
+    "sessions/2/observation_attempts.jsonl": {
+      "bytes": 572150,
+      "sha256": "4e588f786b147b794a77c1f4d615ac61fb0679f4d5b624728b1b51e0e358e9c5"
+    },
+    "sessions/2/steps.jsonl": {
+      "bytes": 3091668,
+      "sha256": "43e57ec73728cabab71a780b6537705f51719c44a428a05db44f05723ee14bff"
+    },
+    "sessions/2/actions.jsonl": {
+      "bytes": 9175350,
+      "sha256": "3df05e3e6807536cf40f0dde6bcf8b65680be1df3cbb28d7e7d4407c2d4b30c8"
+    },
+    "sessions/2/episode_metrics.jsonl": {
+      "bytes": 44553,
+      "sha256": "52ea94fa46a8c88b7b00abaf0424af5f90e5609ee426aa40c5e157273f06fa14"
+    },
+    "sessions/2/realtime_pipeline_profile.jsonl": {
+      "size": 3144626,
+      "sha256": "2f6e7a19fadfe5b43a0f92f74c430c450fcdedd6a2d1aaee99cde8c150977465"
+    },
+    "sessions/2/realtime_pipeline_summary.json": {
+      "size": 3688,
+      "sha256": "8c6199a2c593cac790f41bb4953d037a82d497aee432c690a257d6f46dc571f7"
+    },
+    "sessions/2/latencies.jsonl": {
+      "size": 2252535,
+      "sha256": "863f0ce11d9707313567b17bd014949a73edb838bc5b96e1d90521bd03aac99e"
+    },
+    "sessions/2/infer_latencies.jsonl": {
+      "size": 2252535,
+      "sha256": "863f0ce11d9707313567b17bd014949a73edb838bc5b96e1d90521bd03aac99e"
+    },
+    "sessions/2/e2e_latencies.jsonl": {
+      "size": 829679,
+      "sha256": "9b0dc2ace4637b796858a44abaf55f862b2b60c1c280dd9da527aee14c2dd531"
+    },
+    "sessions/3/generated.yaml": {
+      "size": 4586,
+      "sha256": "357b9cb019b4a717ad17c4f665c222fcd4b66a46a784f0dbcc12887f02ac2758"
+    },
+    "sessions/3/warmup_summary.json": {
+      "size": 3251,
+      "sha256": "52c3a729ff6905932d2c5f81ea4e95ea3785adc0ca9f6c1008fd22f1edda61ee"
+    },
+    "sessions/3/warmup_latencies.jsonl": {
+      "bytes": 74948,
+      "sha256": "68d26def14e6437f60a3acd0f1fe1f3972e1e157a29061a1e3578639da546339"
+    },
+    "sessions/3/warmup_pipeline_profile.jsonl": {
+      "size": 60847,
+      "sha256": "32a0c2b6e3d274c0fb1c72e2b4b7bfa9b394bb3c559f33027680642391351f76"
+    },
+    "sessions/3/observation_attempts.jsonl": {
+      "bytes": 572092,
+      "sha256": "f5842c68417ab94c8acfaf7fddc074acc33e5f0fcb528066ccb9fd3bec17a882"
+    },
+    "sessions/3/steps.jsonl": {
+      "bytes": 3091708,
+      "sha256": "d78a0a44715faf09b88543468afcf8173bfafa039fc118d530b268350abfc3d4"
+    },
+    "sessions/3/actions.jsonl": {
+      "bytes": 9175322,
+      "sha256": "19a3296fbb888c80f12186b5fd349cf6b337aa39516a24849ed76f248f23f0ae"
+    },
+    "sessions/3/episode_metrics.jsonl": {
+      "bytes": 44675,
+      "sha256": "4eb2b6681fe07851d8e07f6ba06410fcd8d5dcd987b32c999f81d623254ea989"
+    },
+    "sessions/3/realtime_pipeline_profile.jsonl": {
+      "size": 3144628,
+      "sha256": "16a122f719d51d776d3842a931283d120158e829adc6c597981d7facc471a58f"
+    },
+    "sessions/3/realtime_pipeline_summary.json": {
+      "size": 3691,
+      "sha256": "e5be91c1e729564c4d9f4feed60a0eac5ba471e0d5a8a6197fbed45427ac8f6a"
+    },
+    "sessions/3/latencies.jsonl": {
+      "size": 2252437,
+      "sha256": "5abc2caf62a29d8fe44c27ba41fc21f0ab1da6ee14ffe2c4da89f18da1b838a0"
+    },
+    "sessions/3/infer_latencies.jsonl": {
+      "size": 2252437,
+      "sha256": "5abc2caf62a29d8fe44c27ba41fc21f0ab1da6ee14ffe2c4da89f18da1b838a0"
+    },
+    "sessions/3/e2e_latencies.jsonl": {
+      "size": 829534,
+      "sha256": "7f45273ce58175af47e49e4039f8b979752c3598de7d4a5f3b53ffe42ac70a0b"
+    },
+    "sessions/4/generated.yaml": {
+      "size": 4586,
+      "sha256": "32dd854640998e66ee76d93a6cf16d6e15e86237285d794d21094680a6d1dde1"
+    },
+    "sessions/4/warmup_summary.json": {
+      "size": 3251,
+      "sha256": "9ffb1105f7b30100f7d658b4cfadcc27c21e733c6defb64f0e802d8497000f17"
+    },
+    "sessions/4/warmup_latencies.jsonl": {
+      "bytes": 74925,
+      "sha256": "7adb48b152e345be6e47b25eaf13956831a907f4baad8a7dee4f6c3712211cb7"
+    },
+    "sessions/4/warmup_pipeline_profile.jsonl": {
+      "size": 60841,
+      "sha256": "6a8abbb0b078930e1c4d316e43891d26453fae9c445f01ad8188f2c732a6d820"
+    },
+    "sessions/4/observation_attempts.jsonl": {
+      "bytes": 572003,
+      "sha256": "0e9315e4964f929b784bb18316b9d398601b58b35be88cc675da912c03d81a01"
+    },
+    "sessions/4/steps.jsonl": {
+      "bytes": 3091195,
+      "sha256": "50b5de2189f1012a8ddcfe12f04e1249409beb6dde24377ab6e09ff795b2d031"
+    },
+    "sessions/4/actions.jsonl": {
+      "bytes": 9172500,
+      "sha256": "1f9baf33091396670c028099fefec92bde7d7ae2c05cc6a70e2aa6e0401c368e"
+    },
+    "sessions/4/episode_metrics.jsonl": {
+      "bytes": 44673,
+      "sha256": "848d437e6fa93f9e1bb22c7a3c71df2242a023033f21b43179a04445ccbd6ac9"
+    },
+    "sessions/4/realtime_pipeline_profile.jsonl": {
+      "size": 3143818,
+      "sha256": "9380a7100f9d18f2dc7c78fcc5f5f356bec3cb178eddacf0dc9376b01bcec860"
+    },
+    "sessions/4/realtime_pipeline_summary.json": {
+      "size": 3687,
+      "sha256": "fd338b7b5ba91ac32885e0ff90f3493e4bce1479fb84d992fbfd25d4c9074c89"
+    },
+    "sessions/4/latencies.jsonl": {
+      "size": 2251720,
+      "sha256": "c8212bedb72ec262de06f2878119ee0c06d09e735bfea494a4be8cb880d48f11"
+    },
+    "sessions/4/infer_latencies.jsonl": {
+      "size": 2251720,
+      "sha256": "c8212bedb72ec262de06f2878119ee0c06d09e735bfea494a4be8cb880d48f11"
+    },
+    "sessions/4/e2e_latencies.jsonl": {
+      "size": 829379,
+      "sha256": "8724614f03aa23dff0abf9f886c394ffb943552d428c139429a7f08a657b5deb"
+    },
+    "P.status.json": {
+      "size": 751,
+      "sha256": "a35603f2a740f1def937f14f719a7266ba493ac3a5c651d2e6c8e1f8363f8cbc"
+    },
+    "profile-ready.json": {
+      "size": 377,
+      "sha256": "0612cc050436fd61ac11f16f525e18a2d3f7583cc821b4576d835d9afd323e53"
+    },
+    "preparation.json": {
+      "size": 972,
+      "sha256": "b8ee5e4d6cf7066338afddffa53bbc3e1f1de08b8f81a82091ef648399cbbadc"
+    },
+    "configuration-verification.json": {
+      "size": 3574,
+      "sha256": "a9e3d8a745e040a602ef4d7ff7c371e5a40494136a56d87a2f670be051231eda"
+    },
+    "P.yaml": {
+      "size": 4339,
+      "sha256": "799ddda50d597a03b024ff479a58e1025704e91b6d98cd77514d8f0266107edc"
+    },
+    "bundle/manifest.json": {
+      "size": 4937,
+      "sha256": "f6e80ebbf207041a5f00b322aa13fd530839139caabb107ea59bbbbf36ff0d26"
+    },
+    "bundle/validation.json": {
+      "size": 530,
+      "sha256": "b0fcedafec817df74a9f6c226c520a2b9f03e92e65e8215105938eea78201d72"
+    },
+    "bundle/config.yaml": {
+      "size": 3380,
+      "sha256": "5d3f2a56aec99a9618f9a17786db1b0a182d9ec92752f33a83740f1888067d5d"
+    },
+    "bundle/latency_prompt_map.json": {
+      "size": 416,
+      "sha256": "86b9ca38a6d19f2da16ac017aa2af280025bce688e5d02915ebe8b6a02fbf605"
+    },
+    "code/latency_bench/cross_device/runtime_configs.py": {
+      "size": 5899,
+      "sha256": "18ca0505ecf413b8b34610c35efbacb9c25c0621f54b2eff754fb4ebac69efb7"
+    },
+    "code/latency_bench/executors/realtime/env_worker.py": {
+      "size": 12942,
+      "sha256": "384c40fe36ae2071f9d27271680702ed107849bd4357cc228f9b110a7a35bcb4"
+    },
+    "code/latency_bench/executors/realtime/executor.py": {
+      "size": 39419,
+      "sha256": "a0261db50c73f82675c493edb16b0c9111168379f2d2031d0198c4774fdd6433"
+    }
+  },
+  "fit_binding": {
+    "sample_model_type": "hidden_regime",
+    "distribution_sha256": "2b2eae3acc378eeccaf728de1ff52e8530dd4e801b43f89ef491d86239ef74dd",
+    "burst_model_sha256": "501daf6afa2979b2a43e6f951b29e14a0a7d2c7d538e83899879ac80b41acde2"
+  },
+  "protocol": {
+    "env_fps": 5,
+    "obs_fps": 5,
+    "frame_ms": 200,
+    "latency": "measured, CUDA synchronized",
+    "inference_workers": 1,
+    "sessions": 5,
+    "episodes_per_session": 10,
+    "seeds_per_session": [
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51
+    ],
+    "warmup_per_session": 100,
+    "raw_step_cap": 900,
+    "sampling_wall_cap_s": 60,
+    "fps_calibration": false
+  }
+}

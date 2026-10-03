@@ -1,0 +1,26 @@
+{
+  "state": "PROFILE_FORMAL_CONFIG_READY",
+  "config_sha256": "ef6a6ebe46a7ea39db0ca63fbefa0d0747356accfff78ada59989e091925649c",
+  "dataset_revision": "42d03372359f14ab830b1dcfebaf15986aa0e984",
+  "dataset_manifest_sha256": "e850ecfe50be72061722c0a57d95efb797f705e5c0aa1049c56f9d0bec54fbdb",
+  "rows": [
+    88708,
+    10000
+  ],
+  "global_batch": 128,
+  "micro_batch": 32,
+  "accumulation": 2,
+  "seed": 42,
+  "physical_gpus": [
+    4,
+    5
+  ],
+  "steps": 5000,
+  "fresh_initialization": true,
+  "gc": false,
+  "zero_stage": 2,
+  "post_train_actions": [],
+  "prepared_at": "2026-09-21T16:37:47.529782+00:00",
+  "approval": "User explicitly approved Walker2d micro32 x accumulation2, GC off",
+  "previous_failed_config_sha256": "25fa480c40d211667ed9fb547ad11bc3ce58da5e8292099ba3ca3ed5d09c18c6"
+}

@@ -1,63 +1,33 @@
-# Gymnasium adaptation examples
+# Gymnasium results
 
-These reports are evidence-backed records for tasks adapted through the
-separate `env.name: gymnasium` path.
+[HTML overview](index.html).
 
-Completed GR00T reports: [AirRaid](air_raid/index.html#gr00t),
-[InvertedPendulum H1 / 5 FPS](inverted_pendulum/index.html#gr00t),
-[Hopper H1 / 5 FPS](hopper/index.html#gr00t-results),
-[Walker2D H1 / 5 FPS](walker2d/index.html#gr00t-results), and
-[Ant H1 / 5 FPS](ant/index.html#gr00t-results).
-Each environment report is updated after verified completion or a scientific gate
-stops its profile branch, with pinned model/data references.
-[HalfCheetah GR00T 5 FPS](half_cheetah/index.html#gr00t) stopped at its teacher gate;
-B20 is complete, including the documented recovery after a container restart.
-[Humanoid GR00T H1 / 5 FPS](humanoid/index.html#gr00t-results) stopped at the
-collection limit: 16 qualified episodes in 120 attempts, below the target of 100.
-Its L0/P/B, teacher selection, E10 and initial probe completed; replay, profile VLA
-and F were not run. The earlier native H8 / 15 FPS experiments are terminated;
-their preserved results are labeled as historical within the task reports.
+| Environment | Model | Profile mean / P95 (ms) | L0 teacher → L0 | L0 VLA → L0 | L0 VLA → real-time (B) | Profile teacher → profile (E10) | Profile VLA → real-time (F) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [InvertedPendulum](inverted_pendulum/index.html) | GR00T · Completed | 108.09 / 114.50 ms | — | 1,000.00 ± 0.00 | 15.55 ± 4.79 | 1,000.00 ± 0.00 | 1,000.00 ± 0.00 |
+| [InvertedPendulum](inverted_pendulum/index.html) | OpenVLA · Completed | 67.09 / 71.26 ms | — | 707.15 ± 357.20 | 19.80 ± 6.21 | 791.90 ± 280.04 | 586.85 ± 457.53 |
+| [InvertedPendulum](inverted_pendulum/index.html) | Pi0.5 · Completed | 141.77 / 148.17 ms | — | 1,000.00 ± 0.00 | 20.15 ± 6.48 | 1,000.00 ± 0.00 | 830.40 ± 339.20 |
+| [AirRaid](air_raid/index.html) | GR00T · Completed | 81.49 / 97.82 ms | 2,557.50 ± 491.81 | 2,101.25 ± 667.01 | 733.75 ± 268.71 | 2,572.50 ± 259.43 | 1,586.25 ± 564.83 |
+| [AirRaid](air_raid/index.html) | OpenVLA · Completed | 58.41 / 59.03 ms | 2,557.50 ± 491.81 | 2,000.00 ± 706.13 | 878.75 ± 301.69 | 3,242.50 ± 300.01 | 2,353.75 ± 425.39 |
+| [AirRaid](air_raid/index.html) | Pi0.5 · Completed | 134.55 / 139.89 ms | 2,557.50 ± 491.81 | 1,943.75 ± 776.85 | 1,386.25 ± 434.99 | 3,785.00 ± 384.09 | 3,227.50 ± 1,095.58 |
+| [Ant](ant/index.html) | GR00T · Completed | 111.64 / 118.45 ms | 5,011.32 ± 1,880.32 | 6,222.60 ± 133.92 | 165.37 ± 224.74 | 3,199.56 ± 317.95 | 1,955.97 ± 780.51 |
+| [Ant](ant/index.html) | OpenVLA · Completed | 90.56 / 92.13 ms | 5,011.32 ± 1,880.32 | 5,565.29 ± 1,351.05 | 194.33 ± 259.05 | 2,301.03 ± 37.60 | 1,853.33 ± 508.69 |
+| [Ant](ant/index.html) | Pi0.5 · Completed | 145.42 / 151.63 ms | 5,011.32 ± 1,880.32 | 5,782.50 ± 963.07 | 131.60 ± 93.72 | 4,497.52 ± 71.51 | 1,774.71 ± 824.61 |
+| [HalfCheetah](half_cheetah/index.html) | GR00T · Scientific stop | 110.88 / 117.14 ms | 5,414.26 ± 740.00 | 5,012.47 ± 742.29 | -262.47 ± 74.94 | — | — |
+| [HalfCheetah](half_cheetah/index.html) | OpenVLA · Completed | 71.82 / 73.09 ms | 5,414.26 ± 740.00 | 3,675.25 ± 1,032.71 | 357.85 ± 285.91 | 5,217.47 ± 108.45 | 288.53 ± 248.11 |
+| [HalfCheetah](half_cheetah/index.html) | Pi0.5 · Scientific stop | 145.71 / 151.53 ms | 5,414.26 ± 740.00 | 5,357.98 ± 736.99 | -347.44 ± 82.66 | — | — |
+| [Hopper](hopper/index.html) | GR00T · Completed | 114.62 / 122.61 ms | 2,682.09 ± 900.29 | 872.83 ± 479.65 | 8.55 ± 0.09 | 3,814.84 ± 8.80 | 242.55 ± 127.57 |
+| [Hopper](hopper/index.html) | OpenVLA · Completed | 71.63 / 74.11 ms | 2,682.09 ± 900.29 | 1,419.93 ± 552.54 | 67.88 ± 150.09 | 3,657.61 ± 13.88 | 424.58 ± 348.01 |
+| [Hopper](hopper/index.html) | Pi0.5 · Completed | 199.10 / 264.06 ms | 2,682.09 ± 900.29 | 3,482.49 ± 290.80 | 8.40 ± 0.66 | 2,616.17 ± 629.87 | 235.17 ± 28.38 |
+| [Walker2D](walker2d/index.html) | GR00T · Completed | 111.29 / 118.32 ms | 3,743.51 ± 996.07 | 3,527.99 ± 945.27 | 63.24 ± 6.58 | 4,228.54 ± 14.59 | 852.87 ± 357.10 |
+| [Walker2D](walker2d/index.html) | OpenVLA · Completed | 70.50 / 72.07 ms | 3,743.51 ± 996.07 | 983.91 ± 373.09 | 103.65 ± 4.90 | 4,102.87 ± 593.64 | 857.44 ± 971.04 |
+| [Walker2D](walker2d/index.html) | Pi0.5 · Completed | 188.57 / 209.44 ms | 3,743.51 ± 996.07 | 3,631.42 ± 775.19 | 80.95 ± 10.98 | 3,305.17 ± 1,032.90 | 371.09 ± 123.54 |
+| [Humanoid](humanoid/index.html) | GR00T · Scientific stop | 118.38 / 125.04 ms | 6,331.47 ± 407.20 | 6,225.77 ± 1,077.26 | 1,158.63 ± 646.19 | 2,883.10 ± 1,804.11 | — |
+| [Humanoid](humanoid/index.html) | OpenVLA · Scientific stop | 286.64 / 292.69 ms | 6,331.47 ± 407.20 | 272.06 ± 36.17 | 226.92 ± 56.90 | 1,036.93 ± 280.76 | — |
+| [Humanoid](humanoid/index.html) | Pi0.5 · Scientific stop | 182.02 / 198.61 ms | 6,331.47 ± 407.20 | 6,667.56 ± 46.18 | 891.67 ± 623.80 | — | — |
 
-| Task | Native action space | Verified stages | Report |
-| --- | --- | --- | --- |
-| Inverted Pendulum | Native `Box(1)` force; five-force policy interface | Completed OpenVLA 10 FPS and GR00T H1 / 5 FPS pipelines; measured B/F and paired-seed audit | [Open report](inverted_pendulum/index.html) |
-| Pendulum | Continuous `Box(1)` torque | Probe, wrapper, L1 APPO training, small-model evaluation | [Open report](pendulum/index.html) |
-| Lunar Lander | Native `Discrete(4)` engines | Probe, direct L1 APPO training, small-model evaluation | [Open report](lunar_lander/index.html) |
-| Hopper | Native continuous `Box(3)` torques + 11D state | Completed GR00T 5 FPS B/F: 8.55 ± 0.09 → 242.55 ± 127.57, 20 matched-seed gains; historical OpenVLA record preserved | [Open report](hopper/index.html) |
-| Walker2D | Native continuous `Box(6)` torques + 17D state | Completed GR00T 5 FPS B/F: 63.24 ± 6.58 → 852.87 ± 357.10, 20 matched-seed gains; historical OpenVLA record preserved | [Open report](walker2d/index.html) |
-| HalfCheetah | Native continuous `Box(6)` torques + 17D state | Historical OpenVLA B/F complete; GR00T 5 FPS L0/P complete, profile teacher gate failed (0/20 eligible); B20 −262.47 ± 74.94, recovery audited | [Open report](half_cheetah/index.html) |
-| Ant | Native continuous `Box(8)` torques + 27D state | Completed GR00T 5 FPS B/F: 165.37 ± 224.74 → 1955.97 ± 780.51, 19 matched-seed gains and 1 loss; historical OpenVLA record preserved | [Open report](ant/index.html) |
-| Swimmer | Native continuous `Box(2)` torques + 8D state | MuJoCo 3 compatibility wrapper, 4-frame L0 APPO training, best-checkpoint L0-L4 evaluation | [Open report](swimmer/index.html) |
-| Humanoid | Native continuous `Box(17)` torques + 376D state | GR00T 5 FPS L0/P/B complete; B20 1158.63 ± 646.19; profile collection stopped at 16/120 qualified attempts, target 100; historical OpenVLA evidence preserved | [Open report](humanoid/index.html) |
-| AirRaid | Native `Discrete(6)` Atari actions | Completed OpenVLA and GR00T pipelines; measured B/F, APPO teacher and data verification | [Open report](air_raid/index.html) |
-| Asterix | Native `Discrete(9)` Atari actions | Probe, random-noop CHW wrapper, NTSC L1 APPO training, small-model evaluation | [Open report](asterix/index.html) |
-| MyoChallenge 2025 Table Tennis P2 | Native continuous `Box(275)` muscle/actuator controls | 100 Hz wrapper, two APPO smoke checkpoints, latency sweeps, trace replay, teacher export, native LeRobot conversion | [Open report](myochallenge_table_tennis_p2/index.html) |
+Returns are mean ± population standard deviation across episodes. The profile column reports latency mean / P95 in milliseconds. L0 is simulated zero latency; B/F use measured real-time inference latency. E10 is the ten-episode simulated profile-teacher evaluation, not selection20; repeated selection seeds are disclosed per model. Source L0 teachers retain their stated clocks. A dash means unavailable or not run; the model status explains which. One training run and separately realized delays do not establish controlled architecture rankings or equal-latency causal effects. Teacher data gates are not VLA acceptance thresholds.
 
-## GR00T H1 / 5 FPS — six-environment conclusion
+## Report maintenance
 
-RTX 3090 measured-only B/F; 20 episodes per completed evaluation, matched seeds
-42–61, cap 1,000. Values are return mean ± population SD. The teacher eligibility
-threshold is not a VLA acceptance threshold; realized latency is reported separately
-in each task report. These rows describe each environment, not a cross-task ranking.
-
-| Task | B: zero-trained VLA | F: profile-trained VLA | Conclusion |
-| --- | ---: | ---: | --- |
-| [InvertedPendulum](inverted_pendulum/index.html#gr00t) | 15.55 ± 4.79 | 1000.00 ± 0.00 | Complete; 20 wins, all F episodes reach cap |
-| [Hopper](hopper/index.html#gr00t-results) | 8.55 ± 0.09 | 242.55 ± 127.57 | Complete; 20 wins |
-| [Walker2D](walker2d/index.html#gr00t-results) | 63.24 ± 6.58 | 852.87 ± 357.10 | Complete; 20 wins |
-| [Ant](ant/index.html#gr00t-results) | 165.37 ± 224.74 | 1955.97 ± 780.51 | Complete; 19 wins, 1 loss |
-| [HalfCheetah](half_cheetah/index.html#gr00t) | −262.47 ± 74.94 | Not run | Teacher gate: Final and best each 0/20 above 3000 |
-| [Humanoid](humanoid/index.html#gr00t-results) | 1158.63 ± 646.19 | Not run | Collection ceiling: 16 qualified / 120 attempts, target 100 |
-
-HalfCheetah B preserves 16 complete pre-restart episodes plus four remaining
-seeds; some metadata for the first 16 episodes is unavailable, as documented in
-its report. No completed episodes were repeated. Four profile VLA evaluations
-completed; two profile branches concluded at their stated scientific gates.
-All six task reports retain historical OpenVLA evidence under its original conditions.
-
-Each report separates runtime API facts from task-author decisions, records the
-frozen environment contract, links generated files and commands, and labels
-unexecuted rollout/VLA stages as `NOT RUN`.
-
-The normative implementation instructions and agent prompt are in the
-[Gymnasium adaptation guide](../../gymnasium_adapter.md).
+Each environment’s results.json records the comparison metrics. Detailed narratives, protocols and figures are curated in its report. `python scripts/render_gymnasium_reports.py` refreshes the overview and result tables while preserving page layouts and media.

@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-18",
+  "updated": "2026-09-22",
   "gain_definition": "F-B; percent=(F-B)/B*100",
   "mean_gain": {
     "GR00T": {
@@ -9,6 +9,10 @@
     "OpenVLA": {
       "absolute": 1659.0009309155507,
       "percent": 853.6985970571667
+    },
+    "Pi05": {
+      "absolute": 1643.1092616465867,
+      "percent": 1248.5403549120786
     }
   },
   "GR00T_evaluation": [
@@ -74,7 +78,65 @@
   },
   "source_indices": [
     "results-summary.json",
-    "openvla-paired-results.json"
+    "openvla-paired-results.json",
+    "pi05-pipeline.json"
   ],
-  "unknown": "Not recorded means the inspected published evidence omits the field; not run means the experiment did not execute."
+  "unknown": "Not recorded means the inspected published evidence omits the field; not run means the experiment did not execute.",
+  "Pi05_evaluation": [
+    {
+      "stage": "L0",
+      "execution": "Simulated, zero latency",
+      "episodes": 20,
+      "mean": 5782.503263075075,
+      "std": 963.0715548601524,
+      "mean_length": 996.45,
+      "source": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/375313b480326498b6adb95fbe6c9f934adf6111/ant/zero_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/l0-simulated/step-audit.json"
+    },
+    {
+      "stage": "B",
+      "execution": "RTX3090 real-time, measured sync_cuda",
+      "status": "B20_AUDITED",
+      "episodes": 20,
+      "mean": 131.6024151868358,
+      "std": 93.71548520884977,
+      "mean_length": 72.2,
+      "source": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/f7107e354eca862df087362307f0d574c2490349/ant/profile_latency/Pi05/h1_5fps_g128_20260920/baseline/validation/B-recovered-audit.json",
+      "publication_revision": "f7107e354eca862df087362307f0d574c2490349"
+    },
+    {
+      "stage": "E",
+      "execution": "Simulated IID teacher",
+      "status": "E10_REPEATED_SELECTION_SEEDS",
+      "episodes": 10,
+      "mean": 4497.524323037277,
+      "std": 71.51292984931624,
+      "mean_length": 1000,
+      "selection_checkpoint": "Final (tie policy selects Final)",
+      "E10_mean": 4497.52432,
+      "E10_independent": false,
+      "independent": false,
+      "selection_note": "Repeats the first ten selection seeds; not independent. Final/best paired20 selection mean 4474.6905475879275 ± 71.05590293801663, tie selects Final.",
+      "source": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/Pi05/h1_5fps_g128_20260920/small_model/evaluation/E10/episode_metrics.jsonl"
+    },
+    {
+      "stage": "F",
+      "execution": "RTX3090 real-time, measured sync_cuda",
+      "status": "F20_AUDITED_AND_PUBLISHED",
+      "episodes": 20,
+      "mean": 1774.7116768334226,
+      "std": 824.6118449109582,
+      "mean_length": 770.65,
+      "protocol": "native state27/action8; H1; 5/5 FPS; one worker; no IID",
+      "raw_steps": 15413,
+      "actions": 15393,
+      "latency_mean_ms": 142.5879202059613,
+      "latency_p95_ms": 148.24638906866312,
+      "prompt_key": 1,
+      "dropped_observations": 0,
+      "dropped_actions": 0,
+      "invalid_actions": 0,
+      "source": "pi05-paired-results.json",
+      "publication_revision": "591db41843567bf4a1946ddfe66d2f51aaf8d7c6"
+    }
+  ]
 }

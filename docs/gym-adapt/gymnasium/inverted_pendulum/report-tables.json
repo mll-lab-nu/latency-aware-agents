@@ -9,6 +9,10 @@
     "OpenVLA": {
       "absolute": 567.0500000000001,
       "percent": 2863.888888888889
+    },
+    "Pi05": {
+      "absolute": 810.25,
+      "percent": 4021.0918114143924
     }
   },
   "GR00T_evaluation": [
@@ -74,7 +78,42 @@
   },
   "source_indices": [
     "results-summary.json",
-    "openvla-paired-results.json"
+    "openvla-paired-results.json",
+    "pi05-results.json"
   ],
-  "unknown": "Not recorded means the inspected published evidence omits the field; not run means the experiment did not execute."
+  "unknown": "Not recorded means the inspected published evidence omits the field; not run means the experiment did not execute.",
+  "Pi05_evaluation": [
+    {
+      "stage": "L0",
+      "execution": "Simulated, zero latency",
+      "episodes": 20,
+      "mean": 1000,
+      "std": 0,
+      "mean_length": 1000
+    },
+    {
+      "stage": "B",
+      "execution": "RTX 3090, measured",
+      "episodes": 20,
+      "mean": 20.15,
+      "std": 6.475144786026024,
+      "mean_length": 20.15
+    },
+    {
+      "stage": "E",
+      "execution": "Simulated IID",
+      "episodes": 10,
+      "mean": 1000.0,
+      "std": 0.0,
+      "mean_length": 1000
+    },
+    {
+      "stage": "F",
+      "execution": "RTX 3090, measured",
+      "episodes": 20,
+      "mean": 830.4,
+      "std": 339.20132664834904,
+      "mean_length": 830.4
+    }
+  ]
 }

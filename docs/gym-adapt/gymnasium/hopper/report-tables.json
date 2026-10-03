@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-18",
+  "updated": "2026-09-22",
   "gain_definition": "F-B; percent=(F-B)/B*100",
   "mean_gain": {
     "GR00T": {
@@ -9,6 +9,10 @@
     "OpenVLA": {
       "absolute": 356.7044833379184,
       "percent": 525.5231497480459
+    },
+    "Pi05": {
+      "absolute": 226.77767312389986,
+      "percent": 2700.769158291858
     }
   },
   "GR00T_evaluation": [
@@ -76,5 +80,38 @@
     "results-summary.json",
     "openvla-paired-results.json"
   ],
-  "unknown": "Not recorded means the inspected published evidence omits the field; not run means the experiment did not execute."
+  "unknown": "Not recorded means the inspected published evidence omits the field; not run means the experiment did not execute.",
+  "Pi05_evaluation": [
+    {
+      "stage": "L0",
+      "execution": "H200 simulated, zero latency",
+      "episodes": 20,
+      "mean": 3482.490072627251,
+      "std": 290.79775045583744,
+      "mean_length": 963.05
+    },
+    {
+      "stage": "B",
+      "execution": "RTX3090 realtime measured",
+      "episodes": 20,
+      "mean": 8.396781058745828,
+      "std": 0.6590907658687298,
+      "mean_length": 8.95,
+      "source": "pi05-baseline.json"
+    },
+    {
+      "stage": "F",
+      "execution": "RTX3090 realtime measured",
+      "episodes": 20,
+      "mean": 235.1744541826457,
+      "std": 28.379002039841286,
+      "mean_length": 108.25,
+      "source": "pi05-pipeline.json"
+    }
+  ],
+  "Pi05_realtime_status": {
+    "P": "COMPLETED_AND_AUDITED",
+    "B": "COMPLETED_AND_AUDITED",
+    "F": "COMPLETED_AND_AUDITED"
+  }
 }

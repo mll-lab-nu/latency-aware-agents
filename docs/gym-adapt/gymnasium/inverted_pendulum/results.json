@@ -1,0 +1,135 @@
+{
+  "environment": "inverted_pendulum",
+  "title": "InvertedPendulum",
+  "updated": "2026-09-22",
+  "models": [
+    {
+      "id": "GR00T",
+      "name": "GR00T",
+      "status": "Completed",
+      "protocol": "Native InvertedPendulum-v4; state 4, RGB224, five discrete forces, H1; env/obs 5/5 FPS; L0 simulated zero latency, B/F RTX 3090 measured-only latency, 20 episodes each, seeds 42\u201361, cap 1000; hold/FIFO, one worker; B/F prompt 0/1. P: 5\u00d710 episodes, cap 900,800 canonical samples. Teacher E10: simulated IID, seeds 104771\u2013104780, repeated selection seeds.",
+      "metrics": {
+        "profile": "108.09 / 114.50 ms",
+        "l0_teacher": "\u2014",
+        "l0_vla": "1,000.00 \u00b1 0.00",
+        "baseline": "15.55 \u00b1 4.79",
+        "profile_teacher": "1,000.00 \u00b1 0.00",
+        "final": "1,000.00 \u00b1 0.00"
+      },
+      "training": "Fresh L0/profile QwenGR00T, Qwen3-VL-4B-Instruct + DiT-B, 2000 updates each, seed 42, global 64, 4 inference timesteps / 8 diffusion repeats, LR VLM/head 1e-5/1e-4, warmup 100. Profile APPO seed 0, target 1M / actual 1,007,616 steps; Final step 1968 selected on tied final/best 20.",
+      "data": "Shared L0 APPO H1 data, 100 episodes, 90/10 split, 90,000/10,000 rows; only clock/prompt metadata changed25\u21925 FPS. Profile probe12/12; 100 accepted/100 attempts (ceiling120), strict return>900, 90/10 episodes, 90,000/10,000 rows; train-only min-max once.",
+      "limitations": [
+        "One training run per model; episode population SD is not uncertainty across training seeds. Different clocks, training recipes and measured latency distributions preclude controlled architecture ranking or equal-delay causal claims.",
+        "Teacher E10 repeats the first ten selection seeds (104771\u2013104780); it is not independent validation.",
+        "No independent formal evaluation of the shared historical L0 APPO teacher is available; accepted demonstration returns are not substituted. Historical source clock was 25/25 FPS."
+      ],
+      "sources": [
+        {
+          "label": "Profile data, raw B/F traces and final comparison",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917"
+        },
+        {
+          "label": "Profile checkpoint",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/df76ab5e19a7b90d49c2a27a8f4133701d6d559f/inverted_pendulum/profile_latency/GR00T"
+        },
+        {
+          "label": "L0 checkpoint",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/6358f39350b2ce864479637c4d9cbbf4137343a0/inverted_pendulum/zero_latency/GR00T"
+        },
+        {
+          "label": "Detailed experiment report",
+          "url": "docs/gym-adapt/gymnasium/inverted_pendulum/index.html"
+        }
+      ]
+    },
+    {
+      "id": "OpenVLA",
+      "name": "OpenVLA",
+      "status": "Completed",
+      "protocol": "Project OpenVLA label denotes QwenOFT. Native state 4, RGB224, five discrete forces, H1. Historical L0: 25/25 FPS, 20 episodes, configured seed 42 (individual archived seeds null). B/F: 10/10 FPS, RTX3090 measured-only latency, 20 episodes, seeds 42\u201361, cap 1000. P: 5\u00d710 episodes, 984 admitted samples. Teacher E10: simulated IID at 10/10 FPS, seeds 104771\u2013104780. P raw-step cap: 600.",
+      "metrics": {
+        "profile": "67.09 / 71.26 ms",
+        "l0_teacher": "\u2014",
+        "l0_vla": "707.15 \u00b1 357.20",
+        "baseline": "19.80 \u00b1 6.21",
+        "profile_teacher": "791.90 \u00b1 280.04",
+        "final": "586.85 \u00b1 457.53"
+      },
+      "training": "QwenOFT / Qwen3-VL-4B-Instruct, discretized-text state, five-class cross-entropy; 2000 updates, seed 42, global 16=micro 8\u00d7accum 2, AdamW/cosine, warmup 100, validation 200 batches every 500. Profile APPO seed 0, 1M target /1,015,808 actual frames; selected best at 974,848 frames using training reward statistic.",
+      "data": "L0 100 accepted/100 attempts, strict>900, 90/10 episodes and90,000/10,000 rows. Corrected IID profile dataset100 accepted episodes, strict>900, 89,398/9,935 train/validation rows; all materialized returns audited, minimum912.",
+      "limitations": [
+        "One training run per model; episode population SD is not uncertainty across training seeds. Different clocks, training recipes and measured latency distributions preclude controlled architecture ranking or equal-delay causal claims.",
+        "No independent formal evaluation of the shared historical L0 APPO teacher is available; accepted demonstration returns are not substituted. Historical source clock was 25/25 FPS.",
+        "Historical L0 and current B/F use different clocks; exact L0 per-seed pairing is unavailable.",
+        "Historical E10 followed training-statistic checkpoint selection; no paired selection20 overlap is established.",
+        "An exporter IID-to-temporal override was corrected before the profile training data were used. F has one observation capacity drop; no invalid/dropped actions."
+      ],
+      "sources": [
+        {
+          "label": "Fixed complete experiment archive",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum"
+        },
+        {
+          "label": "Historical E10 summary",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/small_model/evaluation/summary.json"
+        },
+        {
+          "label": "Profile model bundle",
+          "url": "https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/inverted_pendulum/profile_latency/OpenVLA"
+        },
+        {
+          "label": "Detailed experiment report",
+          "url": "docs/gym-adapt/gymnasium/inverted_pendulum/index.html"
+        },
+        {
+          "label": "L0 VLA checkpoint",
+          "url": "https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/inverted_pendulum/zero_latency/OpenVLA"
+        }
+      ]
+    },
+    {
+      "id": "Pi05",
+      "name": "Pi0.5",
+      "status": "Completed",
+      "protocol": "Native state 4/action 5/RGB224/H1; env/obs5/5 FPS; L0 simulated zero, B/F RTX3090 measured-only, 20 episodes each, seeds 42\u201361, cap 1000, hold/FIFO, one worker, B/F prompt 0/1; no added IID. P 5\u00d710 episodes, 990 samples, 500 warmup samples excluded. Teacher E10 simulated IID repeats selection seeds 104771\u2013104780. P raw-step cap: 900.",
+      "metrics": {
+        "profile": "141.77 / 148.17 ms",
+        "l0_teacher": "\u2014",
+        "l0_vla": "1,000.00 \u00b1 0.00",
+        "baseline": "20.15 \u00b1 6.48",
+        "profile_teacher": "1,000.00 \u00b1 0.00",
+        "final": "830.40 \u00b1 339.20"
+      },
+      "training": "Fresh QwenPI_v3 L0/profile models, 2000 updates each, seed 42, global 64=2\u00d7micro 8\u00d7accum 4; 4 inference timesteps /2 diffusion repeats, VLM/head/base LR 1e-5/1e-4/2e-5, warmup 100. APPO seed 0, target 1M /actual 1,007,616; tied Final/best 20 selects Final.",
+      "data": "L0 shared APPO H1 data, 90/10 episodes, 90,000/10,000 rows. Profile probe12/12,100 accepted/100 attempts\u2264120, strict>900, all actual replay returns1000; 90/10 split, 90,000/10,000 rows; continuous projector and train-only min-max once.",
+      "limitations": [
+        "One training run per model; episode population SD is not uncertainty across training seeds. Different clocks, training recipes and measured latency distributions preclude controlled architecture ranking or equal-delay causal claims.",
+        "Teacher E10 repeats the first ten selection seeds (104771\u2013104780); it is not independent validation.",
+        "No independent formal evaluation of the shared historical L0 APPO teacher is available; accepted demonstration returns are not substituted. Historical source clock was 25/25 FPS.",
+        "Profile checkpoints contain weights without optimizer state because of disk capacity. F reached1000 in16/20 episodes; four returned149\u2013154."
+      ],
+      "sources": [
+        {
+          "label": "Reconciled metrics and evidence map",
+          "url": "docs/gym-adapt/gymnasium/inverted_pendulum/assets/evidence/pi05-pipeline-summary-20260922.md"
+        },
+        {
+          "label": "Final model",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/1eb76cfa0299bc778a66452bf248c84dbc24ddc6/inverted_pendulum/profile_latency/Pi05"
+        },
+        {
+          "label": "Complete science evidence",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/1c23cb1c6cde53f07917909dd04a100fbb1160f2/inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918"
+        },
+        {
+          "label": "Full audited F traces",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/e20d12cc7ae30558947f36ab38b886aa89b20c9d/inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918/vla/evaluation/traces"
+        },
+        {
+          "label": "Detailed experiment report",
+          "url": "docs/gym-adapt/gymnasium/inverted_pendulum/index.html"
+        }
+      ]
+    }
+  ]
+}

@@ -1,72 +1,129 @@
-# Hopper — GR00T and OpenVLA results
+# Hopper
 
-## Historical L0 teacher result — corrected 2026-09-18
+[HTML report](index.html) · [All environments](../index.html) · [Results JSON](results.json)
 
-**2682.09 ± 900.29**, 10 episodes; population SD (`ddof=0`). This is the original APPO teacher evaluation, not a new 5 FPS evaluation. Recomputed from the original per-episode returns; the HTML report and `results-summary.json` now include the standard deviation.
+| Model | Profile mean / P95 (ms) | L0 teacher → L0 | L0 VLA → L0 | L0 VLA → real-time (B) | Profile teacher → profile (E10) | Profile VLA → real-time (F) |
+| --- | --- | --- | --- | --- | --- | --- |
+| GR00T · Completed | 114.62 / 122.61 ms | 2,682.09 ± 900.29 | 872.83 ± 479.65 | 8.55 ± 0.09 | 3,814.84 ± 8.80 | 242.55 ± 127.57 |
+| OpenVLA · Completed | 71.63 / 74.11 ms | 2,682.09 ± 900.29 | 1,419.93 ± 552.54 | 67.88 ± 150.09 | 3,657.61 ± 13.88 | 424.58 ± 348.01 |
+| Pi0.5 · Completed | 199.10 / 264.06 ms | 2,682.09 ± 900.29 | 3,482.49 ± 290.80 | 8.40 ± 0.66 | 2,616.17 ± 629.87 | 235.17 ± 28.38 |
 
+Returns are mean ± population standard deviation across episodes. The profile column reports latency mean / P95 in milliseconds. L0 is simulated zero latency; B/F use measured real-time inference latency. E10 is the ten-episode simulated profile-teacher evaluation, not selection20; repeated selection seeds are disclosed per model. Source L0 teachers retain their stated clocks. A dash means unavailable or not run; the model status explains which. One training run and separately realized delays do not establish controlled architecture rankings or equal-latency causal effects. Teacher data gates are not VLA acceptance thresholds.
 
-[Open the experiment report](index.html#gr00t-results). Updated 18 September 2026 from completed, pinned evidence.
+## GR00T
 
-GR00T H1 at 5 FPS: measured return **8.55 ± 0.09 → 242.55 ± 127.57**, mean episode length **9 → 100.1**, mean paired gain **+234.00**. All 20 matched seeds improve. These are population standard deviations over episodes from one training run. F still ends well before the 1,000-step cap on average.
+Completed
 
-| Measured metric | B | F |
-|---|---:|---:|
-| Episodes / seeds | 20 / 42–61 | 20 / 42–61 |
-| Return | 8.55 ± 0.09 | 242.55 ± 127.57 |
-| Mean length | 9.0 | 100.1 |
-| Mean of episode latency means (ms) | 111.10969 | 110.79241 |
-| Observation / action drops / invalid | 0 / 0 / 0 | 0 / 0 / 0 |
+### Protocol
 
-B/F share measured-only latency, 5 FPS, H1 and cap 1000. Only model paths, prompt key 0 → 1 and output change. F uses no added IID delay. Across 2,002 raw steps, within-episode frame intervals average 200.00776 ms (198.96645–201.19602). Similar means do not imply identical delays or equal-latency causality.
+H1; RGB224 + native continuous state/actions; env/obs 5/5 FPS; L0 simulated zero latency and B/F RTX 3090 measured-only CUDA-synchronized latency, one worker; n=20, seeds 42–61, cap 1000. P: 5×10 episodes, seeds 42–51 each session, cap 900, no FPS calibration. State 11/action 3. E10 n=10, seeds 104771–104780, repeats first 10 selection seeds. Historical L0 teacher n=10, original 125 FPS, seed 3333.
 
-## Separate training and simulation evidence
+### Training
 
-- Native Hopper-v4 physics, state 11, native torque action 3, one RGB224 frame and H1. Train-only state min-max is applied once.
-- L0 VLA: reused original 100 APPO H1 episodes, 88,212 / 9,917 rows; prompt and nominal clock metadata retimed 125 → 5 FPS. Fresh 5,000 updates. Separate L0 simulation: **872.83 ± 479.65**, length 261.75 (20 episodes).
-- Actual RTX 3090 P: 5 × 10 episodes / cap 900 / no calibration; 450 observations, mean 114.61719 ms and P95 122.60570 ms.
-- Fresh profile APPO teacher: original 10M-step recipe, seed 3333; deterministic Final/best 20 each, best selected at **3815.46 ± 7.63**. E10: **3814.84 ± 8.80**, reusing the first 10 selection seeds.
-- Strict teacher replay return >3000 yields **100 accepted / 101 attempts**, 90,000 / 10,000 rows. The teacher gate is not a VLA acceptance criterion.
-- Profile VLA: fresh 5,000 updates, seed 42, global 64 = 2 × micro 8 × accumulation 4; DiT-B, 4 inference timesteps / 8 diffusion repeats, LR VLM 1e-5 / head 1e-4, warmup 100, held-out 200 batches / save every 500.
+QwenGR00T, 5000 updates, seed 42, global batch 64; DiT-B, 4 inference timesteps, 8 diffusion repeats, VLM/action LR 1e-5/1e-4, warmup 100, held-out 200 batches and saves every 500. Profile batch 2×micro 8×acc 4. Fresh APPO profile teacher: original 10M recipe, seed 3333; selected training-best selection 20 3815.46 ± 7.63.
 
-## Published evidence
+### Data
 
-[Dataset and final compact evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/f572d99f0e14d858c8a21a8f3fd182ecb34f4795/hopper/profile_latency/GR00T/h1_5fps_20260917) · [Final model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/51e9093cb9e8da5e0ab2a5dcc1e52ea0e69f7d13/hopper/profile_latency/GR00T) · [Selected teacher](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/ee6177b9772236e765fb95f9900a2ddd610afd5d/hopper/profile_latency/small_model/GR00T) · [L0 model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/50e51e28c1fc7f55159eba4c611857b2df56539b/hopper/zero_latency/GR00T) · [Results JSON](results-summary.json) · [Publication receipt](gr00t-publication.json) · [Paired chart](gr00t-paired-returns.svg).
+L0: original 100 APPO H1 episodes, 90/10 split, 88212/9917 rows; metadata125→5 FPS. Profile strict return>3000:100 accepted/101 attempts; 90000/10000 rows, 90/10 episodes.
 
-Evaluated F model revision `d33af26b7f87357c1b7a2b75bae4923bd90b6cc1`; SHA256 `fe4fb89a88d9aab7f266a69921b32cfc00a0e2964664be3953988a8f4062d3ca`. Documentation revision `51e9093cb9e8da5e0ab2a5dcc1e52ea0e69f7d13` preserves weights; dataset revision `f572d99f0e14d858c8a21a8f3fd182ecb34f4795`.
+### Evaluation scope
 
-Full step/action/latency traces were audited server-side and remain on the evaluation server. Published compact evidence includes episode metrics/configurations/exit receipts/summaries; no claim that all raw traces are uploaded.
+- Completed: L0/P/B/profile teacher/data/VLA/F; final model and compact evidence published.
+- One training run; population SD describes episode variation. Different clocks, recipes and realized latency distributions do not establish controlled architecture rankings or equal-latency causal effects.
+- E10 repeats selection seeds and is not independent validation.
+- B→F +234.00; 20/20 seeds improve, but F mean episode length100.1 remains far below cap 1000.
+- Full traces audited on evaluation server; published compact evidence does not imply all raw traces uploaded.
+- Historical L0 teacher is the original 125 FPS evaluation, not a new5 FPS evaluation.
 
-## Preserved OpenVLA history
+### Models, data and evidence
 
-Historical OpenVLA at 10 FPS: **67.88 ± 150.09 → 424.58 ± 348.01**. Different clocks and recipes preclude a controlled cross-model ranking. All original anchors, media and conditions remain in the [HTML record](index.html#profile-pipeline-20260911).
+- [Final compact evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/f572d99f0e14d858c8a21a8f3fd182ecb34f4795/hopper/profile_latency/GR00T/h1_5fps_20260917)
 
-### Original Hopper RGB+state adaptation
+- [Historical L0 teacher](assets/evidence/queue_eval_latency_0.json)
 
-Latest experiment: [September 2026 profile-latency results](index.html#profile-pipeline-20260911). Earlier L0/L2 results below refer to historical experiments with their own evaluation conditions.
+- [L0 model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/50e51e28c1fc7f55159eba4c611857b2df56539b/hopper/zero_latency/GR00T)
 
-Open [`index.html`](index.html) for the canonical Hopper-v4 adaptation record.
-The current path uses an independent task-owned wrapper, the native three-dimensional
-continuous torque space, an ordered 11-dimensional state contract, L0 Sample Factory
-training, L0-L4 latency-bench evaluation, 100 accepted L0 teacher episodes,
-native RGB+11D-state LeRobot conversion, and a 5k-step QwenOFT run. The final
-text-bin VLA checkpoint failed closed-loop evaluation (L0 mean return 173.136;
-L2 mean return 9.513). A controlled 5k-step continuous-state projector rerun
-raises those means to 1,419.935 and 315.890, respectively, while remaining well
-below the same-seed L0 teacher. The report preserves the original failure
-diagnosis and separates representation gains from the remaining distribution gap.
+- [Profile checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/51e9093cb9e8da5e0ab2a5dcc1e52ea0e69f7d13/hopper/profile_latency/GR00T)
 
-Fresh profiling-only run: [20260911T023128Z-p-only4](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/provenance/profiling/status.md), env/obs FPS 10 / 10. Profiling and publication are complete; the subsequent full pipeline is recorded below.
+## OpenVLA
 
-- [September 11 realtime baseline](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/provenance/baseline/status.md): completed 20 episodes at 10 FPS; return 67.88 ± 150.09.
+Completed
 
-- [Hopper pipeline continuation](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/provenance/pipeline/status.md): reuses P/B; H100 completed the 10M-frame teacher recipe with the new profile at 10 FPS; simulated teacher evaluation completed at 3,657.61 ± 13.88, with all 10 episodes exceeding 3000. R/C produced 98,817 verified rows with all 100 episodes above the original gate; 123 data files are uploaded and verified; VLA completed 5000 steps with exit 0 and W&B finished (held-out L1 0.01595611); all 22 final bundle files are published and verified; matched F evaluation completed all 20 seeds: return 424.58 ± 348.01 versus B 67.88 ± 150.09 (6.26×; 20/20 paired gains), mean length 139.45, no episode reaches 1000 steps. Hopper retains strict data return >3000 and the continuous-projector VLA.
+### Protocol
 
-## Standard Pipeline archive
+Historical P/B/E/F at env/obs 10/10 FPS, one worker; B/F measured RTX 3090, n=20, seeds 42–61, native cap 1000 (configured evaluation cap 3600). P: 5×10 episodes, 60 s per episode. E10: simulated IID, n=10. Historical L0 VLA n=20 at original clock. State 11/action 3, continuous-state projector. Historical teacher n=10 at 125 FPS, seed 3333; L0 VLA original 125 FPS.
 
-[Complete experiment archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/hopper) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
+### Training
 
+QwenOFT continuous-state projector, 5000 steps, seed 42. Profile APPO original 10M recipe, seed 3333, actual 10006528 frames. Profile VLA 5000 steps, held-out L1 0.01595611.
 
-[OpenVLA per-seed real-time comparison](openvla-paired-returns.svg) · [Plot data and fixed-revision sources](openvla-paired-results.json). 20 wins, 0 ties, 0 losses; mean paired gain +356.70.
+### Data
 
+L0 100 accepted episodes, 90/10 split, 88212/9917 rows. Profile100 episodes, 98817 rows, all strict return>3000; 123 data files and22 inference files verified.
 
-The HTML tables follow the AirRaid schema: B/F mean gain and percentage; separate L0/B/E/F evaluation rows with episode counts and mean raw steps; measured runtime audit; pipeline stages; publication index. [Normalized table values and provenance](report-tables.json). Unrun stages and unrecorded fields are explicitly distinct.
+### Evaluation scope
+
+- Completed historical pipeline; 20/20 paired seeds improve.
+- One training run; population SD describes episode variation. Different clocks, recipes and realized latency distributions do not establish controlled architecture rankings or equal-latency causal effects.
+- E10 is the historical simulated teacher evaluation; selection-seed overlap is not established by local evidence.
+- B→F +356.70; 20/20 seeds improve; F mean length139.45 and no episode reaches1000.
+- Continuous-projector L0 result is used; earlier text-bin L0 failure173.14 is a separate ablation.
+- Historical L0 teacher/VLA at 125 FPS are separate from 10 FPS P/B/E/F.
+
+### Models, data and evidence
+
+- [Complete fixed-revision archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/hopper)
+
+- [Historical L0 teacher](assets/evidence/queue_eval_latency_0.json)
+
+- [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/hopper/zero_latency/OpenVLA)
+
+- [Profile-trained VLA checkpoint](https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/hopper/profile_latency/OpenVLA)
+
+## Pi0.5
+
+Completed
+
+### Protocol
+
+H1; RGB224 + native continuous state/actions; env/obs 5/5 FPS; L0 simulated zero latency and B/F RTX 3090 measured-only CUDA-synchronized latency, one worker; n=20, seeds 42–61, cap 1000. P: 5×10 episodes, seeds 42–51 each session, cap 900, no FPS calibration. State 11/action 3. E10 n=10, seeds 104771–104780, repeats first 10 selection seeds 104771–104790. Historical L0 teacher n=10 at 125 FPS, seed 3333. P additionally uses a 60 s sampling wall-time cap excluding reset/init/warmup; 100 warmup samples per session, 500 total, excluded from canonical latency samples.
+
+### Training
+
+QwenPI_v3, 5000 updates, seed 42, global batch 128 = micro 64 × accumulation 1 × 2 GPUs; GC off, ZeRO-2; train-only state min-max applied once. L0 NCCL timeout after 3342: restored full model/optimizer step 3000, repaired LR/data cursor, recomputed 3001–3342, completed 5000; main RNG restored after iterator reconstruction. Profile APPO seed 3333, actual 10002432 frames / step 19536; Final selected (selection 20 2473.70 ± 983.60).
+
+### Data
+
+L0 100 source episodes, 90/10 split, 88212/9917 rows, metadata125→5 FPS. Profile original strict>3000 accepted 53/120. Explicit user amendment: strict>2500 with unlimited attempts; 47 further accepted/98 attempts. No old rejection reclassified. Final 100/218 accepted, 90/10 episodes, 87404/9776 rows.
+
+### Evaluation scope
+
+- Completed and audited: L0/P/B/profile teacher/data/VLA/F; F model/evidence published; B audit local.
+- One training run; population SD describes episode variation. Different clocks, recipes and realized latency distributions do not establish controlled architecture rankings or equal-latency causal effects.
+- E10 repeats first 10 selection seeds and is not independent validation.
+- P session 1 warmup drift warning retained; 364 admitted samples, 84 capacity drops, 500 warmup samples excluded.
+- Recovery does not claim worker-RNG or future-CUDA bitwise identity.
+- B/F full-step audits passed; B audit is local and not uploaded in this update. F mean length108.25 remains below1000; 20/20 seeds improve, mean paired gain226.78.
+- State contract verified via manifest/loader/reload; no per-step state vectors. Historical teacher result remains at 125 FPS.
+
+### Models, data and evidence
+
+- [P audit](assets/evidence/P-verification.json)
+
+- [L0 audit](assets/evidence/l0-audit.json)
+
+- [B audit](assets/evidence/B-verification.json)
+
+- [F audit](assets/evidence/F-verification.json)
+
+- [Revised collection and E10](assets/evidence/source-gt2500.json)
+
+- [Recovery lineage](assets/evidence/recovery-completion-verification.json)
+
+- [Published F evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/c3533105c3d848ec512f39c0d93c1a98a29ddc23/hopper/profile_latency/Pi05/h1_5fps_g128_20260921)
+
+- [Historical L0 teacher](assets/evidence/queue_eval_latency_0.json)
+
+- [L0 checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/408930d8a85f0cb316dc3bdebfb8142526570355/hopper/zero_latency/Pi05)
+
+- [Profile checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/e75c2ec73af036f7bff784092c9f29020b6fe755/hopper/profile_latency/Pi05)

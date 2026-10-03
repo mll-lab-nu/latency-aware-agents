@@ -1,128 +1,121 @@
-# Humanoid — GR00T H1 collection-budget stop
+# Humanoid
 
-## Historical L0 teacher result — corrected 2026-09-18
+[HTML report](index.html) · [All environments](../index.html) · [Results JSON](results.json)
 
-**6331.47 ± 407.20**, 20 episodes; population SD (`ddof=0`). This is the original APPO teacher evaluation, not a new 5 FPS evaluation. The [formal September 13 evaluation](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model/evaluation/small_model_l0_eval_20260913/summary.json) supersedes the earlier **5571.30** threshold-probe mean in summary tables. The probe remains a separate historical cohort in the HTML report.
+| Model | Profile mean / P95 (ms) | L0 teacher → L0 | L0 VLA → L0 | L0 VLA → real-time (B) | Profile teacher → profile (E10) | Profile VLA → real-time (F) |
+| --- | --- | --- | --- | --- | --- | --- |
+| GR00T · Scientific stop | 118.38 / 125.04 ms | 6,331.47 ± 407.20 | 6,225.77 ± 1,077.26 | 1,158.63 ± 646.19 | 2,883.10 ± 1,804.11 | — |
+| OpenVLA · Scientific stop | 286.64 / 292.69 ms | 6,331.47 ± 407.20 | 272.06 ± 36.17 | 226.92 ± 56.90 | 1,036.93 ± 280.76 | — |
+| Pi0.5 · Scientific stop | 182.02 / 198.61 ms | 6,331.47 ± 407.20 | 6,667.56 ± 46.18 | 891.67 ± 623.80 | — | — |
 
+Returns are mean ± population standard deviation across episodes. The profile column reports latency mean / P95 in milliseconds. L0 is simulated zero latency; B/F use measured real-time inference latency. E10 is the ten-episode simulated profile-teacher evaluation, not selection20; repeated selection seeds are disclosed per model. Source L0 teachers retain their stated clocks. A dash means unavailable or not run; the model status explains which. One training run and separately realized delays do not establish controlled architecture rankings or equal-latency causal effects. Teacher data gates are not VLA acceptance thresholds.
 
-[Open the report](index.html#gr00t-results). Audited 18 September 2026.
+## GR00T
 
-The profile branch stopped at **16 accepted specs / 120 total attempts** (104 rejected), short of the required 100. The ceiling includes the original 12-attempt probe; strict teacher return **>5000** was unchanged. Exporter exit 1 at **2026-09-18 00:27:37 UTC** records the expected insufficient-data stop.
+Scientific stop
 
-**Replay never started.** The 16 specs are admission/seed records, not replayed demonstrations. The 104 rejected attempts have counter evidence; their individual returns were not persisted or reconstructed. No profile raw parquet, profile VLA or F was created. There is no current B/F comparison.
+### Protocol
 
-| Stage | Count | Return mean ± population SD | Result |
-|---|---:|---:|---|
-| L0 VLA, zero simulation | 20 | 6225.77 ± 1077.26 | Length 920.4; completed |
-| B, RTX 3090 measured | 20 | 1158.63 ± 646.19 | Length 220.65; completed |
-| Profile teacher Final | 20 | 2784.74 ± 1596.81 | 3/20 >5000 |
-| Profile teacher best, selected | 20 | 3036.04 ± 1802.44 | 4/20 >5000 |
-| Teacher E10 | 10 | 2883.10 ± 1804.11 | 2/10 >5000; repeats best's first ten seeds |
-| Initial probe | 12 attempts | — | 3 accepted specs |
-| Full admission budget | 120 total attempts | — | 16 accepted specs / 104 rejected |
-| Replay / profile VLA / F | Not run | — | Collection target unmet |
+VLA 5/5 FPS, H1, RGB224, native state/action 376 / 17; L0/B 20 episodes, seeds 42–61, cap 1000. B RTX 3090 measured-only, one worker. P 5×10 episodes. E10 simulated IID; seeds 104771–104780 repeat first ten selection seeds. Historical L0 teacher 66.6667/66.6667 FPS, n=20. P raw-step cap: 900.
 
-The >5000 gate filters teacher demonstrations, not VLA acceptance. Episode statistics from one training run are not independent training-seed results.
+### Training
 
-## Protocol and evidence
+Fresh VLA 5,000 updates, seed 42, global 64; DiT-B, 4 inference timesteps / 8 diffusion repeats. L0 micro 16 × accumulation 4 on one H200. Fresh APPO 10M; training-best selected at step 19288 / 9875456 frames.
 
-- Native Humanoid-v4 physics; 376D state, 17 native torques ±0.4, RGB224, H1, env/obs 5 FPS. L0 fresh QwenGR00T / DiT-B: 5000 updates, seed 42, micro 16 × accumulation 4 = global 64; 4 inference timesteps, 8 diffusion repeats, train-only state min-max once.
-- P: 5 × 10 episodes / cap 900 / no FPS calibration; 9660 admitted observations, zero capacity drops; observation-to-action mean 118.37880 ms, P95 125.04214 ms.
-- B: seeds 42–61 / cap 1000 / measured-only; mean of episode latency means 117.25731 ms; zero observation drops, action drops or invalid actions. Across 4,413 raw steps, 4,393 within-episode intervals average 200.00292 ms (198.94464–201.12287). Commands in logs may precede native torque clipping.
-- Fresh original APPO profile teacher: seed 2222, 10M target (Final 10,002,432 frames / step 19,536); selected best 9,875,456 frames / step 19,288. Selection uses 20 seeds 104771–104790 per checkpoint, higher mean/tieFinal. E10 reuses 104771–104780 exactly.
-- The continuation preserved the initial probe's accepted specs, reset seeds and counters, adjusting only split labels to the 100-episode plan. It did not increase the 120-attempt budget or lower the strict gate.
+### Data
 
-[Final dataset evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/a260732e0bce9771ca62a3c336bb446ecd0ea5df/humanoid/profile_latency/GR00T/h1_5fps_20260917) · [Teacher checkpoints](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/9379b6c0cd6c2c95dd8a176130c12b4a608f4d92/humanoid/profile_latency/small_model/GR00T) · [L0 model / simulation](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/7aa5afb6f20d52509849e8d8156b5d8583ea288f/humanoid/zero_latency/GR00T) · [Teacher plot, full size](gr00t-teacher-returns.svg) · [Results JSON](results-summary.json) · [Publication index](gr00t-publication.json).
+L0 reused 100 source episodes. Profile strict >5000:16 qualifying specs /120 attempts, target 100; specs were not replayed, no profile dataset.
 
-Teacher model revision `9379b6c0cd6c2c95dd8a176130c12b4a608f4d92`; final small-evidence revision `a260732e0bce9771ca62a3c336bb446ecd0ea5df`. These publications contain evidence of the stop, not a new replayed dataset. Full B traces remain server-side; compact B episode/config/audit evidence is published.
+### Evaluation scope
 
-## Historical OpenVLA and terminated H8 record
+- L0/P/B/E audited; stopped at 120-attempt collection ceiling; no profile VLA/F. Stop evidence published.
+- Returns are mean ± population SD across episodes from one training run; no controlled architecture ranking or equal-latency causal claim.
+- L0 teacher is the shared source teacher at its original clock, not reevaluated at the current VLA clock.
+- Teacher return gates apply to demonstrations, not VLA acceptance. Native clipping is preserved; logged actions can be preclip commands.
+- E10 repeats selection seeds; it is not independent validation.
+- Full runtime traces were audited server-side; compact publication does not contain every raw trace.
+- Selected teacher selection20:3036.04 ±1802.44, 4/20>5000; E10:2/10>5000. Collection-budget stop does not mean all candidates failed.
 
-The original OpenVLA record is preserved in [the report](index.html#humanoid-profile-20260913). Its 10 FPS profile branch stopped after teacher quality assessment. The old GR00T H8 / 15 FPS experiment is **TERMINATED / SUPERSEDED**; the following dated notes preserve earlier measurements and launch-time statuses only. They are not the current H1 state and do not support a controlled architecture ranking.
+### Models, data and evidence
 
-<details><summary>Preserved historical notes (including terminated H8)</summary>
+- [Pinned GR00T evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/a260732e0bce9771ca62a3c336bb446ecd0ea5df/humanoid/profile_latency/GR00T/h1_5fps_20260917)
 
-### Original Humanoid adaptation
+- [teacher archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model)
 
-Latest completed profile-latency experiment: [September 2026 results](index.html#humanoid-profile-20260913). Earlier L0/L2 results below refer to historical experiments with their own evaluation conditions.
+- [L0 VLA checkpoint (profile branch stopped)](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/7aa5afb6f20d52509849e8d8156b5d8583ea288f/humanoid/zero_latency/GR00T)
 
-## September 17 GR00T native H8 pipeline
+## OpenVLA
 
-This historical, terminated experiment used native Humanoid-v4, 376D state, 17D continuous
-actions, H8 chunks, RGB224, and 15/15 benchmark FPS. Native physics, rewards,
-termination, and the 1000-step limit are unchanged. The profile arm is IID;
-the results and pinned publication receipts below preserve this terminated arm.
-They do not describe current launches.
+Scientific stop
 
-L0 FastTD3 training exited successfully at 10,000,128 frames. Final and
-training-best checkpoints were evaluated separately on seeds 42–61:
+### Protocol
 
-| Candidate | Episodes | Mean return ± population SD | Episodes strictly above 5000 |
-| --- | --- | --- | --- |
-| Final, selected | 20 | 5348.253 ± 95.395 | 20/20 |
-| Training-best | 20 | 3978.039 ± 2079.640 | 11/20 |
+B/E 10/10 FPS; B 20 episodes, seeds 42–61, cap 1000, measured-only RTX 3090; E10 simulated IID, one worker. H1, RGB224, state/action 376 / 17. Historical L0 teacher 66.6667/66.6667 FPS, n=20; historical L0 VLA 20 episodes at 66.6667/66.6667 FPS.
 
-The selected final checkpoint is `checkpoint_000156147_10000128.pth`, SHA256
-`8fe80d4e7b0e44c88ed7c6dd236cf33b9052152be23b93b2279eed23192f7b75`.
-Its 12-episode exporter probe passed 12/12, with returns 5147.57–5456.45
-and length 1000 throughout. Formal collection accepted 100 episodes in 102
-attempts, within the 120-attempt budget and unchanged strict >5000 gate.
-Accepted returns were 5347.342 ± 93.578 (population SD), range
-5116.418–5492.126, with length 1000 throughout. Seeds 33 and 76 were rejected
-(returns 313.685 and 684.677; lengths 56 and 123). The 90/10 episode split
-contains 89,370 training and 9,930 validation H8 windows.
+### Training
 
-The first conversion failed while reading the 2.54 GB nested image column.
-The shared reader now uses [Parquet batches](https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetFile.html#pyarrow.parquet.ParquetFile.iter_batches),
-with 36 local tests passing and 5 optional-dependency tests skipped. The v8
-server retry and actual train/validation loaders passed: action `[8,17]`,
-state `[1,376]`, RGB224, all-true masks, and identical train-derived
-normalization (SHA256 `b85b959389b3e679b4d307f92b1f1e490bf9feb06ca4692f03de77d8f4810beb`).
-The raw data remains unchanged. An 8-H200 smoke failed with a second process
-occupying 10.75 GiB; its ownership is unknown. On the newly available single
-H200, micro16 × accumulation4 completed 20 updates and strict save/reload.
-Spawned validation workers failed separately. The actual trainer path then
-passed 200 validation batches/3200 samples with explicit `eval_num_workers=0`;
-the underlying IPC unlink cause remains unproven.
+QwenOFT / Qwen3-VL-4B, continuous state projector, native action regression, L1, 5,000 updates, seed 42. L0 batch 4 × accumulation 4=16; ZeRO-2 CPU optimizer offload. No profile VLA training.
 
-The v9 reader preserves numeric vectors directly while retaining nested H8
-action handling. Six server semantic tests passed; selected real train/val
-samples matched bitwise, including dtypes and images. Sixteen sequential
-sample reads took 8.3581 seconds before and 1.1760 seconds after; this measures
-item access, not total training throughput.
+### Data
 
-Fresh v9 formal training started on September17 at00:52:34UTC: 5000 updates,
-seed42, global64, original learning rates/warmup, trainworkers4, and explicit
-evalworkers0 with validation every500 updates for200 batches. The
-[W&B run](https://wandb.ai/dongqianyu99-zhejiang-university/latency-sensitive-bench/runs/humanoid-zero-gr00t-h8-v9-host75-20260917)
-and [published preflight/launch evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/38219a6da33c2873e77ddb1bc06226bd0bb388a3/humanoid/zero_latency/GR00T/native_h8_15fps_20260917/vla)
-record the exact configuration and retained failures. Training completion,
-closed-loop acceptance, and P/B/E/F remain pending.
+L0 strict>5000 accepted 100/119; 90/10 episodes, 88,608/9,614 rows. Profile probe had no qualifying episode; no replay or bulk collection.
 
-The [selected teacher bundle](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/a63adee9284c1295df8e2be002f55e06a8fd5a2c/humanoid/zero_latency/small_model/GR00T)
-and [training, evaluation, and probe evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/4eafdd783eacb44b798371a2176e9518c97a7a63/humanoid/zero_latency/GR00T/native_h8_15fps_20260917)
-are published at fixed revisions. All 21 files matched remote sizes and
-Git blob SHA1/LFS SHA256. These revisions contain no formal demonstrations;
-the [raw dataset](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/90f36e651dc6a021de01d783618660388821c7f8/humanoid/zero_latency/GR00T/native_h8_15fps_20260917/demonstrations/raw)
-is published separately: 105 files, 3,974,064,100 bytes, with all remote sizes
-and blob/LFS hashes verified. The [latest experiment and conversion evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/2b5da32db2904e7539a560fb1f109bb6e4870894/humanoid/zero_latency/GR00T/native_h8_15fps_20260917)
-records completed conversion and loader validation; converted dataset bulk
-stays on the training server.
+### Evaluation scope
 
-Open [`index.html`](index.html) for the completed Humanoid-v4 native 17D continuous-action and 376D RGB+state adaptation. The report covers the 10M-frame APPO teacher, 100 gated rollout episodes, 5k QwenOFT run, and the post-fix final-checkpoint L0 evaluation. With the saved 224×224 image contract restored, the VLA still terminates within 66 steps in all 20 episodes.
+- Historical L0/P/B/E complete; teacher quality gate stopped profile collection/VLA/F.
+- Returns are mean ± population SD across episodes from one training run; no controlled architecture ranking or equal-latency causal claim.
+- L0 teacher is the shared source teacher at its original clock, not reevaluated at the current VLA clock.
+- Teacher return gates apply to demonstrations, not VLA acceptance. Native clipping is preserved; logged actions can be preclip commands.
+- OpenVLA is this project’s QwenOFT implementation, not an architecture-matched comparison with GR00T/Pi0.5.
+- Formal shared L0 teacher6331.47 supersedes the separate5571.3 threshold probe. No F or paired gain.
+- Historical E10 is the simulated profile-teacher evaluation; overlap with selection seeds is not established in local evidence.
 
-## September 13 profile-latency pipeline
+### Models, data and evidence
 
-[Final run ledger](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/profile_latency/provenance/pipeline/status.md): **terminated after teacher quality assessment**, at 10 / 10 FPS. The 10M-frame teacher completed normally. Fixed-seed evaluation averaged 1,036.93 return and 196.9 steps; the bounded exporter probe averaged 1,275.39 return and 244.42 steps. All episodes ended early and reward was dominated by the alive bonus. No lower gate was selected; R/C/V/F were not started. Profiling and the complete small model are published and hash-verified; diagnostic evidence and sampling limitations are retained in the report. The monitor was deleted.
+- [Pinned complete historical archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid)
 
-## Standard Pipeline archive
+- [Profile teacher E10](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/profile_latency/small_model/evaluation/summary.json)
 
-[Complete experiment archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid) · [Verification receipt](assets/standard_pipeline.json). This local directory retains report display media; original records are linked at a fixed revision. Only raw demonstrations are distributed, with conversion performed on the training server.
+- [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/humanoid/zero_latency/OpenVLA)
 
-</details>
+## Pi0.5
 
+Scientific stop
 
-[OpenVLA per-seed real-time comparison](openvla-paired-returns.svg) · [Plot data and fixed-revision sources](openvla-paired-results.json). Only B is available. Profile teacher quality blocked F; no paired difference can be computed.
+### Protocol
 
+5/5 FPS, H1, RGB224, native state/action 376 / 17; L0/B 20 episodes, seeds 42–61, cap 1000. B measured-only CUDA-synchronized latency, one worker, no added IID. P 5×10 episodes, 100 warmups/session, cap 900 and 60-second sampling cap. Historical L0 teacher 66.6667/66.6667 FPS, n=20.
 
-The HTML tables follow the AirRaid schema: B/F mean gain and percentage; separate L0/B/E/F evaluation rows with episode counts and mean raw steps; measured runtime audit; pipeline stages; publication index. [Normalized table values and provenance](report-tables.json). Unrun stages and unrecorded fields are explicitly distinct.
+### Training
+
+Fresh QwenPI_v3, 5,000 updates, seed 42, global 128, GC off, ZeRO-2, 4 inference timesteps/2 diffusion repeats. L0 micro 32 × accumulation 2 × two GPUs after approved micro 64 OOM change. Profile APPO 10M, seed 2222; Final step 19536 /10002432 selected on tie.
+
+### Data
+
+L0 source 100 episodes, 90/10 split. Both profile candidates 0/20>5000; no E10, probe, replay, profile data or profile VLA.
+
+### Evaluation scope
+
+- L0/P/B audited; profile branch stopped at teacher selection gate; no E10/data/profile VLA/F. B locally audited, not uploaded.
+- Returns are mean ± population SD across episodes from one training run; no controlled architecture ranking or equal-latency causal claim.
+- L0 teacher is the shared source teacher at its original clock, not reevaluated at the current VLA clock.
+- Teacher return gates apply to demonstrations, not VLA acceptance. Native clipping is preserved; logged actions can be preclip commands.
+- Final and training-best selection20 both1538.29 ±686.65; 0/20>5000, max3329.05. Selection20 is not substituted for absent E10.
+- P retained warmup drift warnings for sessions 0, 2, 3; 500 warmups excluded.
+- B evidence is local/server-only in this update; publication is separate from audit.
+- State provenance is verified through manifest/loader/saved reload; no per-step state vectors were logged.
+- P uses a 60-second sampling cap per episode, excluding initialization/reset/warmup; this does not change B/F or teacher caps.
+
+### Models, data and evidence
+
+- [Current B full-step audit](assets/evidence/B-verification.json)
+
+- [Pi0.5 stage summary](assets/evidence/pi05-pipeline-summary-20260922.md)
+
+- [L0 pinned model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/eee96ac0fae3889d5108e6ae00701a6502fd5f80/humanoid/zero_latency/Pi05)
+
+- [teacher archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model)
+
+- [Published failed teacher evaluation](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/3391ea3f8e962dba3d40063f60138b8d4991c3c2/humanoid/profile_latency/Pi05/h1_5fps_g128_20260921/small_model/evaluation)
+
+- [Pinned P evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/8ccefb9dc676bc35e56c253319951b2c2a6934f6/humanoid/profile_latency/Pi05/h1_5fps_g128_20260921/profiling)

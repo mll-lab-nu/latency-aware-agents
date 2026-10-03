@@ -1,0 +1,143 @@
+{
+  "environment": "air_raid",
+  "title": "AirRaid",
+  "updated": "2026-09-22",
+  "models": [
+    {
+      "id": "GR00T",
+      "name": "GR00T",
+      "status": "Completed",
+      "protocol": "RGB224, no state, six actions, H1; env/obs50/12.5 FPS, noop30+FireReset, cap 3600 raw frames. L0 simulated zero; B/F RTX3090 measured-only, 20 episodes each, seeds 42\u201361, one worker, hold/FIFO. P 5\u00d710 episodes, 25,491 canonical samples, 500 warmups excluded. E10 simulated IID; selection-seed overlap not established in compact evidence.",
+      "metrics": {
+        "profile": "81.49 / 97.82 ms",
+        "l0_teacher": "2,557.50 \u00b1 491.81",
+        "l0_vla": "2,101.25 \u00b1 667.01",
+        "baseline": "733.75 \u00b1 268.71",
+        "profile_teacher": "2,572.50 \u00b1 259.43",
+        "final": "1,586.25 \u00b1 564.83"
+      },
+      "training": "Fresh QwenGR00T L0/profile, 5000 updates each, seed 42, global 64=micro 16\u00d7accum 4; Qwen3-VL-4B-Instruct+DiT-B, 4 inference timesteps/8 diffusion repeats, LR 1e-5/1e-4, warmup 100. APPO seed 0, 10,002,432 steps; selected training-best step 38,304/9,805,824 frames. Saved profile reload and finite [1, 1, 6] forward passed.",
+      "data": "L0 reuses100 original H1 episodes. Profile strict>2500:100 accepted/164 attempts, 90/10 episodes, 81,000/9,000 rows. Canonical first 12 probe7 accepted/5 rejected; 10 overrun attempts excluded. E10 seven of ten above2500.",
+      "limitations": [
+        "One training run per model; episode population SD is not uncertainty across training seeds. Different clocks, training recipes and measured latency distributions preclude controlled architecture ranking or equal-delay causal claims.",
+        "L0 teacher is a shared historical 10-episode evaluation, configured seed 0, random-noop + FireReset at the original 50/12.5 FPS clock; it is not a new model-specific teacher evaluation.",
+        "Profile collection had no enforced attempt cap; canonical probe overrun is retained as a protocol deviation.",
+        "Observation drops B 3023/14131 (21.39%) and F 775/14096 (5.50%); invalid/dropped actions 0."
+      ],
+      "sources": [
+        {
+          "label": "Complete profile experiment",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/6dfb05ebfc2dd01fbd64076b1b2f8d78898cc3e8/air_raid/profile_latency/GR00T/gr00t_h1_iid_20260917"
+        },
+        {
+          "label": "Profile checkpoint",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/06a0d90722e3b1cfd2117a3577e34ed01e4aed74/air_raid/profile_latency/GR00T"
+        },
+        {
+          "label": "L0 checkpoint",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/87bb2e4d18b793293f8948c646d2186ed53d5a31/air_raid/zero_latency/GR00T"
+        },
+        {
+          "label": "Historical shared L0 teacher",
+          "url": "docs/gym-adapt/gymnasium/air_raid/assets/evidence/queue_eval_latency_0.json"
+        },
+        {
+          "label": "Detailed experiment report",
+          "url": "docs/gym-adapt/gymnasium/air_raid/index.html"
+        }
+      ]
+    },
+    {
+      "id": "OpenVLA",
+      "name": "OpenVLA",
+      "status": "Completed",
+      "protocol": "QwenOFT archive label; RGB224/no state/six actions/H1; env/obs50/12.5 FPS, noop30+FireReset, cap 3600 raw frames. L0 simulated zero, n 20; B/F RTX3090 measured-only, n 20, seeds 42\u201361; E10 simulated IID/one-worker occupancy. P 5\u00d710 episodes, 35,908 admitted samples, zero capacity drops. P sampling cap: 60 seconds, raw-step cap 3000.",
+      "metrics": {
+        "profile": "58.41 / 59.03 ms",
+        "l0_teacher": "2,557.50 \u00b1 491.81",
+        "l0_vla": "2,000.00 \u00b1 706.13",
+        "baseline": "878.75 \u00b1 301.69",
+        "profile_teacher": "3,242.50 \u00b1 300.01",
+        "final": "2,353.75 \u00b1 425.39"
+      },
+      "training": "QwenOFT with Qwen3-VL-4B-Instruct; 5000 updates, global 16. Profile APPO 10,006,528 frames, training-best selected. Profile VLA fresh training completed 5000 updates and saved model publication verified.",
+      "data": "Profile100 accepted episodes, strict>2500, 90/10 episode split, 81,000/9,000 rows; actual minimum2575, mean3186.50. E10 all10 above2500. Reset preserves random-noop+FireReset.",
+      "limitations": [
+        "One training run per model; episode population SD is not uncertainty across training seeds. Different clocks, training recipes and measured latency distributions preclude controlled architecture ranking or equal-delay causal claims.",
+        "L0 teacher is a shared historical 10-episode evaluation, configured seed 0, random-noop + FireReset at the original 50/12.5 FPS clock; it is not a new model-specific teacher evaluation.",
+        "Historical E10 follows training-best checkpoint selection; overlap with a paired selection20 cohort is not established.",
+        "B and F each dropped one observation; no invalid/dropped actions."
+      ],
+      "sources": [
+        {
+          "label": "Canonical complete experiment",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/571cb5801720488ed6458b9cfe3f4c595b069cea/air_raid/profile_latency/OpenVLA/native_20260911"
+        },
+        {
+          "label": "Profile checkpoint",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/0f12d17f0ac28e9c1b539482eea9f32645a1d304/air_raid/profile_latency/OpenVLA"
+        },
+        {
+          "label": "L0 checkpoint",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/0f12d17f0ac28e9c1b539482eea9f32645a1d304/air_raid/zero_latency/OpenVLA"
+        },
+        {
+          "label": "Historical shared L0 teacher",
+          "url": "docs/gym-adapt/gymnasium/air_raid/assets/evidence/queue_eval_latency_0.json"
+        },
+        {
+          "label": "Detailed experiment report",
+          "url": "docs/gym-adapt/gymnasium/air_raid/index.html"
+        }
+      ]
+    },
+    {
+      "id": "Pi05",
+      "name": "Pi0.5",
+      "status": "Completed",
+      "protocol": "RGB224/no state/six actions/H1; env/obs10/2.5 FPS, noop30+FireReset, cap 3600 raw frames. L0 simulated zero; B/F RTX3090 measured-only sync_cuda, n 20 each, seeds 42\u201361, one worker, hold/FIFO, prompt 0/2, no added IID. P 5\u00d710 episodes, 30,865 samples, 500 warmups excluded. E10 repeats first 10 selection seeds. P raw-step cap: 3000.",
+      "metrics": {
+        "profile": "134.55 / 139.89 ms",
+        "l0_teacher": "2,557.50 \u00b1 491.81",
+        "l0_vla": "1,943.75 \u00b1 776.85",
+        "baseline": "1,386.25 \u00b1 434.99",
+        "profile_teacher": "3,785.00 \u00b1 384.09",
+        "final": "3,227.50 \u00b1 1,095.58"
+      },
+      "training": "Fresh QwenPI_v3 L0/profile 5000 updates, seed 42, global 128=2\u00d7micro 64\u00d7accum 1, GC disabled, ZeRO-2. APPO seed 0, target 10M counted steps (~40M raw frames at stride 4), actual 10,002,432. Final 20 3895.00 \u00b1316.68 selected over best 3716.25 \u00b1503.50. Evaluated F fixed revision ac837400f55e4a9a96cc757dbcc516711b37e75f; saved reloads passed.",
+      "data": "Profile probe12/12; 100 accepted episodes, strict>2500, 90/10 split, 81,000/9,000 rows; prompt 2 and actual replay verified. Teacher gate is not a VLA acceptance threshold.",
+      "limitations": [
+        "One training run per model; episode population SD is not uncertainty across training seeds. Different clocks, training recipes and measured latency distributions preclude controlled architecture ranking or equal-delay causal claims.",
+        "L0 teacher is a shared historical 10-episode evaluation, configured seed 0, random-noop + FireReset at the original 50/12.5 FPS clock; it is not a new model-specific teacher evaluation.",
+        "Teacher E10 repeats the first ten selection seeds (104771\u2013104780); it is not independent validation.",
+        "Original profiling predates the later60-second P policy and was retained unchanged. B/F full audits cover64,470/67,159 steps with zero invalid/dropped actions or observations."
+      ],
+      "sources": [
+        {
+          "label": "Reconciled metrics and evidence map",
+          "url": "docs/gym-adapt/gymnasium/air_raid/assets/evidence/pi05-pipeline-summary-20260922.md"
+        },
+        {
+          "label": "Final B/F comparison",
+          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/b451caa2a6515df3bae22580595151ef5b342f89/air_raid/profile_latency/Pi05/h1_10env_2p5obs_g128_20260920/vla/evaluation/comparison.json"
+        },
+        {
+          "label": "Profile model metadata",
+          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/blob/1e7ef4da6d744d596ddf959ba0aa88bfa4061c3f/air_raid/profile_latency/Pi05/README.md"
+        },
+        {
+          "label": "Teacher E10 verification",
+          "url": "docs/gym-adapt/gymnasium/air_raid/assets/evidence/teacher-verification.json"
+        },
+        {
+          "label": "Historical shared L0 teacher",
+          "url": "docs/gym-adapt/gymnasium/air_raid/assets/evidence/queue_eval_latency_0.json"
+        },
+        {
+          "label": "Detailed experiment report",
+          "url": "docs/gym-adapt/gymnasium/air_raid/index.html"
+        }
+      ]
+    }
+  ]
+}
