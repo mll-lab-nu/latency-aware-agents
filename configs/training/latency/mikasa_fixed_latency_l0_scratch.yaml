@@ -1,0 +1,7 @@
+__base__: mikasa_fixed_latency_small_base.yaml
+
+latency:
+  method: zero
+
+training:
+  exp_name: small-ppo-mikasa-intercept-grab-fast-fixed-l0-scratch
