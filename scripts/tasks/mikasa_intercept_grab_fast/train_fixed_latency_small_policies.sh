@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Train/evaluate native InterceptGrabFast PPO teachers at fixed latency L0-L4.
+# Train/evaluate/upload native InterceptGrabFast PPO teachers at fixed latency L0-L4.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,21 +12,23 @@ LATENCIES="${LATENCIES:-0 1 2 3 4}"
 usage() {
   cat <<'USAGE'
 Usage:
-  bash scripts/tasks/mikasa_intercept_grab_fast/train_fixed_latency_small_policies.sh [train|eval|both]
+  bash scripts/tasks/mikasa_intercept_grab_fast/train_fixed_latency_small_policies.sh [train|eval|upload|both|full|all]
 
 Environment overrides:
   LATENCIES                         Space-separated latencies to run. Default: "0 1 2 3 4".
   MIKASA_FIXED_LATENCY_OUTPUT_ROOT  Output root. Default: outputs/mikasa_fixed_latency_ppo.
   MIKASA_LCB_PYTHON                 Python for repo launchers. Default: active python.
   CUDA_VISIBLE_DEVICES              GPU selection passed through to the native MIKASA trainer.
+  HF_TOKEN                          Hugging Face token for upload, if not already logged in.
 
 L0 uses latency.method=zero to match the zero-delay Intercept teacher recipe.
 L1-L4 use fixed latency at 20 Hz: 50, 100, 150, and 200 ms.
+full/all runs train -> eval -> upload for each selected latency.
 USAGE
 }
 
 case "${MODE}" in
-  train|eval|both) ;;
+  train|eval|upload|both|full|all) ;;
   -h|--help|help)
     usage
     exit 0
@@ -52,6 +54,13 @@ run_one() {
       config="configs/training/latency/mikasa_fixed_latency_l${latency}_eval.yaml"
       output_dir="${OUTPUT_ROOT}/fixed_l${latency}_eval"
       ;;
+    upload)
+      echo "[mikasa-fixed-latency] stage=upload latency=L${latency} output_root=${OUTPUT_ROOT}"
+      "${PYTHON}" -m scripts.tasks.mikasa_intercept_grab_fast.publish_fixed_latency_small_policy \
+        --latency "${latency}" \
+        --output-root "${OUTPUT_ROOT}"
+      return
+      ;;
     *)
       echo "Internal error: unknown stage ${stage}" >&2
       exit 2
@@ -65,7 +74,9 @@ run_one() {
 }
 
 cd "${REPO_ROOT}"
-bash scripts/mikasa/install.sh
+if [[ "${MODE}" != "upload" ]]; then
+  bash scripts/mikasa/install.sh
+fi
 export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/third_party/MIKASA-Robo${PYTHONPATH:+:${PYTHONPATH}}"
 
 for latency in ${LATENCIES}; do
@@ -82,5 +93,13 @@ for latency in ${LATENCIES}; do
   fi
   if [[ "${MODE}" == "eval" || "${MODE}" == "both" ]]; then
     run_one eval "${latency}"
+  fi
+  if [[ "${MODE}" == "upload" ]]; then
+    run_one upload "${latency}"
+  fi
+  if [[ "${MODE}" == "full" || "${MODE}" == "all" ]]; then
+    run_one train "${latency}"
+    run_one eval "${latency}"
+    run_one upload "${latency}"
   fi
 done
