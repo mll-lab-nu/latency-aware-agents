@@ -18,6 +18,7 @@ Environment overrides:
   LATENCIES                         Space-separated latencies to run. Default: "0 1 2 3 4".
   MIKASA_FIXED_LATENCY_OUTPUT_ROOT  Output root. Default: outputs/mikasa_fixed_latency_ppo.
   MIKASA_LCB_PYTHON                 Python for repo launchers. Default: active python.
+  MIKASA_SKIP_INSTALL               Set to 1 to skip scripts/mikasa/install.sh.
   CUDA_VISIBLE_DEVICES              GPU selection passed through to the native MIKASA trainer.
   HF_TOKEN                          Hugging Face token for upload, if not already logged in.
 
@@ -74,7 +75,7 @@ run_one() {
 }
 
 cd "${REPO_ROOT}"
-if [[ "${MODE}" != "upload" ]]; then
+if [[ "${MODE}" != "upload" && "${MIKASA_SKIP_INSTALL:-0}" != "1" ]]; then
   bash scripts/mikasa/install.sh
 fi
 export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/third_party/MIKASA-Robo${PYTHONPATH:+:${PYTHONPATH}}"
