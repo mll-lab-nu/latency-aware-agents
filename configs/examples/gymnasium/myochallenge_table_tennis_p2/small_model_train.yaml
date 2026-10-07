@@ -16,7 +16,7 @@ env:
   task_name: myochallenge_table_tennis_p2
   env_id: LatencyBench/MyoChallengeTableTennisP2-v0
   registration_imports:
-  - latency_bench.envs.myochallenge_table_tennis
+  - latency_bench.envs.tasks.myochallenge_table_tennis
   make_kwargs:
     base_env_id: myoChallengeTableTennisP2-v0
     render_mode: rgb_array

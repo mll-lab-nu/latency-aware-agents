@@ -6,7 +6,7 @@ from pathlib import Path
 import gymnasium as gym
 
 from latency_bench.core.config import load_config
-import latency_bench.envs.gymnasium_asterix  # registers task wrapper
+import latency_bench.envs.tasks.asterix  # registers task wrapper
 from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper, GymnasiumActionLatencyWrapper
 
 

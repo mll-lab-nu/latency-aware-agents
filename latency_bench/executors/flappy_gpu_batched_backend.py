@@ -12,7 +12,7 @@ from flappy_bird_gymnasium.envs.batched_core import BatchedFlappyBirdCore
 from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
 from latency_bench.core.types import Action, Observation
-from latency_bench.envs.flappy import (
+from latency_bench.envs.adapters.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
 )
@@ -22,7 +22,7 @@ from latency_bench.executors.gpu_batched_env_step_backend import (
     config_policy_type,
     uses_starvla_policy,
 )
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 from training.flappy_sf.flappy_cuda_extension import CudaFlappyRenderer
 from training.flappy_sf.gpu_core import CudaFlappyBirdCore

@@ -10,7 +10,7 @@
 
     <section id="recon"><p class="section-kicker">02 · Runtime and design</p><h2>Native Atari facts versus preprocessing decisions</h2><div class="two-col"><div><h3>API FACT</h3><ul class="steps"><li><code>ALE/Asterix-v5</code>, ALE 0.8.1, mode 0, difficulty 0.</li><li>Native action space <code>Discrete(9)</code>: NOOP, UP, RIGHT, LEFT, DOWN, UPRIGHT, UPLEFT, DOWNRIGHT, DOWNLEFT.</li><li>Native observation and render: <code>(210,160,3) uint8</code>.</li><li>Each configured <code>frameskip=1</code> step increments ALE episode frame by exactly one.</li><li>Asterix ROM uses NTSC timing: 60 raw frames/s.</li><li>Native reset starts at episode frame 0 with three lives.</li></ul></div><div><h3>FROZEN EXPERIMENT</h3><ul class="steps"><li>Disable sticky actions with repeat probability 0.</li><li>Keep minimal nine-action catalog and native reward.</li><li>Use 1–30 seeded random NOOP actions at reset; do not add reward clipping, FireReset, or episodic-life termination.</li><li>Warp policy observation to 84×84 grayscale, then transpose to CHW.</li><li>Retain native RGB through <code>env.render()</code> for evaluation/video and possible later rollout.</li><li>Observe every four raw frames at 15 Hz; fixed <code>L1=16.667 ms</code>.</li></ul></div></div><p>The <a href="assets/asterix/api_probe.json">runtime probe</a> records the exact actions, screen, frame counter, modes, difficulties, and constructor kwargs. ALE does not publish <code>render_fps</code> for this ROM, so the NTSC 60 Hz clock is explicit contract data rather than a hidden fallback.</p></section>
 
-    <section id="files"><p class="section-kicker">03 · Generated implementation</p><h2>One task-owned observation boundary</h2><div class="file-grid"><article><code>latency_bench/envs/gymnasium_asterix.py</code><p>Registers the task, applies WarpFrame, converts HWC grayscale to CHW, and delegates native RGB rendering.</p></article><article><code>scripts/scaffold_gymnasium_asterix.py</code><p>Probes ALE and emits the NTSC clock plus complete task contract.</p></article><article><code>configs/examples/gymnasium/asterix/</code><p>Contains grouped small-model train/eval, benchmark eval, and unexecuted StarVLA eval configs.</p></article><article><code>tests/envs/test_gymnasium_asterix.py</code><p>Checks CHW/RGB separation, native actions, four-frame decision stride, L1 timing, and config equality.</p></article></div><p><a href="../../../../latency_bench/envs/gymnasium_asterix.py">Wrapper</a> · <a href="../../../../scripts/scaffold_gymnasium_asterix.py">Scaffold</a> · <a href="../../../../configs/examples/gymnasium/asterix/">Configs</a> · <a href="../../../../tests/envs/test_gymnasium_asterix.py">Tests</a></p></section>
+    <section id="files"><p class="section-kicker">03 · Generated implementation</p><h2>One task-owned observation boundary</h2><div class="file-grid"><article><code>latency_bench/envs/tasks/asterix.py</code><p>Registers the task, applies WarpFrame, converts HWC grayscale to CHW, and delegates native RGB rendering.</p></article><article><code>scripts/scaffold_gymnasium_asterix.py</code><p>Probes ALE and emits the NTSC clock plus complete task contract.</p></article><article><code>configs/examples/gymnasium/asterix/</code><p>Contains grouped small-model train/eval, benchmark eval, and unexecuted StarVLA eval configs.</p></article><article><code>tests/envs/tasks/test_gymnasium_asterix.py</code><p>Checks CHW/RGB separation, native actions, four-frame decision stride, L1 timing, and config equality.</p></article></div><p><a href="../../../../latency_bench/envs/tasks/asterix.py">Wrapper</a> · <a href="../../../../scripts/scaffold_gymnasium_asterix.py">Scaffold</a> · <a href="../../../../configs/examples/gymnasium/asterix/">Configs</a> · <a href="../../../../tests/envs/tasks/test_gymnasium_asterix.py">Tests</a></p></section>
 
     <section id="contract"><p class="section-kicker">04 · Immutable task contract</p><h2>One raw frame means one NTSC emulator step</h2><p class="formula"><code>observation_stride = 60 / 15 = 4 raw frames</code> · <code>latency_raw_frames = ceil(16.667 × 60 / 1000) = 1</code></p><details open><summary>Complete contract summary</summary><pre><code>env:
   name: gymnasium
@@ -46,11 +46,11 @@ PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/env/demon_a
 python -m pip check
 
 SDL_VIDEODRIVER=dummy pytest -q \
-  tests/envs/test_gymnasium_asterix.py \
-  tests/envs/test_gymnasium_hopper.py \
-  tests/envs/test_gymnasium_lunar_lander.py \
-  tests/envs/test_gymnasium_pendulum.py \
-  tests/envs/test_gymnasium_env_adapter.py \
+  tests/envs/tasks/test_gymnasium_asterix.py \
+  tests/envs/tasks/test_gymnasium_hopper.py \
+  tests/envs/tasks/test_gymnasium_lunar_lander.py \
+  tests/envs/tasks/test_gymnasium_pendulum.py \
+  tests/envs/adapters/test_gymnasium_env_adapter.py \
   tests/training/test_gymnasium_sf.py \
   tests/policies/test_generic_gymnasium_starvla_policy.py</code></pre></details><details><summary>Probe, parity, and L1 trace — VERIFIED</summary><pre><code>python scripts/scaffold_gymnasium_asterix.py \
   --report-path /workspace/asterix-adapt/api_probe.json \

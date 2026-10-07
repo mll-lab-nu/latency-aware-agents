@@ -8,7 +8,7 @@ import pytest
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Observation
-from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy.factory import build_policy
 from latency_bench.policy.starvla_prompts import resolve_starvla_prompt
 
@@ -202,9 +202,14 @@ def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
     assert output.metadata["raw_action_id"] == 0
 
 
+@pytest.mark.parametrize("legacy_module", [
+    "latency_bench.envs.gymnasium_hopper_rgb_state",
+    "latency_bench.envs.gymnasium_hopper",
+])
 def test_generic_checkpoint_policy_accepts_legacy_environment_namespace(
     monkeypatch,
     tmp_path: Path,
+    legacy_module,
 ):
     from latency_bench.policy import starvla
 
@@ -215,13 +220,13 @@ def test_generic_checkpoint_policy_accepts_legacy_environment_namespace(
     config["env"].update(
         task_name="hopper",
         env_id="LatencyBench/Hopper-v0",
-        registration_imports=["latency_bench.envs.gymnasium_hopper"],
+        registration_imports=["latency_bench.envs.tasks.hopper"],
     )
     legacy_contract = gymnasium_task_contract(config["env"])
     legacy_contract.update(
         task_name="hopper_rgb_state",
         env_id="LatencyBench/HopperRgbState-v0",
-        registration_imports=["latency_bench.envs.gymnasium_hopper_rgb_state"],
+        registration_imports=[legacy_module],
     )
     manifest_path = Path(config["policy"]["task_manifest_path"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

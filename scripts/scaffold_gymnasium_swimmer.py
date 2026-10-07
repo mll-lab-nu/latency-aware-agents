@@ -10,7 +10,7 @@ import gymnasium as gym
 import numpy as np
 import yaml
 
-from latency_bench.envs.gymnasium_swimmer import GYMNASIUM_SWIMMER_ENV_ID
+from latency_bench.envs.tasks.swimmer import GYMNASIUM_SWIMMER_ENV_ID
 
 
 ACTION_LABELS = ["first_rotor_torque", "second_rotor_torque"]

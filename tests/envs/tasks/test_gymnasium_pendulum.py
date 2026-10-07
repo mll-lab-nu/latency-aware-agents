@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import yaml
 
-import latency_bench.envs.gymnasium_pendulum as gymnasium_pendulum
+import latency_bench.envs.tasks.pendulum as gymnasium_pendulum
 import scripts.scaffold_gymnasium_pendulum as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
@@ -197,7 +197,7 @@ def test_pendulum_configs_share_task_contract_and_l1_latency(config_path):
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 
     assert env_cfg["env_id"] == gymnasium_pendulum.GYMNASIUM_PENDULUM_ENV_ID
-    assert env_cfg["registration_imports"] == ["latency_bench.envs.gymnasium_pendulum"]
+    assert env_cfg["registration_imports"] == ["latency_bench.envs.tasks.pendulum"]
     assert env_cfg["make_kwargs"] == {
         "base_env_id": "Pendulum-v1",
         "render_mode": "rgb_array",

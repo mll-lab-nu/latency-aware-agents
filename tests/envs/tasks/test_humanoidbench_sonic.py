@@ -8,8 +8,8 @@ import mujoco
 import numpy as np
 import pytest
 
-from latency_bench.envs import humanoidbench_sonic as sonic
-from latency_bench.envs.humanoidbench_sonic_contract import (
+from latency_bench.envs.tasks.humanoidbench import sonic as sonic
+from latency_bench.envs.tasks.humanoidbench.contract import (
     G1_DEFAULT_ANGLES,
     G1_HAND_JOINT_NAMES,
     MUJOCO_INDEX_FOR_POLICY,

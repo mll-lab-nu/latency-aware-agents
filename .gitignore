@@ -51,5 +51,7 @@ paper/
 .codegraph
 
 assets
+!/latency_bench/envs/tasks/assets/
+!/latency_bench/envs/tasks/assets/*.xml
 lagen
 build

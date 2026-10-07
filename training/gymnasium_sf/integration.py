@@ -14,7 +14,8 @@ from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionHoldPolicy, OrderingPolicy
-from latency_bench.envs.gymnasium_task import (
+from latency_bench.envs.tasks.contracts import (
+    registration_module_name,
     gymnasium_action_space_contract,
     gymnasium_discrete_action_labels,
     gymnasium_discrete_action_values,
@@ -22,7 +23,7 @@ from latency_bench.envs.gymnasium_task import (
 )
 from latency_bench.integrations.sample_factory.actions import scale_box_action
 from latency_bench.scheduler.action_queue import ActionScheduler, chunk_context_window
-from latency_bench.envs.humanoidbench_sonic_contract import POLICY_INDEX_FOR_MUJOCO
+from latency_bench.envs.tasks.humanoidbench.contract import POLICY_INDEX_FOR_MUJOCO
 from latency_bench.scheduler.factory import build_persistence_policy
 from training.asterix_sf.batched_gpu_env import AsterixBatchedGpuEnv
 from training.atlantis_sf.batched_gpu_env import AtlantisBatchedGpuEnv
@@ -292,7 +293,7 @@ def make_gymnasium_sf_env(
             gpu_env_batch_size=cfg.gpu_env_batch_size,
         )
     for module_name in json.loads(cfg.gym_registration_imports_json):
-        import_module(module_name)
+        import_module(registration_module_name(module_name))
 
     make_kwargs = _gymnasium_make_kwargs(cfg)
     raw_g1_requests = (

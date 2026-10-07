@@ -19,8 +19,9 @@ from latency_bench.data.ghost_trail import (
     GhostTrailConfig, build_flappy_ghost_trail_window, build_demon_attack_ghost_trail_window,
 )
 from latency_bench.data.state_normalization import min_max_normalize_state
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
-from latency_bench.envs.gymnasium_task import (
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.tasks.contracts import (
+    registration_module_name,
     gymnasium_action_space_contract,
     gymnasium_task_contract,
 )
@@ -553,9 +554,11 @@ def _canonical_gymnasium_contract_namespace(
     if canonical["env_id"] == "LatencyBench/HopperRgbState-v0":
         canonical["env_id"] = "LatencyBench/Hopper-v0"
     canonical["registration_imports"] = [
-        "latency_bench.envs.gymnasium_hopper"
-        if module == "latency_bench.envs.gymnasium_hopper_rgb_state"
-        else module
+        registration_module_name(
+            "latency_bench.envs.tasks.hopper"
+            if module == "latency_bench.envs.gymnasium_hopper_rgb_state"
+            else module
+        )
         for module in canonical["registration_imports"]
     ]
     return canonical

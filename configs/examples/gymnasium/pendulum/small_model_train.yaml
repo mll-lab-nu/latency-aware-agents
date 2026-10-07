@@ -19,7 +19,7 @@ env:
   task_name: pendulum_discrete
   env_id: LatencyBench/PendulumDiscrete-v0
   registration_imports:
-    - latency_bench.envs.gymnasium_pendulum
+    - latency_bench.envs.tasks.pendulum
   make_kwargs:
     base_env_id: Pendulum-v1
     render_mode: rgb_array

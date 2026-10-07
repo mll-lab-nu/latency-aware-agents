@@ -11,7 +11,7 @@ import gymnasium as gym
 import numpy as np
 import yaml
 
-from latency_bench.envs.gymnasium_pendulum import GYMNASIUM_PENDULUM_ENV_ID
+from latency_bench.envs.tasks.pendulum import GYMNASIUM_PENDULUM_ENV_ID
 
 
 USER_APPROVED_TORQUE_VALUES = [-2.0, -1.0, 0.0, 1.0, 2.0]
@@ -113,7 +113,7 @@ def build_pendulum_env_config(
             "name": "gymnasium",
             "task_name": "pendulum_discrete",
             "env_id": GYMNASIUM_PENDULUM_ENV_ID,
-            "registration_imports": ["latency_bench.envs.gymnasium_pendulum"],
+            "registration_imports": ["latency_bench.envs.tasks.pendulum"],
             "make_kwargs": {
                 "base_env_id": base_env_id,
                 "render_mode": render_mode,

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import yaml
 
-import latency_bench.envs.gymnasium_air_raid as gymnasium_air_raid
+import latency_bench.envs.tasks.air_raid as gymnasium_air_raid
 import scripts.scaffold_gymnasium_air_raid as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
@@ -159,7 +159,7 @@ def test_air_raid_configs_share_zero_latency_four_frame_contract(config_path):
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 
     assert env_cfg["env_id"] == gymnasium_air_raid.GYMNASIUM_AIR_RAID_ENV_ID
-    assert env_cfg["registration_imports"] == ["latency_bench.envs.gymnasium_air_raid"]
+    assert env_cfg["registration_imports"] == ["latency_bench.envs.tasks.air_raid"]
     assert env_cfg["make_kwargs"]["base_env_id"] == "ALE/AirRaid-v5"
     assert env_cfg["make_kwargs"]["screen_size"] == 84
     assert env_cfg["make_kwargs"]["noop_max"] == 0

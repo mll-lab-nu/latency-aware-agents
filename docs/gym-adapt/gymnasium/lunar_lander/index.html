@@ -50,10 +50,10 @@
         <div class="file-grid">
           <article><code>scripts/scaffold_gymnasium_lunar_lander.py</code><p>Probes the pinned Box2D API and emits the complete direct-task contract.</p></article>
           <article><code>configs/examples/gymnasium/lunar_lander/</code><p>Contains grouped small-model train/eval, latency-bench eval, and unexecuted StarVLA eval configs.</p></article>
-          <article><code>tests/envs/test_gymnasium_lunar_lander.py</code><p>Checks native action semantics, no-op queue behavior, timing, probe output, and four-config equality.</p></article>
+          <article><code>tests/envs/tasks/test_gymnasium_lunar_lander.py</code><p>Checks native action semantics, no-op queue behavior, timing, probe output, and four-config equality.</p></article>
           <article><code>GymnasiumEnvAdapter</code><p>The existing generic adapter constructs <code>LunarLander-v2</code> directly. No legacy factory branch was added.</p></article>
         </div>
-        <p><a href="../../../../scripts/scaffold_gymnasium_lunar_lander.py">Scaffold source</a> · <a href="../../../../configs/examples/gymnasium/lunar_lander/">Four configs</a> · <a href="../../../../tests/envs/test_gymnasium_lunar_lander.py">Semantic tests</a></p>
+        <p><a href="../../../../scripts/scaffold_gymnasium_lunar_lander.py">Scaffold source</a> · <a href="../../../../configs/examples/gymnasium/lunar_lander/">Four configs</a> · <a href="../../../../tests/envs/tasks/test_gymnasium_lunar_lander.py">Semantic tests</a></p>
       </section>
 
       <section id="contract">
@@ -125,8 +125,8 @@ uv pip install --no-build-isolation box2d-py==2.3.5
 uv pip install "gymnasium[box2d]==0.29.1"
 python -m pip check</code></pre><p>The initial one-command extra install failed because isolated <code>box2d-py</code> could not see SWIG. Installing SWIG first resolved the task dependency without changing the repository base dependencies.</p></details>
         <details><summary>Probe and focused tests — VERIFIED</summary><pre><code>SDL_VIDEODRIVER=dummy pytest -q \
-  tests/envs/test_gymnasium_lunar_lander.py \
-  tests/envs/test_gymnasium_env_adapter.py \
+  tests/envs/tasks/test_gymnasium_lunar_lander.py \
+  tests/envs/adapters/test_gymnasium_env_adapter.py \
   tests/training/test_gymnasium_sf.py \
   tests/policies/test_generic_gymnasium_starvla_policy.py
 

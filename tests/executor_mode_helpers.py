@@ -4,7 +4,7 @@ import time
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput
-from latency_bench.envs.base import DummyEnvAdapter
+from latency_bench.envs.adapters.dummy import DummyEnvAdapter
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy

@@ -42,4 +42,5 @@ sonic = [
 include = ["latency_bench*", "training*"]
 
 [tool.setuptools.package-data]
+"latency_bench.envs.tasks" = ["assets/*.xml"]
 "training.flappy_sf" = ["cuda_kernels/*.cpp", "cuda_kernels/*.cu"]

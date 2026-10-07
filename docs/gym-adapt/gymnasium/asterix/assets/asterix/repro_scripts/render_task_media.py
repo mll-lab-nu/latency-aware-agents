@@ -5,7 +5,7 @@ from pathlib import Path
 import gymnasium as gym
 from PIL import Image
 
-import latency_bench.envs.gymnasium_asterix
+import latency_bench.envs.tasks.asterix
 from latency_bench.core.config import load_config
 
 

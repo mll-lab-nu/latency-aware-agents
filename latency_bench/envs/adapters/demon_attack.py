@@ -8,8 +8,7 @@ import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY, is_true_atari_episode_end
-from latency_bench.envs.base import EnvAdapter
-from latency_bench.envs.raw_rgb import RawRgbFrameStackBuffer
+from latency_bench.envs.base import EnvAdapter, RawRgbFrameStackBuffer
 from latency_bench.utils.array import looks_chw
 
 

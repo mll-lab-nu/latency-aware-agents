@@ -11,7 +11,7 @@ import gymnasium as gym
 import numpy as np
 import yaml
 
-from latency_bench.envs.gymnasium_mujoco import (
+from latency_bench.envs.tasks.inverted_pendulum import (
     GYMNASIUM_MUJOCO_INVERTED_PENDULUM_ENV_ID,
 )
 
@@ -113,7 +113,7 @@ def build_inverted_pendulum_env_config(
             "name": "gymnasium",
             "task_name": "inverted_pendulum_discrete",
             "env_id": GYMNASIUM_MUJOCO_INVERTED_PENDULUM_ENV_ID,
-            "registration_imports": ["latency_bench.envs.gymnasium_mujoco"],
+            "registration_imports": ["latency_bench.envs.tasks.inverted_pendulum"],
             "make_kwargs": {
                 "base_env_id": base_env_id,
                 "render_mode": render_mode,

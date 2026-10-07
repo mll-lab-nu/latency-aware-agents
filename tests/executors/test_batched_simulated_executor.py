@@ -15,7 +15,8 @@ from scripts.experiments.sim2real.replay import RunTrajectoryLogger
 from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
-from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
+from latency_bench.envs.base import EnvAdapter
+from latency_bench.envs.adapters.dummy import DummyEnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
 from latency_bench.executors.env_step_backend import SerialEnvStepBackend
@@ -27,7 +28,7 @@ from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 from latency_bench.scheduler.persistence import HoldPolicy
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 _CLOCK = EnvClock(env_fps=30.0, obs_fps=30.0)
 

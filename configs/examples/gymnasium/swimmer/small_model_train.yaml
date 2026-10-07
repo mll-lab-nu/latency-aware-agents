@@ -18,7 +18,7 @@ env:
   name: gymnasium
   task_name: swimmer
   env_id: LatencyBench/SwimmerContinuous-v0
-  registration_imports: [latency_bench.envs.gymnasium_swimmer]
+  registration_imports: [latency_bench.envs.tasks.swimmer]
   make_kwargs:
     render_mode: rgb_array
     base_make_kwargs:

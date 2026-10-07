@@ -12,7 +12,7 @@ import gymnasium as gym
 import numpy as np
 import yaml
 
-from latency_bench.envs.gymnasium_walker2d import GYMNASIUM_WALKER2D_ENV_ID
+from latency_bench.envs.tasks.walker2d import GYMNASIUM_WALKER2D_ENV_ID
 
 
 ACTION_LABELS = [
@@ -103,7 +103,7 @@ def build_walker2d_env_config(
         "name": "gymnasium",
         "task_name": "walker2d_continuous_torque",
         "env_id": GYMNASIUM_WALKER2D_ENV_ID,
-        "registration_imports": ["latency_bench.envs.gymnasium_walker2d"],
+        "registration_imports": ["latency_bench.envs.tasks.walker2d"],
         "make_kwargs": {
             "base_env_id": base_env_id,
             "render_mode": render_mode,

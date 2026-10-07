@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from latency_bench.envs.humanoidbench_sonic_contract import (
+from latency_bench.envs.tasks.humanoidbench.contract import (
     G1_BODY_JOINT_NAMES,
     G1_HAND_JOINT_NAMES,
     MUJOCO_INDEX_FOR_POLICY,

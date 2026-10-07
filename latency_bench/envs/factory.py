@@ -6,7 +6,8 @@ from typing import Any
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action
-from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
+from latency_bench.envs.base import EnvAdapter
+from latency_bench.envs.adapters.dummy import DummyEnvAdapter
 
 
 EnvAdapterBuilder = Callable[[dict[str, Any], Action], EnvAdapter]
@@ -86,7 +87,7 @@ def _build_dummy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
 
 @register_env_adapter("gymnasium")
 def _build_gymnasium_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
-    from latency_bench.envs.gymnasium import GymnasiumEnvAdapter
+    from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
 
     env_cfg = config["env"]
     return GymnasiumEnvAdapter(
@@ -104,7 +105,7 @@ def _build_gymnasium_env(config: dict[str, Any], noop_action: Action) -> EnvAdap
 @register_env_adapter("mikasa_intercept_grab_fast")
 def _build_mikasa_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     # ManiSkill is installed in the environment interpreter, not the model worker.
-    from scripts.mikasa.evaluate import MikasaEnvStepBackend
+    from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
     from latency_bench.executors.env_step_backend import EnvStepBackendEnvAdapter
 
     return EnvStepBackendEnvAdapter(MikasaEnvStepBackend(config=config, num_slots=1))
@@ -114,7 +115,7 @@ def _build_mikasa_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
 def _build_balance_profile_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
     os.environ["MUJOCO_GL"] = "egl"
     os.environ["PYOPENGL_PLATFORM"] = "egl"
-    from latency_bench.envs.gymnasium import BalanceProfileEnvAdapter
+    from latency_bench.envs.adapters.gymnasium import BalanceProfileEnvAdapter
 
     env = config["env"]
     method = config["latency"]["method"]
@@ -148,7 +149,7 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
     obs_resize = env_cfg.get("obs_resize")
     if obs_resize is not None:
         obs_resize = tuple(int(value) for value in obs_resize)
-    from latency_bench.envs.flappy import FlappyBirdEnvAdapter
+    from latency_bench.envs.adapters.flappy import FlappyBirdEnvAdapter
 
     return FlappyBirdEnvAdapter(
         gym_id=env_cfg.get("gym_id", "FlappyBird-v0"),
@@ -173,7 +174,7 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
 
 @register_env_adapter("demon_attack")
 def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
-    from latency_bench.envs.demon_attack import DemonAttackEnvAdapter
+    from latency_bench.envs.adapters.demon_attack import DemonAttackEnvAdapter
 
     env_cfg = config["env"]
     eval_raw_reward = bool(config.get("evaluation", {}).get("eval_raw_reward", False))
@@ -212,7 +213,7 @@ def _build_deadly_corridor_env(config: dict[str, Any], noop_action: Action) -> E
     # kept for teacher (sample_factory) eval/training. Scoped to StarVLA only.
     action_layout = str(config.get("policy", {}).get("action_layout", "") or "").strip().lower()
     if _uses_raw_rgb_vla_policy(config) and action_layout == "multibinary_7":
-        from latency_bench.envs.deadly_corridor import DeadlyCorridorVlaEnvAdapter
+        from latency_bench.envs.adapters.deadly_corridor import DeadlyCorridorVlaEnvAdapter
 
         return DeadlyCorridorVlaEnvAdapter(
             config=config,
@@ -220,7 +221,7 @@ def _build_deadly_corridor_env(config: dict[str, Any], noop_action: Action) -> E
             export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
         )
 
-    from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter
+    from latency_bench.envs.adapters.deadly_corridor import DeadlyCorridorEnvAdapter
 
     return DeadlyCorridorEnvAdapter(
         config=config,

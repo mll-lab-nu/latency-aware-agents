@@ -12,11 +12,11 @@ from gymnasium.spaces import Box, Dict as GymDict
 
 from flappy_bird_gymnasium.envs.render_state import BatchedFlappyRenderState
 from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRenderer
-from latency_bench.envs.flappy import (
+from latency_bench.envs.adapters.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
 )
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 
 
 _PROFILE_FIELDS = (

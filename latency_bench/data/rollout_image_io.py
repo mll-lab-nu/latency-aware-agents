@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 from PIL import Image
 
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.data.background_writer import BackgroundWriter
 
 from latency_bench.utils.array import to_numpy

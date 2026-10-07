@@ -39,7 +39,7 @@ _ALL_NOOP_CACHE_SEEDS = (
 
 
 def _make_cpu_atlantis_env():
-    from latency_bench.envs.gymnasium_atlantis import make_latency_sensitive_atlantis_env
+    from latency_bench.envs.tasks.atlantis import make_latency_sensitive_atlantis_env
 
     return make_latency_sensitive_atlantis_env(
         base_env_id="ALE/Atlantis-v5",

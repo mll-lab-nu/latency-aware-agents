@@ -7,9 +7,9 @@ import gymnasium
 import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
-from latency_bench.envs.base import EnvAdapter
-from latency_bench.envs.raw_rgb import RawRgbFrameStackBuffer
-from latency_bench.envs.humanoidbench_sonic_contract import POLICY_INDEX_FOR_MUJOCO
+from latency_bench.envs.base import EnvAdapter, RawRgbFrameStackBuffer
+from latency_bench.envs.tasks.humanoidbench.contract import POLICY_INDEX_FOR_MUJOCO
+from latency_bench.envs.tasks.contracts import registration_module_name
 
 
 class GymnasiumEnvAdapter(EnvAdapter):
@@ -39,7 +39,7 @@ class GymnasiumEnvAdapter(EnvAdapter):
         self.include_state = include_state
 
         for module_name in registration_imports:
-            import_module(module_name)
+            import_module(registration_module_name(module_name))
         self.gym_env = gymnasium.make(env_id, **make_kwargs)
         self.action_space = self.gym_env.action_space
         self.observation_space = self.gym_env.observation_space

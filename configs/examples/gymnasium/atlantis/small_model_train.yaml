@@ -18,7 +18,7 @@ env:
   name: gymnasium
   task_name: atlantis
   env_id: LatencyBench/Atlantis-v0
-  registration_imports: [latency_bench.envs.gymnasium_atlantis]
+  registration_imports: [latency_bench.envs.tasks.atlantis]
   make_kwargs:
     base_env_id: ALE/Atlantis-v5
     render_mode: rgb_array

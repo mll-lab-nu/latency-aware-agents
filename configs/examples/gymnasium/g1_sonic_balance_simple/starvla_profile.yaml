@@ -12,7 +12,7 @@ env:
   task_name: g1_sonic_balance_simple
   env_id: LatencyBench/G1SonicBalanceSimple-v0
   registration_imports:
-    - latency_bench.envs.humanoidbench_sonic
+    - latency_bench.envs.tasks.humanoidbench.sonic
   make_kwargs:
     scene_path: ./results/humanoidbench_g1_sonic_assets/assets/sonic_g1/envs/scene_balance_simple.xml
     render_mode: rgb_array

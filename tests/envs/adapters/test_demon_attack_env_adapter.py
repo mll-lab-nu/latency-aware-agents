@@ -5,8 +5,8 @@ import gymnasium as gym
 from gymnasium.spaces import Box, Discrete
 
 from latency_bench.core.types import Action
-from latency_bench.envs import demon_attack
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.adapters import demon_attack
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 class ScriptedDemonGymEnv:
@@ -291,7 +291,7 @@ class ScriptedAleRgbEnv(gym.Env):
 
 
 def test_ale_raw_rgb_frame_stack_info_wrapper_reports_oldest_to_newest_stack():
-    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
 
     env = RawRgbFrameStackInfoWrapper(

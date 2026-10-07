@@ -6,12 +6,12 @@ import gymnasium
 import numpy as np
 import pytest
 
-import latency_bench.envs.gymnasium as gymnasium_adapter_module
+import latency_bench.envs.adapters.gymnasium as gymnasium_adapter_module
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, OrderingPolicy
 from latency_bench.envs.factory import build_env_adapter
-from latency_bench.envs.gymnasium import GymnasiumEnvAdapter
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.samplers import FixedSampler
 from latency_bench.policy.base import ConstantPolicyRunner

@@ -116,7 +116,7 @@ Zero 仅 head 0、fixed-2 仅 head 2/3 获得梯度。删除 actor 的 counts �
 
 ### 3. 将突变制动改为连续安全限速
 
-位置：[humanoidbench_sonic.py](../latency_bench/envs/humanoidbench_sonic.py)，`_condition_velocity()`。
+位置：[humanoidbench_sonic.py](../latency_bench/envs/tasks/humanoidbench/sonic.py)，`_condition_velocity()`。
 
 旧制动分支会把 float32 observation 丢失的约 1e-8 控制状态尾差，放大为最大速度的 20%～40% 跳变。删除旧 `_braking_distance()` 和整档制动切换，改为离散停止距离的连续逆映射：
 

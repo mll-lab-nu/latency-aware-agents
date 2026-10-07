@@ -5,7 +5,7 @@ env:
   task_name: inverted_pendulum
   env_id: LatencyBench/InvertedPendulumDiscrete-v0
   registration_imports:
-  - latency_bench.envs.gymnasium_mujoco
+  - latency_bench.envs.tasks.inverted_pendulum
   make_kwargs:
     base_env_id: InvertedPendulum-v4
     render_mode: rgb_array

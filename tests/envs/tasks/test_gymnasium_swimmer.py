@@ -6,12 +6,42 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-import latency_bench.envs.gymnasium_swimmer as gymnasium_swimmer
+import latency_bench.envs.tasks.swimmer as gymnasium_swimmer
 import scripts.scaffold_gymnasium_swimmer as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from latency_bench.core.types import Action
+from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
+from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from training.gymnasium_sf.integration import build_train_cfg_from_config
+
+
+@pytest.mark.parametrize("registration_module", [
+    "latency_bench.envs.tasks.swimmer",
+    "latency_bench.envs.gymnasium_swimmer",
+])
+def test_swimmer_native_reset_and_step_with_saved_registration_path(registration_module):
+    env = GymnasiumEnvAdapter(
+        env_id=gymnasium_swimmer.GYMNASIUM_SWIMMER_ENV_ID,
+        registration_imports=[registration_module],
+        make_kwargs={"render_mode": None, "base_make_kwargs": {}},
+        env_fps=25.0,
+        noop_action=Action(value=np.zeros(2)),
+        frame_stack=1,
+        export_env_raw_rgb_frames=False,
+        include_state=True,
+    )
+    try:
+        initial = env.reset(seed=0)
+        result = env.step(Action(value=np.zeros(2)))
+        assert initial.data.shape == (8,)
+        assert result.observation.metadata["gymnasium_state"].shape == (8,)
+        assert result.observation.env_step == 1
+        assert result.observation.sim_time_ms == pytest.approx(40.0)
+        assert np.isfinite(result.reward)
+        assert env.gym_env.unwrapped.dt == pytest.approx(0.04)
+    finally:
+        env.close()
 
 
 class _SwimmerProbeEnv(gym.Env):
@@ -115,7 +145,7 @@ def test_swimmer_configs_preserve_native_state_contract():
     env = envs[0]
     assert env["task_name"] == "swimmer"
     assert env["env_id"] == gymnasium_swimmer.GYMNASIUM_SWIMMER_ENV_ID
-    assert env["registration_imports"] == ["latency_bench.envs.gymnasium_swimmer"]
+    assert env["registration_imports"] == ["latency_bench.envs.tasks.swimmer"]
     assert env["make_kwargs"] == {
         "render_mode": "rgb_array",
         "base_make_kwargs": {"exclude_current_positions_from_observation": True},

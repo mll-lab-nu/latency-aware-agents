@@ -1,12 +1,35 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import deque
 from typing import Any
 
 import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+
+
+ENV_RAW_RGB_FRAME_STACK_INFO_KEY = "env_raw_rgb_frame_stack"
+
+
+class RawRgbFrameStackBuffer:
+    """Maintain an oldest-to-newest stack of raw RGB frames."""
+
+    def __init__(self, *, num_frames: int):
+        self.num_frames = num_frames
+        self._frames: deque[np.ndarray] = deque(maxlen=num_frames)
+
+    def reset(self, frame: Any) -> None:
+        raw_frame = np.asarray(frame)
+        self._frames.clear()
+        for _ in range(self.num_frames):
+            self._frames.append(raw_frame.copy())
+
+    def append(self, frame: Any) -> None:
+        self._frames.append(np.asarray(frame).copy())
+
+    def stack(self) -> np.ndarray:
+        return np.stack(tuple(self._frames), axis=0)
 
 
 class EnvAdapter(ABC):
@@ -92,67 +115,3 @@ class EnvAdapter(ABC):
 
     def close(self) -> None:
         return None
-
-
-class DummyEnvAdapter(EnvAdapter):
-    """Small deterministic env adapter used by factory and executor tests."""
-
-    def __init__(
-        self,
-        *,
-        env_fps: float = 30.0,
-        max_steps: int = 5,
-        noop_action: Action | None = None,
-    ):
-        self.env_fps = env_fps
-        self.max_steps = max_steps
-        self.noop_action = noop_action or Action(value="noop", name="noop", is_noop=True)
-        self.env_step = 0
-        self.applied_actions: list[Action] = []
-        self.gym_env = self
-        self.closed = False
-
-    def reset(self, seed: int | None = None) -> Observation:
-        self.env_step = 0
-        self.applied_actions.clear()
-        return self._make_observation(metadata={"seed": seed})
-
-    def step(self, action: Action) -> StepResult:
-        self.applied_actions.append(action)
-        self.env_step += 1
-        return StepResult(
-            observation=self._make_observation(metadata={"action": action.name or action.value}),
-            reward=1.0,
-            done=self.env_step >= self.max_steps,
-            truncated=False,
-            info={"env_step": self.env_step},
-        )
-
-    def observe(self) -> Observation:
-        return self._make_observation()
-
-    def render_frame(self) -> Any:
-        return {"state": self.env_step}
-
-    def render_game_frame(self) -> Any:
-        return np.full((8, 8, 3), self.env_step, dtype=np.uint8)
-
-    def get_state_info(self) -> dict[str, Any]:
-        return {
-            "env_step": self.env_step,
-            "sim_time_ms": self.env_step * self.frame_ms,
-        }
-
-    def close(self) -> None:
-        self.closed = True
-
-    def _make_observation(self, metadata: dict[str, Any] | None = None) -> Observation:
-        obs_metadata = dict(metadata or {})
-        obs_metadata.setdefault("env_step", self.env_step)
-        obs_metadata.setdefault("sim_time_ms", self.env_step * self.frame_ms)
-        return Observation(
-            data={"state": self.env_step},
-            env_step=self.env_step,
-            sim_time_ms=self.env_step * self.frame_ms,
-            metadata=obs_metadata,
-        )

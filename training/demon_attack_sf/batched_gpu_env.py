@@ -18,7 +18,7 @@ from training.common.latency_config import (
 )
 from training.common.batched_metrics import BatchedEpisodeMetrics
 from training.common.gpu_latency import CudaLatencyScheduler
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from training.demon_attack_sf.gpu_core import CudaDemonAttackCore
 
 

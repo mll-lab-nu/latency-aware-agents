@@ -5,7 +5,7 @@ env:
   task_name: walker2d
   env_id: LatencyBench/Walker2dContinuous-v0
   registration_imports:
-  - latency_bench.envs.gymnasium_walker2d
+  - latency_bench.envs.tasks.walker2d
   make_kwargs:
     base_env_id: Walker2d-v4
     render_mode: rgb_array

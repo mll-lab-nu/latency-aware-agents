@@ -205,7 +205,7 @@ def test_demon_attack_batched_gpu_env_exports_native_raw_rgb_stack():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
-    from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+    from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
     from training.demon_attack_sf.batched_gpu_env import DemonAttackBatchedGpuEnv
 
     env = DemonAttackBatchedGpuEnv(

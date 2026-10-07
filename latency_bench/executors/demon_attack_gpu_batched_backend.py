@@ -13,7 +13,7 @@ from latency_bench.executors.gpu_batched_env_step_backend import (
     SlotStepOutcome,
     uses_starvla_policy,
 )
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 from training.asterix_sf.gpu_core import CudaAsterixCore
 from training.atlantis_sf.gpu_core import CudaAtlantisCore
 from training.demon_attack_sf.gpu_core import CudaDemonAttackCore

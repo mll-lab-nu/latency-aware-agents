@@ -136,7 +136,7 @@ def test_history_export_preserves_state_and_task_action_contract(tmp_path, task,
     from test_rollout_hf_parquet import write_rollout_fixture
     from latency_bench.core.config import load_config
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
-    from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+    from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 
     if task == "deadly_corridor":
         action_spec = action_spec_for_env(task)

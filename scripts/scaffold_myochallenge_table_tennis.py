@@ -15,7 +15,7 @@ from scaffold_myochallenge import (
     build_myochallenge_probe_report,
     write_myochallenge_outputs,
 )
-from latency_bench.envs.myochallenge_table_tennis import (
+from latency_bench.envs.tasks.myochallenge_table_tennis import (
     GYMNASIUM_MYOCHALLENGE_TABLE_TENNIS_P2_ENV_ID,
     MYOCHALLENGE_TABLE_TENNIS_P2_BASE_ENV_ID,
     MYOCHALLENGE_TABLE_TENNIS_P2_CAMERA,
@@ -25,7 +25,7 @@ from latency_bench.envs.myochallenge_table_tennis import (
 
 MYOCHALLENGE_TABLE_TENNIS_TASK_NAME = "myochallenge_table_tennis_p2"
 MYOCHALLENGE_TABLE_TENNIS_REGISTRATION_IMPORT = (
-    "latency_bench.envs.myochallenge_table_tennis"
+    "latency_bench.envs.tasks.myochallenge_table_tennis"
 )
 MYOCHALLENGE_TABLE_TENNIS_PROMPT = (
     "Return the incoming ping-pong ball with the paddle so it contacts the "

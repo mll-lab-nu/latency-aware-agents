@@ -7,15 +7,15 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 
-import latency_bench.envs.myochallenge_table_tennis as myo_env
-from latency_bench.envs.myosuite import (
+import latency_bench.envs.tasks.myochallenge_table_tennis as myo_env
+from latency_bench.envs.tasks.myosuite import (
     MYOSUITE_ENV_ID,
     MyoSuiteEnv,
     make_myo_suite_env,
 )
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from scripts.scaffold_myochallenge import build_myochallenge_env_config
 
 
@@ -151,7 +151,7 @@ def test_generic_myo_registration_and_box_contract():
         task_name="myochallenge_baoding_p1",
         benchmark_env_id=MYOSUITE_ENV_ID,
         base_env_id="myoChallengeBaodingP1-v1",
-        registration_imports=["latency_bench.envs.myosuite"],
+        registration_imports=["latency_bench.envs.tasks.myosuite"],
         base_make_kwargs={"normalize_act": True},
         camera_name="default",
         render_width=224,

@@ -36,7 +36,7 @@ def test_asterix_cule_gpu_matches_ale_fixed_trace():
         pytest.skip("CUDA is not available")
 
     from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-    from latency_bench.envs.gymnasium_asterix import make_latency_sensitive_asterix_env
+    from latency_bench.envs.tasks.asterix import make_latency_sensitive_asterix_env
     from training.asterix_sf.gpu_core import CudaAsterixCore
     from training.common.gpu_latency import CudaLatencyScheduler
 

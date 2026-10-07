@@ -196,7 +196,7 @@ def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
     task_contract = {
         "task_name": "walker2d_continuous_torque",
         "env_id": "LatencyBench/Walker2dContinuous-v0",
-        "registration_imports": ["latency_bench.envs.gymnasium_walker2d"],
+        "registration_imports": ["latency_bench.envs.tasks.walker2d"],
         "make_kwargs": {"base_env_id": "Walker2d-v4", "render_mode": "rgb_array"},
         "base_prompt": "Move forward.",
         "env_fps": 125.0,
@@ -246,7 +246,7 @@ def test_translation_gymnasium_discrete_restores_action_catalog(tmp_path):
     task_contract = {
         "task_name": "inverted_pendulum_discrete",
         "env_id": "LatencyBench/InvertedPendulumDiscrete-v0",
-        "registration_imports": ["latency_bench.envs.gymnasium_mujoco"],
+        "registration_imports": ["latency_bench.envs.tasks.inverted_pendulum"],
         "make_kwargs": {
             "base_env_id": "InvertedPendulum-v4",
             "base_make_kwargs": {},
@@ -592,7 +592,7 @@ def test_runner_applies_eval_only_gymnasium_reset_kwargs(tmp_path, monkeypatch):
     task_contract = {
         "task_name": "air_raid",
         "env_id": "LatencyBench/AirRaid-v0",
-        "registration_imports": ["latency_bench.envs.gymnasium_air_raid"],
+        "registration_imports": ["latency_bench.envs.tasks.air_raid"],
         "make_kwargs": {"noop_max": 0},
         "env_fps": 50.0,
         "obs_fps": 12.5,

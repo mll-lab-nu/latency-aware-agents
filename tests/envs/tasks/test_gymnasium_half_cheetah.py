@@ -6,11 +6,11 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-import latency_bench.envs.gymnasium_half_cheetah as gymnasium_half_cheetah
+import latency_bench.envs.tasks.half_cheetah as gymnasium_half_cheetah
 import scripts.scaffold_gymnasium_half_cheetah as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from training.gymnasium_sf.integration import build_train_cfg_from_config
 
 
@@ -121,7 +121,7 @@ def test_half_cheetah_configs_share_native_zero_latency_contract(config_path):
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 
     assert env_cfg["env_id"] == gymnasium_half_cheetah.GYMNASIUM_HALF_CHEETAH_ENV_ID
-    assert env_cfg["registration_imports"] == ["latency_bench.envs.gymnasium_half_cheetah"]
+    assert env_cfg["registration_imports"] == ["latency_bench.envs.tasks.half_cheetah"]
     assert env_cfg["make_kwargs"] == {
         "base_env_id": "HalfCheetah-v4",
         "render_mode": "rgb_array",

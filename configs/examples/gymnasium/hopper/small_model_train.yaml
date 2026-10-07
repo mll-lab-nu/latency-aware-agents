@@ -20,7 +20,7 @@ env:
   name: gymnasium
   task_name: hopper
   env_id: LatencyBench/Hopper-v0
-  registration_imports: [latency_bench.envs.gymnasium_hopper]
+  registration_imports: [latency_bench.envs.tasks.hopper]
   make_kwargs:
     base_env_id: Hopper-v4
     render_mode: rgb_array

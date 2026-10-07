@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from latency_bench.core.types import Action, OrderingPolicy, PolicyOutput
-from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
+from latency_bench.envs.base import EnvAdapter
+from latency_bench.envs.adapters.dummy import DummyEnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.executors.factory import build_executor
 import latency_bench.executors.factory as executor_factory

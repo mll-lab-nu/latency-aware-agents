@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import yaml
 
-import latency_bench.envs.gymnasium_atlantis as gymnasium_atlantis
+import latency_bench.envs.tasks.atlantis as gymnasium_atlantis
 import scripts.scaffold_gymnasium_atlantis as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config

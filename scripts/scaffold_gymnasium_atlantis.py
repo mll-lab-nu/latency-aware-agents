@@ -10,7 +10,7 @@ from typing import Any
 import gymnasium as gym
 import yaml
 
-from latency_bench.envs.gymnasium_atlantis import GYMNASIUM_ATLANTIS_ENV_ID
+from latency_bench.envs.tasks.atlantis import GYMNASIUM_ATLANTIS_ENV_ID
 
 
 ATLANTIS_ENV_FPS = 60
@@ -59,7 +59,7 @@ def build_atlantis_env_config(*, base_env_id: str, render_mode: str, screen_size
         "name": "gymnasium",
         "task_name": "atlantis",
         "env_id": GYMNASIUM_ATLANTIS_ENV_ID,
-        "registration_imports": ["latency_bench.envs.gymnasium_atlantis"],
+        "registration_imports": ["latency_bench.envs.tasks.atlantis"],
         "make_kwargs": {"base_env_id": base_env_id, "render_mode": render_mode, "screen_size": screen_size, "noop_max": noop_max, "base_make_kwargs": base_make_kwargs},
         "env_fps": ATLANTIS_ENV_FPS,
         "obs_fps": ATLANTIS_ENV_FPS / 4,

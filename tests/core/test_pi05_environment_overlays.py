@@ -6,6 +6,7 @@ import json
 import pytest
 
 from latency_bench.core.config import load_config
+from latency_bench.envs.tasks.contracts import registration_module_name
 from helpers import REPO_ROOT
 
 CONFIGS = REPO_ROOT / 'configs/examples/gymnasium'
@@ -34,7 +35,13 @@ def test_pinned_pi05_environment_overlay(monkeypatch, env, state_dim, action_dim
         assert manifest['state_dim'] == state_dim
         assert len(manifest['state_labels']) == state_dim
     profile = load_config(SOURCES / env / 'profile_latency/profiling/sessions/0/generated.yaml')
-    assert overlay['env'] == profile['env']
+    profile_env = {
+        **profile['env'],
+        'registration_imports': [
+            registration_module_name(module) for module in profile['env']['registration_imports']
+        ],
+    }
+    assert overlay['env'] == profile_env
     assert overlay['source_clock']['obs_stride_raw_frames'] == manifest['obs_stride_raw_frames']
     assert overlay['env']['env_fps'] == (50 if env == 'air_raid' else 10)
     assert overlay['env']['obs_fps'] == (12.5 if env == 'air_raid' else 10)

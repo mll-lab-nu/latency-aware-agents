@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""PPO evaluation and the existing native-backend latency evaluation CLI."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,91 +9,26 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import gymnasium as gym
 import numpy as np
 import torch
 import yaml
 
 
+# Preserve direct script invocation from the simulator's Python environment.
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "third_party" / "MIKASA-Robo"))
 
-from latency_bench.core.types import Action, Observation  # noqa: E402
-from latency_bench.executors.gpu_batched_env_step_backend import (  # noqa: E402
-    GpuBatchedEnvStepBackendBase,
-    SlotStepOutcome,
-)
+from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend  # noqa: E402
+from latency_bench.envs.tasks.mikasa import make_ppo_env  # noqa: E402
 
 
-
-ENV_ID = "InterceptGrabFast-VLA-v0"
-INSTRUCTION = "Intercept the rolling ball and grasp it to stop it."
 START_SEED = 4242424242
-MIKASA_IMAGE_VIEWS_INFO_KEY = "mikasa_image_views"
-MIKASA_STATE_INFO_KEY = "mikasa_proprio"
 
 
 def _scalar(value: Any) -> Any:
     if torch.is_tensor(value):
         return value.detach().reshape(-1)[0].cpu().item()
     return np.asarray(value).reshape(-1)[0].item()
-
-
-def _make_raw_env(
-    obs_mode: str,
-    num_envs: int = 1,
-    simulator_device: str = "gpu",
-):
-    import mikasa_robo_suite.vla.memory_envs  # noqa: F401
-
-    return gym.make(
-        ENV_ID,
-        num_envs=num_envs,
-        obs_mode=obs_mode,
-        control_mode="pd_ee_delta_pose",
-        render_mode="all",
-        sim_backend=simulator_device,
-        render_backend=simulator_device,
-        reward_mode="normalized_dense",
-    )
-
-
-def _make_ppo_env(num_envs: int = 1, simulator_device: str = "gpu"):
-    from baselines.ppo.ppo_memtasks import FlattenRGBDObservationWrapper
-    from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
-    from mikasa_robo_suite.vla.dataset_collectors.get_mikasa_robo_datasets import (
-        env_info,
-    )
-
-    env = _make_raw_env(
-        "state",
-        num_envs=num_envs,
-        simulator_device=simulator_device,
-    )
-    wrappers, _ = env_info(ENV_ID)
-    for wrapper, kwargs in wrappers:
-        env = wrapper(env, **kwargs)
-    env = FlattenRGBDObservationWrapper(env, rgb=False, depth=False, state=True)
-    return ManiSkillVectorEnv(
-        env,
-        num_envs,
-        ignore_terminations=True,
-        record_metrics=True,
-    )
-
-
-def _make_vla_env(num_envs: int = 1, simulator_device: str = "gpu"):
-    from mikasa_robo_suite.vla.utils.apply_wrappers import apply_mikasa_vla_wrappers
-
-    return apply_mikasa_vla_wrappers(
-        _make_raw_env(
-            "rgb",
-            num_envs=num_envs,
-            simulator_device=simulator_device,
-        ),
-        include_overlays=False,
-    )
 
 
 class _PpoPolicy:
@@ -111,135 +48,8 @@ class _PpoPolicy:
             )
 
 
-class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
-    """Own the native MIKASA simulator and its 7D action contract."""
-
-    backend_name = "mikasa_gpu_batched"
-
-    def __init__(self, *, config: dict[str, Any], num_slots: int, env=None):
-        noop_action = Action(
-            value=np.asarray(config["env"]["noop_action"], dtype=np.float32),
-            name="noop",
-            is_noop=True,
-        )
-        super().__init__(
-            config=config,
-            noop_action=noop_action,
-            num_slots=num_slots,
-            action_space=gym.spaces.Box(-1.0, 1.0, shape=(7,), dtype=np.float32),
-        )
-        self.env = (
-            _make_vla_env(
-                num_envs=num_slots,
-                simulator_device=config["env"]["simulator_device"],
-            )
-            if env is None
-            else env
-        )
-        self._episode_seeds = [0] * num_slots
-        self._success = np.zeros(num_slots, dtype=np.bool_)
-        self._observation, _ = self.env.reset(seed=self._episode_seeds)
-
-    def _reset_slot_observation(self, slot_id: int, *, seed: int | None) -> Observation:
-        # The inference interpreter does not need the native task suite at spawn.
-        from mikasa_robo_suite.seed_reset import reset_seeded_slot
-
-        if seed is not None:
-            self._episode_seeds[slot_id] = int(seed)
-        self._observation, _ = reset_seeded_slot(
-            self.env,
-            slot_id=slot_id,
-            seed=self._episode_seeds[slot_id],
-        )
-        self._env_steps[slot_id] = 0
-        self._success[slot_id] = False
-        return self._observation_for_slot(slot_id)
-
-    def _observe_slot_observations(
-        self,
-        slot_ids: list[int],
-    ) -> dict[int, Observation]:
-        return {slot_id: self._observation_for_slot(slot_id) for slot_id in slot_ids}
-
-    def _step_cores(
-        self,
-        slot_ids: list[int],
-        *,
-        actions: np.ndarray,
-        active_mask: np.ndarray,
-    ) -> Any:
-        del slot_ids, active_mask
-        tensor_actions = torch.as_tensor(
-            actions,
-            dtype=torch.float32,
-            device=self.env.unwrapped.device,
-        )
-        self._observation, reward, terminated, truncated, info = self.env.step(
-            tensor_actions
-        )
-        return reward, terminated, truncated, info
-
-    def _slot_step_outcome(self, state: Any, slot_id: int) -> SlotStepOutcome:
-        reward, terminated, truncated, info = state
-        success = bool(_slot_value(info["success"], slot_id))
-        self._success[slot_id] |= success
-        return SlotStepOutcome(
-            reward=float(_slot_value(reward, slot_id)),
-            done=bool(_slot_value(terminated, slot_id)),
-            truncated=bool(_slot_value(truncated, slot_id)),
-            info={
-                "success": success,
-                "task_metrics": {"success": float(self._success[slot_id])},
-            },
-        )
-
-    def _observation_for_slot(self, slot_id: int) -> Observation:
-        rgb = self._observation["rgb"]
-        if torch.is_tensor(rgb):
-            rgb = rgb.detach().cpu().numpy()
-        rgb = np.asarray(rgb)
-        views = np.stack(
-            [
-                np.asarray(rgb[slot_id, :, :, :3], dtype=np.uint8),
-                np.asarray(rgb[slot_id, :, :, 3:6], dtype=np.uint8),
-            ]
-        )
-        metadata = {
-            MIKASA_IMAGE_VIEWS_INFO_KEY: views,
-            MIKASA_STATE_INFO_KEY: self._observation["proprio"][slot_id].detach().cpu().numpy(),
-            "slot_id": slot_id,
-        }
-        if "action_prefix_state_key" in self.config["env"]:
-            metadata["action_prefix_state_key"] = self.config["env"]["action_prefix_state_key"]
-        if "returned_action_context" in self.config["env"]:
-            context = self.config["env"]["returned_action_context"]
-            metadata["returned_action_context"] = {
-                **context,
-                "order": np.asarray(context["order"]),
-                "low": np.asarray(context["low"], dtype=np.float32),
-                "high": np.asarray(context["high"], dtype=np.float32),
-            }
-        return Observation(
-            data=None,
-            env_step=int(self._env_steps[slot_id]),
-            sim_time_ms=float(self._env_steps[slot_id]) * self._frame_ms,
-            metadata=metadata,
-        )
-
-    def close(self) -> None:
-        if not self.closed:
-            self.env.close()
-        super().close()
-
-
-def _slot_value(value: Any, slot_id: int) -> Any:
-    if torch.is_tensor(value):
-        return value.detach().reshape(-1)[slot_id].cpu().item()
-    return np.asarray(value).reshape(-1)[slot_id].item()
-
-
 def _evaluate(args: argparse.Namespace) -> dict[str, Any]:
-    env = _make_ppo_env()
+    env = make_ppo_env()
     policy = _PpoPolicy(env, args.checkpoint)
     seeds = []
     successes = []
@@ -337,6 +147,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     _evaluate(args)
+
 
 
 if __name__ == "__main__":

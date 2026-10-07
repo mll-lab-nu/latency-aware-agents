@@ -88,12 +88,12 @@
         <p class="section-kicker">03 · Generated implementation</p>
         <h2>How the decision becomes runnable files</h2>
         <div class="file-grid">
-          <article><code>latency_bench/envs/gymnasium_pendulum.py</code><p>Registers <code>LatencyBench/PendulumDiscrete-v0</code> and maps a catalog ID to a native <code>(1,) float32</code> torque.</p></article>
+          <article><code>latency_bench/envs/tasks/pendulum.py</code><p>Registers <code>LatencyBench/PendulumDiscrete-v0</code> and maps a catalog ID to a native <code>(1,) float32</code> torque.</p></article>
           <article><code>scripts/scaffold_gymnasium_pendulum.py</code><p>Probes the pinned API and emits the accepted environment block without guessing the action catalog.</p></article>
           <article><code>configs/examples/gymnasium/pendulum/</code><p>Contains grouped small-model train/eval, latency-bench eval, and unexecuted StarVLA eval configs.</p></article>
-          <article><code>tests/envs/test_gymnasium_pendulum.py</code><p>Checks registration, torque dtype/value, no-op latency semantics, probe output, timing, and contract equality.</p></article>
+          <article><code>tests/envs/tasks/test_gymnasium_pendulum.py</code><p>Checks registration, torque dtype/value, no-op latency semantics, probe output, timing, and contract equality.</p></article>
         </div>
-        <p><a href="../../../../latency_bench/envs/gymnasium_pendulum.py">Wrapper source</a> · <a href="../../../../scripts/scaffold_gymnasium_pendulum.py">Scaffold source</a> · <a href="../../../../configs/examples/gymnasium/pendulum/">Four configs</a> · <a href="../../../../tests/envs/test_gymnasium_pendulum.py">Semantic tests</a></p>
+        <p><a href="../../../../latency_bench/envs/tasks/pendulum.py">Wrapper source</a> · <a href="../../../../scripts/scaffold_gymnasium_pendulum.py">Scaffold source</a> · <a href="../../../../configs/examples/gymnasium/pendulum/">Four configs</a> · <a href="../../../../tests/envs/tasks/test_gymnasium_pendulum.py">Semantic tests</a></p>
       </section>
 
       <section id="contract">
@@ -176,8 +176,8 @@ conda activate latency
 cd /workspace/latency-sensitive-bench
 
 SDL_VIDEODRIVER=dummy pytest -q \
-  tests/envs/test_gymnasium_pendulum.py \
-  tests/envs/test_gymnasium_env_adapter.py \
+  tests/envs/tasks/test_gymnasium_pendulum.py \
+  tests/envs/adapters/test_gymnasium_env_adapter.py \
   tests/training/test_gymnasium_sf.py \
   tests/policies/test_generic_gymnasium_starvla_policy.py
 

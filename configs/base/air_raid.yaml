@@ -21,7 +21,7 @@ env:
   name: gymnasium
   task_name: air_raid
   env_id: LatencyBench/AirRaid-v0
-  registration_imports: [latency_bench.envs.gymnasium_air_raid]
+  registration_imports: [latency_bench.envs.tasks.air_raid]
   make_kwargs:
     base_env_id: ALE/AirRaid-v5
     render_mode: rgb_array

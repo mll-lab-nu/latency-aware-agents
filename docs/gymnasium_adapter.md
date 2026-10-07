@@ -313,21 +313,21 @@ mapping must be identical in all four files.
 When the native interface is not directly compatible, also add:
 
 ```text
-latency_bench/envs/<task_wrapper>.py
+latency_bench/envs/tasks/<task_wrapper>.py
 scripts/scaffold_<task_family>.py       # only when a reusable probe is useful
-tests/envs/test_<task_wrapper>.py
+tests/envs/tasks/test_<task_wrapper>.py
 ```
 
 The InvertedPendulum example shows the finite-catalog bridge for a native
 continuous action API:
 
-- [`latency_bench/envs/gymnasium_mujoco.py`](../latency_bench/envs/gymnasium_mujoco.py)
+- [`latency_bench/envs/tasks/inverted_pendulum.py`](../latency_bench/envs/tasks/inverted_pendulum.py)
   maps five catalog IDs to five user-approved scalar forces;
 - [`scripts/scaffold_gymnasium_mujoco.py`](../scripts/scaffold_gymnasium_mujoco.py)
   records the pinned API facts and prints the accepted `env` block;
 - [`configs/examples/gymnasium/inverted_pendulum/`](../configs/examples/gymnasium/inverted_pendulum/)
   contains the four grouped configs;
-- [`tests/envs/test_gymnasium_mujoco.py`](../tests/envs/test_gymnasium_mujoco.py)
+- [`tests/envs/tasks/test_gymnasium_mujoco.py`](../tests/envs/tasks/test_gymnasium_mujoco.py)
   verifies registration, native-action mapping, and the frozen contract.
 
 The Walker2d example shows the native Box case: its six-dimensional torque
@@ -364,7 +364,7 @@ Focused release tests include:
 
 ```bash
 pytest -q \
-  tests/envs/test_gymnasium_env_adapter.py \
+  tests/envs/adapters/test_gymnasium_env_adapter.py \
   tests/training/test_gymnasium_sf.py \
   tests/data/test_generic_gymnasium_teacher_export.py \
   tests/policies/test_generic_gymnasium_starvla_policy.py

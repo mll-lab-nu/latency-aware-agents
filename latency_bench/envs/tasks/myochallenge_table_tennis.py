@@ -11,7 +11,7 @@ from typing import Any
 
 import gymnasium as gym
 
-from latency_bench.envs.myosuite import MyoSuiteEnv
+from latency_bench.envs.tasks.myosuite import MyoSuiteEnv
 
 
 GYMNASIUM_MYOCHALLENGE_TABLE_TENNIS_P2_ENV_ID = "LatencyBench/MyoChallengeTableTennisP2-v0"

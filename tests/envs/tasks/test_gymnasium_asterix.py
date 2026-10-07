@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import yaml
 
-import latency_bench.envs.gymnasium_asterix as gymnasium_asterix
+import latency_bench.envs.tasks.asterix as gymnasium_asterix
 import scripts.scaffold_gymnasium_asterix as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config

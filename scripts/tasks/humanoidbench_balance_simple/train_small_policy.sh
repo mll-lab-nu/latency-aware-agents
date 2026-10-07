@@ -12,7 +12,7 @@ if [[ -n "${BALANCE_TRAIN_DIR:-}" ]]; then
 fi
 
 cd "${REPO_ROOT}"
-uv run --project . python -m latency_bench.envs.humanoidbench_sonic_assets \
+uv run --project . python -m latency_bench.envs.tasks.humanoidbench.assets \
   --cache-dir "${ASSET_CACHE_DIR}"
 uv run --project . python -m training.train \
   --config "${TRAIN_CONFIG}" \

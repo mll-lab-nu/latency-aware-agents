@@ -38,6 +38,38 @@ conditions and streaming metrics are intentional performance mechanisms. Keep
 measurement boundaries and synchronization points stable when refactoring.
 Optional simulator/model imports remain lazy where they isolate environments.
 
+## Environment layers
+
+`latency_bench/envs/base.py` defines `EnvAdapter`, the raw RGB metadata key and
+`RawRgbFrameStackBuffer`. The buffer copies frames and exposes an oldest-to-newest
+RGB stack for VLA inference and dataset export, separately from the teacher's
+resized or grayscale observations. `factory.py` constructs benchmark adapters;
+`atari.py` holds the shared true-episode versus life-loss semantics.
+
+`envs/adapters/` contains the Gymnasium, Flappy, DemonAttack, ViZDoom and dummy
+benchmark adapters. `envs/tasks/` contains native task wrappers and registration,
+with HumanoidBench controls/assets/contracts grouped under `tasks/humanoidbench/`.
+Native tasks keep the Gymnasium interface; the benchmark adapters implement
+`EnvAdapter`. The Swimmer MuJoCo 3 XML lives in `tasks/assets/` and is included in
+the Python package.
+
+MIKASA environment construction lives in `tasks/mikasa.py`; its native batched
+`MikasaEnvStepBackend` lives in `adapters/mikasa.py`. The task module exposes the
+pinned MIKASA source checkout to the simulator interpreter, while native imports
+remain inside the construction/reset functions so inference-worker spawn does
+not require ManiSkill. The existing `scripts/mikasa/evaluate.py` CLI still owns
+PPO evaluation and explicitly injects the batched backend for simulated runs.
+Realtime uses the factory's existing single-slot backend adapter. Automatic
+backend selection through `latency_bench.run` is unchanged.
+
+Current configs and Python callers use these paths. Saved checkpoint and dataset
+contracts can still contain the former flat registration module names. The
+explicit mapping in `tasks/contracts.py::registration_module_name` is applied at
+environment construction and contract-comparison boundaries; it changes only
+known module names. It does not rewrite environment IDs, actions, states, clocks
+or archived files. Unknown/custom module names keep normal import behavior.
+Archived Pi05 source metadata and its SHA256 manifest remain byte-for-byte intact.
+
 ## Configuration and artifacts
 
 YAML `__base__` paths are relative to the containing YAML file. Base files are

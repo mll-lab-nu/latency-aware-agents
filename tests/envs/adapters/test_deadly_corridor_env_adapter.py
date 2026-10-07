@@ -6,14 +6,14 @@ import numpy as np
 import pytest
 
 from latency_bench.core.types import Action
-from latency_bench.envs.deadly_corridor import (
+from latency_bench.envs.adapters.deadly_corridor import (
     DeadlyCorridorEnvAdapter,
     DeadlyCorridorVlaEnvAdapter,
     _semantic_to_runtime_multibinary,
     _deadly_runtime_button_names,
     DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER,
 )
-from latency_bench.envs.raw_rgb import (
+from latency_bench.envs.base import (
     ENV_RAW_RGB_FRAME_STACK_INFO_KEY,
     RawRgbFrameStackBuffer,
 )

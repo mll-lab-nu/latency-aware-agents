@@ -477,7 +477,7 @@ def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
 def test_g1_checkpoint_metadata_publishes_absolute_action_labels_without_residual_bounds():
     from latency_bench.data.action_layouts import G1_SONIC_ACTION_SPEC
     from latency_bench.data.sf_teacher_config import _gymnasium_task_metadata
-    from latency_bench.envs.humanoidbench_sonic_contract import (
+    from latency_bench.envs.tasks.humanoidbench.contract import (
         G1_BODY_JOINT_NAMES,
         G1_HAND_JOINT_NAMES,
         MUJOCO_INDEX_FOR_POLICY,

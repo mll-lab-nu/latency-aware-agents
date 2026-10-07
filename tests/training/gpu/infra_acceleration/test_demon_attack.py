@@ -562,7 +562,7 @@ def test_demon_attack_latency_bench_eval_factory_keeps_cpu_adapter_for_gpu_train
         def __init__(self, **kwargs):
             captured.update(kwargs)
 
-    import latency_bench.envs.demon_attack as demon_attack
+    import latency_bench.envs.adapters.demon_attack as demon_attack
 
     monkeypatch.setattr(demon_attack, "DemonAttackEnvAdapter", FakeDemonAttackEnvAdapter)
     config = build_latency_bench_config_from_training_config(

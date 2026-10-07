@@ -5,7 +5,7 @@ from typing import Any
 from latency_bench.core.types import Action, ActionEvent, StepRecord
 from latency_bench.logging.metrics import active_action_step_info
 from latency_bench.utils.io import to_jsonable
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 __all__ = ["to_jsonable", "STEP_INFO_LOG_OMITTED_KEYS", "step_record_info", "build_step_record"]

@@ -14,6 +14,8 @@ import gymnasium as gym
 import numpy as np
 import yaml
 
+from latency_bench.envs.tasks.contracts import registration_module_name
+
 
 def build_myochallenge_probe_report(
     *,
@@ -28,7 +30,7 @@ def build_myochallenge_probe_report(
 ) -> dict[str, Any]:
     """Probe one MyoSuite registration and return runtime facts."""
     for module_name in registration_imports:
-        importlib.import_module(module_name)
+        importlib.import_module(registration_module_name(module_name))
 
     env = gym.make(
         benchmark_env_id,

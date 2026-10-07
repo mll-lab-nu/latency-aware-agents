@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from latency_bench.core.types import Action
-from latency_bench.envs.flappy import FlappyBirdEnvAdapter
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.adapters.flappy import FlappyBirdEnvAdapter
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 def _make_adapter() -> FlappyBirdEnvAdapter:
@@ -76,7 +76,7 @@ def test_flappy_raw_rgb_export_preserves_unresized_render_stack(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr("latency_bench.envs.flappy.gymnasium.make", lambda *args, **kwargs: FakeBaseEnv())
+    monkeypatch.setattr("latency_bench.envs.adapters.flappy.gymnasium.make", lambda *args, **kwargs: FakeBaseEnv())
 
     env = FlappyBirdEnvAdapter(
         obs_resize=(2, 2),
@@ -162,7 +162,7 @@ def test_flappy_gpu_backend_uses_explicit_renderer_args(monkeypatch):
         captured["gym_make_kwargs"] = kwargs
         return FakeBaseEnv()
 
-    monkeypatch.setattr("latency_bench.envs.flappy.gymnasium.make", fake_make)
+    monkeypatch.setattr("latency_bench.envs.adapters.flappy.gymnasium.make", fake_make)
     monkeypatch.setattr("training.flappy_sf.gpu_rendering.FlappyGpuRenderedObsWrapper", FakeGpuRenderWrapper)
     noop = Action(value=0, name="noop", is_noop=True)
 
@@ -237,7 +237,7 @@ def test_flappy_render_game_frame_returns_unprocessed_game_rgb(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr("latency_bench.envs.flappy.gymnasium.make", lambda *args, **kwargs: FakeBaseEnv())
+    monkeypatch.setattr("latency_bench.envs.adapters.flappy.gymnasium.make", lambda *args, **kwargs: FakeBaseEnv())
 
     env = FlappyBirdEnvAdapter(
         obs_resize=(4, 4),
@@ -272,7 +272,7 @@ def test_flappy_resize_keeps_hwc_rgb_layout():
 
 
 def test_flappy_chw_render_is_converted_to_hwc_rgb(monkeypatch):
-    from latency_bench.envs import flappy as flappy_module
+    from latency_bench.envs.adapters import flappy as flappy_module
 
     class FakeGymEnv:
         def reset(self, seed=None):
@@ -323,7 +323,7 @@ def test_flappy_cpu_observe_stacks_raw_frames_between_policy_observations():
 
 
 def test_flappy_gpu_observe_stacks_only_policy_observed_frames(monkeypatch):
-    from latency_bench.envs import flappy as flappy_module
+    from latency_bench.envs.adapters import flappy as flappy_module
 
     class FakeBaseEnv:
         action_space = gymnasium.spaces.Discrete(2)
@@ -383,7 +383,7 @@ def test_flappy_gpu_observe_stacks_only_policy_observed_frames(monkeypatch):
 
 
 def test_flappy_gpu_raw_rgb_export_reads_wrapper_info(monkeypatch):
-    from latency_bench.envs import flappy as flappy_module
+    from latency_bench.envs.adapters import flappy as flappy_module
 
     class FakeBaseEnv:
         action_space = gymnasium.spaces.Discrete(2)

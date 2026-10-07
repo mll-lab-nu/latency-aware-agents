@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import yaml
 
-import latency_bench.envs.gymnasium_mujoco as gymnasium_mujoco
+import latency_bench.envs.tasks.inverted_pendulum as gymnasium_mujoco
 import scripts.scaffold_gymnasium_mujoco as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
@@ -198,7 +198,7 @@ def test_inverted_pendulum_configs_share_task_contract_and_l1_latency(config_pat
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 
     assert env_cfg["env_id"] == gymnasium_mujoco.GYMNASIUM_MUJOCO_INVERTED_PENDULUM_ENV_ID
-    assert env_cfg["registration_imports"] == ["latency_bench.envs.gymnasium_mujoco"]
+    assert env_cfg["registration_imports"] == ["latency_bench.envs.tasks.inverted_pendulum"]
     assert env_cfg["make_kwargs"] == {
         "base_env_id": "InvertedPendulum-v4",
         "render_mode": "rgb_array",

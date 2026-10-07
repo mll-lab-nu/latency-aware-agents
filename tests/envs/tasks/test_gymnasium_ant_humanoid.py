@@ -6,13 +6,13 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-import latency_bench.envs.gymnasium_ant as gymnasium_ant
-import latency_bench.envs.gymnasium_humanoid as gymnasium_humanoid
+import latency_bench.envs.tasks.ant as gymnasium_ant
+import latency_bench.envs.tasks.humanoid as gymnasium_humanoid
 import scripts.scaffold_gymnasium_ant as ant_scaffold
 import scripts.scaffold_gymnasium_humanoid as humanoid_scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from training.gymnasium_sf.integration import build_train_cfg_from_config
 
 

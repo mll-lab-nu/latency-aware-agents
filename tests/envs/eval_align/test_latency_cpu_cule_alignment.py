@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from latency_bench.core.types import Action
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 
 FRAME_STACK = 4
@@ -39,7 +39,7 @@ def test_cule_life_loss_soft_reset_matches_ale_and_continues_the_episode(configu
     pytest.importorskip("cv2")
 
     from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
-    from latency_bench.envs.demon_attack import DemonAttackEnvAdapter
+    from latency_bench.envs.adapters.demon_attack import DemonAttackEnvAdapter
     from latency_bench.executors.demon_attack_gpu_batched_backend import (
         DemonAttackGpuBatchedEnvStepBackend,
     )
@@ -316,7 +316,7 @@ def test_latency_cule_backend_rejects_non_fire_reset_mode():
 
 
 def _make_latency_cpu_env():
-    from latency_bench.envs.demon_attack import DemonAttackEnvAdapter
+    from latency_bench.envs.adapters.demon_attack import DemonAttackEnvAdapter
 
     return DemonAttackEnvAdapter(
         env_fps=60.0,

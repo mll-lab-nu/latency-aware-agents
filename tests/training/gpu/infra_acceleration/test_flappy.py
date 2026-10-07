@@ -145,7 +145,7 @@ def _select_info(info, keys):
 class _ScalarGpuOracle:
     def __init__(self, cfg, env_config, batch_size):
         from latency_bench.core.clock import EnvClock
-        from latency_bench.envs.flappy import FlappyObservationConfig, FlappyTorchObservationPipeline
+        from latency_bench.envs.adapters.flappy import FlappyObservationConfig, FlappyTorchObservationPipeline
         from training.common.latency_config import (
             sample_factory_latency_params_from_flat_config,
             sample_factory_latency_seed_from_flat_config,

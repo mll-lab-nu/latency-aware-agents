@@ -8,7 +8,7 @@ import numpy as np
 
 from latency_bench.core.types import Action
 from latency_bench.envs.factory import build_env_adapter
-import latency_bench.envs.gymnasium_pendulum  # registers the task-owned wrapper
+import latency_bench.envs.tasks.pendulum  # registers the task-owned wrapper
 
 
 MAKE_KWARGS = {
@@ -26,7 +26,7 @@ def main() -> None:
             "name": "gymnasium",
             "task_name": "pendulum_discrete",
             "env_id": "LatencyBench/PendulumDiscrete-v0",
-            "registration_imports": ["latency_bench.envs.gymnasium_pendulum"],
+            "registration_imports": ["latency_bench.envs.tasks.pendulum"],
             "make_kwargs": MAKE_KWARGS,
             "env_fps": 20.0,
             "obs_fps": 20.0,

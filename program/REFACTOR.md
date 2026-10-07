@@ -120,7 +120,7 @@
 
 - [x] **状态：已完成**
 - **决定：** 按环境真实按钮名映射；取不到布局时报错，未知名直接查表失败。
-- **代码 / 验收归属：** [deadly_corridor.py](../latency_bench/envs/deadly_corridor.py)；[test_deadly_corridor_env_adapter.py](../tests/envs/test_deadly_corridor_env_adapter.py)。
+- **代码 / 验收归属：** [deadly_corridor.py](../latency_bench/envs/adapters/deadly_corridor.py)；[test_deadly_corridor_env_adapter.py](../tests/envs/adapters/test_deadly_corridor_env_adapter.py)。
 
 <a id="rf-009"></a>
 

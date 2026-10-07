@@ -11,7 +11,7 @@ from gymnasium.spaces import Box
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from latency_bench.envs.demon_attack import make_demon_attack_benchmark_env
+from latency_bench.envs.adapters.demon_attack import make_demon_attack_benchmark_env
 from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
 from training.common.utils import env_instance_seed, str2bool
 from training.common.config_adapter import (

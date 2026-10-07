@@ -17,7 +17,7 @@ env:
   task_name: ant
   env_id: LatencyBench/AntContinuous-v0
   registration_imports:
-  - latency_bench.envs.gymnasium_ant
+  - latency_bench.envs.tasks.ant
   make_kwargs:
     base_env_id: Ant-v4
     render_mode: rgb_array

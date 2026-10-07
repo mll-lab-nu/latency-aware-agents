@@ -22,7 +22,7 @@ from humanoid_bench.env import (
 )
 from humanoid_bench.robots import G1
 
-from latency_bench.envs.humanoidbench_sonic_contract import (
+from latency_bench.envs.tasks.humanoidbench.contract import (
     G1_BODY_JOINT_NAMES,
     G1_DEFAULT_ANGLES,
     G1_HAND_JOINT_NAMES,

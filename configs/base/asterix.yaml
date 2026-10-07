@@ -21,7 +21,7 @@ env:
   name: gymnasium
   task_name: asterix
   env_id: LatencyBench/Asterix-v0
-  registration_imports: [latency_bench.envs.gymnasium_asterix]
+  registration_imports: [latency_bench.envs.tasks.asterix]
   make_kwargs:
     base_env_id: ALE/Asterix-v5
     render_mode: rgb_array

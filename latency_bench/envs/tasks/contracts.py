@@ -9,6 +9,35 @@ from latency_bench.data.action_layouts import (
 )
 
 
+_PRE_RELEASE_REGISTRATION_MODULES = {
+    "latency_bench.envs.gymnasium_air_raid": "latency_bench.envs.tasks.air_raid",
+    "latency_bench.envs.gymnasium_ant": "latency_bench.envs.tasks.ant",
+    "latency_bench.envs.gymnasium_asterix": "latency_bench.envs.tasks.asterix",
+    "latency_bench.envs.gymnasium_atlantis": "latency_bench.envs.tasks.atlantis",
+    "latency_bench.envs.gymnasium_half_cheetah": "latency_bench.envs.tasks.half_cheetah",
+    "latency_bench.envs.gymnasium_hopper": "latency_bench.envs.tasks.hopper",
+    "latency_bench.envs.gymnasium_humanoid": "latency_bench.envs.tasks.humanoid",
+    "latency_bench.envs.gymnasium_mujoco": "latency_bench.envs.tasks.inverted_pendulum",
+    "latency_bench.envs.gymnasium_pendulum": "latency_bench.envs.tasks.pendulum",
+    "latency_bench.envs.gymnasium_swimmer": "latency_bench.envs.tasks.swimmer",
+    "latency_bench.envs.gymnasium_walker2d": "latency_bench.envs.tasks.walker2d",
+    "latency_bench.envs.humanoidbench_sonic": "latency_bench.envs.tasks.humanoidbench.sonic",
+    "latency_bench.envs.myochallenge_table_tennis": "latency_bench.envs.tasks.myochallenge_table_tennis",
+    "latency_bench.envs.myosuite": "latency_bench.envs.tasks.myosuite",
+}
+
+
+def registration_module_name(module_name: str) -> str:
+    """Resolve renamed task modules stored in pre-release checkpoint contracts.
+
+    Only these module paths changed. Preserve custom modules and all task,
+    action, state, and timing fields; unknown imports still fail normally.
+    """
+    if module_name in _PRE_RELEASE_REGISTRATION_MODULES:
+        return _PRE_RELEASE_REGISTRATION_MODULES[module_name]
+    return module_name
+
+
 def gymnasium_discrete_action_labels(env_config: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(env_config["action_order"])
 

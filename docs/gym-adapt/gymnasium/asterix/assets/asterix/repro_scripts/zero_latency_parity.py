@@ -9,7 +9,7 @@ import numpy as np
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Action
 from latency_bench.envs.factory import build_env_adapter
-import latency_bench.envs.gymnasium_asterix  # registers task wrapper
+import latency_bench.envs.tasks.asterix  # registers task wrapper
 
 
 ACTIONS = [0, 1, 2, 3, 4, 5, 6, 7, 8]

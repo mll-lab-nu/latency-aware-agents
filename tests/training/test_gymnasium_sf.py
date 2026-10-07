@@ -11,7 +11,7 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import OrderingPolicy
 from latency_bench.core.config import load_config
 from latency_bench.latency.sample import LatencySample
-from latency_bench.envs.gymnasium_task import (
+from latency_bench.envs.tasks.contracts import (
     gymnasium_discrete_action_labels,
     gymnasium_discrete_action_values,
     gymnasium_noop_action_id,
@@ -483,7 +483,7 @@ class _ChunkDelaySampler:
 def test_g1_action_chunks_follow_execution_sources_and_planned_windows(delays, expected, windows, terminal_frame):
     native = _VectorActionTraceEnv()
     native._raw_learn_hands = True
-    from latency_bench.envs.humanoidbench_sonic import MUJOCO_INDEX_FOR_POLICY
+    from latency_bench.envs.tasks.humanoidbench.sonic import MUJOCO_INDEX_FOR_POLICY
 
     def absolute_action(action):
         joint = 1.0 + 3.0 * action

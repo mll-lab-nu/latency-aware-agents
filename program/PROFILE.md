@@ -151,9 +151,9 @@ checkpoint: checkpoints/steps_5000_pytorch_model.pt
 ```bash
 cd "${BENCH_ROOT}"
 CUDA_VISIBLE_DEVICES=0 "${MIKASA_PY}" - <<'PY'
-from scripts.mikasa.evaluate import _make_vla_env
+from latency_bench.envs.tasks.mikasa import make_vla_env
 
-env = _make_vla_env()
+env = make_vla_env()
 observation, _ = env.reset(seed=4242424242)
 print(observation["rgb"].shape)
 env.close()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from latency_bench.envs import humanoidbench_sonic_assets as assets
+from latency_bench.envs.tasks.humanoidbench import assets as assets
 
 
 def test_prepare_g1_sonic_assets_returns_pinned_scene_root(tmp_path, monkeypatch):

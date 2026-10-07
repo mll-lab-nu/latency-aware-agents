@@ -130,7 +130,7 @@ def test_latency_bench_reset_mode_frame_stack_advances_oldest_to_newest():
 
 
 def _make_latency_env(*, reset_mode: str):
-    from latency_bench.envs.demon_attack import DemonAttackEnvAdapter
+    from latency_bench.envs.adapters.demon_attack import DemonAttackEnvAdapter
 
     return DemonAttackEnvAdapter(
         env_fps=60.0,

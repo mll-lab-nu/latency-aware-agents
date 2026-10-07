@@ -15,7 +15,7 @@ from flappy_bird_gymnasium.gpu_render import FlappyRenderAssets, TorchFlappyRend
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.decision_action_history import DecisionActionHistory
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from latency_bench.envs.flappy import (
+from latency_bench.envs.adapters.flappy import (
     FlappyObservationConfig,
     FlappyTorchObservationPipeline,
 )
@@ -25,7 +25,7 @@ from training.common.latency_config import (
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 
 from training.flappy_sf.gpu_rendering import _GpuRenderProfiler, resolve_gpu_render_device
 

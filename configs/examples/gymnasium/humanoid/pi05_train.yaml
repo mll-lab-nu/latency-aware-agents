@@ -5,7 +5,7 @@ env:
   task_name: humanoid
   env_id: LatencyBench/HumanoidContinuous-v0
   registration_imports:
-  - latency_bench.envs.gymnasium_humanoid
+  - latency_bench.envs.tasks.humanoid
   make_kwargs:
     base_env_id: Humanoid-v4
     render_mode: rgb_array

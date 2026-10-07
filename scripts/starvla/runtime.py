@@ -7,7 +7,7 @@ from pathlib import Path
 import shlex
 import subprocess
 
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.utils.paths import REPO_ROOT
 
 

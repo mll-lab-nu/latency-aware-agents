@@ -25,13 +25,13 @@ from latency_bench.logging.metrics import latency_type_from_source, profile_meta
 from latency_bench.policy.action_prefix import resolve_action_prefix, with_action_prefix
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
 from latency_bench.scheduler.factory import build_action_scheduler
-from scripts.mikasa.evaluate import (
+from latency_bench.envs.tasks.mikasa import (
     MIKASA_IMAGE_VIEWS_INFO_KEY,
     MIKASA_STATE_INFO_KEY,
-    _PpoPolicy,
-    _make_ppo_env,
-    _make_vla_env,
+    make_ppo_env,
+    make_vla_env,
 )
+from scripts.mikasa.evaluate import _PpoPolicy
 
 from mikasa_robo_suite.seed_reset import reset_seeded_slots
 
@@ -216,8 +216,8 @@ def collect(args: argparse.Namespace, *, student_pool=None, seed_start: int = 0,
     episodes_dir = args.output / "episodes"
     episodes_dir.mkdir()
     attempts_path = args.output / "attempts.jsonl"
-    rgb_env = _make_vla_env(num_envs=args.num_envs, simulator_device=simulator_device)
-    branch_env = _make_ppo_env(num_envs=args.num_envs, simulator_device=simulator_device)
+    rgb_env = make_vla_env(num_envs=args.num_envs, simulator_device=simulator_device)
+    branch_env = make_ppo_env(num_envs=args.num_envs, simulator_device=simulator_device)
     teacher = _PpoPolicy(branch_env, args.checkpoint)
     split_targets = {
         "train": args.train_targets,

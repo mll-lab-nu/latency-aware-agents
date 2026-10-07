@@ -38,7 +38,7 @@
     "noop_action_id": 2,
     "obs_fps": 25.0,
     "registration_imports": [
-      "latency_bench.envs.gymnasium_mujoco"
+      "latency_bench.envs.tasks.inverted_pendulum"
     ],
     "state_space": {
       "labels": [

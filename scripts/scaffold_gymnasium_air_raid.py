@@ -10,7 +10,7 @@ from typing import Any
 import gymnasium as gym
 import yaml
 
-from latency_bench.envs.gymnasium_air_raid import GYMNASIUM_AIR_RAID_ENV_ID
+from latency_bench.envs.tasks.air_raid import GYMNASIUM_AIR_RAID_ENV_ID
 
 
 AIR_RAID_ENV_FPS = 50
@@ -99,7 +99,7 @@ def build_air_raid_env_config(
             "name": "gymnasium",
             "task_name": "air_raid",
             "env_id": GYMNASIUM_AIR_RAID_ENV_ID,
-            "registration_imports": ["latency_bench.envs.gymnasium_air_raid"],
+            "registration_imports": ["latency_bench.envs.tasks.air_raid"],
             "make_kwargs": {
                 "base_env_id": base_env_id,
                 "render_mode": render_mode,

@@ -5,7 +5,7 @@ from typing import Any, Callable
 import gymnasium as gym
 import numpy as np
 
-import latency_bench.envs.raw_rgb as raw_rgb
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY, RawRgbFrameStackBuffer
 
 
 class RawRgbFrameStackInfoWrapper(gym.Wrapper):
@@ -14,14 +14,14 @@ class RawRgbFrameStackInfoWrapper(gym.Wrapper):
     def __init__(self, env: gym.Env, *, num_frames: int, raw_frame_fn: Callable[[gym.Env], Any]):
         super().__init__(env)
         self.raw_frame_fn = raw_frame_fn
-        self._raw_rgb_frames = raw_rgb.RawRgbFrameStackBuffer(num_frames=num_frames)
+        self._raw_rgb_frames = RawRgbFrameStackBuffer(num_frames=num_frames)
 
     def reset(self, **kwargs):
         observation, info = self.env.reset(**kwargs)
         frame = self.render_game_frame()
         self._raw_rgb_frames.reset(frame)
         info = info.copy()
-        info[raw_rgb.ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
+        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
         return observation, info
 
     def step(self, action):
@@ -29,7 +29,7 @@ class RawRgbFrameStackInfoWrapper(gym.Wrapper):
         if not (terminated or truncated):
             self._raw_rgb_frames.append(self.render_game_frame())
         info = info.copy()
-        info[raw_rgb.ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
+        info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._raw_rgb_frame_stack()
         return observation, reward, terminated, truncated, info
 
     def render_game_frame(self) -> np.ndarray:

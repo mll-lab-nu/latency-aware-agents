@@ -220,7 +220,7 @@ def test_training_episode_stream_matches_evaluator_after_independent_resets():
 def test_training_scalar_and_batched_eval_apply_identical_command_trace():
     """Transport contract: admission, stale H40 prefixes and resets match evaluation."""
     from latency_bench.core.types import Action, PolicyOutput
-    from latency_bench.envs.base import DummyEnvAdapter
+    from latency_bench.envs.adapters.dummy import DummyEnvAdapter
     from latency_bench.executors.batched_simulated import BatchedSimulatedLatencyExecutor
     from latency_bench.executors.env_step_backend import SerialEnvStepBackend
     from latency_bench.executors.simulated import SimulatedLatencyExecutor

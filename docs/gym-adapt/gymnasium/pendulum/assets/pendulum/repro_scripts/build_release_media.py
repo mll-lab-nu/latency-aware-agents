@@ -9,7 +9,7 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 
-import latency_bench.envs.gymnasium_pendulum  # registers the task wrapper
+import latency_bench.envs.tasks.pendulum  # registers the task wrapper
 
 
 ROOT = Path("artifacts/pendulum")

@@ -107,7 +107,7 @@ def build_replay_executor(config, parallel_runs):
     runtime.prepare_replay_runtime(config)
     if config["env"]["name"] == "mikasa_intercept_grab_fast":
         # The simulator interpreter owns this optional ManiSkill dependency.
-        from scripts.mikasa.evaluate import MikasaEnvStepBackend
+        from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
         backend = MikasaEnvStepBackend(config=config, num_slots=parallel_runs)
     else:
         backend = build_env_step_backend(

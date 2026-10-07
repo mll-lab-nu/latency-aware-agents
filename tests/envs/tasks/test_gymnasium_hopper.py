@@ -6,11 +6,11 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-import latency_bench.envs.gymnasium_hopper as hopper
+import latency_bench.envs.tasks.hopper as hopper
 import scripts.scaffold_gymnasium_hopper as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from training.gymnasium_sf.integration import build_train_cfg_from_config
 
 

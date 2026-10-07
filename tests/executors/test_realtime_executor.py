@@ -14,7 +14,7 @@ import latency_bench.executors.realtime.inference_worker as realtime_inference_w
 import latency_bench.executors.realtime.pool as realtime_pool
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, ActionEvent, LatencyRecord, Observation, OrderingPolicy, PolicyOutput, StepRecord
-from latency_bench.envs.base import DummyEnvAdapter
+from latency_bench.envs.adapters.dummy import DummyEnvAdapter
 from latency_bench.executors.realtime.env_worker import (
     _drain_env_action_messages,
     _drain_env_actions_until_wall_time,

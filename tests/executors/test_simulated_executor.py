@@ -9,7 +9,8 @@ import pytest
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
-from latency_bench.envs.base import DummyEnvAdapter, EnvAdapter
+from latency_bench.envs.base import EnvAdapter
+from latency_bench.envs.adapters.dummy import DummyEnvAdapter
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.latency.sample import LatencySample
 from latency_bench.latency.samplers import FixedSampler, LatencySampler, ZeroSampler

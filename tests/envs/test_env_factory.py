@@ -8,10 +8,10 @@ import pytest
 
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Action, Observation, PolicyOutput, StepResult
-from latency_bench.envs.base import DummyEnvAdapter
-from latency_bench.envs import deadly_corridor
-from latency_bench.envs.deadly_corridor import _noop_action_from_space
-from latency_bench.envs.flappy import FlappyBirdEnvAdapter
+from latency_bench.envs.adapters.dummy import DummyEnvAdapter
+from latency_bench.envs.adapters import deadly_corridor
+from latency_bench.envs.adapters.deadly_corridor import _noop_action_from_space
+from latency_bench.envs.adapters.flappy import FlappyBirdEnvAdapter
 from latency_bench.envs.factory import build_env_adapter, get_registered_env_names
 from latency_bench.executors.factory import build_executor
 from latency_bench.policy.base import ConstantPolicyRunner
@@ -351,7 +351,7 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
 
 
 def test_build_env_adapter_does_not_pass_demon_attack_action_repeat(monkeypatch):
-    from latency_bench.envs import demon_attack
+    from latency_bench.envs.adapters import demon_attack
 
     captured = {}
 
@@ -387,7 +387,7 @@ def test_build_env_adapter_does_not_pass_demon_attack_action_repeat(monkeypatch)
 
 
 def test_demon_attack_starvla_env_exports_raw_rgb_frames(monkeypatch):
-    from latency_bench.envs import demon_attack
+    from latency_bench.envs.adapters import demon_attack
 
     captured = {}
 
@@ -423,7 +423,7 @@ def test_demon_attack_starvla_env_exports_raw_rgb_frames(monkeypatch):
 
 
 def test_demon_attack_latency_bench_eval_raw_reward_continues_life_loss_terminal(monkeypatch):
-    from latency_bench.envs import demon_attack
+    from latency_bench.envs.adapters import demon_attack
 
     captured = {}
 
@@ -510,7 +510,7 @@ def test_build_env_adapter_passes_explicit_gpu_render_args_when_enabled(monkeypa
         def close(self):
             return None
 
-    monkeypatch.setattr("latency_bench.envs.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
+    monkeypatch.setattr("latency_bench.envs.adapters.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
     config = _flappy_config()
     config["policy"] = {"type": "flappy_sf"}
     config["env"].update(
@@ -551,7 +551,7 @@ def test_flappy_starvla_env_exports_raw_rgb_frames(monkeypatch):
         def close(self):
             return None
 
-    monkeypatch.setattr("latency_bench.envs.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
+    monkeypatch.setattr("latency_bench.envs.adapters.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
     config = _flappy_config()
     config["policy"] = {"type": "starvla"}
     noop = Action(value=0, name="noop", is_noop=True)

@@ -8,8 +8,8 @@ import pytest
 pytest.importorskip("vizdoom", minversion="1.3.0")
 pytest.importorskip("sample_factory")
 
-from latency_bench.envs.deadly_corridor import DeadlyCorridorEnvAdapter, DeadlyCorridorVlaEnvAdapter
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.adapters.deadly_corridor import DeadlyCorridorEnvAdapter, DeadlyCorridorVlaEnvAdapter
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from scripts.tasks.decision_history.eval_vla_hist8 import evaluation_config
 
 

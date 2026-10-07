@@ -28,7 +28,8 @@ from latency_bench.data.background_writer import BackgroundWriter
 from latency_bench.data.rollout_image_io import save_image_frame
 from latency_bench.data.rollout_rows import teacher_dataset_row
 from latency_bench.latency.samplers import HiddenRegimeSampler
-from latency_bench.envs.raw_rgb import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
+from latency_bench.envs.tasks.contracts import registration_module_name
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.policy.sample_factory import build_sample_factory_policy
 from training.gymnasium_sf.integration import GymnasiumActionLatencyWrapper
@@ -275,7 +276,7 @@ def make_collection_env(config: dict, *, seed: int, render: bool = True):
     """Use the training arm's virtual-clock scheduler with absolute H8 requests."""
     env_config, latency = config["env"], config["latency"]
     for module in env_config["registration_imports"]:
-        import_module(module)
+        import_module(registration_module_name(module))
     kwargs = env_config["make_kwargs"] if render else env_config["make_kwargs"] | {"render_mode": None}
     env = gym.make(env_config["env_id"], **kwargs)
     profile = latency["method"] == "temporal"
@@ -318,7 +319,7 @@ def collect_balance_dagger(
         _relabel_saved_dataset(policy_config, relabel_from, output_dir)
         return
     for module_name in env_config["registration_imports"]:
-        import_module(module_name)
+        import_module(registration_module_name(module_name))
 
     teacher_policy = load_teacher(teacher_config_path, teacher_checkpoint, env_config["simulator_device"])
     student_pool = ProcessInferencePool(

@@ -5,7 +5,7 @@ env:
   task_name: half_cheetah
   env_id: LatencyBench/HalfCheetahContinuous-v0
   registration_imports:
-  - latency_bench.envs.gymnasium_half_cheetah
+  - latency_bench.envs.tasks.half_cheetah
   make_kwargs:
     base_env_id: HalfCheetah-v4
     render_mode: rgb_array

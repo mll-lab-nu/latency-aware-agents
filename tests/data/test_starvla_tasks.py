@@ -45,7 +45,7 @@ def test_air_raid_gr00t_configs_keep_appo_h1_and_realtime_modes(tmp_path):
 ])
 def test_appo_gr00t_h1_manifest_and_four_gpu_config(tmp_path, task, state_dim, action_dim):
     from scripts.gym_adapt.gr00t import teacher_config, vla_config, evaluation_config
-    from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+    from latency_bench.envs.tasks.contracts import gymnasium_task_contract
     teacher = teacher_config(task, tmp_path, None)
     contract = gymnasium_task_contract(teacher["env"])
     assert contract["env_fps"] == contract["obs_fps"] == 5

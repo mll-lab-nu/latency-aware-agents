@@ -18,7 +18,9 @@ Tests mirror the source tree. A test lives in the subdirectory that matches the
 | `tests/scheduler/` | `latency_bench/scheduler/` (action queue, decision, persistence) |
 | `tests/latency/` | `latency_bench/latency/` (samplers, profiles, bursts, calibration, hardware) |
 | `tests/executors/` | `latency_bench/executors/` (realtime, simulated, batched, paused, factory, warmup) |
-| `tests/envs/` | `latency_bench/envs/` (flappy, demon_attack, deadly_corridor adapters, factory) |
+| `tests/envs/` | Shared environment factory and Atari episode contracts |
+| `tests/envs/adapters/` | `latency_bench/envs/adapters/` (benchmark adapter behavior) |
+| `tests/envs/tasks/` | `latency_bench/envs/tasks/` (native task APIs, assets and registration) |
 | `tests/policies/` | `latency_bench/policy/` (starvla, sample_factory, factory) |
 | `tests/eval/` | `latency_bench/eval/` (suites, driver, periodic eval, collect/report) |
 | `tests/logging/` | `latency_bench/logging/` (records, trajectory logger, video, pipeline) |

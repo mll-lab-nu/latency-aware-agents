@@ -8,7 +8,7 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-import latency_bench.envs.gymnasium_walker2d as gymnasium_walker2d
+import latency_bench.envs.tasks.walker2d as gymnasium_walker2d
 import scripts.scaffold_gymnasium_walker2d as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
@@ -17,7 +17,7 @@ from latency_bench.data.action_layouts import (
     encode_action_for_env,
     gymnasium_continuous_action_spec,
 )
-from latency_bench.envs.gymnasium_task import gymnasium_task_contract
+from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy._starvla_actions import action_from_starvla_payload
 from training.gymnasium_sf.integration import (
     GymnasiumActionLatencyWrapper,
