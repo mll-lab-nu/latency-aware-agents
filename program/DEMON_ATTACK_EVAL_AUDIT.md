@@ -14,7 +14,7 @@ checking only the CuLE emulator source does not verify this evaluation behavior.
 ## Frozen evaluation inputs
 
 Use the published, training-selected best weights from
-`latency-sensitive-bench/benchmark-models@46a33b18a2db8feb5cc6b520a95c2e96662c5e5b`:
+`MLL-Lab/LAGEN-models@46a33b18a2db8feb5cc6b520a95c2e96662c5e5b`:
 
 | Profile | Checkpoint |
 |---|---|

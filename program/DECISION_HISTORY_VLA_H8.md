@@ -169,11 +169,11 @@ SHA、动作和逐局记录；具体帧上限与并行数以汇总逐项记录�
 [收尾清单](../outputs/tasks/decision_history_vla_hist8_v2/completion_manifest.json)，
 性能结论与限制见[最终报告](../outputs/tasks/decision_history_vla_hist8_v2/final_report.md)。
 
-18 个新版模型已按用户要求发布到 `latency-sensitive-bench/benchmark-models`，
+18 个新版模型已按用户要求发布到 `MLL-Lab/LAGEN-models`，
 固定 revision `95aed229d8a90c0146885eb8f496518e98625d5f`。
 zero 条件 9 个位于 `zero-latency/<game>/vla/starvla-<model>-h1/<run-id>`，
 profile 条件 9 个位于 `latency-aware/<game>/vla/starvla-<model>-h1/<run-id>`；
 路径中的 h1 是动作 horizon，hist8 是输入历史。18 个权重 SHA 与最终 revision
 全部匹配，588 个元数据对象核对通过，102 个核心文件已实际下载回读。
-目录、配置与成绩见[公开索引](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)，
+目录、配置与成绩见[公开索引](https://huggingface.co/MLL-Lab/LAGEN-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)，
 完整证据见[发布回执](../outputs/tasks/decision_history_vla_hist8_v2/hf_publication/README.md)。

@@ -1,6 +1,11 @@
 # program 文档索引
 
 核心进展入口为 [PROGRESS](PROGRESS.md)，只记录 Balance 与 MIKASA 的已核验结果、关键决策、最新状态和下一步。
+HF 发布资产的保留政策和当前交接见 [HANDOFF](HANDOFF.md)；根目录 archive 的最新退役证据见
+[根目录 archive 报告](../outputs/hf_cleanup/root-archive-retirement-20261008/REPORT.md)。
+本轮存储精简证据见
+[存储报告](../outputs/hf_cleanup/storage-prune-20261007/REPORT.md)。
+公开源仓库清理完成记录见 [合并报告](../outputs/hf_cleanup/remaining-repos-20261008/REPORT.md)。
 运行时间线放在 `logs/`，原始证据放在 `outputs/`，可执行方法和实验合同放在对应任务文档。
 使用仓库实际模型名 `qwenpi_v3`；历史运行消息不代表当前进程状态。
 
@@ -41,7 +46,7 @@ Demon Attack 旧 CuLE teacher 的首次丢命终评与奖励裁剪问题、300�
 | [BALANCE_CAUSAL_EVAL](BALANCE_CAUSAL_EVAL.md) | 现有 Balance 模型补评测协议、历史结果与统一入口用法 | 因果评测协议；正式结果见 PROGRESS 与实验报告 |
 | [LATENCY_EVAL_UNIFICATION](LATENCY_EVAL_UNIFICATION.md) | 保留任务 evaluator、固定均值 prefix、sampler/worker 与 seed/reset 合同 | 保留合同记录；实现验证与正式训练分别记录 |
 | [ARTIFACT_HANDOFF](ARTIFACT_HANDOFF.md) | Flappy/Demon/Deadly/Atlantis/Asterix 的 5 类历史资产、统一 100 局评测与中央 HF 路径 | 资产账本；正式评测、中央发布与 revision 回读分别以对应证据确认 |
-| [HANDOFF](HANDOFF.md) | 五环境原稿的接收、评测配置与发布状态快照 | 2026-09-30 收录；原稿状态日期与逐行分数来源待核实，最新任务证据见对应协议，正式结果索引见 RESULTS |
+| [HANDOFF](HANDOFF.md) | HF 仓库合并的接续目标、已完成批次、剩余资产和远端操作约束 | 2026-10-08 更新；公开仓库合并完成，三个私有仓库保留待明确来源 |
 | [DECISION_HISTORY_VLA_H8](DECISION_HISTORY_VLA_H8.md) | Flappy/Demon/Deadly × 三架构 × profile/zero 条件，共 18 路 H8 VLA 与 27 组交叉评测合同 | 18/18 模型已发布 HF 并回读；27/27 新版及 9/9 旧权重重评完成；[最终报告](../outputs/tasks/decision_history_vla_hist8_v2/final_report.md) |
 | [logs/decision-history-vla-v2-2026-09-23](logs/decision-history-vla-v2-2026-09-23.md) | history01 修复、PI LR 选优、18 路训练、zero teacher 采集与旧权重纠正评测 | Deadly 渲染合同已修正；全部结果核验完毕，监控正常退出 |
 | [LATENCY_RL_HANDOFF.zh-CN](LATENCY_RL_HANDOFF.zh-CN.md) | 保留任务 H1 中文交接、诊断结论与旧 H40 smoke | 历史交接；当前运行状态和入口见 PROGRESS 与 SCALE_MODELS |

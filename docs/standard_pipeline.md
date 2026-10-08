@@ -38,7 +38,7 @@ automatically publish formal datasets and final models; `--smoke` stays local.
 
 Each VLA trainer finishes by printing `MODEL_PATH=<final inference bundle>`.
 Pass that path to `scripts/profile.sh run --model MODEL --workload TASK --model-path MODEL_PATH`. If the local model root is absent, the profiler downloads that exact
-artifact from `latency-sensitive-bench/benchmark-models`; an existing but
+artifact from `MLL-Lab/LAGEN-models`; an existing but
 incomplete root fails instead of selecting another checkpoint. Profiling stays
 local unless `--publish` is supplied.
 
@@ -128,8 +128,8 @@ source revisions are recorded in [the artifact registry](artifacts.md).
 Publishing is an explicit developer operation with the Hugging Face CLI. The
 two central repositories are:
 
-- models: `latency-sensitive-bench/benchmark-models`;
-- datasets: `latency-sensitive-bench/benchmark-datasets`.
+- models: `MLL-Lab/LAGEN-models`;
+- datasets: `MLL-Lab/LAGEN-datasets`.
 
 Use the task cookbook to identify the exact local source directories and the
 registry path. A reader can reproduce a run without organization write access;

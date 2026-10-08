@@ -386,10 +386,10 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     assert {row["frame_stack"] for row in rows} == {"1", "2", "3", "4", "5", "6", "7", "8"}
     assert {row["observation_stride"] for row in rows} == {"1"}
     assert {row["train_upload_repo_id"] for row in rows} == {
-        "latency-sensitive-bench/paper-experiment-models"
+        "MLL-Lab/LAGEN-models"
     }
     assert {row["eval_upload_repo_id"] for row in rows} == {
-        "latency-sensitive-bench/paper-experiment-evals"
+        "MLL-Lab/LAGEN-datasets"
     }
 
     train_cfg = yaml.safe_load(

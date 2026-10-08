@@ -17,7 +17,7 @@ from typing import Any
 import yaml
 
 
-MODEL_REPO_ID = "latency-sensitive-bench/benchmark-models"
+MODEL_REPO_ID = "MLL-Lab/LAGEN-models"
 MODEL_REVISION = "56b2c095d76ea5b10dd304e6e03c2ca81801630b"
 H8_MODEL_REVISION = "5b533937a72e9fa923ecf28b1c1be5a16bad488d"
 BACKBONE_REPO_ID = "Qwen/Qwen3-VL-4B-Instruct"

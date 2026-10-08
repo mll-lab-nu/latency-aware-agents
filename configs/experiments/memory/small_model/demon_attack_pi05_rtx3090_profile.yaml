@@ -5,12 +5,12 @@ train_dir: results/checkpoints/memory/small_model/demon_attack
 output_root: outputs/memory/small_model/demon_attack/pi05_rtx3090_profile
 device: cuda
 restart_behavior: resume
-train_upload_repo_id: latency-sensitive-bench/paper-experiment-models
+train_upload_repo_id: MLL-Lab/LAGEN-models
 train_upload_repo_type: model
-train_upload_path_prefix: memory/small_model/demon_attack/pi05_rtx3090_profile_10m_fs4_1min_eval
-eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+train_upload_path_prefix: archive/experiment-runs/memory/small_model/demon_attack/pi05_rtx3090_profile_10m_fs4_1min_eval
+eval_upload_repo_id: MLL-Lab/LAGEN-datasets
 eval_upload_repo_type: dataset
-eval_upload_path_prefix: memory/small_model/demon_attack/pi05_rtx3090_profile_10m_fs4_1min_eval
+eval_upload_path_prefix: evaluations/archive/paper-experiment-evals/memory/small_model/demon_attack/pi05_rtx3090_profile_10m_fs4_1min_eval
 
 env:
   env_fps: 60

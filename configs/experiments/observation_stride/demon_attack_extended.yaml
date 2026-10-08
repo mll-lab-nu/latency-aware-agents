@@ -5,12 +5,12 @@ train_dir: results/checkpoints/observation_stride/demon_attack
 output_root: outputs/observation_stride/demon_attack/extended
 device: cuda
 restart_behavior: resume
-train_upload_repo_id: latency-sensitive-bench/paper-experiment-models
+train_upload_repo_id: MLL-Lab/LAGEN-models
 train_upload_repo_type: model
-train_upload_path_prefix: observation_stride/demon_attack
-eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+train_upload_path_prefix: latency-aware/demon-attack/small-policy
+eval_upload_repo_id: MLL-Lab/LAGEN-datasets
 eval_upload_repo_type: dataset
-eval_upload_path_prefix: observation_stride/demon_attack/extended
+eval_upload_path_prefix: evaluations/demon-attack/observation-stride-extended
 seeds:
   - 10
   - 11

@@ -11,23 +11,11 @@ SPECS=(
   configs/experiments/memory/small_model/demon_attack_capped.yaml
   configs/experiments/memory/small_model/demon_attack_extended.yaml
   configs/experiments/memory/small_model/deadly_corridor.yaml
-  configs/experiments/memory/small_model/asterix_zero_latency.yaml
-  configs/experiments/memory/small_model/atlantis_zero_latency.yaml
-  configs/experiments/memory/small_model/asterix_latency_024.yaml
-  configs/experiments/memory/small_model/atlantis_latency_024.yaml
-  configs/experiments/memory/small_model/air_raid_latency_024.yaml
-  configs/experiments/memory/small_model/defend_the_line_latency_024.yaml
 )
 TRAIN_MANIFESTS=(
   configs/train/memory/small_model/flappy/extended/manifest.tsv
   configs/train/memory/small_model/demon_attack/extended/manifest.tsv
   configs/train/memory/small_model/deadly_corridor/manifest.tsv
-  configs/train/memory/small_model/asterix/zero_latency/manifest.tsv
-  configs/train/memory/small_model/atlantis/zero_latency/manifest.tsv
-  configs/train/memory/small_model/asterix/latency_024/manifest.tsv
-  configs/train/memory/small_model/atlantis/latency_024/manifest.tsv
-  configs/train/memory/small_model/air_raid/latency_024/manifest.tsv
-  configs/train/memory/small_model/defend_the_line/latency_024/manifest.tsv
 )
 EVAL_MANIFESTS=(
   configs/train/memory/small_model/flappy/capped/manifest.tsv
@@ -35,12 +23,6 @@ EVAL_MANIFESTS=(
   configs/train/memory/small_model/demon_attack/capped/manifest.tsv
   configs/train/memory/small_model/demon_attack/extended/manifest.tsv
   configs/train/memory/small_model/deadly_corridor/manifest.tsv
-  configs/train/memory/small_model/asterix/zero_latency/manifest.tsv
-  configs/train/memory/small_model/atlantis/zero_latency/manifest.tsv
-  configs/train/memory/small_model/asterix/latency_024/manifest.tsv
-  configs/train/memory/small_model/atlantis/latency_024/manifest.tsv
-  configs/train/memory/small_model/air_raid/latency_024/manifest.tsv
-  configs/train/memory/small_model/defend_the_line/latency_024/manifest.tsv
 )
 RESULTS_ROOT="outputs/memory/small_model"
 PAPER_DIR="paper/latency-sensitive-vla/exps/memory/small_model"

@@ -39,7 +39,7 @@
       "mean": 3814.8419516780264,
       "std": 8.80400721259514,
       "mean_length": 1000.0,
-      "source": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/a260732e0bce9771ca62a3c336bb446ecd0ea5df/hopper/profile_latency/GR00T/h1_5fps_20260917/demonstrations/validation/teacher_probe_audit.json"
+      "source": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/hopper/profile_latency/GR00T/h1_5fps_20260917/demonstrations/validation/teacher_probe_audit.json"
     },
     {
       "stage": "F",

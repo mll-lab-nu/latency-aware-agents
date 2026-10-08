@@ -39,7 +39,7 @@
       "mean": 4228.54431002123,
       "std": 14.588936196978617,
       "mean_length": 1000.0,
-      "source": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/a260732e0bce9771ca62a3c336bb446ecd0ea5df/walker2d/profile_latency/GR00T/h1_5fps_20260917/teacher/teacher_probe_audit.json"
+      "source": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/walker2d/profile_latency/GR00T/h1_5fps_20260917/teacher/teacher_probe_audit.json"
     },
     {
       "stage": "F",
@@ -89,7 +89,7 @@
       "mean": 3631.421989047992,
       "std": 775.1941161045739,
       "mean_length": 886.75,
-      "source": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/dd43c08fee1617924826527046acdb33f38e9242/walker2d/zero_latency/Pi05/h1_5fps_g128_20260921/vla/evaluation/l0-simulated"
+      "source": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/walker2d/zero_latency/Pi05/h1_5fps_g128_20260921/vla/evaluation/l0-simulated"
     },
     {
       "stage": "B",

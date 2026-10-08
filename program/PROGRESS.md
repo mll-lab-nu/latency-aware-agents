@@ -5,10 +5,10 @@
 
 固定公共版本：
 
-- zero-latency 模型：[benchmark-models@e05ca26](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)
-- RTX 3090 profiles：[profiles@e8be1e5](https://huggingface.co/datasets/latency-sensitive-bench/profiles/tree/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles)
-- MIKASA WanOFT latency-aware VLA：[benchmark-models@ad40d57](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ad40d57c5747761705770aa557db0f287888f727/latency-aware/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_wanoft_latency_3090_20260916T094307Z)
-- MIKASA H1 corrected latency-aware VLAs：[benchmark-models@ae81bdb3](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla)
+- zero-latency 模型：[benchmark-models@e05ca26](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e05ca26afde4f509b0f838742c522f3a068596a8)
+- RTX 3090 profiles：[profiles@e8be1e5](https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles/tree/e8be1e5dfd309f85ab7ff704dc02bd4898b7ceb4/profiles)
+- MIKASA WanOFT latency-aware VLA：[benchmark-models@ad40d57](https://huggingface.co/MLL-Lab/LAGEN-models/tree/ad40d57c5747761705770aa557db0f287888f727/latency-aware/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_wanoft_latency_3090_20260916T094307Z)
+- MIKASA H1 corrected latency-aware VLAs：[benchmark-models@ae81bdb3](https://huggingface.co/MLL-Lab/LAGEN-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla)
 
 ## 阅读口径
 
@@ -88,7 +88,7 @@ QwenGR00T 的 2026-09-22 checkpoint 使用 200 episodes、reset seeds
 `0.189403±0.031062` 的结果因实际 12,000 步全部执行 noop 而失效；训练数据与 checkpoint
 不受影响。旧 Hub 权重保留，但其附带的旧 eval metadata 不得引用；纠正后的 bundle 已以
 新 `*_evalfix_20260923` run ID 发布，并在最终 revision
-[`ae81bdb3`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla)
+[`ae81bdb3`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla)
 核验三条路径各含 7 个必需文件且 checkpoint 大小一致。
 [三路纠正评测证据](../outputs/tasks/mikasa_intercept_grab_fast/h1_hold_last_reval_20260923/REPORT.md)、
 [WanOFT 证据](../outputs/tasks/mikasa_intercept_grab_fast/wanoft_latency_20260916T094307Z/eval_matrix/results.json)；
@@ -120,7 +120,7 @@ Zero / Profile / Fixed-2 return 分别为 QwenOFT
 seed 已核验唯一。三个 Zero setting 达到原预设 `>=25/50` gate；按相同比例折算为
 `>=100/200` 时，三个 Profile setting 均未达到。训练与三套 H8 bundle 发布均已完成。
 Hub API 已在最终 revision
-[`d546ea62d9be8f741f9b52c52a7a2122db1a1b42`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/d546ea62d9be8f741f9b52c52a7a2122db1a1b42/zero-latency/mikasa-intercept-grab-fast/vla)
+[`d546ea62d9be8f741f9b52c52a7a2122db1a1b42`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/d546ea62d9be8f741f9b52c52a7a2122db1a1b42/zero-latency/mikasa-intercept-grab-fast/vla)
 核验 OFT/PI/GR00T 三个目录各包含 8 个正式文件，checkpoint 分别为
 `9,785,101,729 / 10,922,637,469 / 9,976,844,067` bytes。冻结首动作的旧 Profile
 结果和 H200 wall-clock measured 结果已被此协议取代，不作为正式证据。
@@ -177,33 +177,35 @@ step-5,000 trainer state。每轮复用常驻 trainer 的当前模型。共同�
 
 | Conditioned 模型 | SFT baseline | DAgger best | DAgger latest | 选中 step / 发布证据 |
 |---|---:|---:|---:|---|
-| Profile OFT | 12；3.348 | 138；25.752 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923-profile) |
-| Profile PI v3 | 8；2.176 | 89；17.558 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-conditioned-dagger-20260923-profile) |
-| Profile GR00T | 13；3.744 | 134；25.235 | 125；23.500 | 4000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-conditioned-dagger-20260923-profile) |
-| Fixed-2 OFT | 10；2.962 | 175；31.680 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923-fixed-2) |
-| Fixed-2 PI v3 | 9；3.149 | 159；29.303 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-conditioned-dagger-20260923-fixed-2) |
-| Fixed-2 GR00T | 12；3.509 | 164；29.866 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-conditioned-dagger-20260923-fixed-2) |
+| Profile OFT | 12；3.348 | 138；25.752 | 同 best | 5000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923-profile) |
+| Profile PI v3 | 8；2.176 | 89；17.558 | 同 best | 5000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-conditioned-dagger-20260923-profile) |
+| Profile GR00T | 13；3.744 | 134；25.235 | 125；23.500 | 4000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-conditioned-dagger-20260923-profile) |
+| Fixed-2 OFT | 10；2.962 | 175；31.680 | 同 best | 5000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923-fixed-2) |
+| Fixed-2 PI v3 | 9；3.149 | 159；29.303 | 同 best | 5000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-conditioned-dagger-20260923-fixed-2) |
+| Fixed-2 GR00T | 12；3.509 | 164；29.866 | 同 best | 5000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-conditioned-dagger-20260923-fixed-2) |
 
-六份 conditioned SFT bundle 和六份 DAgger 选优 bundle 均已发布；Profile GR00T
-另发布 step-5,000 `latest_model.pt`。按原 `>=100/200` gate，六路 conditioned 中
+六份 conditioned SFT bundle 和六份 DAgger 选优 bundle 均已发布。当前每个 run
+只保留选优权重；latest 指标和逐局评测记录保留，latest 权重按存储政策移除。
+选优权重见 [当前发布](https://huggingface.co/MLL-Lab/LAGEN-models/tree/0be46c39e73a22721e99558e2be95ad49d5a713d/latency-aware/mikasa-intercept-grab-fast/vla)。按原 `>=100/200` gate，六路 conditioned 中
 五路达到，Profile PI v3 的 `89/200` 尚未达到。SFT 与 DAgger 的完整发布 revision
 见 [conditioned 记录](logs/mikasa-h8-dagger-2026-09-23.md)。12 份 bundle 已在
-[`af8d7bfa`](https://huggingface.co/latency-sensitive-bench/benchmark-models/commit/af8d7bfacbb03b59b5b5eabbed331577dd5fa690)
+[`af8d7bfa`](https://huggingface.co/MLL-Lab/LAGEN-models/commit/af8d7bfacbb03b59b5b5eabbed331577dd5fa690)
 归入 `latency-aware`，训练条件保留在 run ID 和 provenance 中。
 
 | Naive 模型 / 终评条件 | SFT baseline | DAgger best | DAgger latest | 选中 step / 发布证据 |
 |---|---:|---:|---:|---|
-| OFT / Zero | 95；18.730 | 196；36.108 | 同 best | 5000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af125bd372c22c5b00e326d9af1af64ea3751b56/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-naive-dagger-20260923) |
+| OFT / Zero | 95；18.730 | 196；36.108 | 同 best | 5000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/af125bd372c22c5b00e326d9af1af64ea3751b56/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-naive-dagger-20260923) |
 | OFT / Profile | 13；4.599 | 101；18.596 | 同 best | 同上 |
 | OFT / Fixed-2 | 20；5.679 | 109；20.955 | 同 best | 同上 |
-| PI v3 / Zero | 118；21.933 | 199；36.785 | 196；35.968 | 4000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/5b533937a72e9fa923ecf28b1c1be5a16bad488d/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-naive-dagger-20260923) |
+| PI v3 / Zero | 118；21.933 | 199；36.785 | 196；35.968 | 4000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/5b533937a72e9fa923ecf28b1c1be5a16bad488d/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h8/h8-naive-dagger-20260923) |
 | PI v3 / Profile | 13；3.301 | 40；8.082 | 42；8.461 | 同上 |
 | PI v3 / Fixed-2 | 42；7.938 | 115；21.473 | 117；22.180 | 同上 |
-| GR00T / Zero | 132；24.611 | 192；33.514 | 194；33.756 | 3000；[HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/3fb1d4a7c2645715f0554f315d85032868bf15bb/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-naive-dagger-20260923) |
+| GR00T / Zero | 132；24.611 | 192；33.514 | 194；33.756 | 3000；[HF](https://huggingface.co/MLL-Lab/LAGEN-models/tree/3fb1d4a7c2645715f0554f315d85032868bf15bb/zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h8/h8-naive-dagger-20260923) |
 | GR00T / Profile | 15；4.542 | 73；14.314 | 83；15.941 | 同上 |
 | GR00T / Fixed-2 | 25；6.229 | 95；17.838 | 93；18.814 | 同上 |
 
-三路 naive DAgger 选优 bundle 均已发布；PI v3 与 GR00T 另存 step-5,000 latest。
+三路 naive DAgger 选优 bundle 均已发布。当前只保留选优权重，latest 指标和逐局评测记录保留。
+选优权重见 [当前发布](https://huggingface.co/MLL-Lab/LAGEN-models/tree/0be46c39e73a22721e99558e2be95ad49d5a713d/zero-latency/mikasa-intercept-grab-fast/vla)。
 六路 conditioned 的十轮 student/PPO suffix MAE 首请求范围为 `0.052–0.080`，
 后续请求为 `0.176–0.252`；三路 naive 分别为 `0.048–0.056` 与 `0.118–0.124`
 （按各轮请求数加权）。逐路值与训练/发布记录见

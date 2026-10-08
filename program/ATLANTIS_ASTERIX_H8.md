@@ -8,7 +8,7 @@ VLA evaluation groups (1800 episodes). All weights, results and profiles were
 published and read back; teacher evaluations add 600 independently scored
 episodes. Both profile queues completed every stage. Do not restart them.
 
-[Final comparison on HF](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/ea2ad5a90c28de1297793956a93dd3a7ed605c4b/reports/atlantis-asterix-h8-v1/README.md),
+[Final comparison on HF](https://huggingface.co/MLL-Lab/LAGEN-models/blob/ea2ad5a90c28de1297793956a93dd3a7ed605c4b/reports/atlantis-asterix-h8-v1/README.md),
 [local comparison](../outputs/tasks/atari_hist8_v1/evaluation_progress.md), and
 [completion evidence](../outputs/tasks/atari_hist8_v1/pipeline.complete.json).
 The RTX host remains retired. The task-specific watch and receipt bridge are
@@ -96,7 +96,7 @@ warmup, 5 sessions × 10 episodes and 7200 raw frames at 60/15 Hz. The GPU is
 reserved for VLA inference. Realtime H8 joins late outputs to their source
 decision windows before the next admitted observation; this protocol uses a
 single worker. Publish traces, profiles and machine identity to
-`latency-sensitive-bench/profiles`, then pin the read-back revision.
+`MLL-Lab/LAGEN-profiles`, then pin the read-back revision.
 
 For each game/model profile, train a fresh small teacher with the corresponding
 zero teacher's CPU/ALE 15M seed-0 recipe, four-frame input and H8, changing only

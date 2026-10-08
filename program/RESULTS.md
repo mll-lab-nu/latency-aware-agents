@@ -105,7 +105,7 @@ records the raw-reward fix, first-life counterfactual, residual grayscale
 rounding effects and CPU/CuLE comparisons. All checkpoints and training curves
 are retained; no model was retrained or reselected.
 
-Zero-teacher evidence: [Flappy](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/flappy/small-policy/sample-factory-v1/eval_l0.json) · [Demon](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/demon-attack/small-policy/sample-factory-v1/eval_l0.json) · [Deadly](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/deadly-corridor/small-policy/sample-factory-v1/eval_l0.json).
+Zero-teacher evidence: [Flappy](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/flappy/small-policy/sample-factory-v1/eval_l0.json) · [Demon](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/demon-attack/small-policy/sample-factory-v1/eval_l0.json) · [Deadly](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/deadly-corridor/small-policy/sample-factory-v1/eval_l0.json).
 [Profile-teacher best-checkpoint scores, run links and episode records](../outputs/tasks/decision_history_nine_profile_20260923/nine_profile_results.json).
 
 The zero-trained VLA policy loses return under its profile in all nine cases;
@@ -143,7 +143,7 @@ The six profile-teacher cells use the training-selected best checkpoints from
 model's RTX 3090 temporal profile. Zero and profile teacher columns therefore
 must not be interpreted as a paired latency-effect estimate.
 
-Zero-teacher evidence: [Atlantis](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json) · [Asterix](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json).
+Zero-teacher evidence: [Atlantis](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json) · [Asterix](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json).
 [Six verified profile-teacher means and pinned checkpoints](../outputs/tasks/atari_hist8_v1/teachers.complete.json).
 
 All 18 VLA evaluations (1,800 episodes) are complete and published. Episode records,
@@ -156,7 +156,7 @@ independent episodes. Table 1 and Figure 1 use all 18 VLA means.
 
 [Local complete comparison and checkpoint/profile identities](../outputs/tasks/atari_hist8_v1/evaluation_progress.md) ·
 [Local per-episode results and audits](../outputs/tasks/atari_hist8_v1/evaluation_evidence/) ·
-[Published report and model index](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/ea2ad5a90c28de1297793956a93dd3a7ed605c4b/reports/atlantis-asterix-h8-v1/README.md) ·
+[Published report and model index](https://huggingface.co/MLL-Lab/LAGEN-models/blob/ea2ad5a90c28de1297793956a93dd3a7ed605c4b/reports/atlantis-asterix-h8-v1/README.md) ·
 [Post-shutdown Hub checkpoint verification](../outputs/tasks/atari_hist8_v1/paper_update_20260925/hub_checkpoint_verification.json).
 
 ## HumanoidBench Balance Simple
@@ -196,14 +196,14 @@ row uses 10/10 Hz, as recorded in its [profile evaluation configuration](../outp
 † The shared zero PPO teacher's archived strict evaluation reports 100/100
 successes and mean return 36.81948, computed from its 100 raw returns on seeds
 `4242424242–4242424341`; it is not a 200-episode VLA evaluation.
-[Zero-teacher raw evaluation](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/strict-eval.json).
+[Zero-teacher raw evaluation](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/strict-eval.json).
 H1 profile-teacher cells use separate native 256-episode evaluations with
 `environment_seed=20260910`, `latency_seed=271828` and 60 transitions.
 Teacher success in this table is **success_once**, matching the VLA task-success
 metric; the source's top-level `success_rate` instead denotes `success_at_end`.
 These native teacher evaluations are not paired with the VLA's 200 seeds.
 
-Profile-teacher evidence: [OFT](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/strict-eval.json) · [Pi0.5](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1/strict-eval.json) · [GR00T](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1/strict-eval.json) · [WanOFT](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/strict-eval.json).
+Profile-teacher evidence: [OFT](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/strict-eval.json) · [Pi0.5](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1/strict-eval.json) · [GR00T](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1/strict-eval.json) · [WanOFT](https://huggingface.co/MLL-Lab/LAGEN-models/blob/03984454d1b715d49e27750b17788dacfc39a2a1/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1/strict-eval.json).
 
 The corrected QwenOFT/QwenPI v3/QwenGR00T cells use unique seeds
 `4242424242–4242424441`, latency seed `271828`, and mean profile latencies
@@ -213,7 +213,7 @@ The corrected QwenOFT/QwenPI v3/QwenGR00T cells use unique seeds
 steps received noop actions. [Correction evidence](../outputs/tasks/mikasa_intercept_grab_fast/h1_hold_last_reval_20260923/REPORT.md).
 The three corrected bundles are published under new `*_evalfix_20260923` run
 IDs and were jointly verified at
-[`benchmark-models@ae81bdb3`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla).
+[`benchmark-models@ae81bdb3`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/ae81bdb3b6c6605926255e91b499b4badf93a947/latency-aware/mikasa-intercept-grab-fast/vla).
 
 ### 2. H8 Action Chunk DAgger Best, RTX 3090 Profile
 
@@ -253,9 +253,9 @@ Figure 2 sweep below. Full results and pinned revisions are in the
 ## H1 / H8 DAgger Fixed Latency 0–4 — MIKASA InterceptGrabFast
 
 Three zero-latency-trained H1 checkpoints from
-[benchmark-models@56b2c095](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/56b2c095d76ea5b10dd304e6e03c2ca81801630b/zero-latency/mikasa-intercept-grab-fast/vla)
+[benchmark-models@56b2c095](https://huggingface.co/MLL-Lab/LAGEN-models/tree/56b2c095d76ea5b10dd304e6e03c2ca81801630b/zero-latency/mikasa-intercept-grab-fast/vla)
 and three zero-latency naive H8 DAgger best checkpoints from
-[benchmark-models@5b533937](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/5b533937a72e9fa923ecf28b1c1be5a16bad488d/zero-latency/mikasa-intercept-grab-fast/vla)
+[benchmark-models@5b533937](https://huggingface.co/MLL-Lab/LAGEN-models/tree/5b533937a72e9fa923ecf28b1c1be5a16bad488d/zero-latency/mikasa-intercept-grab-fast/vla)
 were evaluated at fixed delays of 0–4 environment frames (0, 50, 100, 150,
 200 ms at 20 Hz). Every point contains 200 episodes with the same ordered seeds
 `4242424242–4242424441`. The 15 previously verified H1 conditions are unchanged;
@@ -318,7 +318,7 @@ the formal `113/200` and `115/200` results exactly.
 ## QwenOFT H8 Fixed-2 → Fixed Latency 0–4 — MIKASA InterceptGrabFast
 
 The published Fixed-2 DAgger step-5000 checkpoint at
-[benchmark-models@795468e5](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/795468e53947d26314e891cbc375775c6e0bd491/fixed-2/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923)
+[benchmark-models@795468e5](https://huggingface.co/MLL-Lab/LAGEN-models/tree/795468e53947d26314e891cbc375775c6e0bd491/fixed-2/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/h8-conditioned-dagger-20260923)
 was evaluated with its trained **K=2 hard prefix retained at every latency**, including L0.
 Each setting uses 200 episodes, common seeds `4242424242–4242424441`, 20/20Hz,
 60 transitions, deterministic inference, capacity 1, and observation-aligned H8×7 chunks.

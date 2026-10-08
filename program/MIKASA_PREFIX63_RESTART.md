@@ -35,7 +35,7 @@ K保持训练条件不变。五档报告保留成功率、return/总体SD、权�
 DAgger结束并完成终评后发布最终恢复状态、选中的best模型及报告。上传后按返回revision
 逐文件核对路径和大小，失败不记录成功。失败时另外发布控制器和**实际trainer**日志。
 
-目标仓库 `latency-sensitive-bench/benchmark-models`，每路独立目录：
+目标仓库 `MLL-Lab/LAGEN-models`，每路独立目录：
 `latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/fixedN-prefix63-restart-20260925`。
 训练数据、checkpoint、原始日志和图都在服务器；不向用户笔记本下载实验产物。
 

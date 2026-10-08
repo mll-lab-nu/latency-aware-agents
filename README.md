@@ -389,20 +389,26 @@ The project uses Hugging Face repositories for public artifacts:
 - fixed-latency and mixed-latency training data;
 - ghost-trail datasets;
 - model checkpoints;
-- device profiles in `latency-sensitive-bench/profiles`.
+- device profiles in `MLL-Lab/LAGEN-profiles`.
 
 The four supported task pipelines use the shared Hugging Face organization
-[`latency-sensitive-bench`](https://huggingface.co/latency-sensitive-bench),
-with centralized developer repositories for new artifacts:
+[`MLL-Lab`](https://huggingface.co/MLL-Lab).
+The [LAGEN collection](https://huggingface.co/collections/MLL-Lab/lagen-6ac750f21139008b8114fff5)
+groups the centralized repositories for benchmark release artifacts:
 
-- [benchmark-models](https://huggingface.co/latency-sensitive-bench/benchmark-models)
+- [LAGEN-models](https://huggingface.co/MLL-Lab/LAGEN-models)
   stores small-policy teachers and VLA inference bundles under task prefixes.
-- [benchmark-datasets](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
+- [LAGEN-datasets](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets)
   stores accepted teacher rollouts and converted train/validation datasets.
 
+Formal releases and experiment archives use LAGEN-models, LAGEN-datasets
+and LAGEN-profiles. Each experiment manifest pins its checkpoints, shared datasets and
+evaluation evidence. Task transfer separates the formal Demon Attack policies
+from archived joint training and earlier evaluation versions.
+
 The exact task paths, source revisions, and publication status are recorded in
-the [artifact registry](docs/artifacts.md). Existing task-specific repositories
-remain available as provenance and are not rewritten by the central layout.
+the [artifact registry](docs/artifacts.md). Migrated source repositories are retired after verification. Original source
+identities remain in the central provenance records.
 
 ## Citation
 
@@ -415,3 +421,5 @@ If you use this benchmark, cite the paper once the citation entry is available.
   year = {...},
 }
 ```
+
+[Paper experiment catalogue](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/e983a3a72e042c6fab5575b847cdf6f4432cddaa/experiments) — task settings, fixed checkpoints, training data, evaluations and profiles.

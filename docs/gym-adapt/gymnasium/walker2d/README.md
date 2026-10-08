@@ -37,13 +37,13 @@ L0 reused 100 source episodes, 90/10 split, 85,160/9,664 rows; clock metadata 12
 
 ### Models, data and evidence
 
-- [Pinned GR00T evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/b59922566cb475e61455342b1111b9e9771c09de/walker2d/profile_latency/GR00T/h1_5fps_20260917)
+- [Pinned GR00T evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/walker2d/profile_latency/GR00T/h1_5fps_20260917)
 
-- [teacher archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/small_model)
+- [teacher archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/small_model)
 
-- [Profile-trained VLA checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/54172536f1a4819babf336e599ea38ef4e88809a/walker2d/profile_latency/GR00T)
+- [Profile-trained VLA checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/walker2d/vla/starvla-qwengr00t-h1/walker2d_profile_gr00t_h1_5fps_2h200_20260917)
 
-- [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/9ea50f42a1e93a9035c8df6a392e5e9f141493de/walker2d/zero_latency/GR00T)
+- [L0 VLA checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/walker2d/vla/starvla-qwengr00t-h1/walker2d_l0_gr00t_h1_5fps_2h200_20260917)
 
 ## OpenVLA
 
@@ -73,9 +73,9 @@ L0 reused 100 episodes. Profile strict>3000 accepted 100; 96,730 rows, 87,052/9,
 
 ### Models, data and evidence
 
-- [Pinned complete historical archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/walker2d)
+- [Pinned complete historical archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d)
 
-- [Profile teacher E10](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/small_model/evaluation/summary.json)
+- [Profile teacher E10](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/small_model/evaluation/summary.json)
 
 - [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/walker2d/zero_latency/OpenVLA)
 
@@ -116,16 +116,16 @@ L0 source 90/10 episodes, 85,160/9,664 rows; prompt/clock 125→5 only. Profile 
 
 - [Pi0.5 stage summary](assets/evidence/pi05-pipeline-summary-20260922.md)
 
-- [L0 pinned model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/44917cfeae3eeaca53a3c1222547f98a797d07a0/walker2d/zero_latency/Pi05)
+- [L0 pinned model](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/walker2d/vla/starvla-qwenpi_v3-h1/walker2d_pi05_l0_h1_5fps_g128_20260921)
 
-- [teacher archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/small_model)
+- [teacher archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/small_model)
 
 - [E10 selected teacher](assets/evidence/E10-summary.json)
 
 - [F full-step audit](assets/evidence/F-verification.json)
 
-- [Pinned F model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/a06fa2de288b4d0ef8bad9f56756077a2ad0b1a3/walker2d/profile_latency/Pi05)
+- [Pinned F model](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/walker2d/vla/starvla-qwenpi_v3-h1/walker2d_pi05_profile_h1_5fps_g128_20260922_m32)
 
-- [Published F evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/c3533105c3d848ec512f39c0d93c1a98a29ddc23/walker2d/profile_latency/Pi05/h1_5fps_g128_20260921)
+- [Published F evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/walker2d/profile_latency/Pi05/h1_5fps_g128_20260921)
 
 - [Approved microbatch32 configuration](assets/evidence/vla-m32-preparation.json)

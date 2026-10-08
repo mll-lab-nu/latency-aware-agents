@@ -87,6 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hf-token", type=str, default="")
     parser.add_argument("--hf-max-shard-size", type=str, default="500MB")
     parser.add_argument("--hf-config-name", type=str, default="")
+    parser.add_argument("--hf-data-dir", help="Repository directory for the published Parquet splits.")
     parser.add_argument(
         "--filter-preset", type=str, default="clean_v1", choices=["none", "clean_v1", "contiguous_v1"]
     )
@@ -170,6 +171,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         hf_token=str(args.hf_token),
         hf_max_shard_size=str(args.hf_max_shard_size),
         hf_config_name=str(args.hf_config_name),
+        hf_data_dir=args.hf_data_dir,
         filter_preset=str(args.filter_preset),
         demon_episode_threshold=args.demon_episode_threshold,
         episode_return_gt=args.episode_return_gt,

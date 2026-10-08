@@ -80,7 +80,7 @@ root is absent, the launcher downloads the exact
 `zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-v1` artifact.
 Logical `cuda:0` runs MIKASA; `cuda:1..` run inference. Add `--resume RUN_ID` to
 continue a partial five-session run or `--publish` to upload the completed run
-and profile to `latency-sensitive-bench/profiles`.
+and profile to `MLL-Lab/LAGEN-profiles`.
 
 ## Manual stage gates
 
@@ -138,17 +138,17 @@ The completed reference run produced:
 
 ## Published and developer artifacts
 
-The historical public sources are retained for provenance:
+Historical assets use the central locations below. Original source revisions remain in the consolidation manifest:
 
-- teacher/model: [`latency-sensitive-bench/mikasa-robo`](https://huggingface.co/latency-sensitive-bench/mikasa-robo),
-  revision `38327e16f9b33cf5f827b54a606cb4c22d4dfbfc`;
-- dataset: [`latency-sensitive-bench/mikasa-robo`](https://huggingface.co/datasets/latency-sensitive-bench/mikasa-robo),
-  revision `28312021c634fa97f8068077dfd6eb0efe6d45ce`.
+- teacher/model: [central PPO teacher](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1),
+  central revision `e3fea81529fd98b5d5782db38803fe4062215dda`, original source revision `38327e16f9b33cf5f827b54a606cb4c22d4dfbfc`;
+- dataset: [published rollouts](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a/zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-v1),
+  central revision `4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a`, original source revision `28312021c634fa97f8068077dfd6eb0efe6d45ce`.
 
 The accepted artifacts are also published in the central
-[`benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
+[`benchmark-models`](https://huggingface.co/MLL-Lab/LAGEN-models)
 repository at revision `204be41b83c892a1c5d0b37a1dd0d628dd2c6a46` and
-[`benchmark-datasets`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
+[`benchmark-datasets`](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets)
 at revision `82b99e2f238d2e1be46e435d5b1ca7a9b9a411a5`. Exact paths are listed in
 the [artifact registry](../artifacts.md). The model copy excludes optimizer
 state and W&B files; the dataset copy includes both raw NPZ and the fixed

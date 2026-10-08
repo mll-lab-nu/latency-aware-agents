@@ -79,7 +79,7 @@ models:
         model_artifact:
           local_root: outputs/path/to/model-root
           checkpoint: .
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/my-task/vla/my-model-v1
         checkpoint_kind: latest
         session_count: 5

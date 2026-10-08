@@ -57,6 +57,7 @@ def export_sample_factory_teacher_dataset(
     episode_return_gt: float | None = None,
     episode_acceptance: Mapping[str, Any] | None = None,
     hf_config_name: str = "",
+    hf_data_dir: str | None = None,
     context_window: int = 1,
     rollout_seed_offset: int = 0,
     probe_only: bool = False,
@@ -88,6 +89,7 @@ def export_sample_factory_teacher_dataset(
         hf_private: Whether the uploaded repository should be private.
         hf_token: Explicit Hugging Face token.
         hf_max_shard_size: Hub upload shard size.
+        hf_data_dir: Optional repository directory for the published Parquet splits.
         episode_return_gt: Optional strict lower bound for accepted episode returns.
         episode_acceptance: Explicit task-specific episode acceptance contract.
         context_window: Total image window length. Values 0 and 1 keep only the
@@ -272,6 +274,8 @@ def export_sample_factory_teacher_dataset(
             push_kwargs["token"] = token
         if hf_config_name:
             push_kwargs["config_name"] = hf_config_name
+        if hf_data_dir is not None:
+            push_kwargs["data_dir"] = hf_data_dir
         load_parquet_splits(output_dir).push_to_hub(**push_kwargs)
     return deepcopy(metadata)
 

@@ -16,13 +16,12 @@ actions.
 The full setting and commands are in the
 [MIKASA cookbook](https://github.com/ZihanWang314/latency-sensitive-bench/blob/master/docs/mikasa/cookbook.md).
 The matching rollouts are in the
-[dataset repository](https://huggingface.co/datasets/latency-sensitive-bench/mikasa-robo).
+[dataset repository](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a/zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-v1).
 
 ## Files
 
 ```text
-oracle_checkpoints/InterceptGrabFast-VLA-v0/final_success_ckpt.pt
-evaluation/ppo_teacher_strict_eval_tuned_final/summary.json
+zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/checkpoint.pt
 ```
 
 `final_success_ckpt.pt` is the PyTorch checkpoint consumed by the official
@@ -53,13 +52,14 @@ passed `100/100` episodes with mean return `36.819`.
 After cloning the benchmark and installing its MIKASA environment:
 
 ```bash
-hf download latency-sensitive-bench/mikasa-robo \
-  oracle_checkpoints/InterceptGrabFast-VLA-v0/final_success_ckpt.pt \
+hf download MLL-Lab/LAGEN-models \
+  zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/checkpoint.pt \
+  --revision e3fea81529fd98b5d5782db38803fe4062215dda \
   --local-dir outputs/mikasa/published_teacher
 
 third_party/MIKASA-Robo/.venv/bin/python scripts/mikasa/evaluate.py \
   --policy ppo \
-  --checkpoint outputs/mikasa/published_teacher/oracle_checkpoints/InterceptGrabFast-VLA-v0/final_success_ckpt.pt \
+  --checkpoint outputs/mikasa/published_teacher/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/checkpoint.pt \
   --episodes 100 \
   --output-dir outputs/mikasa/published_teacher_eval
 ```

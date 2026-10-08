@@ -49,7 +49,7 @@ not install environments or authenticate accounts.
 [`configs/experiments/sim2real.yaml`](../../../configs/experiments/sim2real.yaml)
 lists all 18 task/model pairs, exact checkpoint/config files, evaluation archive
 provenance, and training profile coordinates. Model repository
-`latency-sensitive-bench/benchmark-models` is pinned to
+`MLL-Lab/LAGEN-models` is pinned to
 `180da0effdaaaeacef218cf5fbaa4db41af67495`.
 
 | Task ID | Models | Original env/obs FPS | Archived maximum steps |
@@ -103,11 +103,10 @@ Ant/IP prompt maps contain literal training-clock FPS and millisecond annotation
 Those strings and prompt keys remain exactly as trained while wall-clock pacing
 is calibrated; they are not rewritten as target-GPU timing claims.
 
-Ant/IP eval snapshots and training profiles come from the **dataset** repository
-`latency-sensitive-bench/Standard-Pipeline` at
-`ff90f1b6c46a6eaae55bbf341762f03a2be6e013`, distinct from its model repository's
-`2208875...` revision. InterceptGrab snapshots are the local corrected-evaluation
-archives identified by each published bundle's provenance.
+The active InvertedPendulum registry uses the migrated evaluation archives and
+training profiles in the main repositories. Its original Standard-Pipeline
+coordinates remain in frozen provenance. MIKASA evaluation snapshots retain
+the corrected contract identified by each published model bundle.
 
 The study pins ordinary `Qwen/Qwen3-VL-4B-Instruct` backbone assets to
 `ebb281ec70b05090aa6165b016eac8ec08e71b17`. This revision is recorded by the newer
@@ -129,13 +128,19 @@ The `--stage real` command stops after held-out evaluation and publication:
 4. Held-out runs **5–9**, 2 episodes each, again uploading after every run.
 5. Write/upload `real_runs.csv`, `real_summary.json`, and `REAL_DONE`.
 
-Uploads go to dataset `latency-sensitive-bench/profiles`, under:
+Experiment manifests and episode results go to dataset
+`MLL-Lab/LAGEN-datasets`, under:
 
 ```text
-sim2real/<task>/<model>/<gpu-class>/<instance>/<experiment-id>/
+experiments/sim2real-calibration/runs/<gpu-class>/<task>/<model>/<instance>/<experiment-id>/
 ```
 
-Every stage is an atomic HF commit containing its files and a publication marker.
+Calibration, fitted profiles, action/step traces and runtime logs go to
+`MLL-Lab/LAGEN-profiles`, under the same experiment prefix.
+Each publication commits measurement files first. It then commits experiment
+files, a fixed `profile_source.json` and the stage marker to benchmark-datasets.
+The dataset marker establishes successful stage publication. If the dataset
+commit fails, resume reuses the completed measurement commit.
 Raw hardware and resume contracts stay local. Published manifests/configs use
 portable model references and public GPU descriptions; evaluator-generated local
 path configs are omitted from directory uploads.
@@ -167,13 +172,15 @@ The real stage prints `SOURCE_REF` and `SOURCE_REVISION`. Supply both explicitly
 
 ```bash
 bash /workspace/latency-sensitive-bench/scripts/experiments/sim2real/run.sh \
-  --stage sim --source-ref sim2real/TASK/MODEL/GPU/INSTANCE/EXPERIMENT \
+  --stage sim \
+  --source-ref experiments/sim2real-calibration/runs/GPU/TASK/MODEL/INSTANCE/EXPERIMENT \
   --source-revision HF_COMMIT --gpu 0
 ```
 
 For InterceptGrab, also specify `--simulator-gpu` and the model worker interpreter.
-The replay downloads only the required inputs at that revision, requires
-`REAL_DONE`, and uses the uploaded `eval_template.yaml` and exact model coordinates.
+The replay downloads required experiment inputs at the supplied dataset revision.
+It downloads calibration and profile files at the revision in `profile_source.json`.
+It requires `REAL_DONE` and uses the uploaded `eval_template.yaml` and exact model coordinates.
 It replaces host-local paths/devices, preserving the measured clock and task
 contract. It does not recalibrate or select a current/latest profile. Target
 hardware is retained in `experiment.json`; execution hardware is recorded

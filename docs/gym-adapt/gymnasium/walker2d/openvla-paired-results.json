@@ -72,7 +72,7 @@
     1246.460259045773
   ],
   "sources": [
-    "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/provenance/pipeline/paired_B_F.json"
+    "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/provenance/pipeline/paired_B_F.json"
   ],
   "std_definition": "population ddof=0",
   "B_mean": 103.6500585688883,

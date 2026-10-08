@@ -7,6 +7,7 @@
 # pushes to the hub. Replay is intentionally single-process so its byte-for-byte behavior
 # is unchanged from flappy_fixed_l2.sh.
 set -euo pipefail
+export HF_ENDPOINT=https://huggingface.co
 
 # ---- run variables ----
 MAX_EPISODES="${MAX_EPISODES:-200}"
@@ -26,7 +27,7 @@ FILTER_PRESET="${FILTER_PRESET:-contiguous_v1}"   # KV-memory needs contiguous r
 SEED_STRIDE="${SEED_STRIDE:-100000000}"
 
 # HF dataset target (collection repo + config). Leave HF_REPO_ID empty to skip upload.
-HF_REPO_ID="${HF_REPO_ID:-latency-sensitive-bench/flappy_200ep}"
+HF_REPO_ID="${HF_REPO_ID:-MLL-Lab/LAGEN-datasets}"
 HF_CONFIG_NAME="${HF_CONFIG_NAME:-flappy_fixed_latency_2_200ep_7k2steps}"
 
 # ---- paths / knobs ----
@@ -35,12 +36,13 @@ PYTHON="${PYTHON:-python}"
 EXPORT_PY="$REPO_ROOT/scripts/rollout_data/export_sf_teacher_dataset.py"
 MERGE_PY="$REPO_ROOT/scripts/rollout_data/merge_probe_shards.py"
 
-# Immutable published teacher checkpoint; this external path predates the
-# paper-facing memory/small_model name.
-CKPT_HF_REPO="latency-sensitive-bench/factor-sweeps-models"
-CKPT_SUBPATH="factor_sweeps/flappy/context_window/train/factor_sweep:flappy:frame_stack:fixed_l2:fs1:obs30:stride1:seed10"
+# Fixed canonical checkpoint for the published context-window teacher.
+CKPT_HF_REPO="MLL-Lab/LAGEN-models"
+CKPT_HF_REVISION="365fe5402de3fb464d5da8da9f944b969c5801c4"
+CKPT_SUBPATH="latency-aware/flappy/small-policy/factor_sweep:flappy:frame_stack:fixed_l2:fs1:obs30:stride1:seed10"
 CKPT_DOWNLOAD_ROOT="${CKPT_DOWNLOAD_ROOT:-$REPO_ROOT/playground/published_teacher_ckpts}"
-CHECKPOINT_ROOT="$CKPT_DOWNLOAD_ROOT/$CKPT_SUBPATH"
+CKPT_SNAPSHOT_ROOT="$CKPT_DOWNLOAD_ROOT/$CKPT_HF_REVISION"
+CHECKPOINT_ROOT="$CKPT_SNAPSHOT_ROOT/$CKPT_SUBPATH"
 
 RUN_ROOT="${RUN_ROOT:-$REPO_ROOT/scripts/bash_scripts/rollout_data/exports/flappy_fixed_l2_sharded}"
 SHARD_ROOT="$RUN_ROOT/shards"
@@ -55,12 +57,10 @@ SHARD_EPISODES="${SHARD_EPISODES:-$(( (MAX_EPISODES + NUM_SHARDS - 1) / NUM_SHAR
 echo "[sharded] shards=$NUM_SHARDS shard_episodes=$SHARD_EPISODES shard_num_envs=$SHARD_NUM_ENVS max_episodes=$MAX_EPISODES"
 
 # ---- step 1: download teacher checkpoint ----
-if [ ! -f "$CHECKPOINT_ROOT/config.json" ]; then
-  echo "[download] $CKPT_HF_REPO :: $CKPT_SUBPATH -> $CKPT_DOWNLOAD_ROOT"
-  huggingface-cli download "$CKPT_HF_REPO" --include "$CKPT_SUBPATH/*" --local-dir "$CKPT_DOWNLOAD_ROOT"
-else
-  echo "[download] reuse existing $CHECKPOINT_ROOT"
-fi
+huggingface-cli download "$CKPT_HF_REPO" \
+  --revision "$CKPT_HF_REVISION" \
+  --include "$CKPT_SUBPATH/config.json" "$CKPT_SUBPATH/checkpoint_p0/*" \
+  --local-dir "$CKPT_SNAPSHOT_ROOT"
 
 # ---- step 2: launch K probe-only workers (disjoint seeds, shared GPU) ----
 SHARD_DIRS=()

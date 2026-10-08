@@ -65,8 +65,8 @@ across DAgger rounds with one cosine schedule over the complete DAgger phase.
 ## Publication
 
 Formal runs automatically publish bootstrap/DAgger data to
-`latency-sensitive-bench/benchmark-datasets`, then the final inference bundle
-to `latency-sensitive-bench/benchmark-models` after evaluation completes.
+`MLL-Lab/LAGEN-datasets`, then the final inference bundle
+to `MLL-Lab/LAGEN-models` after evaluation completes.
 Authenticate through the standard Hugging Face login or `HF_TOKEN`.
 
 - Shared data: `zero-latency/<task>/teacher-rollouts-h1-state-v1/`.

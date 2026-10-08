@@ -11,8 +11,8 @@ from huggingface_hub import snapshot_download
 
 from latency_bench.utils.paths import REPO_ROOT
 
-SONIC_ASSETS_REPO_ID = "latency-sensitive-bench/g1-sonic-assets"
-SONIC_ASSETS_REVISION = "7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d"
+SONIC_ASSETS_REPO_ID = "MLL-Lab/LAGEN-datasets"
+SONIC_ASSETS_REVISION = "8678de04e6b59692d85c8e6e690c5ca482626857"
 
 
 def prepare_g1_sonic_assets(cache_dir: Path) -> Path:
@@ -23,11 +23,11 @@ def prepare_g1_sonic_assets(cache_dir: Path) -> Path:
             repo_id=SONIC_ASSETS_REPO_ID,
             repo_type="dataset",
             revision=SONIC_ASSETS_REVISION,
-            allow_patterns=["sonic_g1/**"],
+            allow_patterns=["assets/humanoidbench/g1-sonic/sonic_g1/**"],
             local_dir=cache_dir / "assets",
         )
     )
-    asset_root = snapshot / "sonic_g1"
+    asset_root = snapshot / "assets/humanoidbench/g1-sonic/sonic_g1"
     truck_source = (
         REPO_ROOT
         / "third_party/humanoid-bench/humanoid_bench/assets/tasks/truck.xml"

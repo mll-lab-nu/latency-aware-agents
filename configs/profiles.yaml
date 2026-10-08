@@ -1,5 +1,5 @@
 artifact_root: results/profiling
-hf_repo: latency-sensitive-bench/profiles
+hf_repo: MLL-Lab/LAGEN-profiles
 
 gpu_models:
   a100-sxm4-80gb:
@@ -50,10 +50,11 @@ models:
         base_config: configs/experiments/demon_attack/starvla_profile.yaml
         model_artifact:
           local_root: third_party/starVLA/results/Checkpoints/openvla_demon_attack_fix_latency_0_200ep
-          checkpoint: checkpoints/steps_7000_state/model.safetensors
+          checkpoint: checkpoints/steps_7000_model.safetensors
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/openvla_demon_attack_200ep
-          hf_path: demon_attack_fix_latency_0_200ep
+          hf_repo: MLL-Lab/LAGEN-models
+          revision: a4099f759f71ffa72d967be3695c8e054cfc377c
+          hf_path: zero-latency/demon-attack/vla/starvla-qwenoft-h1/demon_attack_fix_latency_0_200ep
         checkpoint_kind: best
         session_count: 5
         eval_episodes: 10
@@ -70,8 +71,9 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/openvla_flappy_fix_latency_0
           checkpoint: checkpoints/steps_5000_pytorch_model.pt
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/openvla_flappy_fix_latency_0
-          hf_path: .
+          hf_repo: MLL-Lab/LAGEN-models
+          revision: a4099f759f71ffa72d967be3695c8e054cfc377c
+          hf_path: zero-latency/flappy/vla/starvla-qwenoft-h1/openvla_flappy_fix_latency_0
         checkpoint_kind: best
         session_count: 5
         eval_episodes: 10
@@ -91,24 +93,6 @@ models:
           checkpoint: checkpoints/steps_500_pytorch_model.pt
           model_config: config.full.yaml
           hf_repo: talha15032/openvla_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
-          hf_path: .
-        checkpoint_kind: best
-        session_count: 5
-        eval_episodes: 10
-        evaluation_seed: 42
-        calibrate_env_fps: false
-        target_latency_frames: 0
-        worker_utilization_cap: 0.8
-        simulation_parallel_envs: 1
-        simulation_gpu: null
-        simulation_env: {}
-      defend_the_line:
-        base_config: configs/experiments/defend_the_line/starvla_profile.yaml
-        model_artifact:
-          local_root: third_party/starVLA/results/Checkpoints/openvla_bridge_defend_the_line_single_latency_clean_data_exp1
-          checkpoint: checkpoints/steps_7000_model.safetensors
-          model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/openvla_bridge_defend_the_line_single_latency_clean_data_exp1
           hf_path: .
         checkpoint_kind: best
         session_count: 5
@@ -142,24 +126,6 @@ models:
         simulation_env:
           simulator: cpu
           use_gpu_render: false
-      demon_attack:
-        base_config: configs/experiments/demon_attack/starvla_profile.yaml
-        model_artifact:
-          local_root: third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_0_context5_standard_sft_2000_effbs128_224_currentce
-          checkpoint: checkpoints/steps_2000_pytorch_model.pt
-          model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/demon_attack_200ep
-          hf_path: wan_oft_demon_attack_fix_latency_0_context5_standard_sft_2000_effbs128_224_currentce
-        checkpoint_kind: best
-        session_count: 5
-        eval_episodes: 10
-        evaluation_seed: 42
-        calibrate_env_fps: false
-        target_latency_frames: 0
-        worker_utilization_cap: 0.8
-        simulation_parallel_envs: 1
-        simulation_gpu: null
-        simulation_env: {}
       deadly_corridor:
         base_config: configs/experiments/deadly_corridor/starvla_profile_wan_oft.yaml
         model_artifact:
@@ -184,7 +150,7 @@ models:
           local_root: outputs/starvla/runs/mikasa_intercept_grab_fast/wanoft/mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-wanoft-h1/mikasa_intercept_grab_fast_wanoft_formal_latest_r8gpu7_20260907T075003Z
         checkpoint_kind: best
         eval_entrypoint: scripts/mikasa/evaluate.py
@@ -202,7 +168,7 @@ models:
           local_root: outputs/starvla/runs/humanoidbench_balance_simple/wanoft/humanoidbench_balance_simple_wanoft_formal_latest/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/humanoidbench-balance-simple/vla/starvla-wanoft-h1/humanoidbench_balance_simple_wanoft_formal_latest
         checkpoint_kind: best
         session_count: 5
@@ -218,10 +184,11 @@ models:
         base_config: configs/experiments/flappy/realtime/starvla_profile.yaml
         model_artifact:
           local_root: third_party/starVLA/results/Checkpoints/pi05_flappy_fix_latency_0_200ep
-          checkpoint: checkpoints/steps_5000_state/model.safetensors
+          checkpoint: checkpoints/steps_5000_model.safetensors
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/pi05_fix_latency
-          hf_path: pi05_flappy_fix_latency_0_200ep
+          hf_repo: MLL-Lab/LAGEN-models
+          revision: e3fea81529fd98b5d5782db38803fe4062215dda
+          hf_path: zero-latency/flappy/vla/starvla-qwenpi_v3-h1/pi05_flappy_fix_latency_0_200ep
         checkpoint_kind: best
         session_count: 5
         eval_episodes: 10
@@ -270,24 +237,6 @@ models:
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
-      defend_the_line:
-        base_config: configs/experiments/defend_the_line/starvla_profile.yaml
-        model_artifact:
-          local_root: third_party/starVLA/results/Checkpoints/pi05_bridge_defend_the_line_single_latency_clean_data_exp1
-          checkpoint: checkpoints/steps_7000_pytorch_model.pt
-          model_config: config.full.yaml
-          hf_repo: talha15032/pi05_bridge_defend_the_line_single_latency_clean_data_exp1
-          hf_path: .
-        checkpoint_kind: best
-        session_count: 5
-        eval_episodes: 10
-        evaluation_seed: 42
-        calibrate_env_fps: false
-        target_latency_frames: 0
-        worker_utilization_cap: 0.8
-        simulation_parallel_envs: 1
-        simulation_gpu: null
-        simulation_env: {}
   gr00t:
     workloads:
       flappy:
@@ -316,8 +265,9 @@ models:
           local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
           checkpoint: checkpoints/steps_5000_model.safetensors
           model_config: config.full.yaml
-          hf_repo: latency-sensitive-bench/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
-          hf_path: .
+          hf_repo: MLL-Lab/LAGEN-models
+          revision: e3fea81529fd98b5d5782db38803fe4062215dda
+          hf_path: zero-latency/demon-attack/vla/starvla-qwengr00t-h1/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6
         checkpoint_kind: best
         session_count: 5
         eval_episodes: 10
@@ -346,24 +296,6 @@ models:
         simulation_parallel_envs: 1
         simulation_gpu: null
         simulation_env: {}
-      defend_the_line:
-        base_config: configs/experiments/defend_the_line/starvla_profile.yaml
-        model_artifact:
-          local_root: third_party/starVLA/results/Checkpoints/gr00t_bridge_defend_the_line_single_latency_clean_data_exp1
-          checkpoint: checkpoints/steps_7000_model.safetensors
-          model_config: config.full.yaml
-          hf_repo: talha15032/gr00t_bridge_defend_the_line_single_latency_clean_data_exp1
-          hf_path: .
-        checkpoint_kind: best
-        session_count: 5
-        eval_episodes: 10
-        evaluation_seed: 42
-        calibrate_env_fps: false
-        target_latency_frames: 0
-        worker_utilization_cap: 0.8
-        simulation_parallel_envs: 1
-        simulation_gpu: null
-        simulation_env: {}
   qwenoft:
     workloads:
       atlantis:
@@ -372,7 +304,7 @@ models:
           local_root: outputs/tasks/atari_hist8_v1/bundles/atlantis-qwenoft-hist8-zero-s42-v1
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/atlantis/vla/starvla-qwenoft-h1/atlantis-qwenoft-hist8-zero-s42-v1
         checkpoint_kind: best
         session_count: 5
@@ -388,7 +320,7 @@ models:
           local_root: outputs/tasks/atari_hist8_v1/bundles/asterix-qwenoft-hist8-zero-s42-v1
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/asterix/vla/starvla-qwenoft-h1/asterix-qwenoft-hist8-zero-s42-v1
         checkpoint_kind: best
         session_count: 5
@@ -436,7 +368,7 @@ models:
           local_root: outputs/starvla/runs/mikasa_intercept_grab_fast/qwenoft/mikasa_intercept_grab_fast_qwenoft_formal_latest_r8gpu8_20260907T082154Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h1/mikasa_intercept_grab_fast_qwenoft_formal_latest_r8gpu8_20260907T082154Z
         checkpoint_kind: best
         eval_entrypoint: scripts/mikasa/evaluate.py
@@ -454,7 +386,7 @@ models:
           local_root: outputs/starvla/runs/humanoidbench_balance_simple/qwenoft/humanoidbench_balance_simple_qwenoft_formal_latest/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/humanoidbench-balance-simple/vla/starvla-qwenoft-h1/humanoidbench_balance_simple_qwenoft_formal_latest
         checkpoint_kind: best
         session_count: 5
@@ -472,7 +404,7 @@ models:
           local_root: outputs/tasks/atari_hist8_v1/bundles/atlantis-qwenpi_v3-hist8-zero-s42-v1
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/atlantis/vla/starvla-qwenpi_v3-h1/atlantis-qwenpi_v3-hist8-zero-s42-v1
         checkpoint_kind: best
         session_count: 5
@@ -488,7 +420,7 @@ models:
           local_root: outputs/tasks/atari_hist8_v1/bundles/asterix-qwenpi_v3-hist8-zero-s42-v1
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/asterix/vla/starvla-qwenpi_v3-h1/asterix-qwenpi_v3-hist8-zero-s42-v1
         checkpoint_kind: best
         session_count: 5
@@ -504,7 +436,7 @@ models:
           local_root: outputs/starvla/runs/mikasa_intercept_grab_fast/qwenpi_v3/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z
         checkpoint_kind: best
         eval_entrypoint: scripts/mikasa/evaluate.py
@@ -522,7 +454,7 @@ models:
           local_root: outputs/starvla/runs/humanoidbench_balance_simple/qwenpi_v3/humanoidbench_balance_simple_qwenpi_v3_formal_latest/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/humanoidbench-balance-simple/vla/starvla-qwenpi_v3-h1/humanoidbench_balance_simple_qwenpi_v3_formal_latest
         checkpoint_kind: best
         session_count: 5
@@ -540,7 +472,7 @@ models:
           local_root: outputs/tasks/atari_hist8_v1/bundles/atlantis-qwengr00t-hist8-zero-s42-v1
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/atlantis/vla/starvla-qwengr00t-h1/atlantis-qwengr00t-hist8-zero-s42-v1
         checkpoint_kind: best
         session_count: 5
@@ -556,7 +488,7 @@ models:
           local_root: outputs/tasks/atari_hist8_v1/bundles/asterix-qwengr00t-hist8-zero-s42-v1
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/asterix/vla/starvla-qwengr00t-h1/asterix-qwengr00t-hist8-zero-s42-v1
         checkpoint_kind: best
         session_count: 5
@@ -572,7 +504,7 @@ models:
           local_root: outputs/starvla/runs/mikasa_intercept_grab_fast/qwengr00t/mikasa_intercept_grab_fast_qwengr00t_formal_latest_r8gpu7_20260907T075003Z/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h1/mikasa_intercept_grab_fast_qwengr00t_formal_latest_r8gpu7_20260907T075003Z
         checkpoint_kind: best
         eval_entrypoint: scripts/mikasa/evaluate.py
@@ -590,7 +522,7 @@ models:
           local_root: outputs/starvla/runs/humanoidbench_balance_simple/qwengr00t/humanoidbench_balance_simple_qwengr00t_formal_latest/inference
           checkpoint: checkpoints/model.pt
           model_config: config.yaml
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/humanoidbench-balance-simple/vla/starvla-qwengr00t-h1/humanoidbench_balance_simple_qwengr00t_formal_latest
         checkpoint_kind: best
         session_count: 5

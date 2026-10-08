@@ -9,17 +9,16 @@
 让 GR00T VLA 在 `g1_sonic_balance_simple` 上直接拟合 teacher，把 closed-loop return 稳定提高到 500 以上（teacher 约 900–1000）。当前使用 direct VLA，直接预测关节目标。
 
 复现入口见 [`docs/humanoidbench/cookbook.md`](../docs/humanoidbench/cookbook.md)；新的集中式
-artifact 路径见 [`docs/artifacts.md`](../docs/artifacts.md)。历史公开的 [dataset repo](https://huggingface.co/datasets/latency-sensitive-bench/humanoidbench)
-和 [model repo](https://huggingface.co/latency-sensitive-bench/humanoidbench) 保持不变。
+artifact 路径见 [`docs/artifacts.md`](../docs/artifacts.md)。历史模型、数据和场景资源已合并到三个中央仓库，原始来源保留在迁移清单中。
 
 ## Current status
 
 - 新一轮 fresh 10k 正式训练已经完成，W&B 状态为 `finished`，当前没有训练进程，GPU 已释放。
 - 下一轮 fresh 15k 尚未运行；canonical W&B run/name 和输出目录均为 `g1_balance_simple_obs198_h40_repeat_fixedz0_onestep_dropout0_15k`。
-- dataset 远端布局为 `latency-sensitive-bench/humanoidbench` 的 `balance_simple/lerobot` 与 `balance_simple/lerobot__val`，固定 revision 为 `dbb954842942196e127c9acc0d776b62aa679990`；场景资源复用 `latency-sensitive-bench/g1-sonic-assets@7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d`。
+- 历史 100 局数据保留在 `benchmark-datasets@4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a` 的 `zero-latency/humanoidbench-balance-simple/teacher-rollouts-v1/`；场景资源在同仓库 `8678de04e6b59692d85c8e6e690c5ca482626857` 的 `assets/humanoidbench/g1-sonic/sonic_g1/`。
 - 历史 model repo 的 `balance_simple/checkpoint-10000/` 保持不变；同一 10k inference bundle、
   FastTD3 teacher 和 zero-delay eval 已复制到
-  [`latency-sensitive-bench/benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
+  [`MLL-Lab/LAGEN-models`](https://huggingface.co/MLL-Lab/LAGEN-models)
   revision `204be41b83c892a1c5d0b37a1dd0d628dd2c6a46`。15k 尚未运行，后续结果仍须在训练和评估完成后显式上传。
 - 10-seed 最佳/最终结果来自 checkpoint-10000：return `353.532 ± 133.571`，mean length `371.0`；相比历史 5k 最佳 `211.844` 明显提高，但仍未达到目标 500。
 - checkpoint-9500 和 checkpoint-10000 是当前仅保留的权重；10k cosine schedule 已耗尽，末次 LR 为 `2.5956e-12`，不要直接 resume 这个 optimizer/scheduler。

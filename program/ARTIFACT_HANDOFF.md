@@ -8,9 +8,9 @@
 
 中央仓库：
 
-- 模型：[`latency-sensitive-bench/benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
-- 数据：[`latency-sensitive-bench/benchmark-datasets`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
-- Profile：[`latency-sensitive-bench/profiles`](https://huggingface.co/datasets/latency-sensitive-bench/profiles)
+- 模型：[`MLL-Lab/LAGEN-models`](https://huggingface.co/MLL-Lab/LAGEN-models)
+- 数据：[`MLL-Lab/LAGEN-datasets`](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets)
+- Profile：[`MLL-Lab/LAGEN-profiles`](https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles)
 
 ## hist8 新版 VLA 发布（2026-09-24）
 
@@ -25,7 +25,7 @@ QwenPI v3 × zero/profile 共 18 个新版模型已发布。固定中央 revisio
 18 个中央 checkpoint 的 LFS SHA 与原始权重一致；588 个元数据对象、102 个核心
 文件实际下载回读核对通过。公开包包含权重、配置、统计、任务合同、profile 与
 采样 sidecar、provenance、README 和逐局评测证据。optimizer/RNG 保留在训练归档。
-[公开索引与成绩](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)
+[公开索引与成绩](https://huggingface.co/MLL-Lab/LAGEN-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)
 与[发布回执](../outputs/tasks/decision_history_vla_hist8_v2/hf_publication/README.md)
 列出全部 18 个路径和身份。下文历史资产的待评/不发布决定不适用于这批已验证新版。
 
@@ -51,7 +51,7 @@ checkpoint 的新评测 JSON。不同模型族并列报告，不按模型族之�
 | Flappy Bird | `latency-sensitive-bench/paper-experiment-models@8d576e64dd9f7370e06abfebff37b3d50dfdf8d1` | `jitter_destructiveness/real_profile/latency0/teachers/flappy/flappy_teacher_fixed_l0_obs30_seed0/`，选择 `best_000047376_24281088_reward_2078.738.pth` | `zero-latency/flappy/small-policy/sample-factory-v1/` | Published；100 局 mean 444.600；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
 | Demon Attack | 同上 | `jitter_destructiveness/real_profile/latency0/teachers/demon_attack/demon_attack_teacher_fixed_l0_obs15_seed0/`，选择 `best_000048704_24936448_reward_27118.050.pth` | `zero-latency/demon-attack/small-policy/sample-factory-v1/` | Published；14400-step 100 局 raw game-score mean 8727.150；central eval/README readback `7a6d7af88f921c6244aafe03078f1d30d94cc9b7`；provenance `dd81908094a43d9c68e9c1349ad0a7cb697d5cf5` |
 | Deadly Corridor | 同上 | `jitter_destructiveness/real_profile/latency0/teachers/deadly_corridor/deadly_corridor_teacher_fixed_l0_obs8p75_seed0/`，选择 `best_000040896_20938752_reward_2260.797.pth` | `zero-latency/deadly-corridor/small-policy/sample-factory-v1/` | Published；100 局 mean 2116.794；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
-| Atlantis | `latency-sensitive-bench/benchmark-models@56b2c095d76ea5b10dd304e6e03c2ca81801630b` | `zero-latency/atlantis/small-policy/sample-factory-v1/` | 原路径补齐正式 bundle | Published；100 局 mean 29271.000；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
+| Atlantis | `MLL-Lab/LAGEN-models@56b2c095d76ea5b10dd304e6e03c2ca81801630b` | `zero-latency/atlantis/small-policy/sample-factory-v1/` | 原路径补齐正式 bundle | Published；100 局 mean 29271.000；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
 | Asterix | 同上 | `zero-latency/asterix/small-policy/sample-factory-v1/` | 原路径补齐正式 bundle | Published；100 局 mean 4099.000；central readback `98b693409c2f86c10b7a11e511fa60ff9e93e7ec` |
 
 Small bundle 只包含所选 checkpoint、原始 `config.json`、`eval_l0.json` 或
@@ -71,10 +71,10 @@ retained checkpoints。
 | Asterix | 12,345,344 | 6,041.000 ± 2,272.101 | `zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/` |
 
 两项已训练完成、评测完成并发布到
-[`benchmark-models@dfaeecb`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency)；
+[`benchmark-models@dfaeecb`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency)；
 10 个中央文件逐一回读并与源文件匹配，旧 `sample-factory-v1` 目录保留。
-[Atlantis 逐局评测](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json)与
-[Asterix 逐局评测](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json)保留完整身份与结果；
+[Atlantis 逐局评测](https://huggingface.co/MLL-Lab/LAGEN-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json)与
+[Asterix 逐局评测](https://huggingface.co/MLL-Lab/LAGEN-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/eval_l0.json)保留完整身份与结果；
 本地发布回执位于 `outputs/tasks/atari_zero_hist8_cpu15m/publication_receipt.json`。
 旧 teacher 的正式评测 horizon 为 5,000 原始帧，与本次 14,400 帧均分不可直接比较。
 
@@ -98,7 +98,7 @@ Flappy π 使用上表已确认公开的 5000-step state。3000/5000 step 不拆
 
 ### RTX 3090 latency profile：9 项
 
-全部来自 `latency-sensitive-bench/profiles@48d13d3dfa2b77c2d10fbbbcc5210d8af9fc8749`
+全部来自 `MLL-Lab/LAGEN-profiles@48d13d3dfa2b77c2d10fbbbcc5210d8af9fc8749`
 并保留原目录：
 
 | 环境 | O mean/p95 ms | G mean/p95 ms | π mean/p95 ms |
@@ -116,7 +116,7 @@ Flappy π 使用上表已确认公开的 5000-step state。3000/5000 step 不拆
 
 本节九项旧 checkpoint 和旧评测仅保留作审计证据，已因训练/评测 worker-capacity
 契约不一致而失效，不能继续作为正式结果或发布候选。九个旧 bundle 已从中央模型仓库
-main 删除，提交为 [`a837166`](https://huggingface.co/latency-sensitive-bench/benchmark-models/commit/a837166929198f76092198ba1ef86efcad45d2ea)；
+main 删除，提交为 [`a837166`](https://huggingface.co/MLL-Lab/LAGEN-models/commit/a837166929198f76092198ba1ef86efcad45d2ea)；
 [删除前清单](../outputs/tasks/decision_history_temporal_25m_seed42/legacy_small_policy_predelete.json)
 记录了九个目录内的 45 个文件及哈希，删除前 revision 为 `3d24469718eaddc9db876796c102ec6e8184c777`。
 除下表 Flappy O/G 的
@@ -159,11 +159,11 @@ Corrected 协议为全新 `capacity1_seed42` 实验：Flappy 使用 temporal pro
 三族都固定训练 seed 42，评测 deterministic 100 局、`capacity=1`，并绑定各自训练内部
 产生的 `best_*.pth`。训练 checkpoint、日志与评测先写挂载盘。用户随后指定九条已完成的
 temporal H8 run 发布 best checkpoint：先五条在
-[`benchmark-models@9880201`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/988020114cc8201d529992031bc0fe5d41934b2b/latency-aware)，
+[`benchmark-models@9880201`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/988020114cc8201d529992031bc0fe5d41934b2b/latency-aware)，
 再三条在
-[`benchmark-models@3d24469`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/3d24469718eaddc9db876796c102ec6e8184c777/latency-aware)
+[`benchmark-models@3d24469`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/3d24469718eaddc9db876796c102ec6e8184c777/latency-aware)
 发布，Demon Attack π0.5 最后在
-[`benchmark-models@46a33b1`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/46a33b18a2db8feb5cc6b520a95c2e96662c5e5b/latency-aware/demon-attack/small-policy)
+[`benchmark-models@46a33b1`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/46a33b18a2db8feb5cc6b520a95c2e96662c5e5b/latency-aware/demon-attack/small-policy)
 发布。九项均使用独立的 `sample-factory-*-rtx3090-temporal-hist8-capacity1*-s42-v1` 目录。
 完整路径和哈希见[首批回执](../outputs/tasks/decision_history_temporal_25m_seed42/hf_publish_receipt.json)
 、[追加回执](../outputs/tasks/decision_history_temporal_25m_seed42/hf_publish_receipt_three.json)
@@ -221,6 +221,18 @@ Deadly native35 GR00T/π0.5 与 Demon Attack GR00T/π0.5 的外部 100 局 JSON 
   mean/std、Student-t 95% CI、episode length、horizon、并行度以及逐 episode 原始记录。
 
 ## 发布验收
+
+Figure 2 的历史 checkpoint 归属单独记录在
+[latency-degradation 固定索引](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/f67aa6ce5b67b74cd30d55b58e436e17bb9967a8/experiments/latency-degradation)。
+它不沿用上文旧账本中的全部模型选择：Flappy GR00T 图用高学习率版 step 3000，
+而上文历史基线列的是另一版 step 5000。图用 step 3000 权重尚未找到，不能用 best 2400 替代。
+Flappy π step 5000 与 `pi05_fix_latency` 中对应权重身份一致；Demon π 图用 step 5000，
+不是该共享仓库的 step 7000；Deadly π 图用个人 clean-data exp2 权重，
+不是 `pi05_fix_latency` 中另一份同 step 权重。
+六份已确认游戏权重已在 `benchmark-models@e3fea81529fd98b5d5782db38803fe4062215dda` 发布。
+SHA256、大小和 Xet hash 均与原文件一致；可取得的八份配置/统计已进入对应模型目录。
+共享源仓库的其他资产与当前消费者覆盖情况见 [源仓库合并索引](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/a6e93d4a9a1277c5cd5a7145e0295e3e190374e1/reports/source-repository-retirement-20261008)。
+完整模型加载未作为本次整理前置条件，也未声称通过运行验收。
 
 只有同时满足以下条件才从 `Pending` 改成 `Published`：
 

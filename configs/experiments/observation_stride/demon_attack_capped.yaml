@@ -5,9 +5,12 @@ train_dir: results/checkpoints/observation_stride/demon_attack
 output_root: outputs/observation_stride/demon_attack/capped
 device: cuda
 restart_behavior: resume
-eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+train_upload_repo_id: MLL-Lab/LAGEN-models
+train_upload_repo_type: model
+train_upload_path_prefix: latency-aware/demon-attack/small-policy
+eval_upload_repo_id: MLL-Lab/LAGEN-datasets
 eval_upload_repo_type: dataset
-eval_upload_path_prefix: observation_stride/demon_attack/capped
+eval_upload_path_prefix: evaluations/demon-attack/observation-stride-capped
 seeds:
   - 10
   - 11

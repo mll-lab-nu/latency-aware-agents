@@ -1,11 +1,14 @@
 # Benchmark artifact registry
 
 This is the human-readable index for the supported task pipelines, including
-profile-based latency training. New artifacts use these central Hugging Face repositories:
+profile-based latency training. Benchmark release artifacts use these central Hugging Face repositories:
 
-- models: [`latency-sensitive-bench/benchmark-models`](https://huggingface.co/latency-sensitive-bench/benchmark-models)
-- datasets: [`latency-sensitive-bench/benchmark-datasets`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets)
-- profiles: [`latency-sensitive-bench/profiles`](https://huggingface.co/datasets/latency-sensitive-bench/profiles)
+- models: [`MLL-Lab/LAGEN-models`](https://huggingface.co/MLL-Lab/LAGEN-models)
+- datasets: [`MLL-Lab/LAGEN-datasets`](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets)
+- profiles: [`MLL-Lab/LAGEN-profiles`](https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles)
+
+The [LAGEN collection](https://huggingface.co/collections/MLL-Lab/lagen-6ac750f21139008b8114fff5)
+groups the three repositories under MLL-Lab.
 
 Paths below are stable task prefixes. The task-owned scripts write local files;
 publishing is an explicit developer operation. A status of `planned` means the
@@ -15,6 +18,17 @@ The checked-in source for the central dataset card and its explicit Viewer
 configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 
 ## Model artifacts
+
+Figure 2 source bindings and evaluation records are published in the
+[latency-degradation catalogue](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/d1014aaaa1dd7f40ae21c60070dc0659fa265422/experiments/latency-degradation).
+All 15 curve references, 477 evidence objects and 6000 MIKASA episode records
+passed readback. The six confirmed game weights are published in
+[benchmark-models](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency)
+with the original SHA256, size and Xet identity. Available original configs and
+statistics are stored with their canonical bundles. Six MIKASA weights reuse
+existing fixed revisions. Flappy GR00T step 3000 remains missing. The two
+historical game OpenVLA checkpoint bindings remain unconfirmed.
+[Verification report](../outputs/hf_cleanup/latency-degradation-20261007/REPORT.md).
 
 | Task | Role | Local source | Central path | Status |
 | --- | --- | --- | --- | --- |
@@ -30,8 +44,8 @@ configs is [`benchmark_datasets_card.md`](benchmark_datasets_card.md).
 | Deadly Corridor | Sample Factory zero-latency teacher | Historical HF source recorded in `program/ARTIFACT_HANDOFF.md` | `zero-latency/deadly-corridor/small-policy/sample-factory-v1/` | Published; 100-episode mean 2116.794; central readback passed |
 | Atlantis | Sample Factory zero-latency teacher | Existing central checkpoint/config | `zero-latency/atlantis/small-policy/sample-factory-v1/` | Published; 100-episode mean 29271.000; central readback passed |
 | Asterix | Sample Factory zero-latency teacher | Existing central checkpoint/config | `zero-latency/asterix/small-policy/sample-factory-v1/` | Published; 100-episode mean 4099.000; central readback passed |
-| Atlantis | Sample Factory zero-latency H8 CPU policy | [Published provenance](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/provenance.json) | `zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/` | Published at `dfaeecb`; 100-episode 14400-frame mean 88613.000; central readback passed |
-| Asterix | Sample Factory zero-latency H8 CPU policy | [Published provenance](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/provenance.json) | `zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/` | Published at `dfaeecb`; 100-episode 14400-frame mean 6041.000; central readback passed |
+| Atlantis | Sample Factory zero-latency H8 CPU policy | [Published provenance](https://huggingface.co/MLL-Lab/LAGEN-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/provenance.json) | `zero-latency/atlantis/small-policy/sample-factory-hist8-cpu15m-s0-v1/` | Published at `dfaeecb`; 100-episode 14400-frame mean 88613.000; central readback passed |
+| Asterix | Sample Factory zero-latency H8 CPU policy | [Published provenance](https://huggingface.co/MLL-Lab/LAGEN-models/blob/dfaeecb84cd6b5dfcc3adc0935d0ae86d0b504d2/zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/provenance.json) | `zero-latency/asterix/small-policy/sample-factory-hist8-cpu15m-s0-v1/` | Published at `dfaeecb`; 100-episode 14400-frame mean 6041.000; central readback passed |
 
 The five historical Atari-like tasks additionally reserve three zero-latency
 VLA paths per task, named
@@ -39,7 +53,7 @@ VLA paths per task, named
 The five zero-latency small-policy bundles remain valid. The nine old
 latency-aware small-policy bundles for Flappy Bird, Demon Attack, and Deadly
 Corridor were removed from the model repo's main branch at
-[`a837166`](https://huggingface.co/latency-sensitive-bench/benchmark-models/commit/a837166929198f76092198ba1ef86efcad45d2ea):
+[`a837166`](https://huggingface.co/MLL-Lab/LAGEN-models/commit/a837166929198f76092198ba1ef86efcad45d2ea):
 their training did not enforce the worker-capacity admission contract used by
 evaluation. Their exact paths and file hashes are in the
 [deletion manifest](../outputs/tasks/decision_history_temporal_25m_seed42/legacy_small_policy_predelete.json),
@@ -75,7 +89,7 @@ objects and 102 downloaded core files passed readback. The bundles contain
 configuration, statistics, task contracts, provenance, exact profile sidecars,
 model cards and episode-level results. Deadly uses sf-render-v4.
 
-See the [published model index and scores](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)
+See the [published model index and scores](https://huggingface.co/MLL-Lab/LAGEN-models/blob/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/README.md)
 and [publication receipt](../outputs/tasks/decision_history_vla_hist8_v2/hf_publication/README.md).
 These are distinct from the historical VLA paths still marked pending above.
 
@@ -103,7 +117,7 @@ full configurations, and those missing files remain explicitly recorded.
 Evaluation and acceptance states remain those recorded by the source evidence.
 Dataset repositories remain at their recorded source locations.
 
-See the [complete model inventory and copy verification](https://huggingface.co/latency-sensitive-bench/benchmark-models/blob/ad37dff2ec7ea0adea072024330d19b5e7099e21/reports/standard-pipeline-2208875f92b2/README.md)
+See the [complete model inventory and copy verification](https://huggingface.co/MLL-Lab/LAGEN-models/blob/ad37dff2ec7ea0adea072024330d19b5e7099e21/reports/standard-pipeline-2208875f92b2/README.md)
 and [local publication receipt](../outputs/hf_migrations/standard-pipeline-2208875f92b2/publication.json).
 
 ## Dataset artifacts
@@ -112,9 +126,18 @@ and [local publication receipt](../outputs/hf_migrations/standard-pipeline-22088
 | --- | --- | --- | --- | --- |
 | MIKASA Intercept Grab Fast | 275 successful episodes; raw NPZ and LeRobot 250/25 split | `outputs/mikasa/grabfast_h1_dataset/` | `zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-v1/` | Published |
 
-Do not put optimizer state, W&B directories, temporary raw shards, or local
-absolute-path manifests in either central repository. Keep large scene assets
-in their existing dedicated repository.
+Model publication retains selected inference checkpoints and their source metadata.
+Optimizer/trainer states and W&B binaries remain retired. Original training data,
+evaluation records and logs are retained as artifacts. Scene assets use
+`benchmark-datasets/assets/humanoidbench/g1-sonic/`.
+
+The [storage retention report](../outputs/hf_cleanup/storage-prune-20261007/REPORT.md)
+records the retirement of HAIC and Extreme Parkour, removal of recovery state,
+and fixed reference repairs. Each run retains its selected evaluation checkpoint,
+or its latest checkpoint when no evaluation selection exists. Latest-checkpoint
+comparison metrics remain evidence even when the unselected weight is retired.
+Model and dataset bodies are not downloaded for this cleanup. Git/LFS identities
+verify retained bytes; framework loading and evaluation are not repeated.
 
 ## Deployment profiles
 
@@ -125,19 +148,37 @@ under `runs/` only after all five 100-episode sessions succeed. Model provenance
 records the central model path and resolved revision, not a machine-local
 absolute path.
 
-## Historical sources
+## Paper experiment catalogue
 
-These task-specific repositories remain unchanged and are listed so an older
-result can be traced to its original source. They are not the new publication
-layout.
+Paper assets use the three main repositories. Each shared checkpoint, dataset and profile has one canonical location. Task manifests pin exact revisions and retain original source identities.
 
-| Task | Historical artifact | Source repository |
-| --- | --- | --- |
-| MIKASA | PPO teacher | [`latency-sensitive-bench/mikasa-robo`](https://huggingface.co/latency-sensitive-bench/mikasa-robo) |
-| MIKASA | Teacher rollouts | [`latency-sensitive-bench/mikasa-robo`](https://huggingface.co/datasets/latency-sensitive-bench/mikasa-robo) |
-| Balance Simple | Official GR00T 10k bundle | [`latency-sensitive-bench/humanoidbench`](https://huggingface.co/latency-sensitive-bench/humanoidbench) |
-| Balance Simple | Teacher rollouts | [`latency-sensitive-bench/humanoidbench`](https://huggingface.co/datasets/latency-sensitive-bench/humanoidbench) |
-| Balance Simple | Scene assets | [`latency-sensitive-bench/g1-sonic-assets`](https://huggingface.co/datasets/latency-sensitive-bench/g1-sonic-assets) |
+| Experiment | Settings and asset references |
+|---|---|
+| Visual history | [visual-history](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/e0f4007f504978f93c32557ea4e9b97fdf62fcf5/experiments/visual-history) |
+| Latency in prompt | [latency-in-prompt](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/e0f4007f504978f93c32557ea4e9b97fdf62fcf5/experiments/latency-in-prompt) |
+| Latency transfer | [latency-transfer](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/e0f4007f504978f93c32557ea4e9b97fdf62fcf5/experiments/latency-transfer) |
+| Mean vs. profile training | [mean-vs-profile](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/e0f4007f504978f93c32557ea4e9b97fdf62fcf5/experiments/mean-vs-profile) |
+
+The root README pages provide navigation only. Experiment pages list tasks. Task pages contain detailed settings, results and manifests. Run directories retain model configuration and normalization statistics.
+
+The original memory, latency-information, latency-transfer and fine-tuning-scope repositories were deleted after verified consolidation. Source records remain under the canonical experiments’ provenance paths. The original Flappy Ghost-7 model is removed from their current indices. Ghost-7 exp3 and its shared training data remain available. Identical Ghost-15 checkpoint bytes use one path while their source run metadata remain separate.
+
+Factor-sweeps and fine-tuning-scope archives use the central experiment manifests. Their data consumers use benchmark-datasets.
+
+## Consolidated historical sources
+
+[Source archive index](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/a6e93d4a9a1277c5cd5a7145e0295e3e190374e1/reports/source-repository-retirement-20261008)
+records the original repos, revisions, exact central paths and unresolved paper
+bindings. The 65 selected Standard-Pipeline inference bundles reuse existing
+central model paths. Hardware profiling directories use `profiles/runs/archive/standard-pipeline/`.
+
+| Task | Historical asset | Central path |
+|---|---|---|
+| MIKASA | PPO teacher | `benchmark-models/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/` |
+| MIKASA | Published teacher rollouts | `benchmark-datasets/zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-v1/` |
+| Balance Simple | Official GR00T 10k bundle | `benchmark-models/zero-latency/humanoidbench-balance-simple/vla/gr00t-n1.7-10k-v1/` |
+| Balance Simple | Published dataset export | `benchmark-datasets/zero-latency/humanoidbench-balance-simple/teacher-rollouts-v1/` |
+| Balance Simple | Scene assets | `benchmark-datasets/assets/humanoidbench/g1-sonic/sonic_g1/` |
 
 ## StarVLA models and shared data
 
@@ -154,7 +195,7 @@ The SFT run IDs end in `-profile` or `-fixed-2`; the DAgger run IDs are
 `h8-conditioned-dagger-20260923-profile` and
 `h8-conditioned-dagger-20260923-fixed-2`. The condition remains in each bundle's
 provenance. The 12 migrated bundles are available at
-[the verified layout revision](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla).
+[the verified layout revision](https://huggingface.co/MLL-Lab/LAGEN-models/tree/af8d7bfacbb03b59b5b5eabbed331577dd5fa690/latency-aware/mikasa-intercept-grab-fast/vla).
 
 Each task shares `zero-latency/<task>/teacher-rollouts-h<horizon>-state-v1/`
 across all four models. Balance additionally publishes
@@ -214,3 +255,21 @@ adapter requires a prepared backbone path. A generic StarVLA model that needs no
 external override can continue using its checkpoint's model configuration.
 Historical configs under `configs/examples/.../source_contract/` and named
 experiment snapshots retain their original paths as provenance.
+
+The [experiment consolidation report](../outputs/hf_cleanup/experiment-repos-20261007/REPORT.md) records actual repository counts, immutable source revisions, native-loader checks and retained gaps. Remaining jitter, image-history, mixed-task and profile assets require separate ownership checks.
+
+The [maintained experiment model and dataset cards](hf_cards/README.md) provide root YAML metadata, named dataset configurations, schema, row counts and immutable download examples for the five experiment archives.
+
+## Appendix factor sweeps
+
+The [observation-stride](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/main/experiments/observation-stride) and [context-window](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/main/experiments/context-window) experiments use the main repositories. Their task manifests pin 459 archived runs and 468 retained checkpoint candidates. Original evaluations, action traces, videos and training records live in benchmark-datasets.
+
+Nine Deadly evaluations bind step 48840 through complete action traces. Four other Deadly paper weights at step 48836 and one Demon C=12 uniform-delay seed-14 weight remain missing. The task manifests preserve those gaps and the published measurements. Retained alternate weights are not substitutes.
+
+The two factor-sweeps source repositories were retired after complete file identity, loading, reading and navigation checks. The cleanup also removes two verified Ghost-data duplicates and 23 unreferenced checkpoint versions. The 24 referenced candidate versions and other independent source assets remain available. See the [migration report](../outputs/hf_cleanup/factor-unification-20261007/REPORT.md).
+
+## Task transfer release
+
+The [task-transfer catalogue](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/e983a3a72e042c6fab5575b847cdf6f4432cddaa/experiments/task-transfer) contains two formal Demon Attack policies: zero-latency step 7000 and mixed-latency step 5000. Both are stored in benchmark-models. The former root task-transfer dataset archive was retired on 2026-10-08. Formal Demon Attack data and current four-task evaluations remain at their task-owned paths in benchmark-datasets.
+
+The task manifest retains exact source revisions and checkpoint identities. It records the 5812 versus 5832.25 paper/evaluation difference, the raw-frame versus latency-label protocol difference, and missing mixed-policy training metadata. These gaps do not change the user's formal/archive classification. Migration and source-retirement evidence is in [the task-transfer report](../outputs/hf_cleanup/task-transfer-20261007/REPORT.md).

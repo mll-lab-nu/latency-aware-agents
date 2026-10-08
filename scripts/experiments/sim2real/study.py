@@ -228,7 +228,8 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
         write_json(output / "hardware.json", fingerprint)
     protocol = contract["protocol"]
     write_generated_config(output / "archived_eval.yaml", base)
-    source_ref = f"sim2real/{task}/{model}/{deployment['gpu_class']}/{deployment['instance_id']}/{output.name}"
+    source_ref = (f"experiments/sim2real-calibration/runs/{deployment['gpu_class']}/"
+                  f"{task}/{model}/{deployment['instance_id']}/{output.name}")
     public_hardware = public_hardware_projection(
         fingerprint, gpu_name_registry=gpu_name_registry(load_config(REPO_ROOT / "configs/profiles.yaml")["gpu_models"]),
         cuda_visible_devices=deployment["gpus"][0]["uuid"],

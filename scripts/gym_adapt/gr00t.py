@@ -198,8 +198,17 @@ def profile_spec(task: str, config_path: Path, bundle: Path, output: Path) -> di
         checkpoint_kind="latest", session_count=5, eval_episodes=10, evaluation_seed=42,
         calibrate_env_fps=False, simulation_parallel_envs=1, simulation_gpu=None, simulation_env={})
     spec["model_artifact"] = {"local_root": str(bundle), "checkpoint": "checkpoints/model.pt",
-        "model_config": "config.yaml", "hf_repo": "latency-sensitive-bench/Standard-Pipeline",
-        "hf_path": f"{task}/zero_latency/GR00T"}
+        "model_config": "config.yaml", "hf_repo": "MLL-Lab/LAGEN-models",
+        "revision": "e3fea81529fd98b5d5782db38803fe4062215dda",
+        "hf_path": {
+            'air_raid': 'zero-latency/air-raid/vla/starvla-qwengr00t-h1/air_raid_zero_latency_gr00t_h1',
+            'ant': 'zero-latency/ant/vla/starvla-qwengr00t-h1/ant_l0_gr00t_h1_5fps_2h100_20260917',
+            'half_cheetah': 'zero-latency/half-cheetah/vla/starvla-qwengr00t-h1/half_cheetah_l0_gr00t_h1_5fps_2h200_20260917',
+            'hopper': 'zero-latency/hopper/vla/starvla-qwengr00t-h1/hopper_l0_gr00t_h1_5fps_2h100_20260917',
+            'humanoid': 'zero-latency/humanoid/vla/starvla-qwengr00t-h1/humanoid_l0_gr00t_h1_5fps_1h200_20260917',
+            'inverted_pendulum': 'zero-latency/inverted-pendulum/vla/starvla-qwengr00t-h1/ip_l0_gr00t_h1_5fps_1h200_20260917',
+            'walker2d': 'zero-latency/walker2d/vla/starvla-qwengr00t-h1/walker2d_l0_gr00t_h1_5fps_2h200_20260917',
+        }[task]}
     return spec
 
 

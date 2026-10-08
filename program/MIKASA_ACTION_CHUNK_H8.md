@@ -34,7 +34,7 @@ normalization、checkpoint 和评测证据应成套读取，最新核验状态�
 
 - 任务键：`mikasa_h8`；原 `mikasa` H1 合同不变。
 - H1 数据源固定为
-  [`benchmark-datasets@5421c9d`](https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets/commit/5421c9d272d7a939bb04045b047af84519c1fba8)
+  [`benchmark-datasets@5421c9d`](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/commit/5421c9d272d7a939bb04045b047af84519c1fba8)
   下的 `zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-h1-state-v1`。
 - train：250 episodes、8,911 anchors、64,288 个有效 action labels。
 - validation：25 episodes、948 anchors、6,884 个有效 action labels。
