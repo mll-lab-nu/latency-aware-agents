@@ -49,4 +49,7 @@ paper/
 .codegraph
 
 assets
+!/docs/assets/
+/docs/assets/*
+!/docs/assets/lagen-logo.svg
 build
