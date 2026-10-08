@@ -130,6 +130,19 @@ def test_qwenpi_and_qwengroot_preserve_exact_prefixes():
     assert torch.equal(qwenpi_actions[prefix_mask], committed[prefix_mask])
     assert torch.equal(qwengroot_actions[prefix_mask], committed[prefix_mask])
 
+    # Seeded inference is invariant to batch partition and unrelated global draws.
+    hidden = torch.randn(2, 3, 32)
+    for head, inputs in ((qwengroot, lambda x: x), (qwenpi, lambda x: [x])):
+        together = head.predict_action(inputs(hidden), state, noise_seeds=[101, 202])
+        torch.manual_seed(999)
+        separate = torch.cat([
+            head.predict_action(inputs(hidden[i:i+1]), state[i:i+1], noise_seeds=[seed])
+            for i, seed in enumerate([101, 202])
+        ])
+        torch.testing.assert_close(together, separate)
+        reversed_actions = head.predict_action(inputs(hidden.flip(0)), state.flip(0), noise_seeds=[202, 101])
+        torch.testing.assert_close(together, reversed_actions.flip(0))
+
 
 def test_qwenpi_loss_mask_ignores_missing_action_targets():
     torch = pytest.importorskip("torch")

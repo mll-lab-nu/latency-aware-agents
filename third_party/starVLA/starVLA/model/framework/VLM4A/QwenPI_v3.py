@@ -428,6 +428,8 @@ class Qwen_PI_v3(baseframework):
                     state,
                     action_prefix=action_prefix,
                     action_prefix_mask=action_prefix_mask,
+                    noise_seeds=([example["action_noise_seed"] for example in examples]
+                                 if "action_noise_seed" in examples[0] else None),
                 )  # (B, action_horizon, action_dim)
 
         with _stage(profiler, "starvla_to_numpy_ms"):

@@ -12,7 +12,7 @@ python examples/rl_games/scripts/launch_train.py \
     model=openvla \
     env=demon_attack \
     init=bridge \
-    mode=mixed \
+    mode=mixed_latency \
     run_id="openvla_bridge_demon_attack_latency_mixed_024_exp1" \
     trainer.distributed_backend=none \
     workspace_dir="/workspace" \

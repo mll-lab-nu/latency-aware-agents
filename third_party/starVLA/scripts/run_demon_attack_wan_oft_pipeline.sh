@@ -10,7 +10,7 @@ Runs the fixed-raw-frame-latency-6 Demon Attack WanOFT pipeline:
   2. download WanOFT checkpoints
   3. convert canonical benchmark row history directly into StarVLA LeRobot data
   4. train WanOFT through commands/wanoft/train_demon_attack_wan_oft.sh
-  5. upload the run directory
+  5. upload the run directory when --upload-repo is supplied
 
 The source latency is 6 raw Atari frames, or 1.5 policy decision steps at
 frameskip=4. Post-train rollout evaluation is disabled because the current
@@ -22,7 +22,7 @@ Options:
   --max-train-steps <N>       Training steps (default: 2000)
   --benchmark-root <path>     latency-sensitive-bench checkout (default: sibling checkout)
   --dataset-cache-dir <path>  Optional Hugging Face cache directory
-  --upload-repo <repo>        HF model repo for run upload (default: latency-sensitive-bench/demon_attack_200ep)
+  --upload-repo <repo>        HF model repo; specifying this enables upload (default: local only)
   --upload-path <path>        Path inside the HF repo (default: <run_id>)
   --run-id <id>               Override run id
   --skip-env-setup            Do not run examples/rl_games/install/bootstrap.sh
@@ -51,7 +51,7 @@ BENCHMARK_ROOT="${LATENCY_BENCH_ROOT:-}"
 LATENCY_RAW_FRAMES=6
 RUN_ROOT_DIR="${RUN_ROOT_DIR:-results/Checkpoints}"
 RUN_ID="${RUN_ID:-}"
-UPLOAD_REPO="${UPLOAD_REPO:-latency-sensitive-bench/demon_attack_200ep}"
+UPLOAD_REPO="${UPLOAD_REPO:-}"
 UPLOAD_PATH_IN_REPO="${UPLOAD_PATH_IN_REPO:-}"
 BASE_MODEL_REPO="${BASE_MODEL_REPO:-Wan-AI/Wan2.2-TI2V-5B-Diffusers}"
 BASE_MODEL_DIR="${BASE_MODEL_DIR:-playground/Pretrained_models/Wan-AI/Wan2.2-TI2V-5B-Diffusers}"
@@ -61,7 +61,7 @@ SKIP_ENV_SETUP="false"
 SKIP_CHECKPOINTS="false"
 SKIP_CONVERT="false"
 SKIP_TRAIN="false"
-SKIP_UPLOAD="false"
+SKIP_UPLOAD="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -87,6 +87,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --upload-repo)
       UPLOAD_REPO="$2"
+      SKIP_UPLOAD="false"
       shift 2
       ;;
     --upload-path)

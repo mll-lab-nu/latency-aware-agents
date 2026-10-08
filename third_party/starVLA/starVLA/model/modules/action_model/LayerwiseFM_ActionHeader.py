@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.distributions import Beta
+from starVLA.model.modules.action_model.flow_matching_head.action_noise import sample_action_noise
 from transformers import PretrainedConfig
 from transformers.feature_extraction_utils import BatchFeature
 
@@ -366,14 +367,14 @@ class LayerwiseFlowmatchingActionHead(nn.Module):
         state: torch.Tensor = None,
         action_prefix: torch.Tensor = None,
         action_prefix_mask: torch.Tensor = None,
+        noise_seeds: list[int] | None = None,
     ) -> torch.Tensor:
         # Set initial actions as the sampled noise.
         batch_size = vl_embs_list[0].shape[0]
         device = vl_embs_list[0].device
-        actions = torch.randn(
-            size=(batch_size, self.action_horizon, self.action_dim),
-            dtype=vl_embs_list[0].dtype,
-            device=device,
+        actions = sample_action_noise(
+            (batch_size, self.action_horizon, self.action_dim),
+            dtype=vl_embs_list[0].dtype, device=device, seeds=noise_seeds,
         )
         actions = clamp_action_prefix(actions, action_prefix, action_prefix_mask)
 

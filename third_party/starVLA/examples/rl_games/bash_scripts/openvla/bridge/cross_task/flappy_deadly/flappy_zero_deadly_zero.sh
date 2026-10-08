@@ -1,7 +1,7 @@
 WORKSPACE_DIR=""
 export WORKSPACE_DIR
 
-bash "${WORKSPACE_DIR}/starVLA/examples/rl_games/bash_scripts/install/pre_launch.sh
+bash "${WORKSPACE_DIR}/starVLA/examples/rl_games/bash_scripts/install/pre_launch.sh"
 
 cd "${WORKSPACE_DIR}/starVLA"
 
