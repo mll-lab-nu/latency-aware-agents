@@ -1,0 +1,148 @@
+# @package _global_
+
+rl_games:
+  task: cross_task
+  env_eval:
+    image_size: 224
+    frameskip: 1
+    deadly:
+      action_layout: multibinary_7
+      multibinary_threshold: null
+  cross_task:
+    train_tasks: []
+    loss_by_task:
+      flappy: discrete_ce
+      demon_attack: discrete_ce
+      air_raid: discrete_ce
+      defend_the_line: discrete_ce
+      deadly_corridor: multibinary_bce
+      asterix: asterix_factorized_ce
+      atlantis: discrete_ce
+    loss_weight_by_task:
+      flappy: 1.0
+      demon_attack: 1.0
+      air_raid: 1.0
+      defend_the_line: 1.0
+      deadly_corridor: 1.0
+      asterix: 1.0
+      atlantis: 1.0
+    eval_tasks:
+      flappy:
+        prompt_map_path: null
+        frameskip: 1
+        image_size: 224
+        task_description: null
+        mid_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+        post_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+      demon_attack:
+        prompt_map_path: null
+        frameskip: 4
+        image_size: 224
+        task_description: null
+        mid_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+        post_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+      air_raid:
+        prompt_map_path: null
+        frameskip: 4
+        image_size: 224
+        task_description: "Protect both buildings from flying saucers. Choose exactly one action from: noop, fire, right, left, rightfire, leftfire."
+        post_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+        mid_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+      defend_the_line:
+        prompt_map_path: null
+        frameskip: 4
+        image_size: 224
+        task_description: null
+        mid_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+        post_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+      deadly_corridor:
+        prompt_map_path: null
+        frameskip: 4
+        image_size: 224
+        task_description: null
+        mid_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+        post_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+      asterix:
+        prompt_map_path: null
+        frameskip: 4
+        image_size: 224
+        task_description: null
+        mid_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+        post_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+      atlantis:
+        prompt_map_path: null
+        frameskip: 4
+        image_size: 224
+        task_description: null
+        mid_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+        post_train:
+          enabled: true
+          latencies: null
+          num_episodes: null
+          max_steps_per_episode: null
+
+datasets:
+  vla_data:
+    data_mix: cross_task_train
+
+dataset:
+  converted_name: cross_task_train
+
+framework:
+  action_model:
+    action_dim: 7
+    action_env_dim: 7
+
+env: cross_task

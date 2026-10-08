@@ -13,9 +13,55 @@ import torch
 import torch.distributed as dist
 from transformers import get_scheduler
 
+from accelerate import Accelerator, DeepSpeedPlugin
 from accelerate.logging import get_logger
+from starVLA.training.trainer_utils.config_tracker import reload_module_paths
 
 logger = get_logger(__name__)
+
+
+def build_accelerator(cfg, *, use_deepspeed: bool) -> Accelerator:
+    accelerator_kwargs = {
+        "gradient_accumulation_steps": cfg.trainer.gradient_accumulation_steps,
+    }
+    if use_deepspeed:
+        accelerator_kwargs["deepspeed_plugin"] = DeepSpeedPlugin()
+
+    accelerator = Accelerator(**accelerator_kwargs)
+    accelerator.print(accelerator.state)
+    return accelerator
+
+
+_VOCAB_SIZED_WEIGHT_SUFFIXES = (
+    "embed_tokens.weight",
+    "lm_head.weight",
+)
+
+
+def _adapt_vocab_sized_weights(module, state_dict):
+    """Copy overlapping vocab rows when tokenizer-sized Qwen weights changed."""
+    target_state_dict = module.state_dict()
+    adapted = dict(state_dict)
+    adapted_keys = []
+    for key, source_tensor in state_dict.items():
+        target_tensor = target_state_dict.get(key)
+        if target_tensor is None or not hasattr(source_tensor, "shape") or not hasattr(target_tensor, "shape"):
+            continue
+        if tuple(source_tensor.shape) == tuple(target_tensor.shape):
+            continue
+        if not key.endswith(_VOCAB_SIZED_WEIGHT_SUFFIXES):
+            continue
+        if source_tensor.ndim != 2 or target_tensor.ndim != 2:
+            continue
+        if source_tensor.shape[1] != target_tensor.shape[1]:
+            continue
+
+        patched_tensor = target_tensor.detach().clone()
+        rows = min(source_tensor.shape[0], target_tensor.shape[0])
+        patched_tensor[:rows].copy_(source_tensor[:rows].to(dtype=patched_tensor.dtype, device=patched_tensor.device))
+        adapted[key] = patched_tensor
+        adapted_keys.append((key, tuple(source_tensor.shape), tuple(target_tensor.shape), rows))
+    return adapted, adapted_keys
 
 
 # === Define Tracker Interface ===
@@ -85,6 +131,69 @@ def setup_optimizer_and_scheduler(model, cfg) -> Tuple[torch.optim.Optimizer, to
     return optimizer, lr_scheduler
 
 
+def _qwen_vl_interface(model):
+    return model.qwen_vl_interface
+
+
+def _llm_language_model(model):
+    return _qwen_vl_interface(model).model.model.language_model
+
+
+def _vit_module(model):
+    # Qwen-VL keeps the visual tower and its vision-to-language connector/merger
+    # under this module.
+    return _qwen_vl_interface(model).model.model.visual
+
+
+def _llm_decoder_layers(model):
+    return _llm_language_model(model).layers
+
+
+def _tied_embedding_modules(model):
+    language_model = _llm_language_model(model)
+    hf_model = _qwen_vl_interface(model).model
+    return language_model.embed_tokens, hf_model.lm_head
+
+
+def resolve_freeze_llm_layer_indices(model, cfg):
+    """Translate ``trainer.freeze_llm_layers=[start,end]`` to an inclusive layer list."""
+    freeze_llm_layers = cfg.trainer.freeze_llm_layers
+    if not freeze_llm_layers:
+        return [], len(_llm_decoder_layers(model))
+    start, end = [int(value) for value in freeze_llm_layers]
+    return list(range(start, end + 1)), len(_llm_decoder_layers(model))
+
+
+def _module_param_ids(module):
+    return {id(param) for param in module.parameters()}
+
+
+def _has_vit_or_llm_freeze_request(cfg) -> bool:
+    return bool(cfg.trainer.freeze_vit or cfg.trainer.freeze_tied_embedding or cfg.trainer.freeze_llm_layers)
+
+
+def vit_llm_frozen_param_ids(model, cfg):
+    """Parameter ids excluded from optimizer by trainer freeze controls."""
+    if not _has_vit_or_llm_freeze_request(cfg):
+        return set()
+
+    frozen_params = set()
+    freeze_vit = cfg.trainer.freeze_vit
+    if freeze_vit:
+        frozen_params.update(_module_param_ids(_vit_module(model)))
+
+    if cfg.trainer.freeze_tied_embedding:
+        for module in _tied_embedding_modules(model):
+            frozen_params.update(_module_param_ids(module))
+
+    frozen_layer_indices, _ = resolve_freeze_llm_layer_indices(model, cfg)
+    layers = list(_llm_decoder_layers(model))
+    for layer_index in frozen_layer_indices:
+        frozen_params.update(_module_param_ids(layers[layer_index]))
+
+    return frozen_params
+
+
 def build_param_lr_groups(model, cfg):
     """
     build multiple param groups based on cfg.trainer.learning_rate.
@@ -119,6 +228,10 @@ def build_param_lr_groups(model, cfg):
         except AttributeError:
             print(f"⚠️ freeze module path does not exist: {freeze_path}")
             continue
+
+    # Exclude trainer freeze controls so frozen parameters never enter an
+    # optimizer param group.
+    frozen_params.update(vit_llm_frozen_param_ids(model, cfg))
 
     for module_name, lr in lr_cfg.items():
         if module_name == "base":
@@ -180,6 +293,33 @@ def resize_images(images, target_size=(224, 224)):
         raise ValueError("Unsupported image type or structure.")
 
 
+def stitch_frames(frames, grid=(2, 2), size=(224, 224)):
+    """Tile temporal frames into one image, keeping the token count of a single image.
+
+    Used by the ``stitch`` multi-image mode: instead of feeding N frames as N
+    tokenized images, they are laid out on a fixed grid and the whole canvas is
+    returned at ``size``. Both training (``_pack_sample``) and eval
+    (``policy/starvla.py``) call this so the layouts match.
+
+    Args:
+        frames: list of ``PIL.Image`` or ``np.ndarray`` (H, W, C), oldest first.
+        grid: (rows, cols). Cells beyond ``len(frames)`` repeat the last frame so
+            the layout is fixed regardless of how many frames are available.
+        size: (width, height) of the returned canvas.
+    """
+    rows, cols = grid
+    canvas_w, canvas_h = size
+    cell_w, cell_h = canvas_w // cols, canvas_h // rows
+    pil = [f if isinstance(f, Image.Image) else Image.fromarray(f) for f in frames]
+    capacity = rows * cols
+    pil = (pil + [pil[-1]] * (capacity - len(pil))) if len(pil) < capacity else pil[:capacity]
+    canvas = Image.new("RGB", (canvas_w, canvas_h))
+    for idx, frame in enumerate(pil):
+        r, c = divmod(idx, cols)
+        canvas.paste(frame.convert("RGB").resize((cell_w, cell_h)), (c * cell_w, r * cell_h))
+    return canvas
+
+
 import torch.distributed as dist
 
 
@@ -225,8 +365,44 @@ class TrainerUtils:
                     continue
 
         # accelerator.wait_for_everyone()  # synchronize when distributed training
-        if dist.get_rank == 0:
+        if not dist.is_initialized() or dist.get_rank() == 0:
             print(f"🔒 Frozen modules with re pattern: {frozen}")
+        return model
+
+    @staticmethod
+    def freeze_vit_and_llm_layers(model, cfg):
+        """Apply trainer.freeze_vit/freeze_tied_embedding/freeze_llm_layers.
+
+        trainer.freeze_vit freezes Qwen-VL's visual module, including the
+        vision-to-language connector/merger it contains.
+        """
+        if not _has_vit_or_llm_freeze_request(cfg):
+            return model
+
+        freeze_vit = cfg.trainer.freeze_vit
+        if freeze_vit:
+            for param in _vit_module(model).parameters():
+                param.requires_grad = False
+
+        freeze_tied_embedding = cfg.trainer.freeze_tied_embedding
+        if freeze_tied_embedding:
+            for module in _tied_embedding_modules(model):
+                for param in module.parameters():
+                    param.requires_grad = False
+
+        frozen_layer_indices, total = resolve_freeze_llm_layer_indices(model, cfg)
+        layers = list(_llm_decoder_layers(model))
+        for layer_index in frozen_layer_indices:
+            for param in layers[layer_index].parameters():
+                param.requires_grad = False
+
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            print(
+                "🔒 freeze_vit="
+                f"{freeze_vit}, freeze_tied_embedding={freeze_tied_embedding}, "
+                f"freeze_llm_layers={list(frozen_layer_indices)}"
+                f" / total={total}"
+            )
         return model
 
     @staticmethod
@@ -235,7 +411,7 @@ class TrainerUtils:
         print the total number of parameters and trainable parameters of the model
         :param model: PyTorch model instance
         """
-        if dist.get_rank() != 0:
+        if dist.is_initialized() and dist.get_rank() != 0:
             return
         print("📊 model parameter statistics:")
         num_params = sum(p.numel() for p in model.parameters())
@@ -257,7 +433,7 @@ class TrainerUtils:
         """
         if not checkpoint_path:
             return []
-        if dist.get_rank() == 0:
+        if not dist.is_initialized() or dist.get_rank() == 0:
             print(f"📦 loading checkpoint: {checkpoint_path}")
         try:
             if _is_safetensors_path(checkpoint_path):
@@ -271,19 +447,26 @@ class TrainerUtils:
 
         loaded_modules = []
 
-        if reload_modules:  # partial load
-            module_paths = [p.strip() for p in reload_modules.split(",") if p.strip()]
+        module_paths = reload_module_paths(reload_modules)
+        if module_paths:  # partial load
             for path in module_paths:
-                reload_modules = path.split(".")
+                reload_path = path.split(".")
                 module = model
                 try:
-                    for module_name in reload_modules:  # find the module to modify level by level
+                    for module_name in reload_path:  # find the module to modify level by level
                         module = getattr(module, module_name)
                     prefix = path + "."
                     sub_state_dict = {k[len(prefix) :]: v for k, v in checkpoint.items() if k.startswith(prefix)}
                     if sub_state_dict:
+                        sub_state_dict, adapted_keys = _adapt_vocab_sized_weights(module, sub_state_dict)
+                        for key, source_shape, target_shape, rows in adapted_keys:
+                            if not dist.is_initialized() or dist.get_rank() == 0:
+                                print(
+                                    f"⚠️ adapted vocab-sized weight '{path}.{key}' from checkpoint shape "
+                                    f"{source_shape} to current shape {target_shape}; copied {rows} rows"
+                                )
                         module.load_state_dict(sub_state_dict, strict=True)
-                        if dist.get_rank() == 0:
+                        if not dist.is_initialized() or dist.get_rank() == 0:
                             print(f"✅ parameters loaded to module '{path}'")
                         loaded_modules.append(path)
                     else:
@@ -292,8 +475,15 @@ class TrainerUtils:
                     print(f"❌ cannot find module path: {path}")
         else:  # full load
             try:
+                checkpoint, adapted_keys = _adapt_vocab_sized_weights(model, checkpoint)
+                for key, source_shape, target_shape, rows in adapted_keys:
+                    if not dist.is_initialized() or dist.get_rank() == 0:
+                        print(
+                            f"⚠️ adapted vocab-sized weight '{key}' from checkpoint shape "
+                            f"{source_shape} to current shape {target_shape}; copied {rows} rows"
+                        )
                 model.load_state_dict(checkpoint, strict=False)
-                if dist.get_rank() == 0:
+                if not dist.is_initialized() or dist.get_rank() == 0:
                     print("✅ loaded <full_model> model parameters")
                 loaded_modules = ["<full_model>"]
             except Exception as e:
@@ -332,6 +522,10 @@ class TrainerUtils:
         """safe reset dataloader iterator"""
         # 1. update epoch counter
         epoch_counter += 1
+
+        dataset = getattr(dataloader, "dataset", None)
+        if dataset is not None and callable(getattr(dataset, "set_epoch", None)):
+            dataset.set_epoch(epoch_counter)
 
         # 2. set new epoch (distributed core)
         if hasattr(dataloader, "sampler") and callable(getattr(dataloader.sampler, "set_epoch", None)):
@@ -505,30 +699,25 @@ class TrainerUtils:
             self.accelerator.print(f"No checkpoint directory found at {checkpoint_dir}")
             return None, 0
 
-        # Find all checkpoints matching the naming convention, supports .pt and .safetensors
-        checkpoints = [
-            f for f in os.listdir(checkpoint_dir) 
-            if re.match(r"steps_(\d+)_(?:pytorch_model\.pt|model\.safetensors)$", f)
-            and os.path.isfile(os.path.join(checkpoint_dir, f))  # ensure it is a file
-        ]
+        checkpoints = []
+        for name in os.listdir(checkpoint_dir):
+            path = os.path.join(checkpoint_dir, name)
+            state_match = re.match(r"steps_(\d+)_state$", name)
+            if state_match and os.path.isdir(path):
+                checkpoints.append((name, int(state_match.group(1)), 1))
+                continue
+            file_match = re.match(r"steps_(\d+)_(?:pytorch_model\.pt|model\.safetensors)$", name)
+            if file_match and os.path.isfile(path):
+                checkpoints.append((name, int(file_match.group(1)), 0))
 
         if not checkpoints:
             self.accelerator.print(f"No checkpoints found in {checkpoint_dir}")
             return None, 0
 
-        # Extract step numbers and sort
-        try:
-            checkpoints_with_steps = [
-                (ckpt, int(re.search(r"steps_(\d+)_(?:pytorch_model\.pt|model\.safetensors)$", ckpt).group(1)))
-                for ckpt in checkpoints
-            ]
-        except AttributeError as e:
-            self.accelerator.print(f"Error parsing checkpoint filenames: {e}")
-            return None, 0
-
-        # Sort by step number and get the latest checkpoint
-        checkpoints_with_steps.sort(key=lambda x: x[1])
-        latest_checkpoint, completed_steps = checkpoints_with_steps[-1]
+        # Sort by step number, preferring full training-state directories over
+        # model-only files when both exist for the same step.
+        checkpoints.sort(key=lambda x: (x[1], x[2]))
+        latest_checkpoint, completed_steps, _ = checkpoints[-1]
 
         latest_checkpoint_path = os.path.join(checkpoint_dir, latest_checkpoint)
         self.accelerator.print(f"Latest checkpoint found: {latest_checkpoint_path}")

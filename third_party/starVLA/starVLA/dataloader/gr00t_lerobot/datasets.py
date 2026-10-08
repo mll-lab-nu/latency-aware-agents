@@ -28,6 +28,7 @@ import hashlib
 import io
 import json, torch
 import copy
+from starVLA.training.trainer_utils.trainer_tools import stitch_frames
 from collections import defaultdict
 from pathlib import Path
 from typing import Sequence
@@ -66,6 +67,33 @@ LE_ROBOT_DATA_FILENAME = "data/*/*.parquet"
 LE_ROBOT_STEPS_FILENAME = "meta/steps.pkl"
 LE_ROBOT_STATS_FORMAT_VERSION = 2
 EPSILON = 5e-4
+LATENCY_PROMPT_MARKER = " Current action latency is "
+
+
+def _as_bool(value, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "0", "no", "off"}
+    return bool(value)
+
+
+def _apply_prompt_mode(prompt: str, prompt_mode: str | None) -> str:
+    mode = str(prompt_mode or "").strip().lower()
+    if mode in {"", "default", "none", "raw"}:
+        return prompt
+    if mode == "latency_neutral":
+        head, marker, _tail = str(prompt).partition(LATENCY_PROMPT_MARKER)
+        return head.rstrip() if marker else str(prompt)
+    raise ValueError(f"Unsupported datasets.vla_data.prompt_mode={prompt_mode!r}")
+
+
+def _concatenate_action_fields(data: dict, keys: list[str]) -> np.ndarray:
+    action = np.concatenate([data[key] for key in keys], axis=-1)
+    return action[0] if action.ndim == 3 else action
+
 
 #  LeRobot v3.0 dataset file names 
 LE_ROBOT3_TASKS_FILENAME = "meta/tasks.parquet"
@@ -623,6 +651,8 @@ class LeRobotSingleDataset(Dataset):
         # self._episodes = self._get_episode_info() # TODO why we need this func
         self.curr_traj_data = None
         self.curr_traj_id = None
+        # ponytail: retain visited immutable tables; use a bounded cache if datasets outgrow RAM.
+        self._parquet_cache: dict[Path, pd.DataFrame] = {}
 
         self._trajectory_ids, self._trajectory_lengths = self._get_trajectories()
         self._modality_keys = self._get_modality_keys()
@@ -858,6 +888,13 @@ class LeRobotSingleDataset(Dataset):
                 raise RuntimeError(
                     f"Dataset statistics cache is missing or invalid after sync: {stats_path}"
                 )
+
+        manifest_path = self.dataset_path / "manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest.get("state_source") == "decision_v1":
+                le_statistics["observation.state"]["min"] = manifest["state_normalization"]["min"]
+                le_statistics["observation.state"]["max"] = manifest["state_normalization"]["max"]
 
         for stat in le_statistics.values():
             DatasetStatisticalValues.model_validate(stat)
@@ -1366,21 +1403,74 @@ class LeRobotSingleDataset(Dataset):
         trajectory_id, base_index = self.all_steps[index]
         raw_data = self.get_step_data(trajectory_id, base_index)
         data = self.transforms(raw_data)
-        return self._pack_sample(data)
+        sample = self._pack_sample(data, trajectory_id=trajectory_id, base_index=base_index)
+        self._attach_rl_games_metadata(sample, base_index)
+        return sample
 
-    def _pack_sample(self, data: dict) -> dict:
+    def _pack_sample(self, data: dict, trajectory_id: int | None = None, base_index: int | None = None) -> dict:
         """Pack transformed modality data into training sample format."""
+        num_obs_frames = int(self.data_cfg.get("num_obs_frames", 1) or 1) if self.data_cfg is not None else 1
+        image_mode = str(self.data_cfg.get("image_mode", "single")) if self.data_cfg is not None else "single"
+        if self.data_cfg is not None and self.data_cfg.get("pack_image_sequence", False) not in ["False", False]:
+            num_obs_frames = int(self.data_cfg.get("image_sequence_length", num_obs_frames) or num_obs_frames)
+            if image_mode == "single":
+                image_mode = "multiframe"
+        stitch_grid = tuple(self.data_cfg.get("stitch_grid", [2, 2])) if self.data_cfg is not None else (2, 2)
+        kv_memory = bool(self.data_cfg.get("kv_memory", False)) if self.data_cfg is not None else False
+
         step_images = []
+        view_frames = []
         for video_key in self.modality_keys["video"]:
-            image = data[video_key][0]
-            image = Image.fromarray(image).resize((224, 224))
-            step_images.append(image)
+            frames = data[video_key]  # (T, H, W, C), chronological (oldest .. newest)
+            if image_mode in {"single", "stitch_views"}:
+                selected = [frames[-1]]
+            else:
+                n = min(num_obs_frames, len(frames))
+                selected = [frames[i] for i in range(len(frames) - n, len(frames))]
+            pil_frames = [Image.fromarray(f) for f in selected]
+            if image_mode == "stitch":
+                step_images.append(stitch_frames(pil_frames, grid=stitch_grid, size=(224, 224)))
+            elif image_mode == "stitch_views":
+                view_frames.append(pil_frames[-1])
+            else:  # "single" or "multiframe": each frame tokenized independently
+                step_images.extend(p.resize((224, 224)) for p in pil_frames)
+
+        if image_mode == "stitch_views":
+            step_images.append(
+                stitch_frames(view_frames, grid=(1, len(view_frames)), size=(224, 224))
+            )
 
         language = data[self.modality_keys["language"][0]][0]
-        action = []
-        for action_key in self.modality_keys["action"]:
-            action.append(data[action_key])
-        action = np.concatenate(action, axis=1).astype(np.float16)
+        language = _apply_prompt_mode(language, self.data_cfg.get("prompt_mode") if self.data_cfg is not None else None)
+        action = _concatenate_action_fields(data, self.modality_keys["action"]).astype(np.float16)
+
+        actions_per_frame = None
+        valid = None
+        density_weight = None
+        if kv_memory and base_index is not None and num_obs_frames > 1:
+            # Scheme B per-frame supervision. The action delta was widened to
+            # range(-(R-1), H) (see make_LeRobotSingleDataset), so `action` holds
+            # [R-1+H, dim] and frame k's chunk is the H-length slice at offset k.
+            R = num_obs_frames
+            horizon = action.shape[0] - (R - 1)
+            actions_per_frame = np.stack(
+                [action[k : k + horizon] for k in range(R)], axis=0
+            ).astype(np.float16)  # [R, H, dim]
+            # Keep `action` as the base-index chunk (last H rows) for any consumer
+            # that still reads the single-target field.
+            action = action[-horizon:]
+
+            # valid mask: a frame is real unless its global step was clamped (front
+            # padding at episode start). Mirrors get_video's clamp at datasets.py:1753.
+            video_key = self.modality_keys["video"][0]
+            video_delta = np.asarray(self.delta_indices[video_key])
+            step_idx = video_delta + int(base_index)
+            traj_len = int(self.trajectory_lengths[self.get_trajectory_index(trajectory_id)])
+            valid = ((step_idx >= 0) & (step_idx <= traj_len - 1)).astype(bool)  # [R]
+
+            # density_weight: per-frame loss weight (event balancing). Defaults to
+            # uniform; populated from per-row event metadata when available.
+            density_weight = self._kv_density_weight(step_idx, traj_len).astype(np.float32)  # [R]
 
         sample = {
             "action": action,
@@ -1388,15 +1478,55 @@ class LeRobotSingleDataset(Dataset):
             "lang": language,
             "robot_tag": self.tag
         }
+        if actions_per_frame is not None:
+            sample["actions_per_frame"] = actions_per_frame
+            sample["valid"] = valid
+            sample["density_weight"] = density_weight
+        if hasattr(self, "rl_games_task"):
+            sample["rl_games_task"] = self.rl_games_task
+        if hasattr(self, "rl_games_action_env_dim"):
+            sample["action_env_dim"] = int(self.rl_games_action_env_dim)
 
         if self.data_cfg is not None and self.data_cfg.get("include_state", False) not in ["False", False]:
             state = []
             for state_key in self.modality_keys["state"]:
                 state.append(data[state_key])
-            state = np.concatenate(state, axis=1).astype(np.float16)
+            state = np.concatenate(state, axis=1).astype(np.float32)
             sample["state"] = state
 
+        auxiliary_fields = self.data_cfg.get("auxiliary_fields", {}) if self.data_cfg is not None else {}
+        if auxiliary_fields:
+            row = self.curr_traj_data.iloc[base_index]
+            for output_key, column in auxiliary_fields.items():
+                # Arrow nested lists arrive as object arrays of per-substep arrays.
+                sample[output_key] = np.stack(row[column])
+
         return sample
+
+    def _kv_density_weight(self, step_idx: np.ndarray, traj_len: int) -> np.ndarray:
+        """Per-frame loss weight for KV-memory scheme-B supervision.
+
+        Replicates clean_v1's event balancing as a per-supervised-step weight instead
+        of dropping rows, so the rollout history stays contiguous. Reads a per-row
+        event-weight column when the exported dataset carries one (configurable via
+        ``datasets.vla_data.density_weight_key``); otherwise weights are uniform.
+        """
+        weights = np.ones(len(step_idx), dtype=np.float32)
+        key = self.data_cfg.get("density_weight_key", None) if self.data_cfg is not None else None
+        if not key or self.curr_traj_data is None or key not in self.curr_traj_data.columns:
+            return weights
+        column = self.curr_traj_data[key].to_numpy()
+        clamped = np.clip(step_idx, 0, traj_len - 1)
+        return column[clamped].astype(np.float32)
+
+    def _attach_rl_games_metadata(self, sample: dict, base_index: int) -> None:
+        """Attach non-modality RL-games metadata columns when converted datasets provide them."""
+        if self.curr_traj_data is None:
+            return
+        if "latency" in self.curr_traj_data.columns and 0 <= int(base_index) < len(self.curr_traj_data):
+            sample["latency"] = int(self.curr_traj_data.iloc[int(base_index)]["latency"])
+        elif "latency_id" in self.curr_traj_data.columns and 0 <= int(base_index) < len(self.curr_traj_data):
+            sample["latency"] = int(self.curr_traj_data.iloc[int(base_index)]["latency_id"])
 
     def get_step_data(self, trajectory_id: int, base_index: int) -> dict:
         """Get the RAW data for a single step in a trajectory. No transforms are applied.
@@ -1435,6 +1565,11 @@ class LeRobotSingleDataset(Dataset):
         data = self._apply_action_mode(data)
         return data
 
+    def _read_trajectory_parquet(self, parquet_path: Path) -> pd.DataFrame:
+        if parquet_path not in self._parquet_cache:
+            self._parquet_cache[parquet_path] = pd.read_parquet(parquet_path)
+        return self._parquet_cache[parquet_path]
+
     def get_trajectory_data(self, trajectory_id: int) -> pd.DataFrame:
         """Get the data for a trajectory."""
         if self._lerobot_version == "v2.0":
@@ -1446,8 +1581,9 @@ class LeRobotSingleDataset(Dataset):
                 parquet_path = self.dataset_path / self.data_path_pattern.format(
                     episode_chunk=chunk_index, episode_index=trajectory_id
                 )
-                assert parquet_path.exists(), f"Parquet file not found at {parquet_path}"
-                return pd.read_parquet(parquet_path)
+                self.curr_traj_data = self._read_trajectory_parquet(parquet_path)
+                self.curr_traj_id = trajectory_id
+                return self.curr_traj_data
         elif self._lerobot_version == "v3.0":
             return self.get_trajectory_data_lerobot_v3(trajectory_id)
     
@@ -1465,12 +1601,117 @@ class LeRobotSingleDataset(Dataset):
             parquet_path = self.dataset_path / self.data_path_pattern.format(
                 chunk_index=chunk_index, file_index=file_index
             )
-            assert parquet_path.exists(), f"Parquet file not found at {parquet_path}"
-            file_data = pd.read_parquet(parquet_path)
+            file_data = self._read_trajectory_parquet(parquet_path)
             
             # filter by trajectory_id
             episode_data = file_data.loc[file_data["episode_index"] == trajectory_id].copy()
-            return episode_data
+            self.curr_traj_id = trajectory_id
+            self.curr_traj_data = episode_data
+            return self.curr_traj_data
+
+    def get_trajectory_columns(self, trajectory_id: int, columns: Sequence[str]) -> pd.DataFrame:
+        """Read selected columns for one trajectory without loading image/action payloads."""
+        requested_columns = list(dict.fromkeys(str(column) for column in columns))
+        if self._lerobot_version == "v2.0":
+            chunk_index = self.get_episode_chunk(trajectory_id)
+            parquet_path = self.dataset_path / self.data_path_pattern.format(
+                episode_chunk=chunk_index, episode_index=trajectory_id
+            )
+            assert parquet_path.exists(), f"Parquet file not found at {parquet_path}"
+            return pd.read_parquet(parquet_path, columns=requested_columns)
+
+        if self._lerobot_version == "v3.0":
+            episode_meta = self.trajectory_ids_to_metadata[trajectory_id]
+            chunk_index = episode_meta["data/chunk_index"]
+            file_index = self.get_episode_file_index(trajectory_id)
+            parquet_path = self.dataset_path / self.data_path_pattern.format(
+                chunk_index=chunk_index, file_index=file_index
+            )
+            assert parquet_path.exists(), f"Parquet file not found at {parquet_path}"
+            columns_with_episode = list(dict.fromkeys([*requested_columns, "episode_index"]))
+            file_data = pd.read_parquet(parquet_path, columns=columns_with_episode)
+            return file_data.loc[file_data["episode_index"] == trajectory_id, requested_columns].copy()
+
+        raise ValueError(f"Unsupported LeRobot version: {self._lerobot_version}")
+
+    def get_action_ids_for_all_steps(self, action_key: str = "action_id") -> list[int]:
+        """Return action IDs aligned one-to-one with ``self.all_steps``."""
+        cache_attr = f"_cached_step_action_ids_{action_key}"
+        cached = getattr(self, cache_attr, None)
+        if cached is not None:
+            return cached
+
+        action_ids_by_trajectory: dict[int, np.ndarray] = {}
+        for trajectory_id, _ in self.all_steps:
+            if trajectory_id in action_ids_by_trajectory:
+                continue
+            try:
+                action_data = self.get_trajectory_columns(trajectory_id, [action_key])
+            except Exception as exc:
+                raise ValueError(
+                    f"Unable to read action balance key `{action_key}` from dataset "
+                    f"`{self.dataset_name}` trajectory {trajectory_id}."
+                ) from exc
+            if action_key not in action_data.columns:
+                raise ValueError(
+                    f"Action balance key `{action_key}` not found in dataset `{self.dataset_name}`."
+                )
+            action_ids_by_trajectory[trajectory_id] = action_data[action_key].to_numpy()
+
+        action_ids: list[int] = []
+        for trajectory_id, base_index in self.all_steps:
+            trajectory_actions = action_ids_by_trajectory[trajectory_id]
+            if base_index >= len(trajectory_actions):
+                raise IndexError(
+                    f"Step index {base_index} is out of range for action key `{action_key}` "
+                    f"in dataset `{self.dataset_name}` trajectory {trajectory_id}."
+                )
+            action_ids.append(int(trajectory_actions[base_index]))
+
+        setattr(self, cache_attr, action_ids)
+        return action_ids
+
+    def get_latencies_for_all_steps(self) -> list[int]:
+        """Return latency IDs aligned one-to-one with ``self.all_steps``."""
+        cached = getattr(self, "_cached_step_latencies", None)
+        if cached is not None:
+            return cached
+
+        latencies_by_trajectory: dict[int, np.ndarray] = {}
+        latency_key_by_trajectory: dict[int, str] = {}
+        for trajectory_id, _ in self.all_steps:
+            trajectory_id = int(trajectory_id)
+            if trajectory_id in latencies_by_trajectory:
+                continue
+            for latency_key in ("latency", "latency_id"):
+                try:
+                    latency_data = self.get_trajectory_columns(trajectory_id, [latency_key])
+                except Exception:
+                    continue
+                if latency_key in latency_data.columns:
+                    latencies_by_trajectory[trajectory_id] = latency_data[latency_key].to_numpy()
+                    latency_key_by_trajectory[trajectory_id] = latency_key
+                    break
+            if trajectory_id not in latencies_by_trajectory:
+                raise ValueError(
+                    f"Dataset `{self.dataset_name}` trajectory {trajectory_id} has no `latency` "
+                    "or `latency_id` column required for latency curriculum sampling."
+                )
+
+        latencies: list[int] = []
+        for trajectory_id, base_index in self.all_steps:
+            trajectory_id = int(trajectory_id)
+            trajectory_latencies = latencies_by_trajectory[trajectory_id]
+            if base_index >= len(trajectory_latencies):
+                latency_key = latency_key_by_trajectory[trajectory_id]
+                raise IndexError(
+                    f"Step index {base_index} is out of range for `{latency_key}` in dataset "
+                    f"`{self.dataset_name}` trajectory {trajectory_id}."
+                )
+            latencies.append(int(trajectory_latencies[base_index]))
+
+        setattr(self, "_cached_step_latencies", latencies)
+        return latencies
 
 
     def get_trajectory_index(self, trajectory_id: int) -> int:
@@ -1615,28 +1856,59 @@ class LeRobotSingleDataset(Dataset):
         original_key = self.lerobot_modality_meta.video[key].original_key
         if original_key is None:
             original_key = key
-        if self.curr_traj_data is not None and original_key in self.curr_traj_data.columns:
+
+        def _decode_image_entry(entry):
+            if isinstance(entry, np.ndarray):
+                return entry
+            if isinstance(entry, Image.Image):
+                return np.array(entry)
+            if isinstance(entry, (bytes, bytearray, memoryview)):
+                return np.array(Image.open(io.BytesIO(bytes(entry))).convert("RGB"))
+            if isinstance(entry, dict):
+                img_bytes = entry.get("bytes", None)
+                img_path = entry.get("path", None)
+
+                if img_bytes is not None:
+                    return np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+
+                if img_path is not None:
+                    path_obj = Path(img_path)
+                    if not path_obj.is_absolute():
+                        path_obj = self.dataset_path / path_obj
+                    return np.array(Image.open(path_obj).convert("RGB"))
+
+            raise TypeError(f"Unsupported image entry type: {type(entry)}")
+
+        context_images_column = None
+        if self.data_cfg is not None:
+            configured_context_images_column = self.data_cfg.get("context_images_column", None)
+            if configured_context_images_column not in (None, ""):
+                context_images_column = str(configured_context_images_column)
+        if context_images_column is not None and self.curr_traj_data is not None:
+            missing_columns = [
+                column
+                for column in (context_images_column, original_key)
+                if column not in self.curr_traj_data.columns
+            ]
+            if missing_columns:
+                raise ValueError(
+                    f"Configured context image columns are missing from dataset {self.dataset_name} "
+                    f"trajectory {trajectory_id}: {missing_columns}"
+                )
+            image_sequence_length = int(
+                self.data_cfg.get("image_sequence_length", 1) if self.data_cfg is not None else 1
+            )
+            expected_context_images = image_sequence_length - 1
+            row = self.curr_traj_data.iloc[int(base_index)]
+            context_values = list(row[context_images_column])
+            if len(context_values) != expected_context_images:
+                raise ValueError(
+                    f"Expected {expected_context_images} context image frames, got {len(context_values)}"
+                )
+            return np.stack([_decode_image_entry(item) for item in [*context_values, row[original_key]]])
+
+        if self.lerobot_info_meta["features"][original_key]["dtype"] == "image":
             image_entries = self.curr_traj_data[original_key].tolist()
-
-            def _decode_image_entry(entry):
-                if isinstance(entry, np.ndarray):
-                    return entry
-                if isinstance(entry, Image.Image):
-                    return np.array(entry)
-                if isinstance(entry, dict):
-                    img_bytes = entry.get("bytes", None)
-                    img_path = entry.get("path", None)
-
-                    if img_bytes is not None:
-                        return np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
-
-                    if img_path is not None:
-                        path_obj = Path(img_path)
-                        if not path_obj.is_absolute():
-                            path_obj = self.dataset_path / path_obj
-                        return np.array(Image.open(path_obj).convert("RGB"))
-
-                raise TypeError(f"Unsupported image entry type: {type(entry)}")
 
             frames = []
             for idx in step_indices:
@@ -1704,27 +1976,27 @@ class LeRobotSingleDataset(Dataset):
         le_key = le_state_or_action_cfg[key].original_key
         if le_key is None:
             le_key = key
-        # Get the data array, shape: (T, D)
+        # Read only the requested steps. Some game episodes contain 18,000
+        # embedded RGB rows; stacking the whole trajectory for each sampled
+        # state/action makes dataloader time proportional to episode length.
         assert self.curr_traj_data is not None, f"No data found for {trajectory_id=}"
         assert le_key in self.curr_traj_data.columns, f"No {le_key} found in {trajectory_id=}"
-        data_array: np.ndarray = np.stack(self.curr_traj_data[le_key])  # type: ignore
-        assert data_array.ndim == 2, f"Expected 2D array, got key {le_key} is{data_array.shape} array"
+        padded_indices = np.clip(step_indices, 0, max_length - 1)
+        data_array = np.stack(
+            [np.stack(self.curr_traj_data[le_key].iloc[int(index)]) for index in padded_indices]
+        )
         le_indices = np.arange(
             le_state_or_action_cfg[key].start,
             le_state_or_action_cfg[key].end,
         )
-        data_array = data_array[:, le_indices]
+        data_array = data_array[..., le_indices]
         # Get the state or action configuration
         state_or_action_cfg = getattr(self.metadata.modalities, modality)[key]
-
-        # Pad the data
-        return self.retrieve_data_and_pad(
-            array=data_array,
-            step_indices=step_indices,
-            max_length=max_length,
-            padding_strategy="first_last" if state_or_action_cfg.absolute else "zero",
-            # padding_strategy="zero",           # HACK for realdata
-        )
+        output = np.zeros(data_array.shape)
+        output[:] = data_array
+        if not state_or_action_cfg.absolute:
+            output[(step_indices < 0) | (step_indices >= max_length)] = 0
+        return output
 
     def get_language(
         self,
@@ -2113,6 +2385,25 @@ def get_used_modality_keys(modality_keys: dict) -> tuple[list, list]:
     
     return used_action_keys, used_state_keys
 
+
+def _strip_video_capture_metadata(obj):
+    """Drop source-capture video metadata for cross-task compatibility checks.
+
+    RL-games mixtures can combine tasks with different native FPS/resolutions;
+    the training transform resizes observations before model input, so these
+    fields are descriptive rather than a distinct model contract.
+    """
+    if isinstance(obj, dict):
+        return {
+            key: _strip_video_capture_metadata(value)
+            for key, value in obj.items()
+            if key not in {"fps", "resolution"}
+        }
+    if isinstance(obj, list):
+        return [_strip_video_capture_metadata(value) for value in obj]
+    return obj
+
+
 class LeRobotMixtureDataset(Dataset):
     """
     A mixture of multiple datasets. This class samples a single dataset based on the dataset weights and then calls the `__getitem__` method of the sampled dataset.
@@ -2227,23 +2518,38 @@ class LeRobotMixtureDataset(Dataset):
             self._primary_dataset_indices = np.zeros(len(self.datasets), dtype=bool)
             self._primary_dataset_indices[0] = True
 
-        # Set the epoch and sample the first epoch
-        self.set_epoch(0)
-
         self._sequential_step_sampling = True
+        self._shuffle_steps = True
+        self._action_balance_cfg = {}
+        self._action_balance_enabled = False
+        self._active_latency_filter: set[int] | None = None
+        self._active_latency_quotas: dict[int, float] | None = None
+        self._active_latency_quota_starts: dict[int, float] = {}
         if self.data_cfg is not None:
             seq_cfg = self.data_cfg.get("sequential_step_sampling", True)
-            self._sequential_step_sampling = seq_cfg not in ["False", False]
+            self._sequential_step_sampling = _as_bool(seq_cfg, default=True)
+            self._shuffle_steps = _as_bool(self.data_cfg.get("shuffle", True), default=True)
+            self._action_balance_cfg = self.data_cfg.get("action_balance", {}) or {}
+            self._action_balance_enabled = _as_bool(self._action_balance_cfg.get("enabled", False), default=False)
 
-        self._step_order: list[np.ndarray] = []
-        self._step_pos: list[int] = []
-        if self._sequential_step_sampling:
-            for dataset in self.datasets:
-                self._step_order.append(np.arange(len(dataset.all_steps)))
-                if self.mode == "train":
-                    rng = np.random.default_rng(self.seed)
-                    rng.shuffle(self._step_order[-1])
-                self._step_pos.append(0)
+        if self._action_balance_enabled and not self._sequential_step_sampling:
+            raise ValueError("action_balance.enabled=true requires sequential_step_sampling=true.")
+        if self._action_balance_enabled:
+            strategy = str(self._action_balance_cfg.get("strategy", "balanced_epoch"))
+            if strategy != "balanced_epoch":
+                raise ValueError(f"Unsupported action_balance.strategy={strategy!r}; expected 'balanced_epoch'.")
+
+        self._step_order: np.ndarray = np.array([], dtype=np.int64)
+        self._flat_steps: list[tuple[int, int]] = []
+        self._flat_action_ids: np.ndarray = np.array([], dtype=np.int64)
+        self._noop_step_order: np.ndarray = np.array([], dtype=np.int64)
+        self._flap_step_order: np.ndarray = np.array([], dtype=np.int64)
+        self._other_step_order: np.ndarray = np.array([], dtype=np.int64)
+
+        # Persistent spawn workers share the epoch but retain their own tables and sample order.
+        self._shared_epoch = torch.zeros((), dtype=torch.int64, device="cpu").share_memory_()
+        # Set the epoch after initializing sequential sampling state.
+        self.set_epoch(0)
 
         self.update_metadata(metadata_config)
 
@@ -2267,6 +2573,34 @@ class LeRobotMixtureDataset(Dataset):
         """The indices of the primary datasets."""
         return self._primary_dataset_indices
 
+    def _replace_data_mixture(
+        self,
+        data_mixture: Sequence[tuple[LeRobotSingleDataset, float]],
+    ) -> None:
+        """Replace the active sources while retaining this dataset object's worker state."""
+        self.datasets = [dataset for dataset, _weight in data_mixture]
+        raw_sampling_weights = np.asarray(
+            [weight for _dataset, weight in data_mixture], dtype=np.float64
+        )
+        self._dataset_lengths = np.asarray(
+            [len(dataset) for dataset in self.datasets], dtype=np.int64
+        )
+        self._dataset_sampling_weights = raw_sampling_weights.copy()
+        if self.balance_dataset_weights:
+            self._dataset_sampling_weights *= self._dataset_lengths
+        self._dataset_sampling_weights /= self._dataset_sampling_weights.sum()
+
+        self._trajectory_sampling_weights = []
+        for dataset in self.datasets:
+            weights = np.ones(len(dataset.trajectory_lengths), dtype=np.float64)
+            if self.balance_trajectory_weights:
+                weights *= dataset.trajectory_lengths
+            weights /= weights.sum()
+            self._trajectory_sampling_weights.append(weights)
+
+        self._primary_dataset_indices = raw_sampling_weights == 1.0
+        self._rebuild_step_order(self.epoch)
+
     def __str__(self) -> str:
         dataset_descriptions = []
         for dataset, weight in zip(self.datasets, self.dataset_sampling_weights):
@@ -2284,11 +2618,245 @@ class LeRobotMixtureDataset(Dataset):
             epoch (int): The epoch to set.
         """
         self.epoch = epoch
-        # self.sampled_steps = self.sample_epoch()
+        self._rebuild_step_order(epoch)
+        self._shared_epoch.fill_(epoch)
+
+    def set_active_latency_filter(self, latencies: Sequence[int] | None) -> None:
+        """Restrict sequential step sampling to the provided latency IDs."""
+        if not self._sequential_step_sampling:
+            raise ValueError(
+                "latency curriculum requires datasets.vla_data.sequential_step_sampling=true "
+                "so the active latency subset can be changed deterministically."
+            )
+        self._active_latency_filter = None if latencies is None else {int(value) for value in latencies}
+        self._active_latency_quotas = None
+        self._active_latency_quota_starts = {}
+        self._rebuild_step_order(getattr(self, "epoch", 0))
+
+    def set_latency_quota_filter(
+        self,
+        quotas: dict[int, float] | None,
+        *,
+        quota_starts: dict[int, float] | None = None,
+    ) -> None:
+        """Restrict sequential step sampling with per-latency pass quotas."""
+        if not self._sequential_step_sampling:
+            raise ValueError(
+                "latency quota curriculum requires datasets.vla_data.sequential_step_sampling=true "
+                "so the phase subset can be changed deterministically."
+            )
+        if quotas is None:
+            self._active_latency_quotas = None
+            self._active_latency_filter = None
+            self._active_latency_quota_starts = {}
+        else:
+            cleaned = {int(latency): float(quota) for latency, quota in quotas.items() if float(quota) > 0.0}
+            if not cleaned:
+                raise ValueError("latency quota curriculum requires at least one positive latency quota.")
+            self._active_latency_quotas = cleaned
+            starts = quota_starts or {}
+            self._active_latency_quota_starts = {
+                latency: float(starts.get(latency, 0.0))
+                for latency in cleaned
+            }
+            self._active_latency_filter = set(cleaned)
+        self._rebuild_step_order(getattr(self, "epoch", 0))
+
+    def get_latency_step_counts(self) -> dict[int, int]:
+        """Return the number of sequential training steps available per latency."""
+        counts: dict[int, int] = {}
+        for dataset in self.datasets:
+            for latency in dataset.get_latencies_for_all_steps():
+                latency = int(latency)
+                counts[latency] = counts.get(latency, 0) + 1
+        return counts
+
+    def _quota_step_indices(
+        self,
+        indices: list[int],
+        quota: float,
+        *,
+        latency: int,
+        pass_start: float = 0.0,
+    ) -> list[int]:
+        """Select deterministic rows from the pass interval [pass_start, pass_start + quota)."""
+        if quota <= 0.0 or not indices:
+            return []
+        selected: list[int] = []
+        cursor = float(pass_start)
+        remaining = float(quota)
+        num_indices = len(indices)
+        eps = 1e-9
+        while remaining > eps:
+            pass_idx = int(np.floor(cursor))
+            frac_start = cursor - pass_idx
+            if 1.0 - frac_start <= eps:
+                cursor = float(pass_idx + 1)
+                continue
+            segment = min(remaining, 1.0 - frac_start)
+            frac_end = frac_start + segment
+            pass_indices = list(indices)
+            seed = safe_hash((self.seed, "latency_quota_pass", latency, pass_idx)) & 0xFFFFFFFF
+            rng = np.random.default_rng(seed)
+            rng.shuffle(pass_indices)
+            start_idx = int(np.ceil(float(num_indices) * frac_start - eps))
+            end_idx = int(np.ceil(float(num_indices) * frac_end - eps))
+            selected.extend(pass_indices[start_idx:min(num_indices, end_idx)])
+            cursor += segment
+            remaining -= segment
+        return selected
+
+    def _rebuild_step_order(self, epoch: int) -> None:
+        """Build deterministic step order for sequential sampling."""
+        if not getattr(self, "_sequential_step_sampling", False):
+            return
+
+        flat_steps: list[tuple[int, int]] = []
+        if self._active_latency_quotas is not None:
+            candidate_steps_by_latency: dict[int, list[tuple[int, int]]] = {
+                int(latency): [] for latency in self._active_latency_quotas
+            }
+            for dataset_index, dataset in enumerate(self.datasets):
+                step_latencies = dataset.get_latencies_for_all_steps()
+                for step_index, latency in enumerate(step_latencies):
+                    latency = int(latency)
+                    if latency in candidate_steps_by_latency:
+                        candidate_steps_by_latency[latency].append((dataset_index, step_index))
+            for latency, quota in sorted(self._active_latency_quotas.items()):
+                candidates = candidate_steps_by_latency.get(int(latency), [])
+                flat_steps.extend(
+                    self._quota_step_indices(
+                        candidates,
+                        float(quota),
+                        latency=int(latency),
+                        pass_start=float(self._active_latency_quota_starts.get(int(latency), 0.0)),
+                    )
+                )
+        else:
+            for dataset_index, dataset in enumerate(self.datasets):
+                if self._active_latency_filter is None:
+                    flat_steps.extend(
+                        (dataset_index, step_index)
+                        for step_index in range(len(dataset.all_steps))
+                    )
+                else:
+                    step_latencies = dataset.get_latencies_for_all_steps()
+                    flat_steps.extend(
+                        (dataset_index, step_index)
+                        for step_index, latency in enumerate(step_latencies)
+                        if int(latency) in self._active_latency_filter
+                    )
+
+        self._flat_steps = flat_steps
+        self._flat_action_ids = np.array([], dtype=np.int64)
+        self._noop_step_order = np.array([], dtype=np.int64)
+        self._flap_step_order = np.array([], dtype=np.int64)
+        self._other_step_order = np.array([], dtype=np.int64)
+        if (self._active_latency_filter is not None or self._active_latency_quotas is not None) and len(flat_steps) == 0:
+            available = sorted(
+                {
+                    int(latency)
+                    for dataset in self.datasets
+                    for latency in dataset.get_latencies_for_all_steps()
+                }
+            )
+            raise ValueError(
+                f"Latency curriculum selected latencies={sorted(self._active_latency_filter)} "
+                f"but no matching training steps were found. Available latencies={available}."
+            )
+        if self._action_balance_enabled:
+            self._ensure_action_balance_indices()
+            self._step_order = self._build_action_balanced_step_order(epoch)
+        else:
+            self._step_order = np.arange(len(flat_steps), dtype=np.int64)
+        if self.mode == "train" and self._shuffle_steps and len(self._step_order) > 0:
+            seed = safe_hash((epoch, self.seed, "sequential_step_sampling", self._action_balance_enabled)) & 0xFFFFFFFF
+            rng = np.random.default_rng(seed)
+            rng.shuffle(self._step_order)
+
+    def _ensure_action_balance_indices(self) -> None:
+        """Build cached action-class indices aligned to ``self._flat_steps``."""
+        if len(self._flat_action_ids) == len(self._flat_steps):
+            return
+
+        action_key = str(self._action_balance_cfg.get("action_key", "action_id"))
+        action_ids_by_dataset = [
+            np.asarray(dataset.get_action_ids_for_all_steps(action_key), dtype=np.int64)
+            for dataset in self.datasets
+        ]
+
+        flat_action_ids = []
+        for dataset_index, step_index in self._flat_steps:
+            flat_action_ids.append(int(action_ids_by_dataset[dataset_index][step_index]))
+
+        self._flat_action_ids = np.asarray(flat_action_ids, dtype=np.int64)
+        noop_id = int(self._action_balance_cfg.get("noop_id", 0))
+        flap_id = int(self._action_balance_cfg.get("flap_id", 1))
+        all_indices = np.arange(len(self._flat_action_ids), dtype=np.int64)
+        self._noop_step_order = all_indices[self._flat_action_ids == noop_id]
+        self._flap_step_order = all_indices[self._flat_action_ids == flap_id]
+        self._other_step_order = all_indices[
+            (self._flat_action_ids != noop_id) & (self._flat_action_ids != flap_id)
+        ]
+
+        if len(self._noop_step_order) == 0 or len(self._flap_step_order) == 0:
+            raise ValueError(
+                "action_balance requires at least one noop and one flap sample, "
+                f"but got noop={len(self._noop_step_order)}, flap={len(self._flap_step_order)}."
+            )
+
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            target = float(self._action_balance_cfg.get("target_flap_fraction", 0.30))
+            desired_noop_count = int(np.ceil(len(self._flap_step_order) * (1.0 - target) / target))
+            selected_noop_count = min(len(self._noop_step_order), max(1, desired_noop_count))
+            selected_epoch_size = len(self._flap_step_order) + selected_noop_count + len(self._other_step_order)
+            print(
+                "Action-balanced epoch sampling enabled: "
+                f"noop={len(self._noop_step_order)}, flap={len(self._flap_step_order)}, "
+                f"other={len(self._other_step_order)}, target_flap_fraction={target:.3f}, "
+                f"selected_noop_per_epoch={selected_noop_count}, epoch_size={selected_epoch_size}"
+            )
+
+    def _build_action_balanced_step_order(self, epoch: int) -> np.ndarray:
+        """Build one balanced training epoch: all flaps plus a rotating noop slice."""
+        target_flap_fraction = float(self._action_balance_cfg.get("target_flap_fraction", 0.30))
+        if not 0.0 < target_flap_fraction < 1.0:
+            raise ValueError(
+                "action_balance.target_flap_fraction must be in (0, 1), "
+                f"got {target_flap_fraction}."
+            )
+
+        flap_indices = self._flap_step_order
+        noop_indices = self._noop_step_order
+        desired_noop_count = int(np.ceil(len(flap_indices) * (1.0 - target_flap_fraction) / target_flap_fraction))
+        noop_count = min(len(noop_indices), max(1, desired_noop_count))
+
+        noop_start = (int(epoch) * noop_count) % len(noop_indices)
+        if noop_start + noop_count <= len(noop_indices):
+            selected_noops = noop_indices[noop_start : noop_start + noop_count]
+        else:
+            wrap_count = (noop_start + noop_count) - len(noop_indices)
+            selected_noops = np.concatenate((noop_indices[noop_start:], noop_indices[:wrap_count]))
+
+        return np.concatenate((flap_indices, selected_noops, self._other_step_order)).astype(np.int64, copy=False)
 
     def sample_step(self, index: int) -> tuple[LeRobotSingleDataset, int, int]:
         """Sample a single step from the dataset."""
         # return self.sampled_steps[index]
+
+        epoch = self._shared_epoch.item()
+        if self.epoch != epoch:
+            self.epoch = epoch
+            self._rebuild_step_order(epoch)
+
+        if self._sequential_step_sampling:
+            if len(self._step_order) == 0:
+                raise ValueError("Cannot sample from an empty sequential step order.")
+            ordered_index = int(self._step_order[index % len(self._step_order)])
+            dataset_index, step_index = self._flat_steps[ordered_index]
+            dataset = self.datasets[dataset_index]
+            trajectory_id, base_index = dataset.all_steps[step_index]
+            return dataset, int(trajectory_id), int(base_index)
 
         # Set seed
         seed = index if self.mode != "train" else safe_hash((self.epoch, index, self.seed))
@@ -2351,9 +2919,10 @@ class LeRobotMixtureDataset(Dataset):
                         break
                     index = random.randint(0, len(self) - 1)
                     
-                raw_data = dataset.get_step_data(trajectory_id, step)    
+                raw_data = dataset.get_step_data(trajectory_id, step)
                 data = dataset.transforms(raw_data)
-                sample = dataset._pack_sample(data)
+                sample = dataset._pack_sample(data, trajectory_id=trajectory_id, base_index=step)
+                dataset._attach_rl_games_metadata(sample, step)
                 
                 return sample
                 
@@ -2379,6 +2948,9 @@ class LeRobotMixtureDataset(Dataset):
         Returns:
             int: The length of a single epoch in the mixture.
         """
+        if self._sequential_step_sampling:
+            return len(self._step_order)
+
         # Check for potential issues
         if len(self.datasets) == 0:
             return 0
@@ -2581,17 +3153,20 @@ class LeRobotMixtureDataset(Dataset):
         merged_metadata["statistics"] = dataset_statistics
 
         # Merge the modality configs
-        modality_configs = defaultdict(set)
+        modality_configs = defaultdict(list)
         for metadata in metadata_dicts:
             for modality, configs in metadata["modalities"].items():
-                modality_configs[modality].add(json.dumps(configs))
+                modality_configs[modality].append(configs)
         merged_metadata["modalities"] = {}
         for modality, configs in modality_configs.items():
-            # Check that all modality configs correspond to the same tag matches
+            comparable = {
+                json.dumps(_strip_video_capture_metadata(config), sort_keys=True)
+                for config in configs
+            }
             assert (
-                len(configs) == 1
-            ), f"Multiple modality configs for modality {modality}: {list(configs)}"
-            merged_metadata["modalities"][modality] = json.loads(configs.pop())
+                len(comparable) == 1
+            ), f"Multiple modality configs for modality {modality}: {configs}"
+            merged_metadata["modalities"][modality] = configs[0]
 
         return DatasetMetadata.model_validate(merged_metadata)
 

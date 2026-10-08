@@ -1,0 +1,18 @@
+# @package _global_
+
+checkpoint:
+  load: auto
+  hf_repo_id: null
+  save_best_model: true
+  save_final_model: true
+  save_pt_file: false
+  save_training_state: true
+  save_safetensors_file: false
+  local:
+    keep_last_n: 1
+  sync:
+    enabled: false
+    repo_id: null
+    keep_last_n: 0
+    sync_every_n_checkpoints: 1
+    resume_policy: local_latest

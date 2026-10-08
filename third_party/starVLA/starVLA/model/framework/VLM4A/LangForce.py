@@ -595,6 +595,7 @@ class LangForce(baseframework):
 
         return {
             "action_loss": total_loss,
+            "loss_weight": float(len(examples)),
             # optional logs:
             "main_loss": main_loss.detach(),
             "prior_loss": prior_loss.detach(),

@@ -355,7 +355,7 @@ class Qwen_Adapter(baseframework):
 
         loss = torch.nn.L1Loss()(predicted_actions, gt_actions)
 
-        return {"action_loss": loss}
+        return {"action_loss": loss, "loss_weight": float(len(examples))}
 
     @torch.inference_mode()
     def predict_action(

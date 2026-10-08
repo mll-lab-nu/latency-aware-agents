@@ -1,0 +1,26 @@
+# @package _global_
+
+rl_games:
+  env_eval:
+    enabled: true
+    eval_backend: latency_bench
+    distributed_mode: none
+    vectorized:
+      enabled: false
+      batch_size: 1
+    latency:
+      prompt_map_path: null
+    mid_train:
+      enabled: true
+      interval_steps: 100
+      latencies: null
+      num_episodes: 5
+      max_steps_per_episode: 3600
+    post_train:
+      enabled: true
+      latencies: [0, 1, 2, 3, 4]
+      latencies_from_prompt_map: false
+      num_episodes: 5
+      max_steps_per_episode: 3600
+
+mode: single

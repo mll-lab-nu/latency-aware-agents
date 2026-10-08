@@ -1,0 +1,10 @@
+# @package _global_
+
+framework:
+  qwenvl:
+    attn_implementation: flash_attention_2
+    enable_gradient_checkpointing: true
+  action_model:
+    action_horizon: 1
+    future_action_window_size: 0
+    past_action_window_size: 0

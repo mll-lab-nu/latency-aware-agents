@@ -1,0 +1,92 @@
+{
+  "0": {
+    "latency": 0,
+    "latency_raw_frames": 0,
+    "latency_ms": 0.0,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 0 raw frames (0.00 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "1": {
+    "latency": 1,
+    "latency_raw_frames": 1,
+    "latency_ms": 33.333333333333336,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 1 raw frames (33.33 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "2": {
+    "latency": 2,
+    "latency_raw_frames": 2,
+    "latency_ms": 66.66666666666667,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 2 raw frames (66.67 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "3": {
+    "latency": 3,
+    "latency_raw_frames": 3,
+    "latency_ms": 100.0,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 3 raw frames (100.00 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "4": {
+    "latency": 4,
+    "latency_raw_frames": 4,
+    "latency_ms": 133.33333333333334,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 4 raw frames (133.33 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "5": {
+    "latency": 5,
+    "latency_raw_frames": 5,
+    "latency_ms": 166.66666666666666,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 5 raw frames (166.67 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "6": {
+    "latency": 6,
+    "latency_raw_frames": 6,
+    "latency_ms": 200.0,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 6 raw frames (200.00 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "7": {
+    "latency": 7,
+    "latency_raw_frames": 7,
+    "latency_ms": 233.33333333333334,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 7 raw frames (233.33 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "8": {
+    "latency": 8,
+    "latency_raw_frames": 8,
+    "latency_ms": 266.6666666666667,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 8 raw frames (266.67 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "9": {
+    "latency": 9,
+    "latency_raw_frames": 9,
+    "latency_ms": 300.0,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 9 raw frames (300.00 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "10": {
+    "latency": 10,
+    "latency_raw_frames": 10,
+    "latency_ms": 333.3333333333333,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 10 raw frames (333.33 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "15": {
+    "latency": 15,
+    "latency_raw_frames": 15,
+    "latency_ms": 500.0,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 15 raw frames (500.00 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "20": {
+    "latency": 20,
+    "latency_raw_frames": 20,
+    "latency_ms": 666.6666666666666,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 20 raw frames (666.67 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "25": {
+    "latency": 25,
+    "latency_raw_frames": 25,
+    "latency_ms": 833.3333333333334,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 25 raw frames (833.33 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  },
+  "30": {
+    "latency": 30,
+    "latency_raw_frames": 30,
+    "latency_ms": 1000.0,
+    "prompt": "You are playing Flappy Bird. Pass through the pipe gaps and stay alive. Choose the action: NOOP, FLAP. Current action latency is 30 raw frames (1000.00 ms).  The environment runs at 30 FPS and observations are emitted at 30 FPS. Choose the best next action."
+  }
+}

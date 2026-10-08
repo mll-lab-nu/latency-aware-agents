@@ -158,7 +158,7 @@ class Cosmos_GR00T(baseframework):
 
             action_loss = self.action_model(last_hidden_repeated, actions_target_repeated, state_repeated)
 
-        return {"action_loss": action_loss}
+        return {"action_loss": action_loss, "loss_weight": float(len(examples))}
 
     @torch.inference_mode()
     def predict_action(self, examples: List[dict], **kwargs) -> np.ndarray:

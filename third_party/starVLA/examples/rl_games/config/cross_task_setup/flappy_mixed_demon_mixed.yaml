@@ -1,0 +1,49 @@
+# @package _global_
+
+rl_games:
+  env_eval:
+    mid_train:
+      interval_steps: 500
+  cross_task:
+    train_tasks:
+      - name: demon_attack
+        role: A
+        train_source_hf: talha1503/demon_attack_mixed_latency_parquet
+        prompt_source_hf: talha1503/demon_attack_mixed_latency_parquet
+        converted_name: demon_attack_mixed_latency_train
+        train_latency_filter: [0, 1, 2, 3, 4]
+        eval_latency_filter: [0, 1, 2, 3, 4]
+        episodes_per_latency: 50
+        eval_episodes_per_latency: null
+        max_episodes: null
+        weight: 1.0
+      - name: flappy
+        role: B
+        train_source_hf: talha1503/flappy_bird_mixed_latency_parquet
+        prompt_source_hf: talha1503/flappy_bird_mixed_latency_parquet
+        converted_name: flappy_mixed_latency_train
+        train_latency_filter: [0, 1, 2, 3, 4]
+        eval_latency_filter: [0, 1, 2, 3, 4]
+        episodes_per_latency: 50
+        eval_episodes_per_latency: null
+        max_episodes: null
+        weight: 1.0
+    eval_tasks:
+      demon_attack:
+        mid_train:
+          latencies: [0, 1, 2, 3, 4]
+          num_episodes: 5
+          max_steps_per_episode: 3600
+        post_train:
+          latencies: [0, 1, 2, 3, 4]
+          num_episodes: 20
+          max_steps_per_episode: 3600
+      flappy:
+        mid_train:
+          latencies: [0, 1, 2, 3, 4]
+          num_episodes: 5
+          max_steps_per_episode: 2000
+        post_train:
+          latencies: [0, 1, 2, 3, 4, 5, 6, 7]
+          num_episodes: 20
+          max_steps_per_episode: 2000

@@ -148,7 +148,7 @@ class CosmoPredict2_OFT(baseframework):
 
             action_loss = self.l1_loss(pred_actions, actions_target)
 
-        return {"action_loss": action_loss}
+        return {"action_loss": action_loss, "loss_weight": float(len(examples))}
 
     @torch.inference_mode()
     def predict_action(self, examples: List[dict], **kwargs) -> np.ndarray:

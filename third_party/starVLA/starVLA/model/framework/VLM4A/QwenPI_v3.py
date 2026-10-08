@@ -21,11 +21,10 @@ Key improvements over QwenPI
    action head parameter count by ~(vl_hidden / dit_hidden)² while keeping
    the full layer-wise cross-attention structure.
 
-2. **Discretised-state language injection** (`add_discretized_state_to_instruction`)
-   Proprioceptive state is quantised into 256 bins and appended to the
-   language instruction as plain tokens (``[STATE] <bins> [ACTION]``),
-   following the π₀.5 design.  This lets the VLM attend to state without
-   any extra encoder module.
+2. **Configurable state conditioning**
+   The released default quantises proprioceptive state into 256 bins and
+   appends it to the language instruction.  Task configs can instead pass
+   the real continuous state to LayerwiseFM's native state encoder.
 
 Together these two features bring QwenPI_v3 close to all the core
 capabilities of π₀.5 within a single open-weight VLM framework.
@@ -54,6 +53,7 @@ from starVLA.model.framework.base_framework import baseframework
 from starVLA.model.framework.share_tools import merge_framework_config, populate_layerwise_dit_cfg
 from starVLA.model.modules.action_model.LayerwiseFM_ActionHeader import LayerwiseFlowmatchingActionHead, get_action_model
 from starVLA.model.modules.vlm import get_vlm_model
+from starVLA.model.profiling import stage_timer as _stage
 from starVLA.model.tools import FRAMEWORK_REGISTRY
 from starVLA.training.trainer_utils import initialize_overwatch
 from starVLA.training.trainer_utils.trainer_tools import resize_images
@@ -62,6 +62,7 @@ logger = initialize_overwatch(__name__)
 
 # HuggingFace Default / LLaMa-2 IGNORE_INDEX (for labels)
 IGNORE_INDEX = -100
+
 
 ####################################################
 # ⚠️ Warning: This framework has been restructured and is NOT compatible with checkpoints created before 2025-10-20.
@@ -106,6 +107,9 @@ class QwenPI_v3DefaultConfig:
             "action_model_type": "LayerwiseFM",
             "action_dim": 7,
             "state_dim": 7,
+            # Keep the released text-bin path as the default; task configs can
+            # use the action head's native continuous state encoder instead.
+            "state_encoding": "discretized_text",
             # Canonical chunk length (number of action steps the head predicts).
             # Legacy YAMLs may use future_action_window_size = action_horizon - 1;
             # apply_config_compat normalises both directions.
@@ -233,6 +237,7 @@ class Qwen_PI_v3(baseframework):
         # are normalised upstream by `share_tools.apply_config_compat`, so we
         # only ever read `action_horizon` here.
         self.action_horizon = int(self.config.framework.action_model.action_horizon)
+        self.state_encoding = self.config.framework.action_model.state_encoding
 
     def _project_vl_hidden_for_action(self, vl_embs_list: List[torch.Tensor]) -> List[torch.Tensor]:
         """Project layer-wise VL hidden states to the hidden space expected by Action DiT."""
@@ -244,21 +249,25 @@ class Qwen_PI_v3(baseframework):
         return [proj(vl_h) for proj, vl_h in zip(self.project_layers, vl_embs_list)]
 
     def _encode_vl_hidden_states(
-        self, batch_images: List, instructions: List[str]
+        self, batch_images: List, instructions: List[str], *, profiler=None
     ) -> List[torch.Tensor]:
         """Run QwenVL, project hidden states, and return the layer-wise embeddings for the Action DiT."""
-        qwen_inputs = self.qwen_vl_interface.build_qwenvl_inputs(
-            images=batch_images, instructions=instructions
-        )
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            qwenvl_outputs = self.qwen_vl_interface(
-                **qwen_inputs,
-                output_attentions=False,
-                output_hidden_states=True,
-                return_dict=True,
+        with _stage(profiler, "starvla_qwen_input_build_ms"):
+            qwen_inputs = self.qwen_vl_interface.build_qwenvl_inputs(
+                images=batch_images, instructions=instructions, profiler=profiler
             )
-            vl_embs_list = list(qwenvl_outputs.hidden_states[-self.num_action_dit_layers:])
-            vl_embs_list = self._project_vl_hidden_for_action(vl_embs_list)
+        with _stage(profiler, "starvla_qwen_forward_ms"):
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                qwenvl_outputs = self.qwen_vl_interface(
+                    **qwen_inputs,
+                    output_attentions=False,
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
+                vl_embs_list = list(qwenvl_outputs.hidden_states[-self.num_action_dit_layers:])
+        with _stage(profiler, "starvla_project_layers_ms"):
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                vl_embs_list = self._project_vl_hidden_for_action(vl_embs_list)
         return vl_embs_list
 
     def forward(
@@ -283,11 +292,9 @@ class Qwen_PI_v3(baseframework):
             [example["state"] for example in examples] if "state" in examples[0] else None
         )  # List[ndarray (1, state_dim)] or None
 
-        # Prepend discretised proprioceptive state to each instruction string.
-        instructions = (
-            self.add_discretized_state_to_instruction(instructions, state) if state is not None else instructions
-        )
-        state = None  # state is now encoded in the instruction tokens
+        if self.state_encoding == "discretized_text":
+            instructions = self._state_conditioned_instructions(instructions, state)
+            state = None
 
         # Step 1: encode through QwenVL
         vl_embs_list = self._encode_vl_hidden_states(batch_images, instructions)
@@ -306,6 +313,20 @@ class Qwen_PI_v3(baseframework):
             )
             repeated_diffusion_steps = 2  # No repeat for the large action FM to save memory.
             actions_target_repeated = actions_target.repeat(repeated_diffusion_steps, 1, 1)
+            action_prefix_mask = None
+            action_loss_mask = None
+            if "action_prefix_mask" in examples[0]:
+                action_prefix_mask = torch.as_tensor(
+                    np.array([example["action_prefix_mask"] for example in examples]),
+                    device=base_hidden.device,
+                    dtype=torch.bool,
+                )[:, -self.action_horizon :].repeat(repeated_diffusion_steps, 1)
+            if "action_loss_mask" in examples[0]:
+                action_loss_mask = torch.as_tensor(
+                    np.array([example["action_loss_mask"] for example in examples]),
+                    device=base_hidden.device,
+                    dtype=torch.bool,
+                )[:, -self.action_horizon :].repeat(repeated_diffusion_steps, 1)
             # Repeat every VLM layer embedding to match the duplicated action batch.
             vl_embs_list_repeated = [h.repeat(repeated_diffusion_steps, 1, 1) for h in vl_embs_list]
 
@@ -318,14 +339,18 @@ class Qwen_PI_v3(baseframework):
                 vl_embs_list_repeated,
                 actions_target_repeated,
                 state_repeated,
+                action_prefix_mask=action_prefix_mask,
+                action_loss_mask=action_loss_mask,
             )
 
-        return {"action_loss": action_loss}
+        return {"action_loss": action_loss, "loss_weight": float(len(examples))}
 
     @torch.inference_mode()
     def predict_action(
         self,
         examples: List[dict] = None,
+        *,
+        profiler=None,
         **kwargs: str,
     ) -> np.ndarray:
         """
@@ -349,23 +374,35 @@ class Qwen_PI_v3(baseframework):
                     denoised actions in the normalised action space.
         """
 
-        batch_images = [to_pil_preserve(example["image"]) for example in examples]  # List[List[PIL.Image]]
+        with _stage(profiler, "starvla_to_pil_ms"):
+            batch_images = [to_pil_preserve(example["image"]) for example in examples]  # List[List[PIL.Image]]
         instructions = [example["lang"] for example in examples]  # List[str]
         state = [example["state"] for example in examples] if "state" in examples[0] else None  # List[ndarray] or None
-
-        # Encode proprioceptive state into the instruction string, then discard raw state.
-        instructions = (
-            self.add_discretized_state_to_instruction(instructions, state) if state is not None else instructions
+        action_prefix = (
+            [example["action_prefix"] for example in examples]
+            if "action_prefix" in examples[0]
+            else None
         )
-        state = None
+        action_prefix_mask = (
+            [example["action_prefix_mask"] for example in examples]
+            if "action_prefix_mask" in examples[0]
+            else None
+        )
+
+        with _stage(profiler, "starvla_state_instruction_ms"):
+            if self.state_encoding == "discretized_text":
+                instructions = self._state_conditioned_instructions(instructions, state)
+        if self.state_encoding == "discretized_text":
+            state = None
 
         # Optionally resize images to the resolution used during training.
         train_obs_image_size = getattr(self.config.datasets.vla_data, "obs_image_size", None)
         if train_obs_image_size:
-            batch_images = resize_images(batch_images, target_size=train_obs_image_size)
+            with _stage(profiler, "starvla_resize_ms"):
+                batch_images = resize_images(batch_images, target_size=train_obs_image_size)
 
         # Step 1: encode through QwenVL
-        vl_embs_list = self._encode_vl_hidden_states(batch_images, instructions)
+        vl_embs_list = self._encode_vl_hidden_states(batch_images, instructions, profiler=profiler)
         base_hidden = vl_embs_list[-1]
 
         state = (
@@ -373,13 +410,28 @@ class Qwen_PI_v3(baseframework):
             if state is not None
             else None
         )
+        action_prefix = (
+            torch.from_numpy(np.array(action_prefix)).to(base_hidden.device, dtype=base_hidden.dtype)
+            if action_prefix is not None
+            else None
+        )
+        action_prefix_mask = (
+            torch.from_numpy(np.array(action_prefix_mask)).to(base_hidden.device, dtype=torch.bool)
+            if action_prefix_mask is not None
+            else None
+        )
         # Step 2: run the flow-matching sampler to produce the denoised action chunk.
-        with torch.autocast("cuda", dtype=torch.float32):
-            pred_actions = self.action_model.predict_action(
-                vl_embs_list, state
-            )  # (B, action_horizon, action_dim)
+        with _stage(profiler, "starvla_action_sampler_ms"):
+            with torch.autocast("cuda", dtype=torch.float32):
+                pred_actions = self.action_model.predict_action(
+                    vl_embs_list,
+                    state,
+                    action_prefix=action_prefix,
+                    action_prefix_mask=action_prefix_mask,
+                )  # (B, action_horizon, action_dim)
 
-        normalized_actions = pred_actions.detach().cpu().numpy()
+        with _stage(profiler, "starvla_to_numpy_ms"):
+            normalized_actions = pred_actions.detach().cpu().numpy()
         return {"normalized_actions": normalized_actions}
 
     def state2str_transform(self, state: np.ndarray) -> str:
@@ -403,6 +455,11 @@ class Qwen_PI_v3(baseframework):
             state_str = self.state2str_transform(state[0])
             updated_instructions.append(f"{instr} [STATE] {state_str} [ACTION]")
         return updated_instructions
+
+    def _state_conditioned_instructions(self, instructions: List[str], state: Optional[List[np.ndarray]]) -> List[str]:
+        if state is None or self.state_encoding != "discretized_text":
+            return instructions
+        return self.add_discretized_state_to_instruction(instructions, state)
 
 
 if __name__ == "__main__":

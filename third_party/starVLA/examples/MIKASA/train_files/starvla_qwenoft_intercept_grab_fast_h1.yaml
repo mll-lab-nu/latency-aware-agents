@@ -1,0 +1,71 @@
+run_id: mikasa_intercept_grab_fast_h1
+run_root_dir: results/Checkpoints
+seed: 42
+wandb_entity: null
+wandb_project: starvla_mikasa
+is_debug: false
+version_id: "0.21"
+
+framework:
+  name: QwenOFT
+  qwenvl:
+    base_vlm: ./playground/Pretrained_models/Qwen3-VL-4B-Instruct
+    attn_implementation: flash_attention_2
+    enable_gradient_checkpointing: true
+  action_model:
+    action_model_type: MLP
+    action_dim: 7
+    action_env_dim: 7
+    state_dim: 7
+    action_horizon: 1
+    future_action_window_size: 0
+    past_action_window_size: 0
+    loss_type: l1
+
+datasets:
+  vla_data:
+    dataset_py: lerobot_datasets
+    lerobot_version: v3.0
+    include_state: false
+    data_root_dir: playground/Datasets/MIKASA
+    data_mix: intercept_grab_fast_h1_train
+    eval_data_mix: intercept_grab_fast_h1_val
+    custom_mixtures_path: playground/Datasets/MIKASA/mikasa_intercept_grab_fast_h1.json
+    sequential_step_sampling: true
+    per_device_batch_size: 4
+    load_all_data_for_training: true
+    pin_memory: true
+    persistent_workers: true
+    obs_image_size: [224, 224]
+    video_backend: pyav
+
+trainer:
+  max_train_steps: 5000
+  num_warmup_steps: 100
+  save_interval: 1000
+  eval_interval: 500
+  eval_num_batches: 100
+  learning_rate:
+    base: 3.0e-05
+    qwen_vl_interface: 1.0e-05
+    action_model: 1.0e-04
+  lr_scheduler_type: cosine_with_min_lr
+  scheduler_specific_kwargs:
+    min_lr: 1.0e-06
+  freeze_modules: ""
+  freeze_vit: false
+  freeze_tied_embedding: false
+  freeze_llm_layers: []
+  loss_scale:
+    vla: 1.0
+    vlm: 0.1
+  logging_frequency: 5
+  gradient_clipping: 1.0
+  gradient_accumulation_steps: 1
+  pretrained_checkpoint: null
+  optimizer:
+    name: AdamW
+    betas: [0.9, 0.95]
+    eps: 1.0e-08
+    weight_decay: 1.0e-08
+    fused: true

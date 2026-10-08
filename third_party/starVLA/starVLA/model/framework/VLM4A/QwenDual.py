@@ -198,7 +198,7 @@ class Qwen_Dual(baseframework):
                 last_hidden_repeated, actions_target_repeated, state_repeated
             )  # (B, chunk_len, action_dim)
 
-        return {"action_loss": action_loss}
+        return {"action_loss": action_loss, "loss_weight": float(len(examples))}
 
     @torch.inference_mode()
     def predict_action(

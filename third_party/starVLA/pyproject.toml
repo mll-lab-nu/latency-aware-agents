@@ -32,14 +32,37 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "black>=24.2.0",
+    "datasets",
     "gpustat",
+    "hydra-core>=1.3.2",
     "ipython",
+    "numpy",
+    "pillow",
     "pre-commit",
+    "pyarrow",
+    "pytest",
     "ruff>=0.2.2",
+    "tqdm",
 ]
 sagemaker = [
     "boto3",
     "sagemaker"
+]
+
+[dependency-groups]
+dev = [
+    "black>=24.2.0",
+    "datasets",
+    "gpustat",
+    "hydra-core>=1.3.2",
+    "ipython",
+    "numpy",
+    "pillow",
+    "pre-commit",
+    "pyarrow",
+    "pytest",
+    "ruff>=0.2.2",
+    "tqdm",
 ]
 
 

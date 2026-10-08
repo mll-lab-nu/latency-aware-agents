@@ -1,0 +1,66 @@
+# @package _global_
+
+rl_games:
+  env_eval:
+    mid_train:
+      interval_steps: 500
+    deadly:
+      action_layout: multibinary_7
+      multibinary_threshold: 0.0
+  cross_task:
+    loss_by_task:
+      deadly_corridor: multibinary_bce
+      flappy: discrete_ce
+    loss_weight_by_task:
+      deadly_corridor: 1.0
+      flappy: 1.0
+    train_tasks:
+      - name: flappy
+        role: B
+        train_source_hf: talha1503/flappy_bird_mixed_latency_parquet
+        prompt_source_hf: talha1503/flappy_bird_mixed_latency_parquet
+        converted_name: flappy_mixed_latency_train
+        train_latency_filter: [0, 1, 2, 3, 4]
+        eval_latency_filter: [0, 1, 2, 3, 4]
+        episodes_per_latency: 50
+        max_episodes: null
+        weight: 1.0
+      - name: deadly_corridor
+        role: A
+        train_source_hf: talha1503/deadly_corridor_zero_latency_parquet_v2
+        prompt_source_hf: latency-sensitive-bench/deadly_corridor_mixed_latency_parquet
+        converted_name: deadly_corridor_zero_latency_train
+        train_latency_filter: [0]
+        eval_latency_filter: [0, 1, 2, 3, 4]
+        episodes_per_latency: null
+        max_episodes: 100
+        action_layout: multibinary_7
+        weight: 1.0
+    eval_tasks:
+      deadly_corridor:
+        frameskip: 4
+        image_size: 224
+        task_description: "You are playing Deadly Corridor in VizDoom. Choose actions from MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, ATTACK."
+        mid_train:
+          latencies: [0]
+          num_episodes: 5
+          max_steps_per_episode: 3600
+        post_train:
+          latencies: [0, 1, 2, 3, 4]
+          num_episodes: 20
+          max_steps_per_episode: 3600
+      flappy:
+        mid_train:
+          latencies: [0, 1, 2, 3, 4]
+          num_episodes: 5
+          max_steps_per_episode: 2000
+        post_train:
+          latencies: [0, 1, 2, 3, 4, 5, 6, 7]
+          num_episodes: 20
+          max_steps_per_episode: 2000
+
+framework:
+  action_model:
+    action_dim: 7
+    action_env_dim: 7
+    loss_type: discrete_ce

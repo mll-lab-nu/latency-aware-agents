@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import json
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -47,6 +49,7 @@ logger = logging.getLogger(__name__)
 ROBOT_TYPE_CONFIG_MAP: dict = dict(_BASE_CONFIG_MAP)
 ROBOT_TYPE_TO_EMBODIMENT_TAG: dict = dict(_BASE_EMBODIMENT_MAP)
 DATASET_NAMED_MIXTURES: dict = dict(_BASE_MIXTURES)
+_DEBUG_DATASET_RE = re.compile(r"^(?P<base>.+)__debug(?:_[A-Za-z0-9_-]+)?_(?P<episodes>\d+)ep$")
 
 # ---------------------------------------------------------------------------
 # Discovery logic
@@ -108,6 +111,53 @@ def discover_and_merge() -> None:
                 if hasattr(mod, "DATASET_NAMED_MIXTURES"):
                     DATASET_NAMED_MIXTURES.update(mod.DATASET_NAMED_MIXTURES)
                     logger.info(f"[registry] Loaded mixtures from {bench_name} (data_config): {list(mod.DATASET_NAMED_MIXTURES.keys())}")
+
+
+def get_dataset_named_mixture(data_mix: str):
+    """Return a mixture spec, including debug-subset variants of known mixtures."""
+    if data_mix in DATASET_NAMED_MIXTURES:
+        return DATASET_NAMED_MIXTURES[data_mix]
+
+    base_data_mix = str(data_mix)
+    if base_data_mix.endswith("__val"):
+        base_data_mix = base_data_mix.removesuffix("__val")
+
+    if base_data_mix in DATASET_NAMED_MIXTURES:
+        return [
+            (data_mix, weight, robot_type)
+            for _, weight, robot_type in DATASET_NAMED_MIXTURES[base_data_mix]
+        ]
+
+    match = _DEBUG_DATASET_RE.match(base_data_mix)
+    if match:
+        base_mix = match.group("base")
+        if base_mix in DATASET_NAMED_MIXTURES:
+            return [
+                (data_mix, weight, robot_type)
+                for _, weight, robot_type in DATASET_NAMED_MIXTURES[base_mix]
+            ]
+
+    raise KeyError(data_mix)
+
+
+def load_custom_mixtures(path: str | Path | None) -> None:
+    """Load generated mixture specs from a JSON file.
+
+    The expected JSON shape is:
+        {"mixture_name": [["dataset_name", weight, "robot_type"], ...]}
+    """
+    if path in (None, ""):
+        return
+    mixture_path = Path(path).expanduser()
+    if not mixture_path.exists():
+        raise FileNotFoundError(f"custom mixture file does not exist: {mixture_path}")
+    payload = json.loads(mixture_path.read_text(encoding="utf-8"))
+    for name, entries in payload.items():
+        DATASET_NAMED_MIXTURES[str(name)] = [
+            (str(dataset_name), float(weight), str(robot_type))
+            for dataset_name, weight, robot_type in entries
+        ]
+    logger.info(f"[registry] Loaded custom mixtures from {mixture_path}: {list(payload.keys())}")
 
 
 # Run discovery on first import

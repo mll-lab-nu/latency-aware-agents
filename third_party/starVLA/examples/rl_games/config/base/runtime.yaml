@@ -1,0 +1,32 @@
+# @package _global_
+
+workspace_dir: WORKSPACE_DIR
+run_root_dir: results/Checkpoints
+seed: 42
+wandb_entity: ${oc.env:WANDB_ENTITY}
+wandb_project: ${oc.env:WANDB_PROJECT,starVLA_rl_games}
+wandb_group: ${run_id}
+wandb_tags: []
+training_latency_condition: unspecified
+
+auth:
+  env_file: null
+  hf_token_env: HF_TOKEN
+  wandb_api_key_env: WANDB_API_KEY
+
+paths:
+  run_root_dir: results/Checkpoints
+  dataset_local_dir: playground/Datasets/rl_games
+  dataset_cache_dir: null
+  base_model_dir: playground/Pretrained_models/Qwen3-VL-4B-Instruct-Action
+  accelerate_config: starVLA/config/deepseeds/deepspeed_zero2.yaml
+
+launch:
+  use_accelerate: true
+  gpus: null
+  num_processes: 1
+  dry_run: false
+
+conda:
+  enabled: true
+  env_name: null

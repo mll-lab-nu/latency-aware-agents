@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - mixed_latency
+  - _self_
+
+datasets:
+  vla_data:
+    sequential_step_sampling: true
+    eval_sequential_step_sampling: false
+    eval_num_workers: 0
+    latency_curriculum:
+      enabled: true
+      strategy: quota_cumulative
+      latencies: ${rl_games.env_eval.latency.values}
+      new_latency_passes: 1.0
+      replay_passes: 0.25
+      target_total_passes: 2.0
+      final_equalization: true
+      step_budget_mode: auto
+      eval_at_phase_end: true
+      save_at_phase_end: false
+      computed_plan: null
+
+mode: quota_cumulative

@@ -1,0 +1,20 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  initialization_mode: scratch
+  action_carrier: native
+
+datasets:
+  vla_data:
+    include_state: false
+
+initialization:
+  checkpoint_local_dir: null
+  checkpoint_hf_repo_id: null
+  checkpoint_filename: null
+
+init: scratch

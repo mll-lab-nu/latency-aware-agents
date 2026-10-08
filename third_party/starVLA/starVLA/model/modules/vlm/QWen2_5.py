@@ -2,6 +2,7 @@
 # Licensed under the MIT License, Version 1.0 (the "License");
 # Implemented by [Jinhui YE / HKUST University] in [2025].
 
+import time
 from typing import List, Optional
 
 import torch
@@ -83,7 +84,7 @@ class _QWen_VL_Interface(nn.Module):
         # Fallback to sdpa if flash_attention_2 is requested but flash_attn is not installed
         if attn_implementation == "flash_attention_2":
             try:
-                import flash_attn  # noqa: F401
+                import flash_attn_2_cuda  # noqa: F401
             except ImportError:
                 print("[WARNING] flash_attn not installed, falling back to sdpa")
                 attn_implementation = "sdpa"
@@ -99,6 +100,7 @@ class _QWen_VL_Interface(nn.Module):
         self.model = model
         self.processor = processor
         self.config = config
+        self._last_build_timing = {}
 
         # align qwen2.5 with qwen3 / qwen3.5: top-level hidden_size does not exist
         # on Qwen2_5_VLConfig, but text_config.hidden_size does.
@@ -106,6 +108,13 @@ class _QWen_VL_Interface(nn.Module):
 
         self._ACTION_TOKEN_MIN = _ACTION_TOKEN_MIN
         self._ACTION_TOKEN_MAX = _ACTION_TOKEN_MAX
+
+    def _profile_timing_enabled(self) -> bool:
+        return self.config.trainer.profile_timing.enabled
+
+    def _profile_sync(self) -> None:
+        if self._profile_timing_enabled() and torch.cuda.is_available():
+            torch.cuda.synchronize()
 
     def forward(
         self,
@@ -265,15 +274,27 @@ class _QWen_VL_Interface(nn.Module):
                 msg.append({"role": "assistant", "content": [{"type": "text", "text": solution}]})
             messages.append(msg)
 
+        profile_timing = self._profile_timing_enabled()
+        build_timing = {}
+
         # Prepare text prompts using processor
         # default process is json --> message --> texts --> input_ids
+        t_chat = time.perf_counter() if profile_timing else None
         texts = [self.processor.apply_chat_template(m, tokenize=False, add_generation_prompt=True) for m in messages]
+        if profile_timing:
+            build_timing["timing/qwen_chat_template"] = time.perf_counter() - t_chat
 
         # image_inputs = list of PIL
+        t_vision = time.perf_counter() if profile_timing else None
         image_inputs, video_inputs = process_vision_info(messages)
+        if profile_timing:
+            build_timing["timing/qwen_process_vision_info"] = time.perf_counter() - t_vision
+        t_processor = time.perf_counter() if profile_timing else None
         batch_input = self.processor(
             text=texts, images=image_inputs, videos=video_inputs, padding=True, return_tensors="pt"
         )
+        if profile_timing:
+            build_timing["timing/qwen_processor"] = time.perf_counter() - t_processor
 
         # if solutions, mask out the non solution tokens in labels --> @JinhuiYE can we mask out system prompt?
         if solutions is not None:
@@ -300,7 +321,13 @@ class _QWen_VL_Interface(nn.Module):
             labels[labels == self.processor.tokenizer.pad_token_id] = -100  ## mask out pad tokens as well
             batch_input["labels"] = labels
 
-        return batch_input.to(self.model.device)
+        t_h2d = time.perf_counter() if profile_timing else None
+        batch_input = batch_input.to(self.model.device)
+        if profile_timing:
+            self._profile_sync()
+            build_timing["timing/qwen_h2d"] = time.perf_counter() - t_h2d
+        self._last_build_timing = build_timing
+        return batch_input
 
 
 if __name__ == "__main__":

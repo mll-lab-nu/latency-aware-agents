@@ -1,0 +1,29 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  initialization_mode: backbone_bridge_factorized11
+  action_carrier: native
+  env_eval:
+    deadly:
+      action_layout: factorized_11
+
+datasets:
+  vla_data:
+    include_state: false
+
+framework:
+  action_model:
+    action_dim: 11
+    action_env_dim: 11
+    action_horizon: 1
+    future_action_window_size: 0
+    past_action_window_size: 0
+
+trainer:
+  reload_modules: qwen_vl_interface
+
+init: backbone_bridge_factorized11

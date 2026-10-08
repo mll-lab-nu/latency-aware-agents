@@ -37,6 +37,23 @@ from starVLA.training.trainer_utils import initialize_overwatch
 logger = initialize_overwatch(__name__)
 
 
+def wan_temporal_latent_frame_count(num_frames: int) -> int:
+    """Return Wan VAE temporal latent length for an input frame count."""
+    value = int(num_frames)
+    if value <= 0:
+        raise ValueError(f"num_frames must be positive, got {num_frames}.")
+    return (value - 1) // 4 + 1
+
+
+def _optional_positive_int(value) -> int | None:
+    if value in (None, ""):
+        return None
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError(f"world_model.num_frames must be positive when set, got {value}.")
+    return parsed
+
+
 class _Wan2_Interface(nn.Module):
     """
     World model wrapper for Wan2.2-TI2V-5B-Diffusers.
@@ -62,6 +79,7 @@ class _Wan2_Interface(nn.Module):
             config.framework.get("qwenvl", {}).get("base_vlm", "Wan-AI/Wan2.2-TI2V-5B-Diffusers"),
         )
         self.config = config
+        self.num_frames = _optional_positive_int(wm_cfg.get("num_frames", None))
 
         from diffusers import (
             AutoencoderKLWan,
@@ -188,8 +206,8 @@ class _Wan2_Interface(nn.Module):
           Determine target_frames = num_frames if given, else batch max.
           Pass 2: truncate or pad each sample to target_frames.
 
-        VAE config: z_dim=48, scale_factor_spatial=16, scale_factor_temporal=4
-        T_latent = (target_frames - 1) // 4 + 1
+        VAE config: z_dim=48, scale_factor_spatial=16, scale_factor_temporal=4.
+        Four input frames produce one temporal latent; five frames produce two.
 
         Args:
             images: List of List of PIL Images [B, [imgs...]]
@@ -217,6 +235,7 @@ class _Wan2_Interface(nn.Module):
 
         # Determine target frame count: use num_frames if specified, otherwise batch max
         target_frames = num_frames if num_frames is not None else max(frame_counts)
+        _ = wan_temporal_latent_frame_count(int(target_frames))
 
         # Pass 2: truncate or pad each sample to target_frames
         batch_videos = []
@@ -271,7 +290,7 @@ class _Wan2_Interface(nn.Module):
         device = next(self.transformer.parameters()).device
 
         text_embeds = self._encode_text(instructions)
-        latents = self._encode_images_vae(images)
+        latents = self._encode_images_vae(images, num_frames=self.num_frames)
 
         batch_size = latents.shape[0]
         device = latents.device

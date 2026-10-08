@@ -1,0 +1,26 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  task: atlantis
+  env_eval:
+    frameskip: 4
+    task_description: "Defend Atlantis by firing at descending enemies. Choose exactly one action from: noop, fire, rightfire, leftfire."
+    atari:
+      env_id: ALE/Atlantis-v5
+      noop_max: 30
+
+dataset:
+  single_source_hf: latency-sensitive-bench/benchmark-datasets
+  mixed_source_hf: latency-sensitive-bench/benchmark-datasets
+  revision: ${oc.env:LATENCY_BENCH_DATASET_REVISION}
+  source_subdir: ${oc.env:LATENCY_BENCH_DATASET_SUBDIR}
+  single_converted_name: atlantis_train
+  mixed_converted_name: atlantis_mixed_latency_train
+  single_latency_filter: null
+  mixed_latency_filter: null
+
+env: atlantis

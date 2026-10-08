@@ -15,12 +15,13 @@ import numpy as np
 import torch
 from transformers import PretrainedConfig, PreTrainedModel
 
-from starVLA.model.framework.share_tools import dict_to_namespace, read_mode_config
+from starVLA.model.framework.share_tools import dict_to_namespace, read_mode_config, resolve_pretrained_checkpoint_path
 from starVLA.model.tools import FRAMEWORK_REGISTRY, FrameworkTools, auto_get_trainable_modules
 from starVLA.training.trainer_utils import initialize_overwatch
 
 logger = initialize_overwatch(__name__)
 _FRAMEWORKS_IMPORTED = False
+_QWEN_TIED_LM_HEAD_KEYS = frozenset({"qwen_vl_interface.model.lm_head.weight"})
 
 
 def _auto_import_framework_modules() -> None:
@@ -48,7 +49,7 @@ def _auto_import_framework_modules() -> None:
     _FRAMEWORKS_IMPORTED = True
 
 
-def build_framework(cfg): # The single entry point for building different model frameworks
+def build_framework(cfg):  # The single entry point for building different model frameworks
     """
     Build a framework model from config.
     Args:
@@ -64,12 +65,52 @@ def build_framework(cfg): # The single entry point for building different model 
     framework_id = cfg.framework.name
     if framework_id not in FRAMEWORK_REGISTRY._registry:
         available = sorted(FRAMEWORK_REGISTRY._registry.keys())
-        raise NotImplementedError(
-            f"Framework `{framework_id}` is not implemented. Available frameworks: {available}"
-        )
+        raise NotImplementedError(f"Framework `{framework_id}` is not implemented. Available frameworks: {available}")
 
     model_class = FRAMEWORK_REGISTRY[framework_id]
     return model_class(cfg)
+
+
+def _parameters_are_tied(left: torch.Tensor, right: torch.Tensor) -> bool:
+    return left is right or left.data_ptr() == right.data_ptr()
+
+
+def _qwen_lm_head_is_tied(model: torch.nn.Module) -> bool:
+    qwen_interface = getattr(model, "qwen_vl_interface", None)
+    qwen_model = getattr(qwen_interface, "model", None)
+    if qwen_model is None:
+        return False
+    get_input_embeddings = getattr(qwen_model, "get_input_embeddings", None)
+    get_output_embeddings = getattr(qwen_model, "get_output_embeddings", None)
+    if not callable(get_input_embeddings) or not callable(get_output_embeddings):
+        return False
+    input_embeddings = get_input_embeddings()
+    output_embeddings = get_output_embeddings()
+    if input_embeddings is None or output_embeddings is None:
+        return False
+    input_weight = getattr(input_embeddings, "weight", None)
+    output_weight = getattr(output_embeddings, "weight", None)
+    if input_weight is None or output_weight is None:
+        return False
+    return _parameters_are_tied(input_weight, output_weight)
+
+
+def _load_state_dict_allowing_qwen_tied_lm_head(
+    model: torch.nn.Module,
+    state_dict: dict[str, torch.Tensor],
+) -> None:
+    load_result = model.load_state_dict(state_dict, strict=False)
+    missing_keys = set(load_result.missing_keys)
+    unexpected_keys = set(load_result.unexpected_keys)
+    if missing_keys <= _QWEN_TIED_LM_HEAD_KEYS and _qwen_lm_head_is_tied(model):
+        missing_keys.clear()
+    if missing_keys or unexpected_keys:
+        messages = []
+        if missing_keys:
+            messages.append(f"Missing key(s) in state_dict: {sorted(missing_keys)}")
+        if unexpected_keys:
+            messages.append(f"Unexpected key(s) in state_dict: {sorted(unexpected_keys)}")
+        raise RuntimeError("; ".join(messages))
 
 
 # PreTrainedModel, AutoModel, PretrainedConfig,  are so good, find sometime to study them
@@ -109,11 +150,12 @@ class baseframework(PreTrainedModel):
                 - action: np.ndarray shaped [T, action_dim]
 
         Returns:
-            dict: Must contain ``"action_loss"`` (torch.Tensor scalar).
+            dict: Must contain ``"action_loss"`` (torch.Tensor scalar) and
+                  ``"loss_weight"`` (float denominator for train/loss logging).
                   May contain extra keys for logging (e.g. ``"kl_loss"``).
         """
         raise NotImplementedError(
-            f"{type(self).__name__} must implement forward(examples) -> dict with 'action_loss' key."
+            f"{type(self).__name__} must implement forward(examples) -> dict with 'action_loss' and 'loss_weight' keys."
         )
 
     def predict_action(self, examples: List[dict], **kwargs) -> dict:
@@ -177,8 +219,9 @@ class baseframework(PreTrainedModel):
         else:
             return None
 
-        # Apply loss scale and filter to Tensor values only
-        return {k: v * scale for k, v in out.items() if isinstance(v, torch.Tensor)}
+        scaled = {k: v * scale for k, v in out.items() if isinstance(v, torch.Tensor)}
+        scaled["loss_weight"] = out["loss_weight"]
+        return scaled
 
     def forward_vlm(self, batch) -> Dict[str, torch.Tensor]:
         """VLM forward pass (default implementation).
@@ -196,8 +239,7 @@ class baseframework(PreTrainedModel):
         """
         if not hasattr(self, "qwen_vl_interface"):
             raise NotImplementedError(
-                f"{type(self).__name__} has no `qwen_vl_interface`. "
-                "Override forward_vlm() to support VLM training."
+                f"{type(self).__name__} has no `qwen_vl_interface`. Override forward_vlm() to support VLM training."
             )
         out = self.qwen_vl_interface(**batch)
         return {"vlm_loss": out.loss}
@@ -206,6 +248,7 @@ class baseframework(PreTrainedModel):
     def from_pretrained(
         cls,
         pretrained_checkpoint: str,
+        backbone_path: str | None = None,
         **kwargs,
     ) -> None:
         """
@@ -229,13 +272,17 @@ class baseframework(PreTrainedModel):
             RuntimeError: If state_dict key mismatch occurs under strict=True.
             FileNotFoundError: If underlying files are missing (surfaced earlier).
         """
-        pretrained_checkpoint = Path(pretrained_checkpoint)
+        pretrained_checkpoint, _ = resolve_pretrained_checkpoint_path(pretrained_checkpoint)
         model_config, norm_stats = read_mode_config(pretrained_checkpoint)  # read config and norm_stats
 
         config = dict_to_namespace(model_config)
         model_config = config
+        if backbone_path is not None:
+            model_config.framework.qwenvl.base_vlm = backbone_path
+            if "world_model" in model_config.framework:
+                model_config.framework.world_model.base_wm = backbone_path
         model_config.trainer.pretrained_checkpoint = None
-        
+
         FrameworkModel = build_framework(cfg=model_config)
         # set for action un-norm
         FrameworkModel.norm_stats = norm_stats
@@ -250,9 +297,8 @@ class baseframework(PreTrainedModel):
         model_keys = set(FrameworkModel.state_dict().keys())
         checkpoint_keys = set(model_state_dict.keys())
         try:
-            FrameworkModel.load_state_dict(model_state_dict, strict=True)
+            _load_state_dict_allowing_qwen_tied_lm_head(FrameworkModel, model_state_dict)
         except RuntimeError as e:
-            # must keep all keys matched
             common_keys = model_keys.intersection(checkpoint_keys)
             missing_keys = model_keys - common_keys
             unexpected_keys = checkpoint_keys - common_keys
@@ -260,10 +306,8 @@ class baseframework(PreTrainedModel):
                 logger.warning(f"Missing keys in state_dict: {missing_keys}")
             if unexpected_keys:
                 logger.warning(f"Unexpected keys in state_dict: {unexpected_keys}")
-
             raise e
 
         # **ensure model is on GPU**
         FrameworkModel = FrameworkModel
         return FrameworkModel
-

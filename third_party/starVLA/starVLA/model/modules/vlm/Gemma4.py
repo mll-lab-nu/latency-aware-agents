@@ -74,11 +74,7 @@ class _Gemma4_VL_Interface(nn.Module):
         model_id = qwenvl_config.get("base_vlm", "google/gemma-4-E2B-it")
         attn_impl = qwenvl_config.get("attn_implementation", "flash_attention_2")
         drop_audio = bool(qwenvl_config.get("drop_audio_tower", False))
-        # Gradient checkpointing is OFF by default. Training scripts must set this
-        # to True via config (`framework.qwenvl.enable_gradient_checkpointing: true`)
-        # — note that starVLA's `trainer.enable_gradient_checkpointing` flag is dead
-        # config (issue #41), this flag actually wires it to the underlying HF model.
-        enable_grad_ckpt = bool(qwenvl_config.get("enable_gradient_checkpointing", False))
+        enable_grad_ckpt = qwenvl_config.get("enable_gradient_checkpointing", False)
 
         model = Gemma4ForConditionalGeneration.from_pretrained(
             model_id,
@@ -102,22 +98,12 @@ class _Gemma4_VL_Interface(nn.Module):
         # of one extra forward pass per backward. Critical for fitting Gemma 4 E2B
         # + DiT-36 PI head into 80GB at BS>2.
         if enable_grad_ckpt:
-            try:
-                # use_reentrant=False is the modern path; required for nn.Module hooks
-                # and works with deepspeed ZeRO-2/3.
-                model.gradient_checkpointing_enable(
-                    gradient_checkpointing_kwargs={"use_reentrant": False}
-                )
-                # HF requires inputs to require grad when ckpt is on; this is the
-                # canonical way to enable that without breaking embedding layers.
-                if hasattr(model, "enable_input_require_grads"):
-                    model.enable_input_require_grads()
-                # Use print rather than accelerate.logging — the latter requires an
-                # Accelerator() to be initialized (fine during training, breaks during
-                # standalone eval / inference scripts that never construct one).
-                print("[Gemma4] gradient_checkpointing ENABLED (use_reentrant=False)", flush=True)
-            except Exception as e:
-                print(f"[Gemma4] failed to enable gradient_checkpointing: {e}", flush=True)
+            model.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": False}
+            )
+            model.enable_input_require_grads()
+            # Standalone inference does not initialize accelerate.logging.
+            print("[Gemma4] gradient_checkpointing ENABLED (use_reentrant=False)", flush=True)
 
         self.model = model
         self.processor = processor

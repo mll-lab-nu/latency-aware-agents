@@ -1,0 +1,122 @@
+workspace_dir: WORKSPACE_DIR
+
+conda:
+  enabled: true
+  env_name: starvla_rl_games_openvla
+
+auth:
+  env_file: null
+  hf_token_env: HF_TOKEN
+  wandb_api_key_env: WANDB_API_KEY
+
+config_name: train
+model: openvla
+env: deadly_corridor
+mode: mixed_latency
+run_id: openvla_deadly_corridor_mixed_latency
+seed: 42
+
+wandb_entity: your_wandb_entity
+wandb_project: starVLA_rl_games
+
+paths:
+  run_root_dir: results/Checkpoints
+  dataset_local_dir: playground/Datasets/rl_games
+  dataset_cache_dir: null
+  base_model_dir: playground/Pretrained_models/Qwen3-VL-4B-Instruct-Action
+  accelerate_config: starVLA/config/deepseeds/deepspeed_zero2.yaml
+
+dataset:
+  source_hf: latency-sensitive-bench/deadly_corridor_mixed_latency_parquet
+  converted_name: deadly_corridor_mixed_latency_train
+  latency_filter: null
+  force_download: false
+  setup_force: false
+  verify_rows: 200
+  max_episodes: null
+  debug_subset:
+    enabled: false
+    max_episodes: 5
+    suffix: debug
+
+base_model:
+  repo_id: StarVLA/Qwen3-VL-4B-Instruct-Action
+
+checkpoint:
+  load: auto
+  hf_repo_id: null
+  sync:
+    enabled: false
+    repo_id: null
+    keep_last_n: 0
+  local:
+    keep_last_n: 3
+
+launch:
+  use_accelerate: true
+  gpus: null
+  num_processes: 1
+
+datasets:
+  vla_data:
+    action_type: discrete
+    sequential_step_sampling: false
+    load_all_data_for_training: true
+    obs_image_size: [224, 224]
+    video_backend: torchvision_av
+    per_device_batch_size: 4
+
+trainer:
+  max_train_steps: 2000
+  num_warmup_steps: 100
+  save_interval: 100
+  eval_interval: 100
+  eval_num_batches: 100
+  logging_frequency: 10
+  gradient_accumulation_steps: 1
+  learning_rate:
+    base: 2.0e-05
+    qwen_vl_interface: 1.0e-05
+    action_model: 1.0e-04
+  lr_scheduler_type: cosine_with_min_lr
+  scheduler_specific_kwargs:
+    min_lr: 1.0e-06
+  freeze_modules: ""
+  loss_scale:
+    vla: 1.0
+    vlm: 0.1
+  max_grad_norm: 1.0
+  weight_decay: 0.0
+  gradient_clipping: 1.0
+  optimizer:
+    name: AdamW
+    betas: [0.9, 0.95]
+    eps: 1.0e-08
+    weight_decay: 1.0e-08
+  save_format: pt
+
+rl_games:
+  task: deadly_corridor
+  model_alias: openvla
+  env_eval:
+    enabled: true
+    frameskip: 4
+    image_size: 224
+    task_description: "You are playing Deadly Corridor in VizDoom. Choose actions from MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, ATTACK."
+    deadly:
+      action_layout: multibinary_7
+    latency:
+      mode: mixed
+      values: [0, 1, 2, 3, 4, 5]
+      prompt_map_path: null
+    mid_train:
+      enabled: true
+      interval_steps: 100
+      latencies: [0, 1, 2, 3, 4, 5]
+      num_episodes: 5
+      max_steps_per_episode: 2000
+    post_train:
+      enabled: true
+      latencies: [0, 1, 2, 3, 4, 5]
+      num_episodes: 5
+      max_steps_per_episode: 2000

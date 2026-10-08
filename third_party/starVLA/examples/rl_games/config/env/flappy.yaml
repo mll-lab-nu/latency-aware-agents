@@ -1,0 +1,18 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  task: flappy
+
+dataset:
+  single_source_hf: ""
+  mixed_source_hf: ""
+  single_converted_name: flappy_train
+  mixed_converted_name: flappy_mixed_latency_train
+  single_latency_filter: null
+  mixed_latency_filter: null
+
+env: flappy

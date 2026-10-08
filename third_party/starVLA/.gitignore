@@ -5,10 +5,11 @@ third_party/
 __pycache__/
 *.py[cod]
 *$py.class
-
 # C extensions
 *.so
 
+*.ini
+ghost_trail_test_*/
 # Distribution / packaging
 .Python
 build/
@@ -107,10 +108,19 @@ celerybeat.pid
 
 # Environments
 .env
+*.env
 .venv
 env/
+!examples/rl_games/install/env/
+!examples/rl_games/install/env/*.sh
+!examples/rl_games/config/env/
+!examples/rl_games/config/env/*.yaml
 venv/
 ENV/
+!examples/rl_games/install/env/
+!examples/rl_games/install/env/*.sh
+!examples/rl_games/config/env/
+!examples/rl_games/config/env/*.yaml
 env.bak/
 venv.bak/
 
@@ -183,6 +193,7 @@ data_processed
 llavavla/conf/qwenvla_lmdb_3Lpretrain.yaml
 extracted_frames
 starVLA/config/deepseeds/*
+!starVLA/config/deepseeds/ddp_multi_gpu.yaml
 **/bar
 llavavla/model/openvla_temp
 real_deployment/upload/push_model_to_hf.py
@@ -262,3 +273,7 @@ examples/SimplerEnv/eval_files/auto_eval_scripts/auto_collect_results/schedule_w
 examples/SimplerEnv/eval_files/auto_eval_scripts/auto_collect_results/summarize_widowx_all.sh
 examples/SimplerEnv/eval_files/auto_eval_scripts/auto_collect_results/schedule_widowx_eval.sh
 starVLA/model/framework/VLM4A/QwenGR00T_v2.py
+
+
+REFACTOR.md
+IMPLEMENTATION_PLAN.md

@@ -173,7 +173,7 @@ class Qwenvl_Fast(baseframework):
         if vlm_action_loss is None or torch.isnan(vlm_action_loss):
             vlm_action_loss = torch.tensor(0.0, device=self.qwen_vl_interface.model.device)
 
-        return {"action_loss": vlm_action_loss}
+        return {"action_loss": vlm_action_loss, "loss_weight": float(len(examples))}
 
     @torch.inference_mode()
     def predict_action(

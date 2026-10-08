@@ -38,6 +38,12 @@ def rank0_print(*args):
         print(*args)
 
 
+def _cfg_get(node, key, default=None):
+    if hasattr(node, "get"):
+        return node.get(key, default)
+    return getattr(node, key, default)
+
+
 def read_jsonl(path):
     with open(path, "r") as f:
         return [json.loads(line) for line in f]
@@ -584,12 +590,22 @@ def make_vlm_dataloader(cfg):
     train_dataset = data_module["train_dataset"]
     data_collator = data_module["data_collator"]
     from torch.utils.data import DataLoader
+    from starVLA.dataloader.worker_context import build_cpu_only_dataloader_kwargs
+
+    num_workers = int(_cfg_get(data_args, "num_workers", 4) or 0)
+    dataloader_kwargs = build_cpu_only_dataloader_kwargs(
+        num_workers,
+        pin_memory=_cfg_get(data_args, "pin_memory", False),
+        persistent_workers=_cfg_get(data_args, "persistent_workers", False),
+        prefetch_factor=_cfg_get(data_args, "prefetch_factor", None),
+    )
 
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=cfg.datasets.vlm_data.per_device_batch_size,
         collate_fn=data_collator,
-        num_workers=4,
+        num_workers=num_workers,
+        **dataloader_kwargs,
     )
 
     return {

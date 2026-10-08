@@ -59,9 +59,14 @@ def _resolve_robot_type(
     is used to identify which embodiment is requested.  In those mixtures
     the ``robot_type`` field of each entry **matches** the top-level key in
     ``dataset_statistics.json``, so ``unnorm_key`` serves as the selector.
+    Inference bundles can store the resolved robot_type directly when their
+    training mixture is not installed on the inference host.
     """
+    vla_data = model_cfg["datasets"]["vla_data"]
+    if "robot_type" in vla_data:
+        return vla_data["robot_type"]
     try:
-        data_mix = model_cfg["datasets"]["vla_data"]["data_mix"]
+        data_mix = vla_data["data_mix"]
     except (KeyError, TypeError) as e:
         raise KeyError(
             "ckpt config.yaml is missing `datasets.vla_data.data_mix`; "
@@ -250,9 +255,16 @@ class PolicyNormProcessor:
             ``config.yaml`` and ``dataset_statistics.json`` two dirs up).
         unnorm_key: Which top-level key in ``dataset_statistics.json`` to use.
             ``None`` → auto-pick the only key.
+        robot_type: Explicit registered DataConfig identity supplied by an
+            integration-specific policy wrapper.
     """
 
-    def __init__(self, ckpt_path: str, unnorm_key: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        ckpt_path: str,
+        unnorm_key: Optional[str] = None,
+        robot_type: Optional[str] = None,
+    ) -> None:
         self._ckpt_path = str(ckpt_path)
         cfg, norm_stats = read_mode_config(self._ckpt_path)
         self._model_cfg = cfg
@@ -271,7 +283,8 @@ class PolicyNormProcessor:
         self._unnorm_key = unnorm_key  # may still be None for multi-key case
 
         # 1) Resolve which DataConfig was used at training.
-        robot_type = _resolve_robot_type(cfg, unnorm_key=unnorm_key)
+        if robot_type is None:
+            robot_type = _resolve_robot_type(cfg, unnorm_key=unnorm_key)
         if robot_type not in ROBOT_TYPE_CONFIG_MAP:
             raise KeyError(
                 f"robot_type={robot_type!r} not in ROBOT_TYPE_CONFIG_MAP "
@@ -393,4 +406,22 @@ class PolicyNormProcessor:
             if isinstance(v, torch.Tensor):
                 v = v.detach().cpu().numpy()
             parts.append(np.asarray(v))
+        return np.concatenate(parts, axis=-1)
+
+    def apply_state(self, state: np.ndarray) -> np.ndarray:
+        """Apply the training-time state transform to an environment state."""
+        data: Dict[str, np.ndarray] = {}
+        cursor = 0
+        for full_key in self._state_keys:
+            dim_k = self._state_key_dims[full_key]
+            data[full_key] = state[..., cursor : cursor + dim_k]
+            cursor += dim_k
+
+        out = self._transform.apply(data)
+        parts: List[np.ndarray] = []
+        for full_key in self._state_keys:
+            value = out[full_key]
+            if isinstance(value, torch.Tensor):
+                value = value.detach().cpu().numpy()
+            parts.append(np.asarray(value))
         return np.concatenate(parts, axis=-1)

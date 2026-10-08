@@ -148,6 +148,228 @@ Achieve **state-of-the-art (SOTA) performance** on a variety of benchmarks, as f
 
 > **📖 New to StarVLA?** Check out our step-by-step [**Quick Start Guide**](docs/starVLA_guideline.md) — a complete walkthrough from installation to training to evaluation using the LIBERO benchmark.
 
+## RL Games Training
+
+The RL Games training entrypoint is Hydra-driven. Use `examples/rl_games/config` as the canonical config tree and compose runs with `python examples/rl_games/scripts/launch_train.py`.
+
+### 1. Install the RL Games environment
+
+This fork's RL Games integration depends on `latency-sensitive-bench`. The
+recommended entrypoint is the enclosing benchmark repository:
+
+```bash
+cd PATH_TO_LATENCY_SENSITIVE_BENCH
+bash install.sh \
+  --tier dev \
+  --model openvla
+```
+
+Use `--model all` to create all five model environments.
+
+When developing StarVLA from a standalone checkout, point the installer at a
+separate benchmark checkout explicitly:
+
+```bash
+LATENCY_BENCH_ROOT=PATH_TO_LATENCY_SENSITIVE_BENCH \
+  bash examples/rl_games/install/bootstrap.sh --tier dev --model openvla
+```
+
+The accepted models are `openvla`, `pi0`, `pi05`, `gr00t`, `wan_oft`, and
+`all`. Each selected model gets a separate `starvla_rl_games_<model>`
+environment containing Flappy, Demon Attack, and Deadly Corridor. The default
+tier is `dev`; `use` omits development-only model packages.
+
+Every environment uses Python 3.10, CUDA Toolkit 12.8.1, and PyTorch
+2.11.0+cu128. Model-specific packages are installed independently, and there
+is no runtime Torch/CUDA profile selection or dependency lock file.
+
+### 2. Compose a training config
+
+The active RL Games config tree lives under:
+
+```text
+examples/rl_games/config
+```
+
+The primary Hydra groups are:
+
+```text
+model
+env
+init
+mode
+```
+
+`scratch` uses each task's native action width. `bridge` starts from the released StarVLA Bridge/RT-1 checkpoints, uses the non-Action Qwen3 backbone (`Qwen/Qwen3-VL-4B-Instruct`), and carries game actions/states through the 7D Bridge convention. The active loss/inference surface is masked to the task: Flappy uses action dims 0..1, Demon Attack uses dims 0..5, and Deadly Corridor uses all 7 semantic button dims.
+
+For bridge initialization, setup checks `initialization.checkpoint_local_dir` first. If the requested
+`initialization.checkpoint_filename` exists there, it is passed to training as
+`trainer.pretrained_checkpoint`; otherwise setup falls back to
+`initialization.checkpoint_hf_repo_id`.
+
+Authentication tokens are read from the shell by default:
+
+```bash
+export HF_TOKEN=HF_TOKEN_VALUE
+export WANDB_API_KEY=WANDB_API_KEY_VALUE
+```
+
+Alternatively, copy the example env file outside git tracking:
+
+```bash
+cp examples/rl_games/auth.env.example WORKSPACE_DIR/auth.env
+```
+
+then set:
+
+```yaml
+auth:
+  env_file: auth.env
+```
+
+The runner loads `auth.env_file` before dataset/model/checkpoint setup and passes those variables to training. Do not commit real tokens.
+
+### 3. Start training
+
+Mixed-latency Flappy:
+
+```bash
+python examples/rl_games/scripts/launch_train.py \
+  model=openvla \
+  env=flappy \
+  init=scratch \
+  mode=mixed_latency
+```
+
+Single-latency Deadly Corridor with bridge initialization:
+
+```bash
+python examples/rl_games/scripts/launch_train.py \
+  model=pi05 \
+  env=deadly_corridor \
+  init=bridge \
+  mode=single
+```
+
+Single-latency Deadly Corridor with the pi-0.5 VLA backbone initialized from
+Bridge/RT-1, but a fresh native factorized 11D action head:
+
+```bash
+python examples/rl_games/scripts/launch_train.py \
+  model=pi05 \
+  env=deadly_corridor \
+  init=backbone_bridge_factorized11 \
+  mode=single \
+  run_id=pi05_deadly_corridor_factorized11 \
+  checkpoint.load=none
+```
+
+This mode resolves the Bridge/RT-1 checkpoint but only loads
+`qwen_vl_interface`; `project_layers` and `action_model` are trained from the
+new model initialization. The Deadly Corridor source dataset must provide
+either `action_tuple=[turn, move, strafe, attack]` or an 11D one-hot
+`action`/`actions` vector in `turn[3] + move[3] + strafe[3] + attack[2]`
+order. See `examples/rl_games/README.md` for the full factorized 11D guide.
+
+Single-GPU direct backend with a custom run name:
+
+```bash
+python examples/rl_games/scripts/launch_train.py \
+  model=openvla \
+  env=flappy \
+  init=scratch \
+  mode=single \
+  run_id=test_qwen3_flappy_gc_none_backend \
+  trainer.distributed_backend=none
+```
+
+### 4. Override config values without editing YAML
+
+Use Hydra overrides after the group composition arguments:
+
+```bash
+python examples/rl_games/scripts/launch_train.py \
+  model=openvla \
+  env=flappy \
+  init=scratch \
+  mode=mixed_latency \
+  workspace_dir=WORKSPACE_DIR \
+  wandb_entity=WANDB_ENTITY \
+  run_id=test_lr_1e4 \
+  trainer.max_train_steps=5000 \
+  trainer.learning_rate.action_model=1.0e-04 \
+  datasets.vla_data.per_device_batch_size=4
+```
+
+Checkpoint fields have separate meanings:
+
+```yaml
+checkpoint:
+  hf_repo_id: HF_RESUME_REPO_ID
+  local:
+    keep_last_n: 3
+  sync:
+    enabled: true
+    repo_id: HF_OUTPUT_REPO_ID
+    keep_last_n: 0
+```
+
+`checkpoint.hf_repo_id` is used as a resume/download source when no newer local checkpoint exists. `checkpoint.sync.repo_id` is only used as the upload destination for newly saved checkpoints. The RL Games trainer saves full Accelerate training-state directories (`steps_<N>_state/`) for exact resume, including optimizer/scheduler state, and also saves lightweight model files for convenience. If `checkpoint.sync.enabled: true`, the sync code creates `checkpoint.sync.repo_id` on Hugging Face if it does not already exist. `checkpoint.sync.keep_last_n: 0` means keep all uploaded HF checkpoints.
+
+Environment rollout eval is controlled separately from trainer batch eval:
+
+```yaml
+trainer:
+  eval_interval: 100
+
+rl_games:
+  env_eval:
+    enabled: true
+    mid_train:
+      enabled: true
+      interval_steps: 100
+      latencies: [0, 1, 2, 3, 4, 5]
+      num_episodes: 5
+      max_steps_per_episode: 2000
+    post_train:
+      enabled: true
+      latencies: [0, 1, 2, 3, 4, 5]
+      num_episodes: 5
+      max_steps_per_episode: 2000
+```
+
+`trainer.eval_interval` runs the trainer's action-model eval. `rl_games.env_eval.mid_train` and `rl_games.env_eval.post_train` run the current model in the actual RL Games environment and log `rl_games_eval/mid_train/*` and `rl_games_eval/post_train/*` metrics.
+
+Useful smoke test:
+
+```bash
+python examples/rl_games/scripts/launch_train.py \
+  model=openvla \
+  env=flappy \
+  init=scratch \
+  mode=mixed_latency \
+  workspace_dir=WORKSPACE_DIR \
+  wandb_entity=WANDB_ENTITY \
+  run_id=smoke_test \
+  trainer.max_train_steps=10 \
+  trainer.save_interval=5 \
+  trainer.eval_interval=5
+```
+
+### What the launcher does
+
+`examples/rl_games/scripts/launch_train.py`:
+
+- composes the run from `examples/rl_games/config` with the `model`, `env`, `init`, and `mode` groups
+- resolves paths under `workspace_dir`
+- downloads the HF dataset if the converted dataset is missing
+- converts/preprocesses the dataset into the StarVLA/LeRobot layout
+- writes dataset statistics
+- downloads base model weights if missing
+- checks local checkpoints under `workspace_dir / paths.run_root_dir / run_id / checkpoints`
+- optionally pulls a newer full-state checkpoint from `checkpoint.hf_repo_id`
+- launches `starVLA/training/train_starvla_hydra.py`
+
 ---
 
 ## Benchmark Results
@@ -325,7 +547,7 @@ trainer:
   pretrained_checkpoint: path_to_steps_10000.pt
   reload_modules: "action_model"
 ```
-Empty `reload_modules` means full load all model. However, starVLA does not save  `optimizer state`. It requires a lot of  memory/disk and bring limited benefit.
+Empty `reload_modules` means full load all model. Most legacy training recipes save model weights only. The RL Games launcher additionally saves full Accelerate state checkpoints (`steps_<N>_state/`) so optimizer/scheduler state can be restored for exact resume.
 </details>
 
 

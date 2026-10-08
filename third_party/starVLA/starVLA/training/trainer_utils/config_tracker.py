@@ -483,6 +483,26 @@ def unwrap_config(cfg) -> OmegaConf:
     return cfg.unwrap() if isinstance(cfg, AccessTrackedConfig) else cfg
 
 
+def reload_module_paths(reload_modules: Any) -> list[str]:
+    """Normalize reload module config from Hydra strings or lists."""
+    if reload_modules is None:
+        return []
+    if isinstance(reload_modules, str):
+        return [path.strip() for path in reload_modules.split(",") if path.strip()]
+    if isinstance(reload_modules, AccessTrackedConfig):
+        unwrapped = reload_modules.unwrap()
+        if not isinstance(unwrapped, ListConfig):
+            raise TypeError(f"reload_modules must be a string or list, got {type(reload_modules).__name__}")
+        values = list(reload_modules)
+    elif isinstance(reload_modules, ListConfig):
+        values = list(reload_modules)
+    elif isinstance(reload_modules, (list, tuple)):
+        values = list(reload_modules)
+    else:
+        raise TypeError(f"reload_modules must be a string or list, got {type(reload_modules).__name__}")
+    return [str(path).strip() for path in values if str(path).strip()]
+
+
 # ========== Monkey Patch OmegaConf for Compatibility ==========
 
 _original_to_container = OmegaConf.to_container

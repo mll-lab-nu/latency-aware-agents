@@ -69,19 +69,13 @@ class ActionEncoder(nn.Module):
     def forward(self, actions, timesteps):
         """
         actions:   shape (B, T, action_dim)
-        timesteps: shape (B,)  -- a single scalar per batch item
+        timesteps: shape (B,) or (B, T)
         returns:   shape (B, T, hidden_size)
         """
         B, T, _ = actions.shape
 
-        # 1) Expand each batch's single scalar time 'tau' across all T steps
-        #    so that shape => (B, T)
-        #    e.g. if timesteps is (B,), replicate across T
-        if timesteps.dim() == 1 and timesteps.shape[0] == B:
-            # shape (B,) => (B,T)
+        if timesteps.dim() == 1:
             timesteps = timesteps.unsqueeze(1).expand(-1, T)
-        else:
-            raise ValueError("Expected `timesteps` to have shape (B,) so we can replicate across T.")
 
         # 2) Standard action MLP step for shape => (B, T, w)
         a_emb = self.W1(actions)

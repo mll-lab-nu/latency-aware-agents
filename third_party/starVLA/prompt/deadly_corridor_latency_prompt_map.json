@@ -1,0 +1,92 @@
+{
+  "0": {
+    "latency": 0,
+    "latency_raw_frames": 0,
+    "latency_ms": 0.0,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 0 raw frames (0.00 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "1": {
+    "latency": 1,
+    "latency_raw_frames": 4,
+    "latency_ms": 114.28571428571428,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 4 raw frames (114.29 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "2": {
+    "latency": 2,
+    "latency_raw_frames": 8,
+    "latency_ms": 228.57142857142856,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 8 raw frames (228.57 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "3": {
+    "latency": 3,
+    "latency_raw_frames": 12,
+    "latency_ms": 342.85714285714283,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 12 raw frames (342.86 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "4": {
+    "latency": 4,
+    "latency_raw_frames": 16,
+    "latency_ms": 457.1428571428571,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 16 raw frames (457.14 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "5": {
+    "latency": 5,
+    "latency_raw_frames": 20,
+    "latency_ms": 571.4285714285714,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 20 raw frames (571.43 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "6": {
+    "latency": 6,
+    "latency_raw_frames": 24,
+    "latency_ms": 685.7142857142857,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 24 raw frames (685.71 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "7": {
+    "latency": 7,
+    "latency_raw_frames": 28,
+    "latency_ms": 800.0,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 28 raw frames (800.00 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "8": {
+    "latency": 8,
+    "latency_raw_frames": 32,
+    "latency_ms": 914.2857142857142,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 32 raw frames (914.29 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "9": {
+    "latency": 9,
+    "latency_raw_frames": 36,
+    "latency_ms": 1028.5714285714284,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 36 raw frames (1028.57 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "10": {
+    "latency": 10,
+    "latency_raw_frames": 40,
+    "latency_ms": 1142.857142857143,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 40 raw frames (1142.86 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "15": {
+    "latency": 15,
+    "latency_raw_frames": 60,
+    "latency_ms": 1714.2857142857142,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 60 raw frames (1714.29 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "20": {
+    "latency": 20,
+    "latency_raw_frames": 80,
+    "latency_ms": 2285.714285714286,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 80 raw frames (2285.71 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "25": {
+    "latency": 25,
+    "latency_raw_frames": 100,
+    "latency_ms": 2857.1428571428573,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 100 raw frames (2857.14 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  },
+  "30": {
+    "latency": 30,
+    "latency_raw_frames": 120,
+    "latency_ms": 3428.5714285714284,
+    "prompt": "You are playing Deadly Corridor in VizDoom. Your goal is to survive the corridor, fight enemies, and reach the green armor vest at the far end. The available actions are: MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation. Current action latency is 120 raw frames (3428.57 ms). The environment runs at 35 FPS and observations are emitted at 8.75 FPS. Choose the best next action."
+  }
+}

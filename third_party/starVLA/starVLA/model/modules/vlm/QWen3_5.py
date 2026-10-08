@@ -61,7 +61,7 @@ class _QWen3_5_VL_Interface(nn.Module):
         # Fallback to sdpa if flash_attention_2 is requested but flash_attn is not installed
         if attn_implementation == "flash_attention_2":
             try:
-                import flash_attn  # noqa: F401
+                import flash_attn_2_cuda  # noqa: F401
             except ImportError:
                 print("[WARNING] flash_attn not installed, falling back to sdpa")
                 attn_implementation = "sdpa"

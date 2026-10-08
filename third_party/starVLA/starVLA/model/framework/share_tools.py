@@ -123,6 +123,34 @@ def _to_omegaconf(x: Any):
     return OmegaConf.create(x)
 
 
+def resolve_pretrained_checkpoint_path(pretrained_checkpoint: str | os.PathLike[str]) -> tuple[Path, Path]:
+    checkpoint_path = Path(os.path.abspath(Path(pretrained_checkpoint).expanduser()))
+    if checkpoint_path.is_dir():
+        for candidate_name in ("model.safetensors", "pytorch_model.bin"):
+            candidate_path = checkpoint_path / candidate_name
+            if candidate_path.exists():
+                return candidate_path, checkpoint_path.parents[1]
+        raise FileNotFoundError(
+            f"Checkpoint state directory `{checkpoint_path}` does not contain model.safetensors or pytorch_model.bin"
+        )
+
+    if not checkpoint_path.is_file():
+        overwatch.error(f"❌ Pretrained checkpoint `{pretrained_checkpoint}` does not exist.")
+        raise FileNotFoundError(f"Pretrained checkpoint `{pretrained_checkpoint}` does not exist.")
+
+    if checkpoint_path.parent.name.endswith("_state") or checkpoint_path.parent.name == "best_state":
+        if checkpoint_path.name not in {"model.safetensors", "pytorch_model.bin"}:
+            raise ValueError(
+                f"Unsupported checkpoint file inside state directory: `{checkpoint_path}`. "
+                "Expected model.safetensors or pytorch_model.bin."
+            )
+        return checkpoint_path, checkpoint_path.parents[2]
+
+    if checkpoint_path.suffix not in {".pt", ".safetensors"}:
+        raise ValueError(f"Unsupported checkpoint file `{checkpoint_path}`. Expected .pt or .safetensors.")
+    return checkpoint_path, checkpoint_path.parents[1]
+
+
 def merge_pram_config(init):
     """
     Decorator for __init__ to unify config handling.
@@ -274,6 +302,7 @@ def populate_layerwise_dit_cfg(cfg, *, dit_hidden_dim: int, num_dit_layers: int)
         - num_layers           = num_dit_layers
         - input_embedding_dim  = dit_hidden_dim
         - cross_attention_dim  = dit_hidden_dim   (encoder is pre-projected)
+        - output_dim           = dit_hidden_dim   (DiT latent projection)
         - num_attention_heads  = dit_hidden_dim // attention_head_dim
                                  (uses existing attention_head_dim if set, else 64)
 
@@ -285,13 +314,30 @@ def populate_layerwise_dit_cfg(cfg, *, dit_hidden_dim: int, num_dit_layers: int)
     Returns:
         The (mutated) diffusion_model_cfg node.
     """
+    def _force_set(node, key: str, value):
+        # AccessTrackedConfig wraps an OmegaConf node and otherwise rejects
+        # runtime-derived keys when the config is structured. These DiT shape
+        # fields are computed from the loaded VLM, so force-add them.
+        raw_cfg = getattr(node, "_cfg", node)
+        if OmegaConf.is_config(raw_cfg):
+            OmegaConf.update(raw_cfg, key, value, force_add=True)
+            children = getattr(node, "_children", None)
+            if isinstance(children, dict):
+                children.pop(key, None)
+            accessed = getattr(node, "_local_accessed", None)
+            if hasattr(accessed, "add"):
+                accessed.add(key)
+        else:
+            setattr(node, key, value)
+
     dit_cfg = cfg.framework.action_model.diffusion_model_cfg
     head_dim = dit_cfg.get("attention_head_dim", None) or 64
-    dit_cfg.attention_head_dim = head_dim
-    dit_cfg.num_layers = int(num_dit_layers)
-    dit_cfg.input_embedding_dim = int(dit_hidden_dim)
-    dit_cfg.cross_attention_dim = int(dit_hidden_dim)
-    dit_cfg.num_attention_heads = int(dit_hidden_dim) // int(head_dim)
+    _force_set(dit_cfg, "attention_head_dim", head_dim)
+    _force_set(dit_cfg, "num_layers", int(num_dit_layers))
+    _force_set(dit_cfg, "input_embedding_dim", int(dit_hidden_dim))
+    _force_set(dit_cfg, "cross_attention_dim", int(dit_hidden_dim))
+    _force_set(dit_cfg, "output_dim", int(dit_hidden_dim))
+    _force_set(dit_cfg, "num_attention_heads", int(dit_hidden_dim) // int(head_dim))
     return dit_cfg
 
 
@@ -317,13 +363,13 @@ def read_model_config(pretrained_checkpoint):
         FileNotFoundError: If checkpoint or required JSON files are missing.
         AssertionError: If file suffix or structure invalid.
     """
-    if os.path.isfile(pretrained_checkpoint):
-        overwatch.info(f"Loading from local checkpoint path `{(checkpoint_pt := Path(pretrained_checkpoint))}`")
-
-        # [Validate] Checkpoint Path should look like
-        # `.../<RUN_ID>/checkpoints/<CHECKPOINT_PATH>.pt|.safetensors`
-        assert checkpoint_pt.suffix in {".pt", ".safetensors"}
-        run_dir = checkpoint_pt.parents[1]
+    try:
+        checkpoint_pt, run_dir = resolve_pretrained_checkpoint_path(pretrained_checkpoint)
+    except FileNotFoundError:
+        overwatch.error(f"❌ Pretrained checkpoint `{pretrained_checkpoint}` does not exist.")
+        raise
+    if checkpoint_pt.exists():
+        overwatch.info(f"Loading from local checkpoint path `{checkpoint_pt}`")
 
         # Get paths for `config.json`, `dataset_statistics.json` and pretrained checkpoint
         config_json, dataset_statistics_json = run_dir / "config.json", run_dir / "dataset_statistics.json"
@@ -348,9 +394,6 @@ def read_model_config(pretrained_checkpoint):
         # Load Dataset Statistics for Action Denormalization
         with open(dataset_statistics_json, "r") as f:
             norm_stats = json.load(f)
-    else:
-        overwatch.error(f"❌ Pretrained checkpoint `{pretrained_checkpoint}` does not exist.")
-        raise FileNotFoundError(f"Pretrained checkpoint `{pretrained_checkpoint}` does not exist.")
     return global_cfg, norm_stats
 
 
@@ -366,13 +409,13 @@ def read_mode_config(pretrained_checkpoint):
             vla_cfg (dict)
             norm_stats (dict)
     """
-    if os.path.isfile(pretrained_checkpoint):
-        overwatch.info(f"Loading from local checkpoint path `{(checkpoint_pt := Path(pretrained_checkpoint))}`")
-
-        # [Validate] Checkpoint Path should look like
-        # `.../<RUN_ID>/checkpoints/<CHECKPOINT_PATH>.pt|.safetensors`
-        assert checkpoint_pt.suffix in {".pt", ".safetensors"}
-        run_dir = checkpoint_pt.parents[1]
+    try:
+        checkpoint_pt, run_dir = resolve_pretrained_checkpoint_path(pretrained_checkpoint)
+    except FileNotFoundError:
+        overwatch.error(f"❌ Pretrained checkpoint `{pretrained_checkpoint}` does not exist.")
+        raise
+    if checkpoint_pt.exists():
+        overwatch.info(f"Loading from local checkpoint path `{checkpoint_pt}`")
 
         # Get paths for `config.json`, `dataset_statistics.json` and pretrained checkpoint
         config_yaml, dataset_statistics_json = run_dir / "config.yaml", run_dir / "dataset_statistics.json"
@@ -393,9 +436,6 @@ def read_mode_config(pretrained_checkpoint):
         # Load Dataset Statistics for Action Denormalization
         with open(dataset_statistics_json, "r") as f:
             norm_stats = json.load(f)
-    else:
-        overwatch.error(f"❌ Pretrained checkpoint `{pretrained_checkpoint}` does not exist.")
-        raise FileNotFoundError(f"Pretrained checkpoint `{pretrained_checkpoint}` does not exist.")
     return global_cfg, norm_stats
 
 
@@ -446,7 +486,17 @@ def apply_config_compat(cfg, *, strict: bool = False):
             run with past=0; the field is therefore dropped from user YAMLs
             and only re-materialised here for legacy code that still reads it.
 
-      6.  `cfg.version_id` is stamped to `"0.21"`.
+      6.  `datasets.vla_data.include_state`
+          - Auto-filled from legacy `train_data.include_state` when present.
+          - Auto-filled to `False` for saved configs that omit both
+            `datasets.vla_data.include_state` and
+            `framework.action_model.state_dim`.
+
+      7.  `trainer.profile_timing`
+          - Auto-filled to disabled profiling for saved configs created before
+            the optional timing instrumentation was added.
+
+      8.  `cfg.version_id` is stamped to `"0.21"`.
 
     Args:
         cfg: An OmegaConf DictConfig (or anything _to_omegaconf can wrap).
@@ -510,7 +560,23 @@ def apply_config_compat(cfg, *, strict: bool = False):
         if OmegaConf.select(am, "past_action_window_size", default=None) is None:
             OmegaConf.update(cfg, f"{am_path}.past_action_window_size", 0, force_add=True)
 
-    # ---- 6. stamp version ----
+    # ---- 6. vla_data include_state compatibility ----
+    vla_data_path = "datasets.vla_data"
+    vla_data = OmegaConf.select(cfg, vla_data_path, default=None)
+    if vla_data is not None and OmegaConf.select(vla_data, "include_state", default=None) is None:
+        legacy_include_state = OmegaConf.select(cfg, "train_data.include_state", default=None)
+        if legacy_include_state is not None:
+            OmegaConf.update(cfg, f"{vla_data_path}.include_state", legacy_include_state, force_add=True)
+        elif OmegaConf.select(cfg, "framework.action_model.state_dim", default=None) is None:
+            OmegaConf.update(cfg, f"{vla_data_path}.include_state", False, force_add=True)
+
+    # ---- 7. optional profiling defaults ----
+    if OmegaConf.select(cfg, "trainer.profile_timing.enabled", default=None) is None:
+        OmegaConf.update(cfg, "trainer.profile_timing.enabled", False, force_add=True)
+    if OmegaConf.select(cfg, "trainer.profile_timing.log_interval", default=None) is None:
+        OmegaConf.update(cfg, "trainer.profile_timing.log_interval", 10, force_add=True)
+
+    # ---- 8. stamp version ----
     if src_version != CONFIG_VERSION:
         try:
             OmegaConf.update(cfg, "version_id", CONFIG_VERSION, force_add=True)
