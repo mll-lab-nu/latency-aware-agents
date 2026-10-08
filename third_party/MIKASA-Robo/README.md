@@ -55,10 +55,8 @@ cd MIKASA-Robo
 uv sync --frozen
 ```
 
-The nested RLDS builder is required for NPZ-to-RLDS data conversion.
-Its pinned source is currently unavailable from the configured remote. See the
-[converter source status](../README.md#remaining-converter-dependency) before
-setting up that conversion environment.
+For LAGEN dataset preparation, use the benchmark's
+[MIKASA cookbook](../../docs/mikasa/cookbook.md).
 
 See the [installation guide](https://mikasarobo.github.io/installation.html) for system requirements, package-install alternatives, and setup troubleshooting.
 

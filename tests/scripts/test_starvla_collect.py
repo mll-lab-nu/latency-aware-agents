@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 
-from scripts.starvla import balance_dagger, collect
+from scripts.starvla import balance_dagger
 
 
 def test_balance_dagger_model_geometry_and_latency_recipes(tmp_path):
@@ -184,10 +184,6 @@ def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_p
 
     assert len(captured["train"]) == 18
     assert len(captured["val"]) == 2
-
-
-
-
 
 
 def test_profile_periodic_eval_is_logged_with_its_training_run(tmp_path, monkeypatch):
@@ -555,34 +551,6 @@ def test_profile_worker_startup_failure_propagates_and_reaps_children(tmp_path, 
     assert {process.pid for process in mp.active_children()} == before
 
 
-
-def test_collect_bootstrap_uses_smoke_budget_and_returns_canonical_paths(tmp_path, monkeypatch):
-    teacher = tmp_path / "teacher.pt"
-    teacher.write_bytes(b"teacher")
-    captured = {}
-
-    def fake_collect(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(collect, "_collect_mikasa", fake_collect)
-
-    train, val = collect.collect_bootstrap(
-        "mikasa_intercept_grab_fast",
-        teacher,
-        tmp_path / "bootstrap",
-        "task-python",
-        smoke=True,
-        device="cuda:3",
-    )
-
-    assert train == (tmp_path / "bootstrap/lerobot").resolve()
-    assert val == (tmp_path / "bootstrap/lerobot__val").resolve()
-    assert captured["train_episodes"] == 2
-    assert captured["val_episodes"] == 1
-    assert captured["keep_failed"] is True
-    assert captured["device"] == "cuda:3"
-
-
 @pytest.mark.parametrize("delay", [0, 2])
 def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path, delay):
     """Long-lived collector contract: future expert frames, inherited-request and tail masks."""
@@ -752,54 +720,6 @@ def test_balance_dagger_relabels_saved_absolute_actions_without_loading_models(t
     assert relabeled["image"][0].as_py() == source_table["image"][0].as_py()
     assert relabeled.schema == source_table.schema
     assert (output / "metadata.json").read_bytes() == (source / "metadata.json").read_bytes()
-
-
-
-
-def test_mikasa_collection_uses_converter_task_directory_name(tmp_path, monkeypatch):
-    teacher = tmp_path / "teacher.pt"
-    teacher.write_bytes(b"teacher")
-    commands = []
-    moves = []
-    monkeypatch.setattr(collect, "_run", lambda command, **kwargs: commands.append(command))
-    monkeypatch.setattr(collect.shutil, "move", lambda source, destination: moves.append((source, destination)))
-    monkeypatch.setattr(collect, "_write_mikasa_contract", lambda train, val: None)
-
-    collect._collect_mikasa(
-        teacher_checkpoint=teacher,
-        output_root=tmp_path / "mikasa",
-        task_python="task-python",
-        train_episodes=2,
-        val_episodes=1,
-        keep_failed=True,
-        device="cuda:0",
-    )
-
-    assert commands[0][-1] == "--keep-failed"
-    assert Path(moves[0][0]).name == "intercept_grab_fast_vla_v0_h1_train"
-    assert Path(moves[1][0]).name == "intercept_grab_fast_vla_v0_h1_val"
-
-
-def test_mikasa_contract_writes_loader_modality_metadata(tmp_path):
-    dirs = []
-    for split in ("train", "val"):
-        dataset = tmp_path / split
-        (dataset / "data/chunk-000").mkdir(parents=True)
-        (dataset / "meta").mkdir()
-        pq.write_table(
-            pa.table({"observation.state": [[0.0] * 7], "action": [[0.0] * 7]}),
-            dataset / "data/chunk-000/file-000.parquet",
-        )
-        dirs.append(dataset)
-
-    collect._write_mikasa_contract(*dirs)
-
-    modality = json.loads(
-        (dirs[0] / "meta/modality.json").read_text(encoding="utf-8")
-    )
-    assert modality["state"]["proprio"]["original_key"] == "observation.state"
-    assert modality["action"]["target"]["original_key"] == "action"
-    assert list(modality["video"]) == ["top", "wrist"]
 
 
 @pytest.mark.parametrize("frames", [None, 3])

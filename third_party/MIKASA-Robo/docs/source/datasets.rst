@@ -1,10 +1,6 @@
 Datasets
 ========
 
-The LAGEN NPZ-to-RLDS converter requires a pinned builder that is currently
-unavailable from its configured remote. See the repository
-`source status <../../../README.md#remaining-converter-dependency>`_.
-
 MIKASA-Robo-VLA trajectories are available on Hugging Face and can be collected
 locally.  The benchmark ships **22,500 trajectories** (250 per task × 90 tasks)
 and more than **6,000,000 timesteps** across three interoperable formats.
@@ -199,39 +195,15 @@ Motion-planning task:
 For parallel collection across multiple GPUs, see the collector README at
 ``mikasa_robo_suite/vla/dataset_collectors/README.md``.
 
-Data Export Pipeline
+LAGEN Data Packaging
 ~~~~~~~~~~~~~~~~~~~~
 
-After NPZ collection, export to the training formats:
+LAGEN's H1 and H8 training reuse published LeRobot datasets. Conditioned H8 and
+DAgger package their collected NPZ episodes directly with
+``scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset``
+from the benchmark repository.
 
-.. code-block:: text
-
-   NPZ source episodes → RLDS / TFDS episodic dataset → LeRobotDataset v3
-
-Convert NPZ to RLDS
-~~~~~~~~~~~~~~~~~~~
-
-Single task:
-
-.. code-block:: bash
-
-   uv sync --project utils/convert_npz_to_rlds/rlds_dataset_builder
-   uv run --project utils/convert_npz_to_rlds/rlds_dataset_builder \
-     python utils/convert_npz_to_rlds/convert_npz_task_to_rlds.py \
-     --task RememberColor3-VLA-v0 \
-     --overwrite-dest
-
-All available NPZ task folders:
-
-.. code-block:: bash
-
-   for task_dir in data_mikasa_robo/data_npz/*; do
-     task="$(basename "$task_dir")"
-     uv run --project utils/convert_npz_to_rlds/rlds_dataset_builder \
-       python utils/convert_npz_to_rlds/convert_npz_task_to_rlds.py \
-       --task "$task" \
-       --overwrite-dest
-   done
+Published RLDS datasets can also be exported with the standalone converter below.
 
 Convert RLDS to LeRobotDataset v3
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1,14 +1,15 @@
 # RLDS to LeRobotDataset v3 Converter
 
 This utility converts MIKASA-Robo-VLA RLDS / TFDS task datasets into
-LeRobotDataset v3 datasets. It is the second local export step:
+LeRobotDataset v3 datasets:
 
 ```text
 data_mikasa_robo/data_rlds/<task>/<version>/  ->  data_mikasa_robo/data_lerobot/<repo-id>/
 ```
 
-Use it after the NPZ-to-RLDS converter or on compatible RLDS task directories
-downloaded into the expected local layout.
+Use it on compatible RLDS task directories downloaded into the expected local
+layout. LAGEN H8 and DAgger also use this project as their LeRobot packaging
+environment; their packager reads NPZ episodes directly.
 
 ## Input and output
 
@@ -162,6 +163,5 @@ path in `data_mikasa_robo/data_lerobot`; edit its `ROOT`, `REPO_ID`, or
 - `--overwrite-dest` and `--skip-existing` are mutually exclusive.
 - The converter expects episodic RLDS data readable through
   `tensorflow_datasets.builder_from_directory`.
-- Dataset semantics, the public Hugging Face release, and the complete
-  NPZ -> RLDS -> LeRobot export workflow are documented in
+- Dataset semantics, the public Hugging Face release, and data export are documented in
   `docs/source/datasets.rst`.

@@ -100,7 +100,7 @@ is separate from the 256-episode acceptance evaluation.
 
 ```bash
 conda run -n latency python -m pytest tests/training/test_action_latency.py \
-  tests/scripts/test_mikasa_latency_pipeline.py -q
+  tests/scripts/test_mikasa_profile_policy.py -q
 PYTHONPATH="$PWD:$PWD/third_party/MIKASA-Robo" \
   third_party/MIKASA-Robo/.venv/bin/python -m unittest \
   mikasa_robo_suite.vla.dataset_collectors.test_ppo_latency

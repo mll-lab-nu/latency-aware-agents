@@ -3,7 +3,7 @@
 This guide documents how to collect source `.npz` trajectories used in the MIKASA-Robo-90 VLA pipeline.
 
 If you are looking for conversion steps:
-- NPZ -> RLDS: [`utils/convert_npz_to_rlds/README.md`](../../../utils/convert_npz_to_rlds/README.md)
+- LAGEN data preparation: [MIKASA cookbook](../../../../../docs/mikasa/cookbook.md)
 - RLDS -> LeRobot v3: [`utils/convert_rlds_to_lerobot/README.md`](../../../utils/convert_rlds_to_lerobot/README.md)
 
 ---

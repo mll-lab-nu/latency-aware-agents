@@ -12,6 +12,7 @@ from typing import Any, Sequence
 import numpy as np
 import pyarrow.parquet as pq
 
+from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
 from latency_bench.data.starvla_tasks import (
     StarVLATaskSpec,
     read_task_contract,
@@ -166,6 +167,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-train", type=Path, required=True)
     parser.add_argument("--normalization-source", type=Path)
     return parser
+
+
+def prepare_balance_bootstrap(raw_dir: Path, output_dir: Path) -> None:
+    """Convert Balance teacher rows and freeze the bootstrap task contract."""
+    converted = output_dir.with_name(f"_{output_dir.name}_converted")
+    convert_canonical_rollout_to_lerobot(
+        raw_dir,
+        converted,
+        force=True,
+        action_carrier="native",
+        normalize_state=False,
+        write_starvla_handoff=False,
+    )
+    converted_val = converted.with_name(f"{converted.name}__val")
+    prepare_lerobot(
+        "balance",
+        converted,
+        converted_val if converted_val.exists() else None,
+        output_dir,
+    )
+    shutil.rmtree(converted)
+    if converted_val.exists():
+        shutil.rmtree(converted_val)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
