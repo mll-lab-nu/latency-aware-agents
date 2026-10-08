@@ -150,6 +150,8 @@ class Batcher(HeartbeatStoppableEventLoopObject):
                 rnn_size,
                 device,
                 False,
+                self.cfg.algo,
+                getattr(self.cfg, "mask_unadmitted_actor", False),
             )
             self.training_batches.append(training_batch)
 
