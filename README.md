@@ -1,7 +1,5 @@
 <p align="center">
-  <a href="https://ragen-ai.github.io/lagen/">
-    <img src="docs/assets/lagen-logo.svg" alt="LAGEN logo" width="180">
-  </a>
+  <a href="https://ragen-ai.github.io/lagen/"><img src="docs/assets/lagen-logo.svg" alt="LAGEN logo" width="180"></a>
 </p>
 
 <h1 align="center">LAGEN: Are Vision-Language Agents Latency Aware?</h1>
@@ -11,24 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://ragen-ai.github.io/lagen/">
-    <img src="https://img.shields.io/badge/Website-6D597A?style=for-the-badge" alt="Website">
-  </a>
-  <a href="https://ragen-ai.github.io/lagen/assets/paper.pdf">
-    <img src="https://img.shields.io/badge/Paper-355070?style=for-the-badge" alt="Paper">
-  </a>
-  <a href="https://huggingface.co/MLL-Lab/LAGEN-models">
-    <img src="https://img.shields.io/badge/Models-B56576?style=for-the-badge&amp;logo=huggingface&amp;logoColor=white" alt="Hugging Face Models">
-  </a>
-  <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets">
-    <img src="https://img.shields.io/badge/Datasets-E56B6F?style=for-the-badge&amp;logo=huggingface&amp;logoColor=black" alt="Hugging Face Datasets">
-  </a>
-  <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles">
-    <img src="https://img.shields.io/badge/Profiles-EAAC8B?style=for-the-badge&amp;logo=huggingface&amp;logoColor=black" alt="Hugging Face Profiles">
-  </a>
-  <a href="#citation">
-    <img src="https://img.shields.io/badge/Citation-77727E?style=for-the-badge" alt="Citation">
-  </a>
+  <a href="https://ragen-ai.github.io/lagen/"><img src="https://img.shields.io/badge/Website-6D597A?style=for-the-badge" alt="Website"></a>
+  <a href="https://ragen-ai.github.io/lagen/assets/paper.pdf"><img src="https://img.shields.io/badge/Paper-355070?style=for-the-badge" alt="Paper"></a>
+  <a href="https://huggingface.co/MLL-Lab/LAGEN-models"><img src="https://img.shields.io/badge/Models-B56576?style=for-the-badge&amp;logo=huggingface&amp;logoColor=white" alt="Hugging Face Models"></a>
+  <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets"><img src="https://img.shields.io/badge/Datasets-E56B6F?style=for-the-badge&amp;logo=huggingface&amp;logoColor=black" alt="Hugging Face Datasets"></a>
+  <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles"><img src="https://img.shields.io/badge/Profiles-EAAC8B?style=for-the-badge&amp;logo=huggingface&amp;logoColor=black" alt="Hugging Face Profiles"></a>
+  <a href="#citation"><img src="https://img.shields.io/badge/Citation-77727E?style=for-the-badge" alt="Citation"></a>
 </p>
 
 ## Overview
