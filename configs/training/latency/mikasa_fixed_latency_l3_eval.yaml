@@ -1,0 +1,12 @@
+__base__: mikasa_fixed_latency_l3_scratch.yaml
+
+training:
+  evaluate: true
+  track: false
+  save_model: false
+  checkpoint: outputs/mikasa_fixed_latency_ppo/fixed_l3/best_policy.pt
+  seed: 20260910
+  num_envs: 1
+  num_eval_envs: 64
+  num_eval_steps: 240
+  total_timesteps: 60

@@ -1,0 +1,8 @@
+__base__: mikasa_fixed_latency_small_base.yaml
+
+latency:
+  method: fixed
+  fixed_latency_ms: 150.0
+
+training:
+  exp_name: small-ppo-mikasa-intercept-grab-fast-fixed-l3-scratch
