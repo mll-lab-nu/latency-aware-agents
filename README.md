@@ -27,10 +27,9 @@ The current manipulation research path integrates the MIKASA
 `InterceptGrabFast-VLA-v0` task as a zero-delay H1 baseline: an official 7D
 state PPO teacher produces demonstrations, StarVLA trains a QwenOFT policy on
 the resulting LeRobot v3 dataset, and PPO/VLA policies are evaluated at the
-task's native 20 Hz (50 ms) control cadence. See the executable
-[`docs/mikasa/cookbook.md`](docs/mikasa/cookbook.md) reproduction guide, the executable
-[`program/MIKASA.md`](program/MIKASA.md) runbook, and the deferred latency
-[`program/PROPOSAL.md`](program/PROPOSAL.md).
+task's native 20 Hz (50 ms) control cadence. See the
+[MIKASA reproduction guide](docs/mikasa/cookbook.md) and
+[latency-aware PPO guide](docs/mikasa/latency_ppo.md).
 
 ## Supported Task Types
 
@@ -58,7 +57,6 @@ latency-sensitive-bench/
   third_party/           # pinned simulator and model source submodules
     starVLA/            # VLA training and inference
   docs/                 # setup, task cookbooks, and semantic contracts
-  program/              # verified research status and experiment history
 ```
 
 See [core infrastructure](docs/infra.md) for ownership boundaries and the
@@ -131,8 +129,8 @@ bash scripts/tasks/humanoidbench_balance_simple/train_qwenoft.sh --smoke
 ```
 
 Complete simulator setup first using [QUICK_START.md](docs/QUICK_START.md).
-See [SCALE_MODELS.md](program/SCALE_MODELS.md) for all sixteen launchers,
-training budgets, and automatic artifact publication. Original RL-games
+See [the standard pipeline](docs/standard_pipeline.md) for task launchers,
+training budgets, and artifact publication. Original RL-games
 launchers live under `third_party/starVLA/examples/rl_games/bash_scripts/`.
 
 ## Core Concepts
@@ -368,9 +366,8 @@ Create a self-contained report at docs/gym-adapt/gymnasium/[TASK_NAME]/index.htm
 Start with [installation](docs/QUICK_START.md), then the task cookbook linked
 above or the [standard pipeline](docs/standard_pipeline.md). Infrastructure
 contributors should use [core ownership and validation](docs/infra.md) and the
-semantic contracts below. [Archived audits](docs/audits/archive/README.md) record
-past implementation states; research results and current decisions live in
-[program/PROGRESS.md](program/PROGRESS.md).
+semantic contracts below. Published results and fixed artifact references live in
+the [artifact registry](docs/artifacts.md).
 
 - [Latency execution semantics](docs/latency_execution_semantics_en.md)
 - [Supported-task standard pipeline](docs/standard_pipeline.md)

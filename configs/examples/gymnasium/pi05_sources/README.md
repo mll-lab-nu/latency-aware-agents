@@ -1,6 +1,6 @@
 # Pi05 seven-environment preparation contracts
 
-`source_map.json` pins the Standard-Pipeline dataset revision and SHA256/size of every retained metadata file. Files under each environment are unchanged archive bytes, including historical absolute paths; those paths are evidence, not new Pi05 artifact bindings. No weights, images, raw Parquet or trajectories were downloaded.
+`source_map.json` pins the Standard-Pipeline dataset revision and SHA256/size of every retained metadata file. Files under each environment are unchanged archive bytes, including historical absolute paths; those paths are evidence, not new Pi05 artifact bindings.
 
 `../<environment>/pi05_train.yaml` is a preparation overlay loaded by `latency_bench.core.config.load_config`. Its `env` block comes from the archived actual profiling session and preserves make kwargs, action catalog, reset settings, physics frame skip and teacher frame stack. `hydra_overrides` is the argument list for `third_party/starVLA/commands/pi05/train_gymnasium_pi05.sh` after the three required positional dataset arguments. The launcher binds the newly materialized manifest; the seven tests compose the same overrides against the archived manifests. These overlays are not registered executable profiling workloads.
 
@@ -39,4 +39,9 @@ AirRaid has no archived zero-latency manifest at the indexed paths. Its retained
 
 Hopper's L0 dataset uses `LatencyBench/HopperRgbState-v0`, while the profiling runtime uses `LatencyBench/Hopper-v0`. Both are retained with their own source; the new dataset must be explicitly bound to the intended runtime rather than treating the IDs as interchangeable without verification.
 
-Remaining: verified new conversion manifests/statistics/splits and samples; fixed base-model revision; approved training budgets; actual L0 checkpoint/config/prompt-map bundle; measured Pi05 distribution; independent profile scratch bundle. Only after these exist should matched L0/measured eval configs and seven entries in `configs/profiles.yaml` be bound. No training, GPU smoke, closed-loop run, profiling or publication is asserted by these files.
+## Reproduction inputs
+
+The archived files describe source contracts. They do not identify a complete
+new training run. Supply converted data, its manifest, the backbone revision,
+and the selected training budget before using an overlay. Use the
+[artifact registry](../../../../docs/artifacts.md) for published model and data bindings.

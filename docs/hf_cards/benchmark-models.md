@@ -30,7 +30,7 @@ Inference checkpoints, original configurations and model provenance.
 | benchmark-datasets | [MLL-Lab/LAGEN-datasets](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets) |
 | profiles | [MLL-Lab/LAGEN-profiles](https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles) |
 
-[Benchmark release inventory](reports/benchmark-release/README.md)
+[Benchmark release inventory](https://huggingface.co/MLL-Lab/LAGEN-models/blob/main/reports/benchmark-release/README.md)
 
 ## Artifact retention
 
@@ -38,7 +38,7 @@ HAIC and Extreme Parkour releases are retired. Model bundles retain the publishe
 
 ## Figure 2 latency-degradation sources
 
-[Checkpoint source bindings](reports/latency-degradation-20261007/README.md) identify the six original game checkpoints and the six reused MIKASA checkpoints. All six game checkpoints are published with their original SHA256 and size. The report records the missing Flappy GR00T step 3000 and two unconfirmed OpenVLA bindings.
+[Checkpoint source bindings](https://huggingface.co/MLL-Lab/LAGEN-models/blob/main/reports/latency-degradation-20261007/README.md) identify the six original game checkpoints and the six reused MIKASA checkpoints. All six game checkpoints are published with their original SHA256 and size. The report records the missing Flappy GR00T step 3000 and two unconfirmed OpenVLA bindings.
 
 ## Source consolidation
 

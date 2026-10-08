@@ -50,41 +50,15 @@ Delete obsolete script-specific tests, deployment configuration, imports, and
 current documentation references with the script. Experimental data, checkpoints,
 source snapshots, and result reports are artifacts with their own retention rules.
 
-# program Progress Maintenance
+# Documentation and Experiment Evidence
 
-`program/PROGRESS.md` is the concise source of truth for HumanoidBench Balance
-Simple and MIKASA InterceptGrabFast. Update it
-only after a verified result, decision, or latest task status changes.
+Keep reusable setup, commands, and contracts in `docs/` or the owning
+experiment's README. Keep development plans, handoffs, and operational history
+outside the source repository. Store raw logs, configs, profiles, checkpoints,
+and full experiment reports in `outputs/` or their published artifact repository.
 
-Keep in `PROGRESS.md`:
-
-- formal key metrics with episode counts and the latency/FPS/seed protocol;
-- the exact checkpoint/training step or stable artifact revision needed to identify
-  the result, plus one primary evidence link;
-- durable decisions and conclusions that change subsequent work;
-- at most one latest verified status and next decision per task;
-- training completion, evaluation completion, acceptance, and publication as
-  separate states.
-
-Do not append chronological activity logs. In particular, exclude launch/stop
-times, hosts, GPU allocation, PID/tmux details, routine pause/resume instructions,
-intermediate progress checks, smoke details, troubleshooting timelines, cleanup
-operations, and per-checkpoint narration. Hardware belongs in `PROGRESS.md` only
-when it is part of the measurement protocol, such as an RTX 3090 latency profile.
-Old running messages never establish current process state.
-
-Route details as follows:
-
-- `program/logs/`: curated chronological experiment notes, operational history,
-  pauses/resumes, failures, and debugging timelines;
-- `outputs/`: raw logs, configs, JSON, profiles, checkpoints, manifests, and full
-  experiment reports;
-- task documents under `program/`: reusable commands, contracts, algorithms, and
-  run/resume instructions;
-- `program/archive/`: closed or superseded plans and handoffs.
-
-Retain an old result in `PROGRESS.md` only when it remains a formal baseline,
-necessary comparison, or explanation for a current decision. When a result is
-invalidated or superseded, record the reason and replacement conclusion without
-preserving its operational timeline. Update `program/README.md` when adding a
-long-lived handoff, log, or archive document.
+Public results must identify the checkpoint or artifact revision, episode count,
+latency/FPS/seed protocol, and primary evidence. Preserve the distinction between
+training completion, evaluation completion, acceptance, and publication.
+Keep hardware details when they define the measurement protocol.
+Historical runtime messages do not establish current process state.

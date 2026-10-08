@@ -1,14 +1,12 @@
 # Latency Execution Semantics Specification（中文）
 
-**Status:** Draft v0.1  
-**Scope:** This document is the stable semantic contract for the latency-sensitive benchmark.  
-**Important:** This document should not contain implementation TODOs, bug lists, temporary workarounds, or current-code status. Keep implementation findings in dated audit records under `audits/`; the historical tracker is archived under `audits/archive/`.
+本文说明时间与调度语义。每个实验必须在解析后的配置中显式选择 ordering 和 hold 策略。
 
 ---
 
 ## 1. 目的
 
-本文档定义 latency-sensitive benchmark 的执行语义。它的目标不是描述当前代码“已经实现了什么”，而是定义项目中所有 executor、wrapper、scheduler、logger 后续必须对齐的语义契约。
+本文区分环境时钟和推理时钟。实际执行策略由实验配置决定。
 
 核心原则：
 
@@ -440,7 +438,7 @@ obs_fps = 每秒发起 observation/inference request 的数量
 capacity = max_in_flight / model_inference_time_s
 ```
 
-必须满足：
+粗略容量估算建议：
 
 ```text
 obs_fps < capacity
@@ -459,13 +457,8 @@ utilization = obs_fps * model_inference_time_s / max_in_flight
 utilization < 1
 ```
 
-推荐实际使用更保守条件：
-
-```text
-utilization <= 0.7 或 utilization <= 0.8
-```
-
-并且使用 P95/P99 inference time，而不是只用 mean inference time。
+这不是配置校验条件。即使平均利用率小于 1，变化的服务时间仍可能导致 observation 被丢弃。
+应测量实际任务的请求接纳率和尾部延迟。
 
 ---
 
@@ -473,51 +466,30 @@ utilization <= 0.7 或 utilization <= 0.8
 
 Ordering policy 决定多个 inference result 完成顺序和 apply 顺序不一致时如何处理。
 
-### 14.1 Benchmark policy: issue-order FIFO
+`scheduler.ordering_policy` 和 `scheduler.hold_policy` 都是必填配置。
+系统没有全局 ordering 默认值，实际策略以所选任务配置为准。
 
-Benchmark config 必须显式选择 issue-order FIFO；省略
-`scheduler.ordering_policy` 会直接报错。
+### 14.1 Issue-order FIFO
 
-如果 `obs_1` 先于 `obs_2` 被发出，则 `a_2` 不能先于 `a_1` 被 apply，即使 `a_2` 更早完成。
+`issue_order_fifo` 按 observation 发出顺序应用结果。
+如果 `obs_1` 先于 `obs_2` 发出，即使 `a_2` 先完成，也必须等待 `a_1`。
+Realtime 推理没有自动解除该等待的 timeout。
 
-原因：
+### 14.2 Latest-ready
 
-1. simulated 和 realtime 更容易对齐；
-2. action stream 保持因果顺序；
-3. 更容易分析 action age 和 latency effect；
-4. 避免 silently turning the benchmark into a latest-frame reactive controller。
+`latest_ready` 选择当前可用的最新结果。较旧 observation 的结果即使更晚返回，
+也不能替换较新 observation 的结果。scheduler 丢弃被更新结果取代的 ready 结果。
 
-如果 `a_2` 先完成但 `a_1` 未完成，则 `a_2` 等待。
-
-如果 `a_1` timeout，则 `a_1` 被标记为 skipped，FIFO 被 unblock。
-
-### 14.2 Optional ablation: latest-ready
-
-`latest_ready` 是可选 ablation。
-
-语义：
-
-1. 任何 ready action 都可以被应用；
-2. 如果有多个 ready action，应用最新的；
-3. older un-applied actions 可以被丢弃。
-
-这个模式更接近某些 reactive robotics/controller 系统，但不是默认 benchmark semantics。
+例如，`configs/base/flappy.yaml` 选择 `latest_ready`。
+`configs/base/asterix.yaml` 选择 `issue_order_fifo`。
+实际策略以所选实验解析后的配置为准。
 
 ---
 
 ## 15. Queue full policy
 
-当新的 observation 到来，但 inference pool 已满时，需要 queue full policy。
-
-默认推荐：
-
-```text
-drop_new_observation
-```
-
-原因：正在运行的 GPU inference 通常不能被可靠地即时取消。即使杀掉 worker，也未必能立刻释放 GPU kernel 或 memory。
-
-当前 contract 不定义 pending observation queue，也不定义 “kill oldest running job”。正在运行的 GPU inference 通常不能被可靠地即时取消；即使杀掉 worker，也未必能立刻释放 GPU kernel 或 memory。
+每个 realtime worker 同时处理一个推理任务。所有 worker 都忙碌时，executor 丢弃新 observation，
+并记录此次拒绝。executor 不缓存待处理 observation，也不为接纳新任务而取消最旧任务。
 
 ---
 
@@ -673,16 +645,17 @@ obs_stride_raw_frames
 
 1. environment loop 不主动等待 inference result。
 2. inference jobs 可以 overlap。
-3. queue full、timeout、drop 都必须被记录。
+3. 记录请求被拒绝和结果被丢弃的事件。
 4. actual env FPS 必须被记录。
-5. 如果 deadline miss 超过阈值，该 run 必须被 flag。
+5. wall-clock lag 超过一个 raw frame 时长时计为 deadline miss。
+   executor 记录次数，但不按额外阈值自动拒绝整个 run。
 
 ### 20.4 Action ordering invariants
 
-1. benchmark config 显式选择 issue-order FIFO。
-2. latest-ready 只能作为显式配置的 ablation。
-3. timeout 可以 unblock FIFO。
-4. dropped/skipped actions 必须被记录。
+1. 配置显式选择 `issue_order_fifo` 或 `latest_ready`。
+2. FIFO 等待更早发出的任务。
+3. latest-ready 不允许旧 observation 的结果替换新结果。
+4. 记录请求被拒绝和结果被丢弃的事件。
 
 ---
 
@@ -707,18 +680,3 @@ scheduler:
   ordering_policy: issue_order_fifo  # issue_order_fifo | latest_ready
 
 ```
-
----
-
-## 22. What this document intentionally excludes
-
-本文档不包含：
-
-1. 当前代码是否已经满足这些语义；
-2. 当前有哪些 bug；
-3. 下一步实现计划；
-4. refactor phase；
-5. open questions；
-6. 临时 workaround。
-
-这些内容应记录在 `audits/` 下的注明日期的审查文档中；历史 tracker 已归档至 `audits/archive/`。

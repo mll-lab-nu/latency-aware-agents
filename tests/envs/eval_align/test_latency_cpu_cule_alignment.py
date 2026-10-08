@@ -165,7 +165,7 @@ def test_frozen_h8_teacher_cpu_and_cule_continue_beyond_first_life_loss(tmp_path
     """Regression for the September 23 first-life teacher scores (OFT best).
 
     DEMON_ATTACK_TEACHER_EVAL_CONFIG points to the restored, immutable OFT H8
-    eval YAML described in program/DEMON_ATTACK_EVAL_AUDIT.md. The artifact is
+    eval YAML described in docs/demon_attack.md. The artifact is
     supplied explicitly so the ordinary test suite never downloads weights.
     """
     import os

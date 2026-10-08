@@ -3,7 +3,7 @@
 Use this pipeline to measure one model/workload on the GPUs that will serve
 inference, then build a latency profile that can be replayed in simulation.
 
-For the pinned 18-model experiment with five fitting and five held-out runs,
+For the published 30-case experiment with 25 fitting and 25 held-out runs,
 use the [single-experiment sim2real runner](../../scripts/experiments/sim2real/README.md).
 It calibrates clocks against each model's training profile and archived eval.
 
@@ -41,12 +41,14 @@ The Demon Attack launchers use the model-specific StarVLA environment active in
 the current shell; run them from the matching `starvla_rl_games_*` environment or
 pass `--hf-artifacts` to download the registered model artifact.
 
-Balance uses all visible GPUs for inference. The other three tasks use logical
-`cuda:0` for the native simulator and `cuda:1..` for inference, so expose at
-least two GPUs. The launcher and its inference workers use the currently active
-Python environment.
+Balance and CPU-simulator workloads use all visible GPUs for inference.
+MIKASA uses logical `cuda:0` for simulation and `cuda:1..` for inference,
+so expose at least two GPUs. Select the workload's simulator and model
+interpreters as described in [installation](../QUICK_START.md).
 
-Every task runs five sessions of 10 episodes and writes under
+The registry specifies `session_count` and `eval_episodes` per workload.
+Current game presets use five sessions of 10 episodes. Balance and MIKASA
+presets use five sessions of 50 episodes. Runs write under
 `results/profiling/`. Results stay local unless `--publish` is added. Publishing
 starts only after the complete run and fitted profile exist:
 

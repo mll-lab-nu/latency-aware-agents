@@ -1,15 +1,58 @@
-# MIKASA Intercept Grab Fast (H1)
+# MIKASA Intercept Grab Fast
 
-Install environments using [QUICK_START.md](../QUICK_START.md). The recipe below
-covers the original task pipeline. For the four continuous-state H1 models,
-use [SCALE_MODELS.md](../../program/SCALE_MODELS.md); their task inputs, training
-budgets, and automatic publication behavior are specified there.
+Install the simulator and model environments with [QUICK_START.md](../QUICK_START.md).
+The [standard pipeline](../standard_pipeline.md) describes the shared training runner.
 
-This cookbook reproduces the zero-delay `InterceptGrabFast-VLA-v0` baseline.
-The detailed engineering record is in the [Chinese internal runbook](../../program/MIKASA.md);
-this page is the reader-facing path.
+## Shared state-based pipeline
 
-## Fixed contract
+The `train_{qwenoft,qwenpi_v3,qwengr00t,wanoft}.sh` launchers select the
+state-based H1 task. They use top and wrist RGB views, a 7D state, and one
+7D action at 20 Hz. Qwen models start from Qwen3-VL-4B-Instruct.
+WanOFT starts from Wan2.2-TI2V-5B-Diffusers and tiles the simultaneous views.
+
+```bash
+conda activate latency
+CUDA_VISIBLE_DEVICES=0,1 \
+  bash scripts/tasks/mikasa_intercept_grab_fast/train_qwenoft.sh \
+  --smoke --run-id mikasa-qwenoft-smoke
+```
+
+Replace `--smoke` with `--no-publish` for a full local run, using a new run ID.
+The full recipe uses 5,000 SFT updates, global batch 128, and 100 zero-latency
+evaluation episodes. These launchers reuse the installed simulator interpreter.
+They do not run `uv sync`. Omitting `--no-publish` enables artifact publication.
+
+## H8 input contracts
+
+H8 models predict eight 7D actions per request. They use 20/20 Hz and a
+60-transition episode limit. One inference worker processes admitted requests.
+The environment starts at reset and advances while the first request is pending.
+Busy-worker observations are dropped. Returned chunks use observation-aligned heads.
+The scheduler holds the final chunk action when the chunk expires.
+
+| Task key | State | Dataset input |
+| --- | --- | --- |
+| `mikasa_h8` | 7D proprioception | Converted teacher suffix labels and valid-head masks |
+| `mikasa_conditioned_h8` | 63D: 7D proprioception + 8×7 action prefix | Prepared dataset with prefix and loss masks |
+
+The shared training module accepts these task keys through `--task`.
+Conditioned H8 requires `--dataset-dir`. Do not supply an old 71D v2 dataset
+to the 63D v3 task. A fixed training condition sets prefix length from its
+declared delay. A profile condition uses the frozen profile mean, not the next
+sampled delay. Prefix masks mark committed heads and loss masks mark trainable heads.
+
+Published H8 SFT/DAgger bundles and the 63D transfer study use different protocols.
+The paper's 63D transfer matrix uses a 3,500-update DAgger development snapshot
+and 100 development episodes per cell. It is not a 200-episode held-out final
+acceptance result. Preserve each experiment's checkpoint and input contract.
+See the [artifact registry](../artifacts.md) for published references.
+
+## Original image-only H1 recipe
+
+The following recipe reproduces the original zero-delay QwenOFT baseline.
+It uses `train_vla.sh`, not the state-based `train_qwenoft.sh` launcher above.
+
+### Fixed contract
 
 - Environment: `InterceptGrabFast-VLA-v0`, H1, `pd_ee_delta_pose`, 7D action at
   20 Hz (50 ms control cadence).
@@ -27,13 +70,14 @@ this page is the reader-facing path.
 This is a zero-delay baseline. It does not train with fixed delay, device
 profiles, action chunks, state/delay inputs, or online RL.
 
-## Quick start
+### Run the original recipe
 
 Install MIKASA, StarVLA, and both converters using
-[QUICK_START.md](../QUICK_START.md#4-mikasa-与两个转换环境). The legacy wrappers
-below re-run `uv sync`: on Blackwell hosts with a Torch override, use the
-[runbook’s direct Python stages](../../program/MIKASA.md) to preserve it.
-On hosts using the unmodified MIKASA lockfile, run from the repository root:
+[QUICK_START.md](../QUICK_START.md#4-mikasa-与两个转换环境). The original wrappers
+below run `uv sync` again. Use them only with the unmodified MIKASA lockfile.
+On a host that needs a Torch override, use the installed interpreters for the
+individual stages in [train_vla.sh](../../scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh),
+without repeating its installation step. Run from the repository root:
 
 ```bash
 bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh
@@ -63,8 +107,9 @@ StarVLA starVLA/training/train_starvla.py
 ```
 
 The task-owned entrypoint supplies the same fixed split and model settings.
-Use the internal runbook for GPU/Vulkan setup, the finite tuning ladder, and
-the exact environment variables required on the Blackwell host.
+Use the [simulator check](../QUICK_START.md#mikasa-runtime-check) before collecting data.
+The original recipe requires `WANDB_ENTITY` and the Bridge/RT-1 initialization
+checkpoint specified by `MIKASA_INIT_CKPT` in the launcher.
 
 ## Profile the final VLA
 
@@ -72,15 +117,16 @@ Expose one simulator GPU and at least one inference GPU, then run:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 \
-  bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
+  bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh /ABSOLUTE/PATH/inference/checkpoints/model.pt
 ```
 
-The default `MODEL_PATH` is the 5k QwenOFT run printed by `train_vla.sh`. If that
-root is absent, the launcher downloads the exact
-`zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenoft-v1` artifact.
-Logical `cuda:0` runs MIKASA; `cuda:1..` run inference. Add `--resume RUN_ID` to
-continue a partial five-session run or `--publish` to upload the completed run
-and profile to `MLL-Lab/LAGEN-profiles`.
+For a shared state-based run, pass the checkpoint path printed by its launcher.
+Omitting the path selects the workload preset in `configs/profiles.yaml`, which
+references a state-based H1 bundle. Select the original image-only recipe's own
+configuration when evaluating its checkpoint.
+Logical `cuda:0` runs MIKASA. Logical `cuda:1..` run inference.
+Add `--resume RUN_ID` to continue a partial profiling run. Add `--publish` to
+upload the completed run and profile to `MLL-Lab/LAGEN-profiles`.
 
 ## Manual stage gates
 
@@ -156,10 +202,9 @@ LeRobot split.
 
 ## Troubleshooting
 
-- On Blackwell, use the tested MIKASA Torch/Vulkan userspace documented in the
-  internal runbook and complete the reset/step smoke before PPO.
-- If PPO fails its gate, stop before collection and evaluate the next finite
-  candidate only in the documented learning-rate/update-epoch order.
+- Complete the simulator check in the installation guide before PPO.
+- If PPO fails its gate, select and independently evaluate a new teacher
+  before collecting demonstrations. Record any training changes with that run.
 - If SFT runs out of memory, restart from step 0 with a new run id while
   preserving global batch 64; do not resume an incomplete checkpoint.
 - A final model is valid only when its 5,000-step state, inference weights,

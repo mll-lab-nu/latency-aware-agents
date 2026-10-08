@@ -12,6 +12,6 @@ The [paper experiment catalogue](https://huggingface.co/datasets/MLL-Lab/LAGEN-d
 
 Task transfer includes the formal Demon Attack policies and a separate archive for joint training and evaluation reruns.
 
-The memory, latency-information, latency-transfer and fine-tuning-scope cards identify retired source repositories. Factor-sweeps and fine-tuning-scope source cards remain in this directory. Their shared data references use the canonical data repository.
-
-Dataset YAML retains explicit named selections and measured feature metadata. Original source snapshots remain under the experiments’ provenance directories.
+The dataset card preserves named Viewer selections and available feature metadata.
+Some archived selections have no recorded schema or row count. Their manifests
+remain the source for known settings and missing metadata.

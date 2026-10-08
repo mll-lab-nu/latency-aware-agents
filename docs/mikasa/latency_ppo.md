@@ -37,7 +37,7 @@ After the normal benchmark setup, initialize the MIKASA submodule and install
 its runtime with `bash scripts/mikasa/install.sh`. From the repository root:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 .venv/bin/python -m \
+CUDA_VISIBLE_DEVICES=0 third_party/MIKASA-Robo/.venv/bin/python -m \
   scripts.tasks.mikasa_intercept_grab_fast.run_profile_policy \
   --config configs/training/latency/mikasa_qwenoft_rtx3090_scratch.yaml \
   --output-dir outputs/mikasa_profile_ppo/train
@@ -80,7 +80,7 @@ hf download MLL-Lab/LAGEN-models \
   --revision fb727810a71a21e02c84635ce44e9c889763b236 \
   --local-dir outputs/published-models
 
-CUDA_VISIBLE_DEVICES=0 .venv/bin/python -m \
+CUDA_VISIBLE_DEVICES=0 third_party/MIKASA-Robo/.venv/bin/python -m \
   scripts.tasks.mikasa_intercept_grab_fast.run_profile_policy \
   --config configs/training/latency/mikasa_qwenoft_rtx3090_eval.yaml \
   --output-dir outputs/mikasa_profile_ppo/eval
@@ -100,7 +100,7 @@ is separate from the 256-episode acceptance evaluation.
 ## Checks
 
 ```bash
-.venv/bin/python -m pytest tests/training/test_action_latency.py \
+conda run -n latency python -m pytest tests/training/test_action_latency.py \
   tests/scripts/test_mikasa_latency_pipeline.py -q
 PYTHONPATH="$PWD:$PWD/third_party/MIKASA-Robo" \
   third_party/MIKASA-Robo/.venv/bin/python -m unittest \

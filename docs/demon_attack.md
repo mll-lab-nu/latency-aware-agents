@@ -2,14 +2,8 @@
 
 Demon Attack evaluation measures a full game, capped by the declared raw-frame
 budget. Losing a life with lives remaining must continue the same episode and
-accumulate its return. A life-loss reset clears policy history and pending actions;
-it does not finish the formal episode or clear its accumulated reward.
-
-The September 23 CuLE GPU profile-teacher scores were first-life results. The investigation
-and replacement evaluations are recorded in
-[the audit report](../outputs/demon_cule_audit_20260929/REPORT.md).
-The Python continuation implementation already existed in commit `b67c4231`;
-checking only the CuLE emulator source does not verify this evaluation behavior.
+accumulate its return. A life-loss reset clears policy history and pending actions.
+It does not finish the formal episode or clear its accumulated reward.
 
 ## Frozen evaluation inputs
 
@@ -25,7 +19,7 @@ Use the published, training-selected best weights from
 Restore the adjacent `config.json`, including observation normalization and model
 architecture. Keep 60/15 Hz, four raw observation frames, eight-decision history,
 capacity one, `hold`, and `latest_ready`. Use each architecture's original RTX 3090
-temporal profile; the audit manifest records its immutable revision and digest.
+temporal profile. The evaluation manifest identifies the immutable profile revision.
 Set `evaluation.eval_raw_reward: true`. The GPU evaluation backend must honor that
 setting even when the training configuration retains `env.clip_reward: true`.
 
@@ -52,12 +46,14 @@ python -m pytest -q -o addopts= \
 ```
 
 The first suite covers raw scoring, life-loss continuation, and staggered resets
-in a 16-slot batch. Missing CUDA or model artifacts are skips, not acceptance.
+in a 16-slot batch. Missing optional runtime dependencies can cause skips.
+A skipped check does not establish acceptance.
 
 For the full executor regression, point the environment variable below at a
-resolved OFT H8 evaluation YAML whose checkpoint and profile paths are restored
-locally. This explicitly supplied fixture avoids downloading model weights during
-ordinary unit tests.
+resolved OFT evaluation YAML with eight-decision history and restored local artifact paths.
+The test skips when its configuration variable or CUDA is unavailable.
+Missing files in an explicitly supplied configuration fail during loading.
+The test does not download model weights.
 
 ```bash
 DEMON_ATTACK_TEACHER_EVAL_CONFIG=/absolute/path/resolved_config.yaml \

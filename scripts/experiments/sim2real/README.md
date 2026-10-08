@@ -3,9 +3,42 @@
 Implementation lives in this experiment directory. `study.py` owns the held-out
 protocol; `runtime.py` owns runtime overlays and resource lifetime; `replay.py`
 owns logical sessions and resident replay; `assets.py` and `publication.py` own
-pinned inputs and experiment output delivery. The budget entrypoints and reports
-are documented in [the budget protocol](../../../program/SIM2REAL_BUDGET.md).
+pinned inputs and experiment output delivery.
 Shared deployment profiling lives in `latency_bench.profiling`.
+
+The formal release contains 30 cases: RTX 3090, RTX 4090, RTX 5090, L40S and
+A100 × QwenOFT/GR00T × Flappy/InvertedPendulum/MIKASA InterceptGrabFast.
+Each case contains 25 fitting runs and 25 validation runs, with two episodes
+per run. Four replay methods each evaluate the 25 validation runs.
+The release contains 3,000 real and 6,000 simulated episodes.
+The [fixed 30-case release](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/50d8f0aef64749a849760fc580ce3efb3c5c5e76/experiments/sim2real-calibration)
+contains the case index, source manifests, episode outcomes, and paper inputs.
+It also links the historical ICLR two-worker protocol, whose results are separate.
+
+The published split seed is `20261001`. Each case preserves its calibrated
+clock across measured and simulated execution. Temporal state continues across
+the two episodes within a run. Each case uses one inference worker.
+The fixed model revision is `180da0effdaaaeacef218cf5fbaa4db41af67495`.
+The fixed profiles revision is `01d85ac858121fb2ef4dee706802e533dbd82bc9`.
+
+| Method | NMAE over 30 cases (percentage points) |
+| --- | ---: |
+| Fixed | 8.9262 |
+| Normal | 6.5517 |
+| IID | 4.5836 |
+| Temporal v13 | 3.8148 |
+
+Each run contributes its two-episode mean. The final NMAE weights cases equally.
+The published manifests preserve source reuse and rerun conditions.
+These figures describe the fixed release, not a result of executing today's defaults.
+
+The five-GPU, two-model, three-task 25/25 campaign uses
+`configs/experiments/sim2real/five_gpu.yaml` and the `campaign` prepare/report entrypoint.
+Pass `--config` explicitly for real acquisition and `--parallel-runs 25` for replay.
+Its frozen collection order interleaves fitting and validation sessions; the profile
+is built when the last designated fitting run completes, using fitting traces only.
+Both real and sim accept `--defer-uploads`, keeping HF rate limits outside evaluator
+lifetime. Deferred stages require a separate publication step.
 
 The held-out recipe is `configs/experiments/sim2real.yaml`, including its shared
 `sim2real/protocol.yaml` base. New experiment manifests freeze the episode count,
@@ -14,19 +47,17 @@ Replay uses the frozen manifest. Historical snapshots retain their original
 schema and source revision; no missing protocol fields are inferred from the
 current recipe.
 
-`run.sh` runs one task/model on one explicitly selected inference GPU, in the
-foreground. It has no job queue, GPU allocator, background process manager,
-monitor or retry loop. The calling agent owns machine setup, concurrent jobs,
-tmux, monitoring, result transfer and decisions to resume a failed experiment.
-
-From a deployed checkout at `/workspace/latency-sensitive-bench`:
+`run.sh` runs one task/model on the selected inference GPU in the foreground.
+Run these commands from the repository root:
 
 ```bash
-bash /workspace/latency-sensitive-bench/scripts/experiments/sim2real/run.sh \
+bash scripts/experiments/sim2real/run.sh \
+  --config configs/experiments/sim2real/five_gpu.yaml \
   --stage real --task flappy --model qwenoft --gpu 0
 
-bash /workspace/latency-sensitive-bench/scripts/experiments/sim2real/run.sh \
-  --stage real --task mikasa_intercept_grab_fast --model qwenpi_v3 \
+bash scripts/experiments/sim2real/run.sh \
+  --config configs/experiments/sim2real/five_gpu.yaml \
+  --stage real --task mikasa_intercept_grab_fast --model qwengr00t \
   --gpu 1 --simulator-gpu 0 --worker-python /venv/sim2real/bin/python
 ```
 
@@ -47,36 +78,21 @@ not install environments or authenticate accounts.
 ## Frozen assets and task contracts
 
 [`configs/experiments/sim2real.yaml`](../../../configs/experiments/sim2real.yaml)
-lists all 18 task/model pairs, exact checkpoint/config files, evaluation archive
-provenance, and training profile coordinates. Model repository
-`MLL-Lab/LAGEN-models` is pinned to
-`180da0effdaaaeacef218cf5fbaa4db41af67495`.
+stores exact checkpoint/config files, evaluation provenance and training profiles.
+The five-GPU campaign selects six task/model pairs from this registry.
+The policy revision is `benchmark-models@180da0effdaaaeacef218cf5fbaa4db41af67495`.
 
-| Task ID | Models | Original env/obs FPS | Archived maximum steps |
+| Task ID | Models | Original env/obs FPS | Maximum steps |
 |---|---|---|---|
-| `flappy` | `qwenoft`, `qwenpi_v3`, `qwengr00t` | 10/10 | 3600 |
-| `demon_attack` | same three | 60/15 | 7200 |
-| `asterix` | same three | 60/15 | 7200 |
-| `mikasa_intercept_grab_fast` | same three, corrected H1 `evalfix_20260923` | 20/20 | 60 transitions |
-| `ant` | `qwenoft` | 10/10 | **3600** |
-| `ant` | `qwenpi_v3`, `qwengr00t` | 5/5 | **1000** |
-| `inverted_pendulum` | `qwenoft` | 10/10 | 1000 |
-| `inverted_pendulum` | `qwenpi_v3`, `qwengr00t` | 5/5 | 1000 |
+| `flappy` | `qwenoft`, `qwengr00t` | 10/10 | 3600 |
+| `inverted_pendulum` | `qwenoft` / `qwengr00t` | 10/10 / 5/5 | 1000 |
+| `mikasa_intercept_grab_fast` | corrected H1 `qwenoft`, `qwengr00t` | 20/20 | 60 transitions |
 
-The local comparison below covers selected environment, scheduler, evaluation
-and executor fields across the three archived model YAMLs for each task. It
-records only values compared in those files. `experiment.name` and
-model/checkpoint/profile paths remain model-specific archive or registry inputs;
-no equality is claimed for fields omitted from this table.
-
-| Task | Shared archived fields across model YAMLs | Archived model-specific fields or exceptions |
-|---|---|---|
-| `flappy` | 10/10 FPS, 3,600 steps, 100 episodes, 32 parallel envs, 8-decision history, `one_frame_then_noop` / `latest_ready` | Executor device/batch fields differ: OFT and PI use `cuda:0,cuda:1` with batch 16; GR00T uses `cuda:0` with batch 32. Runtime overlay chooses actual devices and replay capacity. |
-| `demon_attack` | 60/15 FPS, 7,200 steps, 100 episodes, 32 parallel envs, 8-decision history, `hold` / `latest_ready`, two inference devices and batch 16 | The three YAMLs share these selected runtime fields; the registry keeps each model's checkpoint, training profile and source provenance. |
-| `asterix` | 60/15 FPS, 7,200 steps, 100 episodes, 32 parallel envs, 8-decision history, `hold` / `issue_order_fifo`, two inference devices and batch 16 | Checkpoint/model-config/manifest/output paths and archived `latency.profile_path` differ by model. The study selects its measured profile when constructing replay config. |
-| `ant` | Shared action/state contract, 20 episodes and one parallel env | OFT uses 10/10 FPS and 3,600 steps; PI and GR00T use 5/5 FPS and 1,000 steps. Checkpoint, model config, task manifest and prompt-map paths differ by model. |
-| `inverted_pendulum` | Shared action/state contract, 20 episodes, one parallel env and 1,000 steps | OFT uses 10/10 FPS; PI and GR00T use 5/5 FPS. Checkpoint, model config, task manifest and prompt-map paths differ by model. |
-| `mikasa_intercept_grab_fast` | 20/20 FPS, 60 transitions, 200 archived episodes, 10 parallel envs, `latest_ready`, `hold_last_chunk_action: true`, batch 8 on `cuda:1` | Checkpoint/model-config/task-contract/worker/profile paths differ by model. H1 archives omit action-prefix conditioning; asset preparation sets `action_prefix.mode: none` when resolving their task contract. |
+Flappy retains eight-decision history and `one_frame_then_noop` / `latest_ready`
+semantics. InvertedPendulum retains each policy's trained action/state contract,
+prompt map and original clock. MIKASA retains `latest_ready`,
+`hold_last_chunk_action: true` and its corrected H1 input contract.
+Runtime overlays select the actual devices and replay capacity.
 
 Eval YAMLs under `configs/experiments/sim2real/eval/` are verbatim archived
 snapshots, including original host-local paths. Asset resolution relocates the
@@ -99,7 +115,7 @@ logging. The evaluator assigns episode IDs under the existing run protocol;
 `run_real` and `run_sim` own stage completion, resume and publication. The table
 describes archive values; it does not replace these runtime decisions.
 
-Ant/IP prompt maps contain literal training-clock FPS and millisecond annotations.
+InvertedPendulum prompt maps contain literal training-clock FPS and millisecond annotations.
 Those strings and prompt keys remain exactly as trained while wall-clock pacing
 is calibrated; they are not rewritten as target-GPU timing claims.
 
@@ -112,7 +128,7 @@ The study pins ordinary `Qwen/Qwen3-VL-4B-Instruct` backbone assets to
 `ebb281ec70b05090aa6165b016eac8ec08e71b17`. This revision is recorded by the newer
 bundles; for historical OFT archives recording only a local backbone path, it
 is this study's initialization/processor asset revision, not a claim about an
-undocumented training-time revision. Ant OFT's runtime uses ordinary Qwen3-VL,
+undocumented training-time revision. The OFT runtime uses ordinary Qwen3-VL,
 not the Action tokenizer variant.
 
 ## Real stage and immediate publication
@@ -123,9 +139,9 @@ The `--stage real` command stops after held-out evaluation and publication:
    the first 500 admitted observation-to-action records. Each probe finishes the
    episode that reaches the budget, then uploads before the next stage.
 2. Upload the final calibration report and frozen FPS.
-3. Fit runs **0–4**, 2 episodes each. Upload every run immediately before
-   starting the next run. Fit and upload one profile using only these runs.
-4. Held-out runs **5–9**, 2 episodes each, again uploading after every run.
+3. Collect the frozen 50 run IDs in their recorded order. Fit one profile
+   after the last designated fitting run completes, using the 25 fitting runs.
+4. Preserve the 25 held-out runs independently of fitting and calibration.
 5. Write/upload `real_runs.csv`, `real_summary.json`, and `REAL_DONE`.
 
 Experiment manifests and episode results go to dataset
@@ -150,8 +166,8 @@ instead of re-evaluating them. A lost local receipt is recovered from the remote
 publication marker. No automatic retry or scheduling is performed by this code.
 
 Every real run is a fresh evaluator process with a fresh model/worker and warmup;
-its 2 episodes share that runtime. Each model has 20 real episodes; all 18 models
-have 360 real episodes, in addition to calibration and warmup. Environment seeds are
+its 2 episodes share that runtime. Each formal case has 100 real episodes.
+The six policies are shared across the five GPU conditions. Environment seeds are
 `2000000 + 20 * run_id + episode_id`, preserving the original run seed blocks
 while evaluating only episode IDs 0 and 1. Calibration uses separate 500-seed blocks
 below 2000000. Its samples are excluded from profile fitting and validation.
@@ -171,7 +187,7 @@ clocks are frozen; neither fit nor held-out data changes them.
 The real stage prints `SOURCE_REF` and `SOURCE_REVISION`. Supply both explicitly; any supplied ref name is resolved once to its immutable commit before replay:
 
 ```bash
-bash /workspace/latency-sensitive-bench/scripts/experiments/sim2real/run.sh \
+bash scripts/experiments/sim2real/run.sh \
   --stage sim \
   --source-ref experiments/sim2real-calibration/runs/GPU/TASK/MODEL/INSTANCE/EXPERIMENT \
   --source-revision HF_COMMIT --gpu 0
@@ -186,10 +202,10 @@ contract. It does not recalibrate or select a current/latest profile. Target
 hardware is retained in `experiment.json`; execution hardware is recorded
 separately in local `simulation_hardware.json` and published `simulation_hardware_public.json`.
 
-Fixed, Normal, IID and Temporal each run five groups of 2 episodes. Group `i`
-uses held-out run `5+i`'s environment seeds and latency seed `i`. Simulation
-worker capacity is one per run. `--parallel-runs 5` keeps the model resident,
-assigns independent runs to five environment slots and batches their inference.
+Fixed, Normal, IID and Temporal each run 25 groups of two episodes. Group `i`
+uses the frozen validation run at index `i` and latency seed `i`. Simulation
+worker capacity is one per run. `--parallel-runs 25` keeps the model resident,
+assigns independent runs to 25 environment slots and batches their inference.
 The default remains one run at a time. Each simulation run is uploaded to the
 source experiment's `sim/` directory. `--defer-uploads` instead persists a stage
 manifest under `pending_uploads/`; the external batch publisher commits completed
@@ -205,15 +221,14 @@ episodes as before. PI v3 and GR00T parallel inference use explicit per-episode,
 per-frame action-noise seeds. Existing completed runs retain their original
 global-RNG behavior; `simulation_parallel.json` records the transition. Batched
 GPU arithmetic can change action trajectories despite identical logical random
-streams. The RTX PRO comparison and accepted differences are recorded in the
-[continuation log](../../../program/logs/sim2real-rtxpro-continuation-20260930.md).
+streams. Preserve the recorded execution mode when reproducing a published run.
 
 Parallel runs use logical episode IDs `20 * valid_run_id + episode_in_run` and
 record both run fields in episode metadata. `parallel_runtime/config.json`
 records the resident executor configuration; each run retains its logical
 `generated.yaml` and raw traces.
 
-Intervals and paired errors use five run means rather than 10 episodes as
+Intervals and paired errors use 25 run means rather than 50 episodes as
 independent machine sessions. They are conditional on the fitted profile.
 Task-specific metrics, including InterceptGrab success, also receive run means,
 intervals and paired comparisons. Cross-task normalization remains separate.
@@ -236,7 +251,8 @@ portable source contract. Hardware/config/log records remain available for audit
 Resume a real experiment with the same task, model, GPUs, interpreters and storage:
 
 ```bash
-bash /workspace/latency-sensitive-bench/scripts/experiments/sim2real/run.sh \
+bash scripts/experiments/sim2real/run.sh \
+  --config configs/experiments/sim2real/five_gpu.yaml \
   --stage real --task flappy --model qwenoft --gpu 0 --resume EXPERIMENT_ID
 ```
 

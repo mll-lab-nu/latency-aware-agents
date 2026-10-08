@@ -23,19 +23,14 @@ This is episode-slot parallelism, not a workload reduction.
 
 ### latency_bench Simulated Eval
 
-Normal command:
+After generating the corresponding sweep configuration:
 
 ```bash
 python -m latency_bench.run --config configs/train/demon_attack/latency_0/seed_0/latency_bench_eval.yaml
 ```
 
-Generated Sample Factory sweep wrappers also call this entrypoint:
-
-```bash
-bash scripts/bash_scripts/eval_flappy.sh
-bash scripts/bash_scripts/eval_demon_attack.sh
-bash scripts/bash_scripts/eval_deadly_corridor.sh
-```
+Generate sweep configurations with the [experiment entrypoints](experiment_runner.md).
+Then pass the generated evaluation YAML to `python -m latency_bench.run`.
 
 `latency_bench` batched eval is only for:
 

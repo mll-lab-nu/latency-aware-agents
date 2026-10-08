@@ -1,151 +1,130 @@
-# Standard zero-latency pipeline
+# Standard task pipeline
 
-The supported robotics benchmark tasks share the same outer experiment:
+Install dependencies with [QUICK_START.md](QUICK_START.md). Run commands from
+the repository root. The task cookbooks define the required inputs:
 
-```text
-small-policy RL teacher
-  -> accepted teacher checkpoint
-  -> successful teacher rollouts
-  -> task dataset conversion
-  -> VLA SFT
-  -> optional task-specific DAgger
-  -> zero-latency evaluation
-  -> deployment profile
+| Task | Training guide | Default student |
+| --- | --- | --- |
+| HumanoidBench Balance Simple | [Balance cookbook](humanoidbench/cookbook.md) | RGB + 198D state, H8 × 43D actions |
+| MIKASA Intercept Grab Fast | [MIKASA cookbook](mikasa/cookbook.md) | Two RGB views + 7D state, H1 × 7D action |
+
+## Train a task
+
+Each task directory provides `train_qwenoft.sh`, `train_qwenpi_v3.sh`,
+`train_qwengr00t.sh`, and `train_wanoft.sh`. These scripts call
+`python -m scripts.starvla.train_task`.
+
+For MIKASA, run a local smoke with the shared launcher:
+
+```bash
+conda activate latency
+CUDA_VISIBLE_DEVICES=0,1 \
+  bash scripts/tasks/mikasa_intercept_grab_fast/train_qwenoft.sh \
+  --smoke --run-id mikasa-qwenoft-smoke
 ```
 
-The task implementations do not have identical observation or action spaces.
-The common part is the order of the stages and the acceptance boundary between
-them. Use the task guide for the exact environment, dimensions, and gates.
+For a full local run, replace `--smoke` with `--no-publish` and use a new run ID.
+Balance additionally requires a matching H8 teacher checkpoint and training
+config. Use the explicit command in its cookbook.
 
-## Reader quick start
+The current shared runner uses these budgets:
 
-Run commands from the repository root after installing the task's dependencies.
-Every task owns train and profile entrypoints:
+| Task | SFT updates | DAgger | Global batch | Final evaluation |
+| --- | ---: | --- | ---: | --- |
+| Balance | 5,000 | 10 rounds × 500 updates | 128 | 100 episodes, seeds 0–99 |
+| MIKASA H1 | 5,000 | None in this runner | 128 | 100 episodes, seeds 4242424242–4242424341 |
 
-| Task | Train the small-policy teacher | Train and evaluate QwenOFT | Profile QwenOFT |
-| --- | --- | --- | --- |
-| MIKASA Intercept Grab Fast | `bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh` | `bash scripts/tasks/mikasa_intercept_grab_fast/train_qwenoft.sh --run-id RUN_ID` | `bash scripts/profile.sh run --model qwenoft --workload mikasa_intercept_grab_fast --model-path MODEL_PATH` |
-| HumanoidBench Balance Simple | `bash scripts/tasks/humanoidbench_balance_simple/train_small_policy.sh` | `bash scripts/tasks/humanoidbench_balance_simple/train_qwenoft.sh --run-id RUN_ID` | `bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --model-path MODEL_PATH` |
+These are current defaults, not the settings of every published experiment.
+A smoke uses two SFT updates and two evaluation episodes. Balance also uses
+one DAgger round with two updates. Smoke results do not establish policy quality.
 
-`train_small_policy.sh` runs the native RL recipe and leaves the checkpoint in
-the task output directory. Inspect the reported path and pass it with `--teacher-checkpoint`; an unverified or implicit `latest` checkpoint is not accepted. The StarVLA launchers own rollout collection, conversion, SFT, task-specific DAgger, evaluation, and formal publication. Pass `--no-publish` to keep a formal run local.
+The runner uses two training GPUs by default. It starts at microbatch 64 per GPU.
+On CUDA OOM, it halves the microbatch and adjusts accumulation to preserve the
+global batch. Other errors propagate. The training YAML records the resolved
+settings. Use `--num-gpus` and `--micro-batch` to select a different allocation.
+Their product must divide the formal global batch.
 
-The [StarVLA pipelines](../program/SCALE_MODELS.md) provide
-`train_qwenoft.sh`, `train_qwenpi_v3.sh`, `train_qwengr00t.sh`, and
-`train_wanoft.sh` in each task directory. They download teachers from the
-model repository's default branch and
-automatically publish formal datasets and final models; `--smoke` stays local.
+Useful arguments:
 
-Each VLA trainer finishes by printing `MODEL_PATH=<final inference bundle>`.
-Pass that path to `scripts/profile.sh run --model MODEL --workload TASK --model-path MODEL_PATH`. If the local model root is absent, the profiler downloads that exact
-artifact from `MLL-Lab/LAGEN-models`; an existing but
-incomplete root fails instead of selecting another checkpoint. Profiling stays
-local unless `--publish` is supplied.
-
-Balance runs SFT followed by ten DAgger rounds by default. To
-stop after SFT, pass `--dagger-rounds 0`. Resume the same `--run-id` with
-`--resume`.
-
-## Stage contracts
-
-### 1. Train and accept the teacher
-
-The small policy is trained with privileged state in the native task
-environment. Its checkpoint is the label source for all later stages. Run the
-task's teacher gate before collecting data. If the gate fails, keep the output
-for diagnosis and do not start VLA training from it.
-
-The teacher run is zero-delay: the task applies the current policy output at its
-native control cadence. This is the baseline used by both task guides; latency
-sweeps and deployment profiles are separate experiments.
-
-### 2. Collect accepted demonstrations
-
-The VLA dataset is collected only from an accepted teacher checkpoint. The
-collector writes successful episodes into the task's output tree and records
-the task observation/action contract. The train/validation split is fixed by
-the task guide rather than chosen after training.
-
-The labels are not interchangeable across tasks:
-
-| Task | VLA label/interface |
+| Argument | Input or effect |
 | --- | --- |
-| MIKASA | Direct 7D current action |
-| Balance Simple | StarVLA 198D state to H8 43D absolute joint targets |
+| `--teacher-checkpoint`, `--teacher-config` | Matching teacher weights and resolved training configuration |
+| `--dataset-dir` | Prepared parent directory containing `lerobot/` and `lerobot__val/` |
+| `--vla-python`, `--task-python` | Absolute interpreter paths for model and simulator environments |
+| `--simulator-device`, `--inference-device` | Default `cuda:0` and `cuda:1` for task evaluation |
+| `--output-dir` | Local run directory |
+| `--eval-episodes`, `--eval-seed` | Episode count and first seed for final evaluation |
+| `--dagger-rounds 0` | Stop Balance training after SFT |
+| `--resume --run-id ID` | Continue the matching run from its saved state |
+| `--no-publish` | Keep a full run local |
 
-### 3. Convert and train the VLA
+Use `python -m scripts.starvla.train_task --help` for the complete argument list.
 
-Each task-owned VLA entrypoint converts its accepted rollouts to the format
-required by its training backend, trains the documented SFT recipe, and writes
-an inference checkpoint.
+## Data and training contracts
 
-### 4. Run DAgger where the task requires it
+The teacher supplies the action labels. Select the teacher using the task's
+independent evaluation protocol before generating a new training dataset.
 
-MIKASA finishes at the SFT model. Balance collects current-VLA
-rollouts against the fixed teacher and aggregate them with the bootstrap data
-for the configured DAgger rounds. Each completed round keeps its converted
-dataset, checkpoint, manifest, and evaluation result; raw shards may be removed
-after conversion.
+Balance collects closed-loop teacher trajectories into a new bootstrap dataset
+unless `--dataset-dir` supplies one. Each label contains the actions selected
+across eight physical frames, with a mask for valid targets. Formal collection
+uses 90 training episodes and 10 validation episodes.
 
-An interrupted collection is restarted from an empty partial round directory,
-not from a row count. An interrupted completed round resumes from its explicit
-checkpoint and round number. The task runners fail at missing or incompatible
-artifacts instead of substituting another checkpoint.
+MIKASA H1 reuses the published teacher dataset and its fixed 250/25 split.
+The shared runner prepares its task contract and normalization metadata.
+MIKASA H8 uses a separate suffix-label conversion. Its conditioned variant
+requires an explicitly prepared dataset. See the task cookbook for those contracts.
 
-### 5. Evaluate zero latency
+Balance DAgger labels branches from student states with the fixed teacher.
+Half of the sampling weight remains on bootstrap data. The other half is
+shared across accumulated DAgger rounds. Validation data remain separate.
+The optimizer continues across rounds with one cosine schedule for the phase.
+MIKASA DAgger uses task-specific entrypoints, not this shared runner.
 
-The final evaluation uses the task's native zero-delay environment and the
-documented fixed seeds/episode count. It is the policy-quality gate. Offline
-action or latent loss is useful for diagnosis but is not a replacement for the
-closed-loop result.
+An interrupted partial collection restarts that round. A completed training
+state supports `--resume`. Preserve its run ID, inputs, configuration, and data.
 
-### 6. Profile the final VLA
+## Evaluate and profile
 
-The profile entrypoint runs five native realtime sessions of 100 episodes and
-fits the canonical `observation_attempts.jsonl` sequence. MIKASA reserves logical `cuda:0` for simulation and uses `cuda:1..` for inference;
-Balance uses every visible GPU for inference. `--publish` uploads only after all
-sessions and profile construction complete.
+The shared runner evaluates the final bundle at zero latency. It prints
+`MODEL_PATH=<checkpoint path>`. Pass that exact path to the profiler:
 
-## Developer artifact workflow
-
-Keep large artifacts outside the source tree when possible. A task run should
-leave these durable outputs:
-
-```text
-<output-root>/
-  teacher/       # accepted small-policy checkpoint and gate summary
-  dataset/       # raw/converted train and validation data
-  sft/           # VLA inference checkpoint and training metadata
-  dagger/        # Balance rounds, if applicable
-  eval/          # final zero-latency metrics
+```bash
+bash scripts/profile.sh run \
+  --model qwenoft --workload mikasa_intercept_grab_fast \
+  --model-path /ABSOLUTE/PATH/inference/checkpoints/model.pt
 ```
 
-Publish only the inference bundle, accepted dataset, and concise evaluation
-evidence. Do not publish optimizer state, W&B caches, temporary raw shards, or
-machine-specific absolute paths. The central artifact layout and historical
-source revisions are recorded in [the artifact registry](artifacts.md).
+Profiling uses the workload's `session_count` and `eval_episodes` settings.
+Current Balance and MIKASA presets use five sessions of 50 episodes.
+It fits action latency from `observation_attempts.jsonl`. See the
+[profiling cookbook](profiling/cookbook.md) for hardware allocation and replay.
+A simulated control rate does not establish realtime inference throughput.
 
-Publishing is an explicit developer operation with the Hugging Face CLI. The
-two central repositories are:
+## Artifacts and publication
 
-- models: `MLL-Lab/LAGEN-models`;
-- datasets: `MLL-Lab/LAGEN-datasets`.
+Formal training publishes data and the final model unless you pass `--no-publish`.
+Smoke runs stay local. Profiling uploads only with `--publish`.
+Use local runs to reproduce results without organization write access.
 
-Use the task cookbook to identify the exact local source directories and the
-registry path. A reader can reproduce a run without organization write access;
-only the publish step requires it.
+Model and dataset destinations are `MLL-Lab/LAGEN-models` and
+`MLL-Lab/LAGEN-datasets`. The [artifact registry](artifacts.md) describes their
+layout. Record the resolved revisions because the runner downloads some training inputs
+from the default branch. Reproduction requires the experiment's fixed inputs.
+
+If publication fails after training, publish the saved run with `--publish-only`
+and the same `--output-dir`. Publication replaces files at the selected target path.
+Use a new run ID for a new model. Shared bootstrap paths depend on the task,
+condition, horizon, and dataset version, not the run ID.
+Keep training completion, evaluation, acceptance, and publication as separate states.
 
 ## Older game and generic adapter paths
 
-The original Flappy Bird, Demon Attack, and Deadly Corridor experiments remain
-supported as research workflows, but are not part of the robotics task table above.
-Their existing rollout exporters, StarVLA conversion scripts, latency configs,
-and model-family launchers remain under `scripts/bash_scripts/` and the sibling
-StarVLA checkout. Start with the historical commands in the repository history
-or adapt the task-specific scripts under `scripts/experiments/`.
+Game experiments use the existing launchers in `scripts/experiments/` and
+`third_party/starVLA/examples/rl_games/`. See the
+[experiment guide](experiment_runner.md) for the available sweeps.
+[Demon Attack evaluation](demon_attack.md) defines full-game scoring and life-loss resets.
 
-For new Gymnasium environments, use the separate [Gymnasium adaptation guide](gymnasium_adapter.md)
-and its generated contract report. For latency semantics and device profiles,
-use [latency execution semantics](latency_execution_semantics_en.md) and the
-[profiling cookbook](profiling/cookbook.md); do not add latency to this
-zero-delay training pipeline implicitly.
+Use the [Gymnasium adaptation guide](gymnasium_adapter.md) to add an environment.
+Use the [execution semantics](latency_execution_semantics_en.md) to select timing
+and scheduling behavior. Preserve each experiment's declared latency conditions.

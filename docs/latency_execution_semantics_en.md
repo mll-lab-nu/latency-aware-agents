@@ -1,16 +1,14 @@
 # Latency Execution Semantics Specification
 
-**Status:** Draft v0.1  
-**Scope:** This document is the stable semantic contract for the latency-sensitive benchmark.  
-**Important:** This document should not contain implementation TODOs, bug lists, temporary workarounds, or current-code status. Keep implementation findings in dated audit records under `audits/`; the historical tracker is archived under `audits/archive/`.
+This guide describes timing and scheduling behavior. Each experiment selects
+its ordering and hold policies explicitly in the resolved configuration.
 
 ---
 
 ## 1. Purpose
 
-This document defines the intended execution semantics for the latency-sensitive benchmark.
-
-It is not a description of what the current code already implements. Instead, it is the semantic contract that all executors, wrappers, schedulers, and loggers should eventually follow.
+This document separates environment timing from inference timing.
+Use the experiment configuration to determine the active execution policy.
 
 Core principles:
 
@@ -444,7 +442,7 @@ The approximate serving capacity is:
 capacity = max_in_flight / model_inference_time_s
 ```
 
-The system must satisfy:
+A rough capacity estimate suggests:
 
 ```text
 obs_fps < capacity
@@ -463,13 +461,9 @@ utilization = obs_fps * model_inference_time_s / max_in_flight
 utilization < 1
 ```
 
-In practice, a more conservative condition is recommended:
-
-```text
-utilization <= 0.7 or utilization <= 0.8
-```
-
-The P95/P99 inference time should be preferred over the mean inference time.
+This estimate is not an enforced configuration constraint. Variable service times
+can cause dropped observations even when average utilization is below one.
+Measure admitted requests and tail latency for the actual workload.
 
 ---
 
@@ -477,51 +471,33 @@ The P95/P99 inference time should be preferred over the mean inference time.
 
 The ordering policy decides what happens when inference completion order differs from observation issue order.
 
-### 14.1 Benchmark policy: issue-order FIFO
+Both `scheduler.ordering_policy` and `scheduler.hold_policy` are required.
+There is no global ordering default. Use the selected task's configuration.
 
-Benchmark configs must explicitly select issue-order FIFO; omitting
-`scheduler.ordering_policy` is an error.
+### 14.1 Issue-order FIFO
 
-If `obs_1` is issued before `obs_2`, then `a_2` cannot be applied before `a_1`, even if `a_2` finishes first.
+`issue_order_fifo` applies results in observation issue order. If `obs_1` precedes
+`obs_2`, result `a_2` waits until `a_1` is ready, even if `a_2` finishes first.
+Realtime inference has no timeout that automatically unblocks this queue.
 
-Reasons:
+### 14.2 Latest-ready
 
-1. simulated and realtime modes become easier to align;
-2. the action stream preserves causal order;
-3. action age and latency effects are easier to analyze;
-4. the benchmark does not silently become a latest-frame reactive controller.
+`latest_ready` selects the newest available result. Older results that arrive
+later cannot replace a result from a newer observation. Ready results that the
+scheduler supersedes are discarded.
 
-If `a_2` finishes first while `a_1` is still running, `a_2` waits.
-
-If `a_1` times out, `a_1` is marked as skipped and FIFO ordering is unblocked.
-
-### 14.2 Optional ablation: latest-ready
-
-`latest_ready` is an optional ablation.
-
-Semantics:
-
-1. any ready action may be applied;
-2. if multiple actions are ready, the latest one is applied;
-3. older un-applied actions may be dropped.
-
-This mode may be closer to some reactive robotics/controller systems, but it is not the default benchmark semantics.
+For example, `configs/base/flappy.yaml` selects `latest_ready`.
+`configs/base/asterix.yaml` selects `issue_order_fifo`.
+Resolve the selected experiment's configuration to determine its ordering policy.
 
 ---
 
 ## 15. Queue full policy
 
-When a new observation arrives but the inference pool is full, the executor needs a queue-full policy.
-
-Recommended default:
-
-```text
-drop_new_observation
-```
-
-Reason: a running GPU inference job usually cannot be reliably canceled instantly. Even killing a worker may not immediately free GPU kernels or memory.
-
-The current contract does not define a pending observation queue or `kill_oldest_running_job`. A running GPU inference job usually cannot be reliably canceled instantly; even killing a worker may not immediately free GPU kernels or memory.
+A realtime worker handles one inference job at a time. If every worker is busy,
+the executor drops the new observation and records the rejected submission.
+The executor does not maintain a pending observation queue or cancel the oldest
+running job to admit a new one.
 
 ---
 
@@ -679,16 +655,17 @@ Any implementation that claims to follow this document must satisfy the followin
 
 1. the environment loop does not intentionally wait for inference results.
 2. inference jobs may overlap.
-3. queue-full, timeout, and drop events must be logged.
+3. rejected submissions and discarded results are recorded.
 4. actual environment FPS must be logged.
-5. if deadline misses exceed the configured threshold, the run must be flagged.
+5. wall-clock lag greater than one raw-frame period counts as a deadline miss.
+   The executor records misses without an automatic run-rejection threshold.
 
 ### 20.4 Action ordering invariants
 
-1. benchmark configs explicitly select issue-order FIFO.
-2. latest-ready is only used as an explicitly configured ablation.
-3. timeout may unblock FIFO ordering.
-4. dropped/skipped actions must be logged.
+1. configs explicitly select `issue_order_fifo` or `latest_ready`.
+2. FIFO waits for earlier submitted jobs.
+3. latest-ready prevents older results from replacing newer results.
+4. discarded results and rejected submissions are recorded.
 
 ---
 
@@ -713,18 +690,3 @@ scheduler:
   ordering_policy: issue_order_fifo  # issue_order_fifo | latest_ready
 
 ```
-
----
-
-## 22. What this document intentionally excludes
-
-This document does not include:
-
-1. whether the current code already satisfies these semantics;
-2. current bugs;
-3. next implementation steps;
-4. refactor phases;
-5. open questions;
-6. temporary workarounds.
-
-Keep implementation findings in dated audit records under `audits/`; the historical tracker is archived under `audits/archive/`.
