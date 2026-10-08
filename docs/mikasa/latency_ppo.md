@@ -12,7 +12,7 @@ The actor and critic each have three 256-unit tanh layers. Control runs at
 - Independent evaluation: 255/256 success-once and **253/256 success-at-end
   (98.83%)**, mean return 33.6446; deterministic actions, 64 environments ×
   240 control steps, environment seed 20260910 and latency seed 271828.
-- Published model: [`latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/fb727810a71a21e02c84635ce44e9c889763b236/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1).
+- Published model: [`latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/fb727810a71a21e02c84635ce44e9c889763b236/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1).
 - Model publication revision: `fb727810a71a21e02c84635ce44e9c889763b236`.
 - Profile revision: `66414463f2a609316da63935941a79abf0a73ce9`; exact dataset
   coordinates are recorded in the config's `profile_source`.
@@ -27,17 +27,16 @@ experiment name, and artifact path differ:
 
 | Profile | W&B | Published checkpoint | Independent success at end | Publication revision |
 | --- | --- | --- | --- | --- |
-| QwenPI v3 | [u46f6pzq](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/u46f6pzq) | 15,360,000 steps, iteration 250 | 248/256 (96.88%) | [`28347920`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/28347920d378d33a3d9ab374e3fcd451c5476748/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1) |
-| QwenGR00T | [2papyzq7](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/2papyzq7) | 20,951,040 steps, iteration 341 | 251/256 (98.05%) | [`a44e0784`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/a44e078471c628650009b20a357b42a21835c427/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1) |
-| WanOFT | [sw3b981e](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/sw3b981e) | 69,120,000 steps, iteration 1125 | 122/256 (47.66%) | [`c72713d3`](https://huggingface.co/latency-sensitive-bench/benchmark-models/tree/c72713d3eeba1f33d08c9c909d7caa868b62d717/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1) |
+| QwenPI v3 | [u46f6pzq](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/u46f6pzq) | 15,360,000 steps, iteration 250 | 248/256 (96.88%) | [`28347920`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/28347920d378d33a3d9ab374e3fcd451c5476748/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenpi_v3-rtx3090-v1) |
+| QwenGR00T | [2papyzq7](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/2papyzq7) | 20,951,040 steps, iteration 341 | 251/256 (98.05%) | [`a44e0784`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/a44e078471c628650009b20a357b42a21835c427/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwengr00t-rtx3090-v1) |
+| WanOFT | [sw3b981e](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/sw3b981e) | 69,120,000 steps, iteration 1125 | 122/256 (47.66%) | [`c72713d3`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/c72713d3eeba1f33d08c9c909d7caa868b62d717/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-wanoft-rtx3090-v1) |
 
 ## Training
 
-After the normal benchmark setup, initialize the MIKASA submodule and install
-its runtime with `bash scripts/mikasa/install.sh`. From the repository root:
+After the normal benchmark setup, install the MIKASA runtime with `bash scripts/mikasa/install.sh`. From the repository root:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 .venv/bin/python -m \
+CUDA_VISIBLE_DEVICES=0 third_party/MIKASA-Robo/.venv/bin/python -m \
   scripts.tasks.mikasa_intercept_grab_fast.run_profile_policy \
   --config configs/training/latency/mikasa_qwenoft_rtx3090_scratch.yaml \
   --output-dir outputs/mikasa_profile_ppo/train
@@ -75,12 +74,12 @@ bundle and use the same output directory so the best-policy files stay together.
 Download the accepted policy, then evaluate it under the pinned profile:
 
 ```bash
-hf download latency-sensitive-bench/benchmark-models \
+hf download MLL-Lab/LAGEN-models \
   latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1/checkpoint.pt \
   --revision fb727810a71a21e02c84635ce44e9c889763b236 \
   --local-dir outputs/published-models
 
-CUDA_VISIBLE_DEVICES=0 .venv/bin/python -m \
+CUDA_VISIBLE_DEVICES=0 third_party/MIKASA-Robo/.venv/bin/python -m \
   scripts.tasks.mikasa_intercept_grab_fast.run_profile_policy \
   --config configs/training/latency/mikasa_qwenoft_rtx3090_eval.yaml \
   --output-dir outputs/mikasa_profile_ppo/eval
@@ -100,7 +99,7 @@ is separate from the 256-episode acceptance evaluation.
 ## Checks
 
 ```bash
-.venv/bin/python -m pytest tests/training/test_action_latency.py \
+conda run -n latency python -m pytest tests/training/test_action_latency.py \
   tests/scripts/test_mikasa_latency_pipeline.py -q
 PYTHONPATH="$PWD:$PWD/third_party/MIKASA-Robo" \
   third_party/MIKASA-Robo/.venv/bin/python -m unittest \

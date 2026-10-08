@@ -32,7 +32,6 @@ set -euo pipefail
 #   EPISODE_RETURN_GT=<override per-task gate>
 #   HF_MODEL_REPO=latency-sensitive-bench/paper-experiment-models
 #   HF_ROLLOUT_REPO=<override one shared upload repo>
-#   HF_ROLLOUT_REPO_PREFIX=latency-sensitive-bench
 #
 # Default teacher seeds are one selected small model per env/latency:
 #   asterix:  l0=s11, l2=s14, l4=s14
@@ -42,13 +41,12 @@ set -euo pipefail
 # dataset because no l0 small-model checkpoint is uploaded in HF_MODEL_REPO.
 
 export HF_MODEL_REPO="${HF_MODEL_REPO:-latency-sensitive-bench/paper-experiment-models}"
-export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-}"
-export HF_ROLLOUT_REPO_PREFIX="${HF_ROLLOUT_REPO_PREFIX:-latency-sensitive-bench}"
+export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-MLL-Lab/LAGEN-datasets}"
 export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-/mnt/local/talha/latency024_small_model_ckpts}"
 export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-/mnt/local/talha/latency024_rollout_datasets}"
-export DEFEND_L0_SOURCE_REPO="${DEFEND_L0_SOURCE_REPO:-latency-sensitive-bench/memory-rollouts}"
-export DEFEND_L0_SOURCE_CONFIG="${DEFEND_L0_SOURCE_CONFIG:-defend_the_line_fixed_latency_0_1000ep_7k2steps}"
-export DEFEND_L0_SOURCE_REVISION="${DEFEND_L0_SOURCE_REVISION:-main}"
+export DEFEND_L0_SOURCE_REPO="${DEFEND_L0_SOURCE_REPO:-MLL-Lab/LAGEN-datasets}"
+export DEFEND_L0_SOURCE_CONFIG="${DEFEND_L0_SOURCE_CONFIG:-zero-latency/defend-the-line/defend_the_line_fixed_latency_0_1000ep_7k2steps}"
+export DEFEND_L0_SOURCE_REVISION="${DEFEND_L0_SOURCE_REVISION:-d6f0ad0995f6e4b095f315920e8de18e04297048}"
 
 need_repo_root() {
   if [[ ! -f scripts/bash_scripts/run_sf_teacher_dataset_export.sh ]]; then
@@ -165,14 +163,6 @@ default_episode_return_gt_for_env_latency() {
   esac
 }
 
-hf_rollout_repo_for_env() {
-  local env_name="$1"
-  if [[ -n "${HF_ROLLOUT_REPO:-}" ]]; then
-    printf '%s\n' "${HF_ROLLOUT_REPO}"
-    return 0
-  fi
-  printf '%s\n' "${HF_ROLLOUT_REPO_PREFIX}/${env_name}_200ep"
-}
 
 best_remote_ckpt() {
   local env_name="$1"
@@ -265,7 +255,7 @@ rollout_latency024_one() {
 
   local ckpt config_name out_dir steps_label hf_rollout_repo
   ckpt="$(download_best_latency024_ckpt "${env_name}" "${latency}")" || return 1
-  hf_rollout_repo="$(hf_rollout_repo_for_env "${env_name}")"
+  hf_rollout_repo="${HF_ROLLOUT_REPO}"
 
   case "${MAX_STEPS:-7200}" in
     7200) steps_label="7k2steps" ;;
@@ -293,7 +283,8 @@ rollout_latency024_one() {
   EPISODE_RETURN_GT="${episode_return_gt}" \
   IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}" \
   HF_REPO_ID="${hf_rollout_repo}" \
-  HF_CONFIG_NAME="${config_name}" \
+  HF_CONFIG_NAME="task-transfer--${config_name}" \
+  HF_DATA_DIR="$(if [[ "${latency}" == "0" ]]; then echo zero-latency; else echo latency-aware; fi)/${env_name//_/-}/${env_name}_200ep/${config_name}" \
   HF_PRIVATE="${HF_PRIVATE:-0}" \
     bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh \
       "${ckpt}" \
@@ -333,7 +324,7 @@ PY
 
   config_name="${env_name}_fixed_latency_${latency}_${max_episodes}ep_${steps_label}"
   out_dir="${ROLLOUT_DATA_ROOT}/${config_name}"
-  hf_rollout_repo="$(hf_rollout_repo_for_env "${env_name}")"
+  hf_rollout_repo="${HF_ROLLOUT_REPO}"
 
   mkdir -p "${out_dir}"
 
@@ -347,7 +338,7 @@ PY
   SOURCE_CONFIG="${DEFEND_L0_SOURCE_CONFIG}" \
   SOURCE_REVISION="${DEFEND_L0_SOURCE_REVISION}" \
   DEST_REPO="${hf_rollout_repo}" \
-  DEST_CONFIG="${config_name}" \
+  DEST_CONFIG="zero-latency/${env_name//_/-}/${env_name}_200ep/${config_name}" \
   OUTPUT_DIR="${out_dir}" \
   TRAIN_EPISODES="${train_episodes}" \
   VAL_EPISODES="${val_episodes}" \
@@ -593,7 +584,7 @@ Targets:
 
 Note:
   defend-the-line-l0 is derived from
-  latency-sensitive-bench/memory-rollouts/defend_the_line_fixed_latency_0_1000ep_7k2steps
+  MLL-Lab/LAGEN-datasets/zero-latency/defend-the-line/defend_the_line_fixed_latency_0_1000ep_7k2steps
   by streaming the requested number of episodes into this repo's standard 200ep
   rollout destination.
 

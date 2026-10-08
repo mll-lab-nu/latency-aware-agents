@@ -1,0 +1,98 @@
+# @package _global_
+
+rl_games:
+  env_eval:
+    mid_train:
+      interval_steps: 500
+    deadly:
+      action_layout: multibinary_7
+      multibinary_threshold: 0.0
+  cross_task:
+    loss_by_task:
+      flappy: discrete_ce
+      demon_attack: discrete_ce
+      deadly_corridor: multibinary_bce
+    loss_weight_by_task:
+      flappy: 1.0
+      demon_attack: 1.0
+      deadly_corridor: 1.0
+    train_tasks:
+      - name: flappy
+        role: A
+        train_source_hf: latency-sensitive-bench/benchmark-datasets
+        train_revision: 8a5af732702f31824156975ed248ce6534e736ee
+        train_source_subdir: zero-latency/flappy/flappy_200ep/flappy_fix_latency_0_200ep
+        prompt_source_hf: latency-sensitive-bench/benchmark-datasets
+        prompt_revision: 8a5af732702f31824156975ed248ce6534e736ee
+        prompt_source_subdir: zero-latency/flappy/flappy_200ep/flappy_fix_latency_0_200ep
+        converted_name: flappy_024_200ep_cross_train
+        train_latency_filter: [0, 2, 4]
+        eval_latency_filter: [0, 2, 4]
+        episodes_per_latency: 40
+        max_episodes: null
+        weight: 1.0
+      - name: demon_attack
+        role: B
+        train_source_hf: latency-sensitive-bench/benchmark-datasets
+        train_revision: 8a5af732702f31824156975ed248ce6534e736ee
+        train_source_subdir: zero-latency/demon-attack/demon_attack_200ep/demon_attack_fix_latency_0_200ep
+        prompt_source_hf: latency-sensitive-bench/benchmark-datasets
+        prompt_revision: 8a5af732702f31824156975ed248ce6534e736ee
+        prompt_source_subdir: zero-latency/demon-attack/demon_attack_200ep/demon_attack_fix_latency_0_200ep
+        converted_name: demon_attack_024_200ep_cross_train
+        train_latency_filter: [0, 2, 4]
+        eval_latency_filter: [0, 2, 4]
+        episodes_per_latency: 40
+        max_episodes: null
+        weight: 1.0
+      - name: deadly_corridor
+        role: C
+        train_source_hf: latency-sensitive-bench/deadly_corridor_mixed_latency_parquet
+        prompt_source_hf: latency-sensitive-bench/deadly_corridor_mixed_latency_parquet
+        converted_name: deadly_corridor_024_cross_train
+        train_latency_filter: [0, 2, 4]
+        eval_latency_filter: [0, 2, 4]
+        episodes_per_latency: 40
+        max_episodes: null
+        action_layout: multibinary_7
+        weight: 1.0
+    eval_tasks:
+      flappy:
+        mid_train:
+          enabled: false
+          latencies: [0, 2, 4]
+          num_episodes: 5
+          max_steps_per_episode: 2000
+        post_train:
+          latencies: [0, 2, 4]
+          num_episodes: 20
+          max_steps_per_episode: 2000
+      demon_attack:
+        mid_train:
+          enabled: false
+          latencies: [0, 2, 4]
+          num_episodes: 5
+          max_steps_per_episode: 3600
+        post_train:
+          latencies: [0, 2, 4]
+          num_episodes: 20
+          max_steps_per_episode: 3600
+      deadly_corridor:
+        frameskip: 4
+        image_size: 224
+        task_description: "You are playing Deadly Corridor in VizDoom. Choose actions from MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, ATTACK."
+        mid_train:
+          enabled: false
+          latencies: [0, 2, 4]
+          num_episodes: 5
+          max_steps_per_episode: 3600
+        post_train:
+          latencies: [0, 2, 4]
+          num_episodes: 20
+          max_steps_per_episode: 3600
+
+framework:
+  action_model:
+    action_dim: 7
+    action_env_dim: 7
+    loss_type: discrete_ce

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export HF_ENDPOINT=https://huggingface.co
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 STARVLA_ROOT="${REPO_ROOT}/third_party/starVLA"
 RAW_ROOT="${REPO_ROOT}/teacher_datasets/memory"
-VLA_REPO="latency-sensitive-bench/memory"
+VLA_REPO="MLL-Lab/LAGEN-models"
 cd "${REPO_ROOT}"
 
 BASE_MODEL_REPO="Qwen/Qwen3-VL-4B-Instruct"
@@ -131,7 +132,7 @@ train_method() {
   conda run --no-capture-output -n latency hf upload \
     "${VLA_REPO}" \
     "${run_dir}" \
-    "./${run_id}" \
+    "latency-aware/${env_name//_/-}/vla/starvla-qwenoft-h1/${run_id}" \
     --exclude "wandb/**" \
     --exclude "checkpoints/_initialization/**" \
     --exclude "checkpoints/*_state/**" \

@@ -1,0 +1,56 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  # Generic Gymnasium is an integration type. The semantic task identity is
+  # carried separately and is also stored in each converted dataset manifest.
+  task: gymnasium
+  gymnasium:
+    task_contract: ???
+    task_name: ${.task_contract.task_name}
+  env_eval:
+    enabled: false
+    task_description: ""
+    gymnasium:
+      make_kwargs: {}
+    mid_train:
+      enabled: false
+    post_train:
+      enabled: false
+
+paths:
+  dataset_local_dir: ???
+
+dataset:
+  single_source_hf: ""
+  mixed_source_hf: ""
+  single_converted_name: ???
+  mixed_converted_name: ${dataset.single_converted_name}
+  single_latency_filter: null
+  mixed_latency_filter: null
+
+datasets:
+  vla_data:
+    data_root_dir: ${paths.dataset_local_dir}
+    data_mix: ${dataset.single_converted_name}
+    eval_data_mix: ${dataset.converted_name}__val
+    custom_mixtures_path: ???
+    gymnasium_task_contract: ${rl_games.gymnasium.task_contract}
+    active_action_dim: ${framework.action_model.action_env_dim}
+    include_state: false
+    num_obs_frames: 1
+    image_mode: single
+
+framework:
+  kv_memory:
+    enabled: false
+  action_model:
+    action_env_dim: ???
+    action_horizon: 1
+    future_action_window_size: 0
+    past_action_window_size: 0
+
+env: gymnasium

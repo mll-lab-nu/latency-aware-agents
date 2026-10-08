@@ -37,13 +37,13 @@ L0: original 100 APPO H1 episodes, 90/10 split, 88212/9917 rows; metadata125→5
 
 ### Models, data and evidence
 
-- [Final compact evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/f572d99f0e14d858c8a21a8f3fd182ecb34f4795/hopper/profile_latency/GR00T/h1_5fps_20260917)
+- [Final compact evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/hopper/profile_latency/GR00T/h1_5fps_20260917)
 
 - [Historical L0 teacher](assets/evidence/queue_eval_latency_0.json)
 
-- [L0 model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/50e51e28c1fc7f55159eba4c611857b2df56539b/hopper/zero_latency/GR00T)
+- [L0 model](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/hopper/vla/starvla-qwengr00t-h1/hopper_l0_gr00t_h1_5fps_2h100_20260917)
 
-- [Profile checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/51e9093cb9e8da5e0ab2a5dcc1e52ea0e69f7d13/hopper/profile_latency/GR00T)
+- [Profile checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/hopper/vla/starvla-qwengr00t-h1/hopper_profile_gr00t_h1_5fps_2h100_20260917)
 
 ## OpenVLA
 
@@ -72,7 +72,7 @@ L0 100 accepted episodes, 90/10 split, 88212/9917 rows. Profile100 episodes, 988
 
 ### Models, data and evidence
 
-- [Complete fixed-revision archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/hopper)
+- [Complete fixed-revision archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper)
 
 - [Historical L0 teacher](assets/evidence/queue_eval_latency_0.json)
 
@@ -120,10 +120,10 @@ L0 100 source episodes, 90/10 split, 88212/9917 rows, metadata125→5 FPS. Profi
 
 - [Recovery lineage](assets/evidence/recovery-completion-verification.json)
 
-- [Published F evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/c3533105c3d848ec512f39c0d93c1a98a29ddc23/hopper/profile_latency/Pi05/h1_5fps_g128_20260921)
+- [Published F evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/hopper/profile_latency/Pi05/h1_5fps_g128_20260921)
 
 - [Historical L0 teacher](assets/evidence/queue_eval_latency_0.json)
 
-- [L0 checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/408930d8a85f0cb316dc3bdebfb8142526570355/hopper/zero_latency/Pi05)
+- [L0 checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/hopper/vla/starvla-qwenpi_v3-h1/hopper_pi05_l0_h1_5fps_g128_20260921)
 
-- [Profile checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/e75c2ec73af036f7bff784092c9f29020b6fe755/hopper/profile_latency/Pi05)
+- [Profile checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/hopper/vla/starvla-qwenpi_v3-h1/hopper_pi05_profile_gt2500_h1_5fps_g128_20260922)

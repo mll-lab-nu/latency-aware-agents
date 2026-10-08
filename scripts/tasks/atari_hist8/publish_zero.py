@@ -15,7 +15,7 @@ from scripts.tasks.decision_history.eval_vla_hist8 import audit_evaluation, file
 
 
 MODELS = ("qwenoft", "qwengr00t", "qwenpi_v3")
-REPO_ID = "latency-sensitive-bench/benchmark-models"
+REPO_ID = "MLL-Lab/LAGEN-models"
 
 
 def publish(task: str, model: str, output: Path, stage: str,

@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export HF_ENDPOINT=https://huggingface.co
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 RAW_ROOT="${REPO_ROOT}/teacher_datasets/memory"
-HF_REPO_ID="latency-sensitive-bench/memory-rollouts"
 
 usage() {
   cat >&2 <<'EOF'
-Usage: rollout.sh [flappy|demon_attack|deadly_corridor|defend_the_line|all] [latency_raw_frames]
+Usage: rollout.sh [flappy|demon_attack|deadly_corridor|all] [latency_raw_frames]
 EOF
 }
 
 select_envs() {
   case "$1" in
-    flappy|demon_attack|deadly_corridor|defend_the_line) ENVS=("$1") ;;
-    all) ENVS=(flappy demon_attack deadly_corridor defend_the_line) ;;
+    flappy|demon_attack|deadly_corridor) ENVS=("$1") ;;
+    all) ENVS=(flappy demon_attack deadly_corridor) ;;
     *) usage; exit 2 ;;
   esac
 }
@@ -39,22 +39,21 @@ PY
 rollout_env() {
   local env_name="$1"
   local requested_latency="${2:-}"
-  local latency episodes raw_name hf_config_name manifest checkpoint_root
+  local latency episodes raw_name hf_config_name manifest checkpoint_root hf_repo_id hf_data_dir
 
   case "${env_name}" in
     flappy)
+      hf_repo_id="MLL-Lab/LAGEN-datasets"
       latency=3
       episodes=200
       ;;
     demon_attack)
+      hf_repo_id="MLL-Lab/LAGEN-datasets"
       latency=6
       episodes=200
       ;;
     deadly_corridor)
-      latency=6
-      episodes=1000
-      ;;
-    defend_the_line)
+      hf_repo_id="MLL-Lab/LAGEN-datasets"
       latency=6
       episodes=1000
       ;;
@@ -65,6 +64,13 @@ rollout_env() {
 
   raw_name="${env_name}_fix_latency_${latency}_${episodes}ep_7k2steps"
   hf_config_name="${env_name}_fixed_latency_${latency}_${episodes}ep_7k2steps"
+  if [[ "${env_name}:${latency}" == "flappy:2" ]]; then
+    hf_config_name="flappy_fix_latency_2_200ep_7k2steps"
+  fi
+  case "${env_name}:${latency}" in
+    *:0) hf_data_dir="zero-latency/${env_name//_/-}/${hf_config_name}" ;;
+    *) hf_data_dir="latency-aware/${env_name//_/-}/${hf_config_name}" ;;
+  esac
   manifest="${REPO_ROOT}/configs/train/memory/rollout_teacher/${env_name}/manifest.tsv"
   checkpoint_root="$(manifest_train_artifact_dir "${manifest}" "${latency}")"
 
@@ -73,8 +79,9 @@ rollout_env() {
   DEVICE=cuda \
   CONTEXT_WINDOW=1 \
   FILTER_PRESET=none \
-  HF_REPO_ID="${HF_REPO_ID}" \
+  HF_REPO_ID="${hf_repo_id}" \
   HF_CONFIG_NAME="${hf_config_name}" \
+  HF_DATA_DIR="${hf_data_dir}" \
   HF_PRIVATE=0 \
   conda run --no-capture-output -n latency bash \
     "${REPO_ROOT}/scripts/bash_scripts/run_sf_teacher_dataset_export.sh" \

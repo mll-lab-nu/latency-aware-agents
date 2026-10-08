@@ -1,0 +1,11 @@
+# @package _global_
+
+rl_games:
+  initialization_mode: pre-trained
+  action_carrier: bridge
+  bridge_action_dim: 7
+  env_eval:
+    eval_backend: latency_bench
+    latency:
+      mode: single
+      values: [0]

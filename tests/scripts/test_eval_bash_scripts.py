@@ -339,7 +339,6 @@ def test_install_script_forwards_fixed_stack_bootstrap(tmp_path):
     assert "bash third_party/starVLA/examples/rl_games/install/torch.sh" in calls
     assert "uv pip install" in calls
     assert "-e .[dev,sonic]" in calls
-    assert "git submodule update --init third_party/starVLA third_party/sample-factory third_party/flappy-bird-gymnasium" in calls
     assert "-e third_party/sample-factory" in calls
     for game in ("demon_attack", "deadly_corridor", "flappy"):
         assert f"bash third_party/starVLA/examples/rl_games/install/env/{game}.sh" in calls

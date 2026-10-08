@@ -16,7 +16,7 @@ from latency_bench.data.starvla_tasks import read_task_contract, task_spec, writ
 from scripts.starvla.prepare_dataset import _rewrite_dataset, _write_manifest
 
 
-SOURCE_REPO_ID = "latency-sensitive-bench/benchmark-datasets"
+SOURCE_REPO_ID = "MLL-Lab/LAGEN-datasets"
 SOURCE_REVISION = "5421c9d272d7a939bb04045b047af84519c1fba8"
 SOURCE_PATH = "zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-h1-state-v1"
 EXPECTED_SPLITS = {

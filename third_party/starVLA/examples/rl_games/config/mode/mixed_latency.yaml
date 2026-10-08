@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  env_eval:
+    latency:
+      mode: mixed
+      values: [0, 1, 2, 3, 4, 5]
+    mid_train:
+      latencies: [0, 1, 2, 3, 4, 5]
+
+dataset:
+  source_hf: ${dataset.mixed_source_hf}
+  converted_name: ${dataset.mixed_converted_name}
+  latency_filter: ${dataset.mixed_latency_filter}
+
+datasets:
+  vla_data:
+    data_mix: ${dataset.converted_name}
+
+mode: mixed_latency

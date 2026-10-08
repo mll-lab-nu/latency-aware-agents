@@ -404,7 +404,7 @@
     "B_population_std": 150.09,
     "F_mean": 424.58,
     "F_population_std": 348.01,
-    "archive": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/hopper"
+    "archive": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper"
   },
   "comparison_scope": "Within-model only; different clocks and recipes are not a controlled architecture comparison.",
   "raw_trace_scope": "Full F step/action/latency traces audited on server and retained on3090; only compact episode/config/summary evidence uploaded.",
@@ -494,10 +494,10 @@
     "publication": {
       "model_revision": "408930d8a85f0cb316dc3bdebfb8142526570355",
       "training_evidence_revision": "4f90336e21cd964589ca6869253a14fc5f6893f3",
-      "model_url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/408930d8a85f0cb316dc3bdebfb8142526570355/hopper/zero_latency/Pi05",
-      "training_evidence_url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/4f90336e21cd964589ca6869253a14fc5f6893f3/hopper/zero_latency/Pi05/h1_5fps_g128_20260921/vla/training",
+      "model_url": "https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/hopper/vla/starvla-qwenpi_v3-h1/hopper_pi05_l0_h1_5fps_g128_20260921",
+      "training_evidence_url": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/hopper/zero_latency/Pi05/h1_5fps_g128_20260921/vla/training",
       "L0_evidence_revision": "dd7c4fc06eacb52303a38a2b09b7cd5793adba1d",
-      "L0_evidence_url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/dd7c4fc06eacb52303a38a2b09b7cd5793adba1d/hopper/zero_latency/Pi05/h1_5fps_g128_20260921/vla/evaluation/l0-simulated"
+      "L0_evidence_url": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/hopper/zero_latency/Pi05/h1_5fps_g128_20260921/vla/evaluation/l0-simulated"
     },
     "evaluation": {
       "L0_simulated": "COMPLETED_AND_AUDITED",

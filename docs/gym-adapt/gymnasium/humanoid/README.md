@@ -38,11 +38,11 @@ L0 reused 100 source episodes. Profile strict >5000:16 qualifying specs /120 att
 
 ### Models, data and evidence
 
-- [Pinned GR00T evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/a260732e0bce9771ca62a3c336bb446ecd0ea5df/humanoid/profile_latency/GR00T/h1_5fps_20260917)
+- [Pinned GR00T evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/humanoid/profile_latency/GR00T/h1_5fps_20260917)
 
-- [teacher archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model)
+- [teacher archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model)
 
-- [L0 VLA checkpoint (profile branch stopped)](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/7aa5afb6f20d52509849e8d8156b5d8583ea288f/humanoid/zero_latency/GR00T)
+- [L0 VLA checkpoint (profile branch stopped)](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/humanoid/vla/starvla-qwengr00t-h1/humanoid_l0_gr00t_h1_5fps_1h200_20260917)
 
 ## OpenVLA
 
@@ -72,9 +72,9 @@ L0 strict>5000 accepted 100/119; 90/10 episodes, 88,608/9,614 rows. Profile prob
 
 ### Models, data and evidence
 
-- [Pinned complete historical archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid)
+- [Pinned complete historical archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid)
 
-- [Profile teacher E10](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/humanoid/profile_latency/small_model/evaluation/summary.json)
+- [Profile teacher E10](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/profile_latency/small_model/evaluation/summary.json)
 
 - [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/humanoid/zero_latency/OpenVLA)
 
@@ -112,10 +112,10 @@ L0 source 100 episodes, 90/10 split. Both profile candidates 0/20>5000; no E10, 
 
 - [Pi0.5 stage summary](assets/evidence/pi05-pipeline-summary-20260922.md)
 
-- [L0 pinned model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/eee96ac0fae3889d5108e6ae00701a6502fd5f80/humanoid/zero_latency/Pi05)
+- [L0 pinned model](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/humanoid/vla/starvla-qwenpi_v3-h1/humanoid_pi05_l0_h1_5fps_g128_20260921)
 
-- [teacher archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model)
+- [teacher archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/small_model)
 
-- [Published failed teacher evaluation](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/3391ea3f8e962dba3d40063f60138b8d4991c3c2/humanoid/profile_latency/Pi05/h1_5fps_g128_20260921/small_model/evaluation)
+- [Published failed teacher evaluation](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/humanoid/profile_latency/Pi05/h1_5fps_g128_20260921/small_model/evaluation)
 
-- [Pinned P evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/8ccefb9dc676bc35e56c253319951b2c2a6934f6/humanoid/profile_latency/Pi05/h1_5fps_g128_20260921/profiling)
+- [Pinned P evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles/tree/8baa06beca7265b239f50826bc8cea0f989326ad/runs/archive/standard-pipeline/humanoid/profile_latency/Pi05/h1_5fps_g128_20260921/profiling)

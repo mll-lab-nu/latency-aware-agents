@@ -61,10 +61,9 @@ task-specific package in every runtime that constructs the environment: the
 small-model/rollout environment and, when online VLA evaluation is required,
 the StarVLA environment as well.
 
-Task-specific dependencies do not belong in the repository's base
-`pyproject.toml`. For example, the InvertedPendulum walkthrough installs its
-MuJoCo runtime explicitly on the experiment server; the generic benchmark does
-not install MuJoCo for every user.
+Check the pinned versions in `pyproject.toml` before installing additional
+simulator packages. The base dependencies already include MuJoCo.
+Keep optional task dependencies separate from the shared runtime.
 
 ### 2. Probe the installed API before writing configs
 

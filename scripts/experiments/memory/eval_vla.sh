@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export HF_ENDPOINT=https://huggingface.co
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 STARVLA_ROOT="${REPO_ROOT}/third_party/starVLA"
-CHECKPOINT_ROOT="${STARVLA_ROOT}/results/Checkpoints"
-VLA_REPO="latency-sensitive-bench/memory"
+VLA_REPO="MLL-Lab/LAGEN-models"
+VLA_REVISION="a4099f759f71ffa72d967be3695c8e054cfc377c"
+CHECKPOINT_ROOT="${STARVLA_ROOT}/results/Checkpoints/.hf-benchmark-models/${VLA_REVISION}"
 cd "${REPO_ROOT}"
 
 BASE_MODEL_REPO="Qwen/Qwen3-VL-4B-Instruct"
@@ -34,30 +36,19 @@ select_methods() {
   esac
 }
 
-hf_download() {
-  local attempt
-  for attempt in 1 2 3 4 5; do
-    if conda run --no-capture-output -n latency hf download "$@"; then
-      return
-    fi
-    echo "Hugging Face download attempt ${attempt}/5 failed." >&2
-    if (( attempt < 5 )); then
-      sleep 10
-    fi
-  done
-  return 1
-}
-
 download_run() {
   local run_id="$1"
+  local task_name="$2"
+  local prefix="latency-aware/${task_name}/vla/starvla-qwenoft-h1/${run_id}"
 
-  hf_download \
+  conda run --no-capture-output -n latency hf download \
     "${VLA_REPO}" \
+    --revision "${VLA_REVISION}" \
     --include \
-    "${run_id}/checkpoints/steps_4000_model.safetensors" \
-    "${run_id}/config.yaml" \
-    "${run_id}/config.full.yaml" \
-    "${run_id}/dataset_statistics.json" \
+    "${prefix}/checkpoints/steps_4000_model.safetensors" \
+    "${prefix}/config.yaml" \
+    "${prefix}/config.full.yaml" \
+    "${prefix}/dataset_statistics.json" \
     --local-dir "${CHECKPOINT_ROOT}"
 }
 
@@ -134,12 +125,12 @@ eval_method() {
 
   raw_name="${env_name}_fix_latency_${latency}_${episodes}ep_7k2steps"
   run_id="${raw_name}_${method}"
-  run_dir="${CHECKPOINT_ROOT}/${run_id}"
+  run_dir="${CHECKPOINT_ROOT}/latency-aware/${env_name//_/-}/vla/starvla-qwenoft-h1/${run_id}"
   checkpoint_path="${run_dir}/checkpoints/steps_4000_model.safetensors"
 
   if [[ ! -f "${checkpoint_path}" ]]; then
     downloaded_checkpoint=1
-    download_run "${run_id}"
+    download_run "${run_id}" "${env_name//_/-}"
   fi
 
   prompt_map="${run_dir}/eval_inputs/${env_name}_fixed_latency_${latency}.json"
@@ -186,7 +177,7 @@ select_methods "${2:-all}"
 
 if [[ ! -f "${BASE_MODEL_DIR}/model-00001-of-00002.safetensors" ||
       ! -f "${BASE_MODEL_DIR}/model-00002-of-00002.safetensors" ]]; then
-  hf_download \
+  conda run --no-capture-output -n latency hf download \
     "${BASE_MODEL_REPO}" \
     --revision "${BASE_MODEL_REVISION}" \
     --local-dir "${BASE_MODEL_DIR}"

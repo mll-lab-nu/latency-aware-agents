@@ -787,7 +787,7 @@
     "verified_at": "2026-09-21T06:17:37.165004+00:00",
     "previous_P_B_reuploaded": false
   },
-  "paired_comparison_url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/b451caa2a6515df3bae22580595151ef5b342f89/air_raid/profile_latency/Pi05/h1_10env_2p5obs_g128_20260920/vla/evaluation/comparison.json",
+  "paired_comparison_url": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/air_raid/profile_latency/Pi05/h1_10env_2p5obs_g128_20260920/vla/evaluation/comparison.json",
   "model_metadata": {
     "state": "PUBLISHED_AND_HASH_VERIFIED",
     "revision": "1e7ef4da6d744d596ddf959ba0aa88bfa4061c3f",
@@ -846,7 +846,7 @@
     "verified_at": "2026-09-21T08:11:32.542013+00:00"
   },
   "model_cards": {
-    "zero_latency": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/blob/1e7ef4da6d744d596ddf959ba0aa88bfa4061c3f/air_raid/zero_latency/Pi05/README.md",
-    "profile_latency": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/blob/1e7ef4da6d744d596ddf959ba0aa88bfa4061c3f/air_raid/profile_latency/Pi05/README.md"
+    "zero_latency": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/reports/source-repository-retirement-20261008/model-metadata/Standard-Pipeline/air_raid/zero_latency/Pi05/README.md",
+    "profile_latency": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/reports/source-repository-retirement-20261008/model-metadata/Standard-Pipeline/air_raid/profile_latency/Pi05/README.md"
   }
 }

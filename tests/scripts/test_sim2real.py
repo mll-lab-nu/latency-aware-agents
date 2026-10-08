@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from huggingface_hub.utils import HfHubHTTPError
+from requests import Response
 
 from latency_bench.core.config import load_config
 from latency_bench.core.clock import EnvClock
@@ -200,30 +202,41 @@ class MemoryHub:
     def __init__(self):
         self.head = "0" * 40
         self.snapshots = {self.head: {}}
+        self.profile_head = "a" * 40
+        self.profile_snapshots = {self.profile_head: {}}
         self.fail_stage = "real/7"
 
-    def repo_info(self, *args, **kwargs):
-        return SimpleNamespace(sha=self.head)
+    def repo_info(self, repo, **kwargs):
+        return SimpleNamespace(sha=self.profile_head if repo == publication_module.PROFILE_REPO else self.head)
 
     def file_exists(self, repo, path, *, repo_type, revision=None):
         if revision is None:
-            revision = self.head
-        return path in self.snapshots[revision]
+            revision = self.repo_info(repo).sha
+        snapshots = self.profile_snapshots if repo == publication_module.PROFILE_REPO else self.snapshots
+        return path in snapshots[revision]
 
     def get_paths_info(self, repo, paths, *, repo_type, revision):
-        return [SimpleNamespace(path=path) for path in paths if path in self.snapshots[revision]]
+        snapshots = self.profile_snapshots if repo == publication_module.PROFILE_REPO else self.snapshots
+        return [SimpleNamespace(path=path) for path in paths if path in snapshots[revision]]
 
     def create_commit(self, *, repo_id, repo_type, operations, commit_message):
         if commit_message.endswith(": " + self.fail_stage):
             self.fail_stage = "never"
             raise RuntimeError("upload interrupted")
-        files = dict(self.snapshots[self.head])
+        profiles = repo_id == publication_module.PROFILE_REPO
+        snapshots = self.profile_snapshots if profiles else self.snapshots
+        head = self.profile_head if profiles else self.head
+        files = dict(snapshots[head])
         for op in operations:
             value = op.path_or_fileobj
             files[op.path_in_repo] = Path(value).read_bytes() if isinstance(value, str) else value
-        self.head = f"{len(self.snapshots):040x}"
-        self.snapshots[self.head] = files
-        return SimpleNamespace(oid=self.head)
+        revision = f"{len(snapshots):040x}" if not profiles else f"a{len(snapshots):039x}"
+        snapshots[revision] = files
+        if profiles:
+            self.profile_head = revision
+        else:
+            self.head = revision
+        return SimpleNamespace(oid=revision)
 
 
 def test_queued_publication_batches_completed_stages_and_recovers_receipts(tmp_path, monkeypatch):
@@ -233,17 +246,46 @@ def test_queued_publication_batches_completed_stages_and_recovers_receipts(tmp_p
     for run_id in (0, 1):
         path = tmp_path / "sim/fixed" / str(run_id)
         write_jsonl(path / "episode_metrics.jsonl", [{"episode_id": i} for i in range(2)])
+        write_jsonl(path / "latencies.jsonl", [{"latency_ms": 12 + run_id}])
+        write_jsonl(path / "actions.jsonl", [{"action": run_id}])
+        write_jsonl(path / "steps.jsonl", [{"step": 0}])
         (path / "DONE").touch()
         assert publication.publish(f"sim/fixed/{run_id}", [path]) is None
     pending = sorted(tmp_path.glob("pending_uploads/**/*.json"))
     assert len(pending) == 2
     assert not (tmp_path / "uploads").exists()
+    # Long-lived publication contract: a rate-limited commit retains completed work and its queue.
+    commit = hub.create_commit
+    def limited(**kwargs):
+        if kwargs["repo_id"] == publication_module.PROFILE_REPO:
+            return commit(**kwargs)
+        response = Response()
+        response.status_code = 429
+        response.headers["Retry-After"] = "600"
+        raise HfHubHTTPError("rate limited", response=response)
+    monkeypatch.setattr(hub, "create_commit", limited)
+    with pytest.raises(HfHubHTTPError, match="rate limited"):
+        publication_module.publish_pending(pending)
+    assert all(path.exists() for path in pending)
+    assert not (tmp_path / "uploads").exists()
+    assert all((tmp_path / f"sim/fixed/{run_id}/DONE").exists() for run_id in (0, 1))
+    assert len(hub.profile_snapshots) == 2
+    assert not hub.snapshots[hub.head]
+    monkeypatch.setattr(hub, "create_commit", commit)
     revision = publication_module.publish_pending(pending)
     assert len(hub.snapshots) == 2
+    assert len(hub.profile_snapshots) == 2
     assert not list(tmp_path.glob("pending_uploads/**/*.json"))
     for run_id in (0, 1):
         assert read_json(tmp_path / f"uploads/sim/fixed/{run_id}.json")["revision"] == revision
         assert f"case/sim/fixed/{run_id}/DONE" in hub.snapshots[revision]
+        assert f"case/sim/fixed/{run_id}/latencies.jsonl" not in hub.snapshots[revision]
+        assert f"case/sim/fixed/{run_id}/latencies.jsonl" in hub.profile_snapshots[hub.profile_head]
+        for name in ("actions.jsonl", "steps.jsonl"):
+            assert f"case/sim/fixed/{run_id}/{name}" not in hub.snapshots[revision]
+            assert f"case/sim/fixed/{run_id}/{name}" in hub.profile_snapshots[hub.profile_head]
+    source = read_json(tmp_path / "uploads/sim/fixed/0.json")
+    assert source["repo_id"] == publication_module.DATASET_REPO
     # Recover a published batch after its local receipt was lost, without another commit.
     (tmp_path / "uploads/sim/fixed/0.json").unlink()
     publication.publish("sim/fixed/0", [tmp_path / "sim/fixed/0"])
@@ -330,9 +372,11 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
     assert all(evaluated.count(directory) == 1 for directory in completed)
 
     def download(**kwargs):
-        assert kwargs["revision"] == source_revision
+        snapshots = hub.snapshots if kwargs["repo_id"] == publication_module.DATASET_REPO else hub.profile_snapshots
+        if kwargs["repo_id"] == publication_module.DATASET_REPO:
+            assert kwargs["revision"] == source_revision
         cache = tmp_path / "cache" / kwargs["revision"]
-        for name, data in hub.snapshots[kwargs["revision"]].items():
+        for name, data in snapshots[kwargs["revision"]].items():
             if any(fnmatch(name, pattern) for pattern in kwargs["allow_patterns"]):
                 path = cache / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -342,6 +386,11 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
     monkeypatch.setattr(publication_module, "snapshot_download", download)
     replay = tmp_path / "different-host" / "replay"
     manifest = publication_module.download_real_experiment(source_ref, source_revision, replay)
+    assert read_json(replay / "profile/profile.json") == profile_before
+    profile_source = read_json(replay / "profile_source.json")
+    assert profile_source["repo_id"] == publication_module.PROFILE_REPO
+    assert f"{source_ref}/profile/profile.json" not in hub.snapshots[source_revision]
+    assert f"{source_ref}/profile/profile.json" in hub.profile_snapshots[profile_source["revision"]]
     changed = deepcopy(base)
     changed["env"].update(env_fps=30, obs_fps=30)
     changed["policy"]["checkpoint_path"] = "/new-host/model.pt"

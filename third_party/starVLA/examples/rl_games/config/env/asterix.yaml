@@ -1,0 +1,28 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  task: asterix
+  env_eval:
+    frameskip: 4
+    task_description: "Collect useful objects and avoid lyres. Choose exactly one action from: noop, up, right, left, down, upright, upleft, downright, downleft."
+    asterix:
+      action_layout: discrete_9
+    atari:
+      env_id: ALE/Asterix-v5
+      noop_max: 30
+
+dataset:
+  single_source_hf: latency-sensitive-bench/benchmark-datasets
+  mixed_source_hf: latency-sensitive-bench/benchmark-datasets
+  revision: ${oc.env:LATENCY_BENCH_DATASET_REVISION}
+  source_subdir: ${oc.env:LATENCY_BENCH_DATASET_SUBDIR}
+  single_converted_name: asterix_train
+  mixed_converted_name: asterix_mixed_latency_train
+  single_latency_filter: null
+  mixed_latency_filter: null
+
+env: asterix

@@ -27,7 +27,7 @@ env:
     render_mode: null
     width: 256
     height: 256
-    scene_path: ./results/humanoidbench_g1_sonic_assets/assets/sonic_g1/envs/scene_balance_simple.xml
+    scene_path: ./results/humanoidbench_g1_sonic_assets/assets/assets/humanoidbench/g1-sonic/sonic_g1/envs/scene_balance_simple.xml
     control_mode: raw_body_target
     raw_learn_hands: true
   env_fps: 50

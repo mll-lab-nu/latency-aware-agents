@@ -7,249 +7,531 @@
       {
         "path": "air_raid/profile_latency/profiling/sessions/0/generated.yaml",
         "sha256": "84f0e9c8927ee5e3ca997cacd3f7fa912a0aba0c06cc2e93024e69fc6d47607a",
-        "bytes": 3686
+        "bytes": 3686,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-profiles",
+          "repo_type": "dataset",
+          "revision": "dd4a03153d49574d9444a9f5b9961c5f7d81308e",
+          "path": "runs/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/air_raid/profile_latency/profiling/sessions/0/generated.yaml"
+        }
       },
       {
         "path": "air_raid/zero_latency/demonstrations/raw/metadata.json",
         "sha256": "c465255fddae1a9d1548ea04ad992aed7892489111365572ef7cf54b53bcc9b2",
-        "bytes": 15253
+        "bytes": 15253,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/air_raid/zero_latency/demonstrations/raw/metadata.json"
+        }
       },
       {
         "path": "air_raid/zero_latency/OpenVLA/training/config.full.yaml",
         "sha256": "3921a82b890c74bc5e40da1c9650c838001fb9304cfdaf47b051471ffcf12c47",
-        "bytes": 8460
+        "bytes": 8460,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/air_raid/zero_latency/OpenVLA/training/config.full.yaml"
+        }
       },
       {
         "path": "air_raid/profile_latency/profiling/execution/bundle/manifest.json",
         "sha256": "3c300fca50f9f58ea6f0dfd7c1cf0bf9391637b31570d0ad50aa3f344f798a35",
-        "bytes": 2728
+        "bytes": 2728,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-profiles",
+          "repo_type": "dataset",
+          "revision": "dd4a03153d49574d9444a9f5b9961c5f7d81308e",
+          "path": "runs/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/air_raid/profile_latency/profiling/execution/bundle/manifest.json"
+        }
       }
     ],
     "inverted_pendulum": [
       {
         "path": "inverted_pendulum/profile_latency/profiling/sessions/0/generated.yaml",
         "sha256": "ed51a76d5fcb4dce5c1021f1728cefb172a1f8ed1ed291e23348c7dece993a34",
-        "bytes": 2770
+        "bytes": 2770,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-profiles",
+          "repo_type": "dataset",
+          "revision": "dd4a03153d49574d9444a9f5b9961c5f7d81308e",
+          "path": "runs/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/profiling/sessions/0/generated.yaml"
+        }
       },
       {
         "path": "inverted_pendulum/zero_latency/source_contract/config.full.yaml",
         "sha256": "c7f9c283fc2a90b8c281ce2ce525fff328f69c344a02d577db855704f9f3e761",
-        "bytes": 8473
+        "bytes": 8473,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/config.full.yaml"
+        }
       },
       {
         "path": "inverted_pendulum/zero_latency/source_contract/config.json",
         "sha256": "f11cebb1f32cbdb0546651b1f7f789ab57c0ecb48571bb12c17ab939cae56941",
-        "bytes": 10027
+        "bytes": 10027,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/config.json"
+        }
       },
       {
         "path": "inverted_pendulum/zero_latency/source_contract/dataset_statistics.json",
         "sha256": "fc5b85024761290e23beb7f59973bff0b9cf3e7e1bbac4902751daa4715b5997",
-        "bytes": 1616
+        "bytes": 1616,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/dataset_statistics.json"
+        }
       },
       {
         "path": "inverted_pendulum/zero_latency/source_contract/inverted_pendulum_l0_small_model_train.yaml",
         "sha256": "4728de3bc0a2d9b18dba31fff6011c409997238def18fada18e806834d91da8f",
-        "bytes": 2257
+        "bytes": 2257,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/inverted_pendulum_l0_small_model_train.yaml"
+        }
       },
       {
         "path": "inverted_pendulum/zero_latency/source_contract/latency_prompt_map.json",
         "sha256": "005c2302f063219287222b41d537faf331dcceb0cd3c243861e70f87b36cb386",
-        "bytes": 403
+        "bytes": 403,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/latency_prompt_map.json"
+        }
       },
       {
         "path": "inverted_pendulum/zero_latency/source_contract/manifest.json",
         "sha256": "31b4924416ae230e59e3c017ff9b2a53742eebd3c7aaf874140bd72078ba2880",
-        "bytes": 3309
+        "bytes": 3309,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/manifest.json"
+        }
       },
       {
         "path": "inverted_pendulum/zero_latency/source_contract/metadata.json",
         "sha256": "38c48a93779247b4aa7a41bea7e92aca6173ff206245faa58a252ef32f04e806",
-        "bytes": 14536
+        "bytes": 14536,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/zero_latency/source_contract/metadata.json"
+        }
       }
     ],
     "hopper": [
       {
         "path": "hopper/profile_latency/profiling/sessions/0/generated.yaml",
         "sha256": "4aa4788fe2ba5e28fccecbc35f7e37b1fcb43935f0a32340f033c0b0e32feedd",
-        "bytes": 4391
+        "bytes": 4391,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-profiles",
+          "repo_type": "dataset",
+          "revision": "dd4a03153d49574d9444a9f5b9961c5f7d81308e",
+          "path": "runs/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/profiling/sessions/0/generated.yaml"
+        }
       },
       {
         "path": "hopper/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json",
         "sha256": "0a7a2d86b11a0f36d96244388216a74a14be2228f60d3719ca4068047de9cb20",
-        "bytes": 3957
+        "bytes": 3957,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json"
+        }
       },
       {
         "path": "hopper/zero_latency/source_contract/config.full.yaml",
         "sha256": "644a01241711bd50cf87016f18aee56c0a98ba5eea41073c69c876b14b8ae58b",
-        "bytes": 9254
+        "bytes": 9254,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/zero_latency/source_contract/config.full.yaml"
+        }
       },
       {
         "path": "hopper/zero_latency/source_contract/config.json",
         "sha256": "38b9488ecf965ef49ac1ccd0d571c9a7f13723470ff51eb1c6e447ecbb69e89f",
-        "bytes": 12487
+        "bytes": 12487,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/zero_latency/source_contract/config.json"
+        }
       },
       {
         "path": "hopper/zero_latency/source_contract/metadata.json",
         "sha256": "6f6ba3dc2556aa2c16f81defde6231458cbe051d082ba7e054150ba1b65e39cd",
-        "bytes": 17602
+        "bytes": 17602,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/zero_latency/source_contract/metadata.json"
+        }
       },
       {
         "path": "hopper/zero_latency/source_contract/small_model_train.yaml",
         "sha256": "2e22333ef7e8a77e175654f9952e5c22f03af26590fb6d5bc543c2d399b63350",
-        "bytes": 2931
+        "bytes": 2931,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/zero_latency/source_contract/small_model_train.yaml"
+        }
       }
     ],
     "half_cheetah": [
       {
         "path": "half_cheetah/profile_latency/profiling/sessions/0/generated.yaml",
         "sha256": "c98b51d3135cdf6135b4b7bdf35851544df0e9761567cfe42d3fbe090039e1e7",
-        "bytes": 4681
+        "bytes": 4681,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-profiles",
+          "repo_type": "dataset",
+          "revision": "dd4a03153d49574d9444a9f5b9961c5f7d81308e",
+          "path": "runs/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/profile_latency/profiling/sessions/0/generated.yaml"
+        }
       },
       {
         "path": "half_cheetah/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json",
         "sha256": "7158a299001903577b029076d89142e898858ff5aa020b5f41f543fed9c0bcae",
-        "bytes": 5126
+        "bytes": 5126,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json"
+        }
       },
       {
         "path": "half_cheetah/zero_latency/source_contract/config.full.yaml",
         "sha256": "3e0b8cc588b66e81647fc76f3f84e95617500b53e5ecee518155cf51f00dbd11",
-        "bytes": 9787
+        "bytes": 9787,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/source_contract/config.full.yaml"
+        }
       },
       {
         "path": "half_cheetah/zero_latency/source_contract/config.json",
         "sha256": "5b24b560de92070cb116dd637ad4d036aea6dc0707098408a2df9b257c896fdd",
-        "bytes": 11755
+        "bytes": 11755,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/source_contract/config.json"
+        }
       },
       {
         "path": "half_cheetah/zero_latency/source_contract/metadata.json",
         "sha256": "267da8c4d6ba9f84c1f15f70efff3869ebded9141d0ab756783b181c9ba00541",
-        "bytes": 16953
+        "bytes": 16953,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/source_contract/metadata.json"
+        }
       },
       {
         "path": "half_cheetah/zero_latency/source_contract/small_model_train.yaml",
         "sha256": "d59c0024205f97b0b5b78ec59f4a65040e6c4357fbd08c9b72f755848a5cad58",
-        "bytes": 3417
+        "bytes": 3417,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah/zero_latency/source_contract/small_model_train.yaml"
+        }
       }
     ],
     "walker2d": [
       {
         "path": "walker2d/profile_latency/profiling/sessions/0/generated.yaml",
         "sha256": "fd1cc7bb4ea0f4fc0df21ec4d35085b7f5ceb22df0cb030c5a8b6bf70eb8da5f",
-        "bytes": 4377
+        "bytes": 4377,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-profiles",
+          "repo_type": "dataset",
+          "revision": "dd4a03153d49574d9444a9f5b9961c5f7d81308e",
+          "path": "runs/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/profile_latency/profiling/sessions/0/generated.yaml"
+        }
       },
       {
         "path": "walker2d/zero_latency/source_contract/config.full.yaml",
         "sha256": "0251f2f6b914e082d47535429a9ba3962a708a8ce540d36250b3c323b5a483bc",
-        "bytes": 10284
+        "bytes": 10284,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/source_contract/config.full.yaml"
+        }
       },
       {
         "path": "walker2d/zero_latency/source_contract/config.json",
         "sha256": "04cdafd34d3f96867dea15a77c8e3c43b7959918200fdfb77bb00711eb76805a",
-        "bytes": 11677
+        "bytes": 11677,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/source_contract/config.json"
+        }
       },
       {
         "path": "walker2d/zero_latency/source_contract/dataset_statistics.json",
         "sha256": "1956e498026db81002e20cb62543ee44c55a82b4bf1a10dce3517483de0ecd83",
-        "bytes": 3501
+        "bytes": 3501,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/source_contract/dataset_statistics.json"
+        }
       },
       {
         "path": "walker2d/zero_latency/source_contract/latency_prompt_map.json",
         "sha256": "217614e4fff7c3d10333970c262ce7f4cf081d2552c8a851a1035204a5af76c4",
-        "bytes": 428
+        "bytes": 428,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/source_contract/latency_prompt_map.json"
+        }
       },
       {
         "path": "walker2d/zero_latency/source_contract/manifest.json",
         "sha256": "a460e0388afba84bd1c681369041f4de94ff5ce0b0df8a85612a2ae21510ab4e",
-        "bytes": 5122
+        "bytes": 5122,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/source_contract/manifest.json"
+        }
       },
       {
         "path": "walker2d/zero_latency/source_contract/metadata.json",
         "sha256": "c8ea2669493beabd97d9e7ecd06cc443adcb1760d8e71dd03588ea4adea20ae9",
-        "bytes": 17148
+        "bytes": 17148,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/source_contract/metadata.json"
+        }
       },
       {
         "path": "walker2d/zero_latency/source_contract/original_teacher_config.json",
         "sha256": "b97a5c88732b6899f12a83a6628da98a9147d28e4cb2c09a397d942f11447b39",
-        "bytes": 11223
+        "bytes": 11223,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/source_contract/original_teacher_config.json"
+        }
       },
       {
         "path": "walker2d/zero_latency/source_contract/small_model_train.yaml",
         "sha256": "60c642b3823f3c40e311d07c752c9c1f0a05a7246eeeb17374ac8ace5aece9cf",
-        "bytes": 2520
+        "bytes": 2520,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/walker2d/zero_latency/source_contract/small_model_train.yaml"
+        }
       }
     ],
     "ant": [
       {
         "path": "ant/profile_latency/profiling/sessions/0/generated.yaml",
         "sha256": "cf4b2235aa45671cc2ca01f69dd7b169ea437d012f76fe53e582f0799ae34851",
-        "bytes": 5206
+        "bytes": 5206,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-profiles",
+          "repo_type": "dataset",
+          "revision": "dd4a03153d49574d9444a9f5b9961c5f7d81308e",
+          "path": "runs/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/profiling/sessions/0/generated.yaml"
+        }
       },
       {
         "path": "ant/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json",
         "sha256": "b02d0999b0b63773ac4785246007b17bce90c0991176bb7eef7789bc5cea8803",
-        "bytes": 6903
+        "bytes": 6903,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant/zero_latency/OpenVLA/provenance/dataset_contract/manifest.json"
+        }
       },
       {
         "path": "ant/zero_latency/source_contract/config.full.yaml",
         "sha256": "9df0231436b3ba3bb75178c51f7cf11ea189729325585b92d57cbabe2116e2f0",
-        "bytes": 11135
+        "bytes": 11135,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant/zero_latency/source_contract/config.full.yaml"
+        }
       },
       {
         "path": "ant/zero_latency/source_contract/config.json",
         "sha256": "19fe862b5a2812bca2fb74196af6965ddd5ca5c1fede0c4f0d5c3ecd212f4580",
-        "bytes": 14748
+        "bytes": 14748,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant/zero_latency/source_contract/config.json"
+        }
       },
       {
         "path": "ant/zero_latency/source_contract/metadata.json",
         "sha256": "38b57378b57f29b0e46b382028c668d41e46aa6bfa26b3be80d52076ed8088f2",
-        "bytes": 20949
+        "bytes": 20949,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant/zero_latency/source_contract/metadata.json"
+        }
       },
       {
         "path": "ant/zero_latency/source_contract/small_model_train.yaml",
         "sha256": "fa7b1971f7c01681f43359db88e464c4fcf348fd1d9e52e52740a06064a8b971",
-        "bytes": 3989
+        "bytes": 3989,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant/zero_latency/source_contract/small_model_train.yaml"
+        }
       }
     ],
     "humanoid": [
       {
         "path": "humanoid/profile_latency/profiling/sessions/0/generated.yaml",
         "sha256": "20ccc6fc02f7ed465f8866d3c6d8e9e9c655de9c5269edb58698572ea787fbd0",
-        "bytes": 14851
+        "bytes": 14851,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-profiles",
+          "repo_type": "dataset",
+          "revision": "dd4a03153d49574d9444a9f5b9961c5f7d81308e",
+          "path": "runs/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/profile_latency/profiling/sessions/0/generated.yaml"
+        }
       },
       {
         "path": "humanoid/zero_latency/source_contract/config.full.yaml",
         "sha256": "9443a602d015af3da1a1e17894ad1769600dad57cfcd0fe8c08dabae3ada39db",
-        "bytes": 33583
+        "bytes": 33583,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/source_contract/config.full.yaml"
+        }
       },
       {
         "path": "humanoid/zero_latency/source_contract/config.json",
         "sha256": "8b63a9bfd376b8f0b4f324d4fd976b72110eae0fd554fa4fe794816a54b76d4c",
-        "bytes": 42364
+        "bytes": 42364,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/source_contract/config.json"
+        }
       },
       {
         "path": "humanoid/zero_latency/source_contract/dataset_statistics.json",
         "sha256": "0f26b7ac728e7c104f1fe330f1228f16c98bb1ddc67b828355b30da78acde7bc",
-        "bytes": 51825
+        "bytes": 51825,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/source_contract/dataset_statistics.json"
+        }
       },
       {
         "path": "humanoid/zero_latency/source_contract/latency_prompt_map.json",
         "sha256": "8e562ac3bc7c130fcfdcafe16faf7c2887536a5579cd62ae7f5d762614f3e2e3",
-        "bytes": 606
+        "bytes": 606,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/source_contract/latency_prompt_map.json"
+        }
       },
       {
         "path": "humanoid/zero_latency/source_contract/manifest.json",
         "sha256": "afc359bb829068302e27ca68c5db8c8a071a605176ed9c8320a1f92ae3265386",
-        "bytes": 44344
+        "bytes": 44344,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/source_contract/manifest.json"
+        }
       },
       {
         "path": "humanoid/zero_latency/source_contract/metadata.json",
         "sha256": "0886fea6d671e925a1f94c1d52abaa2f35c0bb4bef61b15b59e6795511d2744d",
-        "bytes": 60442
+        "bytes": 60442,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/source_contract/metadata.json"
+        }
       },
       {
         "path": "humanoid/zero_latency/source_contract/small_model_train.yaml",
         "sha256": "24f0791ef8ee5157b6fc95333dbae3bfa802175bab42083d5e3a40d8985e90e8",
-        "bytes": 14200
+        "bytes": 14200,
+        "central": {
+          "repository": "MLL-Lab/LAGEN-datasets",
+          "repo_type": "dataset",
+          "revision": "ae3ae769e2814c06b1db728723ae18cc8b5e9d34",
+          "path": "experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/humanoid/zero_latency/source_contract/small_model_train.yaml"
+        }
       }
     ]
   }

@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  task: deadly_corridor
+  deadly_corridor_loss_type: null
+  env_eval:
+    frameskip: 4
+    deadly:
+      action_layout: multibinary_7
+      multibinary_threshold: null
+    task_description: "You are playing Deadly Corridor in VizDoom. Choose actions from MOVE_FORWARD, MOVE_BACKWARD, MOVE_LEFT, MOVE_RIGHT, TURN_LEFT, TURN_RIGHT, ATTACK."
+
+dataset:
+  single_source_hf: ""
+  mixed_source_hf: ""
+  single_converted_name: deadly_corridor_train
+  mixed_converted_name: deadly_corridor_mixed_latency_train
+  single_latency_filter: null
+  mixed_latency_filter: null
+
+env: deadly_corridor

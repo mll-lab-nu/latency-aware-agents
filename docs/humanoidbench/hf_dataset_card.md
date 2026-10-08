@@ -17,17 +17,19 @@ HumanoidBench. The task prompt is:
 Keep the G1 humanoid balanced on the support board.
 ```
 
-This dataset is published in the `latency-sensitive-bench/humanoidbench`
-dataset repository. HumanoidBench scene assets are not duplicated here; use
-`latency-sensitive-bench/g1-sonic-assets` at revision
-`7c0a6616c78106adf9fa54dfc40e56ea07dc7d5d`.
+This export is retained in `MLL-Lab/LAGEN-datasets`
+at revision `4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a`, under
+`zero-latency/humanoidbench-balance-simple/teacher-rollouts-v1/`. Scene assets use the same
+repository at `8678de04e6b59692d85c8e6e690c5ca482626857`, under
+`assets/humanoidbench/g1-sonic/sonic_g1/`. The original source revisions remain
+in the consolidation manifest.
 
 ## Dataset contents
 
 The repository layout is:
 
 ```text
-balance_simple/
+teacher-rollouts-v1/
 ├── lerobot/       # train: 90 episodes, 86,048 frames
 └── lerobot__val/  # validation: 10 episodes, 9,736 frames
 ```
@@ -89,7 +91,7 @@ applied in this dataset.
 
 ## Intended use
 
-Use `balance_simple/lerobot` for training and keep `balance_simple/lerobot__val`
+Use `lerobot` for training and keep `lerobot__val`
 for validation. The StarVLA modality maps these fields to `state.state`,
 `action.action`, and `video.ego_view`; Balance uses the H8 action contract.
 

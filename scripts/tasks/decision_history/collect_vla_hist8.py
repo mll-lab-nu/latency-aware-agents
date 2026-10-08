@@ -23,7 +23,7 @@ from latency_bench.data.sf_teacher_probe import write_probe_state, merge_probe_s
 
 ROOT = Path(__file__).resolve().parents[3]
 RECEIPTS = ROOT / "outputs/tasks/decision_history_temporal_25m_seed42"
-MODEL_REPO = "latency-sensitive-bench/benchmark-models"
+MODEL_REPO = "MLL-Lab/LAGEN-models"
 MODEL_REPO_REVISION = "af125bd372c22c5b00e326d9af1af64ea3751b56"
 MODEL_LABELS = {"qwenoft": "qwenoft", "qwengr00t": "gr00t", "qwenpi_v3": "pi05"}
 TASK_SETTINGS = {
@@ -170,7 +170,7 @@ def main() -> None:
         repo_revision = catalog["revision"]
         profile_receipt = receipt
         profile_root = args.profile_root.resolve() / "results/profiling"
-        snapshot_download("latency-sensitive-bench/profiles", repo_type="dataset",
+        snapshot_download("MLL-Lab/LAGEN-profiles", repo_type="dataset",
                           revision=catalog["profile_revision"],
                           allow_patterns=[str(Path(receipt["profile_path"]).parent / "*")],
                           local_dir=profile_root)
@@ -334,7 +334,7 @@ def main() -> None:
         "teacher_path": receipt["path"], "teacher_checkpoint": receipt["checkpoint"],
         "teacher_sha256": receipt["sha256"], "profile_path": str(profile_path),
         "profile_sha256": profile_receipt["profile_sha256"],
-        **({"profile_repo": "latency-sensitive-bench/profiles", "profile_revision": catalog["profile_revision"],
+        **({"profile_repo": "MLL-Lab/LAGEN-profiles", "profile_revision": catalog["profile_revision"],
             "rollout_overrides": {"latency_profile_path": str(profile_path), "seed": 42,
                                   "simulator": device, "probe_envs": probe_envs,
                                   "replay_envs": replay_envs, "policy_inference_batch_size": probe_envs,

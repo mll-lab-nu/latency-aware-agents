@@ -14,7 +14,7 @@ env:
   registration_imports:
     - latency_bench.envs.tasks.humanoidbench.sonic
   make_kwargs:
-    scene_path: ./results/humanoidbench_g1_sonic_assets/assets/sonic_g1/envs/scene_balance_simple.xml
+    scene_path: ./results/humanoidbench_g1_sonic_assets/assets/assets/humanoidbench/g1-sonic/sonic_g1/envs/scene_balance_simple.xml
     render_mode: rgb_array
     width: 256
     height: 256

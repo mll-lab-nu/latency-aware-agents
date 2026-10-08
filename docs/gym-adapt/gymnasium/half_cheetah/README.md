@@ -36,13 +36,13 @@ L0 reused 100 original APPO H1 episodes: 90/10 split, 90000/10000 rows, clock me
 
 ### Models, data and evidence
 
-- [Profile, B recovery and gate evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/223f2106c10b264b820963391ec546d8dce039a5/half_cheetah/profile_latency/GR00T/h1_5fps_20260917)
+- [Profile, B recovery and gate evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/half_cheetah/profile_latency/GR00T/h1_5fps_20260917)
 
-- [teacher archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah)
+- [teacher archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah)
 
-- [L0 evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/324664672c0d45666d6aded0b81af0c900ca1d28/half_cheetah/zero_latency/GR00T/h1_5fps_20260917)
+- [L0 evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/half_cheetah/zero_latency/GR00T/h1_5fps_20260917)
 
-- [L0 checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/3b4294bafb55a9ad8a6327c0995e15478e3ac371/half_cheetah/zero_latency/GR00T)
+- [L0 checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/half-cheetah/vla/starvla-qwengr00t-h1/half_cheetah_l0_gr00t_h1_5fps_2h200_20260917)
 
 ## OpenVLA
 
@@ -70,7 +70,7 @@ L0: 100 teacher episodes, 90/10 split, 90000/10000 rows. Profile: strict return>
 
 ### Models, data and evidence
 
-- [Complete fixed-revision archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah)
+- [Complete fixed-revision archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/half_cheetah)
 
 - [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/half_cheetah/zero_latency/OpenVLA)
 
@@ -111,6 +111,6 @@ L0: original 100 APPO H1 episodes, 90/10 split, 90000/10000 rows; clock/prompt m
 
 - [Teacher scientific-stop audit](assets/evidence/teacher-verification.json)
 
-- [Published selected teacher](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/cf5763197b16922b14121ad982c4128e92607e1d/half_cheetah/profile_latency/small_model/Pi05)
+- [Published selected teacher](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/half-cheetah/small-policy/sample-factory-qwenoft-rtx3090-v1)
 
-- [L0 checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/ae2efeb81414f262e1839874e4691aef62b0b879/half_cheetah/zero_latency/Pi05)
+- [L0 checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/half-cheetah/vla/starvla-qwenpi_v3-h1/half_cheetah_pi05_l0_h1_5fps_g128_20260921)

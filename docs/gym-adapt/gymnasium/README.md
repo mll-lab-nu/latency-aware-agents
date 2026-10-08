@@ -2,6 +2,12 @@
 
 [HTML overview](index.html).
 
+These reports preserve each experiment's settings and results. Commands inside
+reports may contain original machine paths. Prepare the corresponding published
+artifacts and replace local paths before running them. Use the
+[artifact guide](../../artifacts.md#prepare-a-backbone-for-evaluation) for portable inputs.
+The task tables include experiments beyond the paper's selected benchmark.
+
 | Environment | Model | Profile mean / P95 (ms) | L0 teacher → L0 | L0 VLA → L0 | L0 VLA → real-time (B) | Profile teacher → profile (E10) | Profile VLA → real-time (F) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [InvertedPendulum](inverted_pendulum/index.html) | GR00T · Completed | 108.09 / 114.50 ms | — | 1,000.00 ± 0.00 | 15.55 ± 4.79 | 1,000.00 ± 0.00 | 1,000.00 ± 0.00 |

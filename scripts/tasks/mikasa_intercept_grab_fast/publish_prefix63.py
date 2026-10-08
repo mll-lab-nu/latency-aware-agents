@@ -15,8 +15,8 @@ from latency_bench.utils.hf import resolve_token
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import QWEN_BACKBONE_REVISION
 
 
-MODEL_REPO = "latency-sensitive-bench/benchmark-models"
-DATA_REPO = "latency-sensitive-bench/benchmark-datasets"
+MODEL_REPO = "MLL-Lab/LAGEN-models"
+DATA_REPO = "MLL-Lab/LAGEN-datasets"
 
 
 def publish_folder(source: Path, prefix: str, *, repo_id: str, repo_type: str) -> str:
@@ -40,11 +40,10 @@ def publish_folder(source: Path, prefix: str, *, repo_id: str, repo_type: str) -
 
 
 def publish_training_endpoint(directory: Path, model_prefix: str) -> None:
-    """Publish the completed training phase, including its full recovery state."""
+    """Publish the completed phase's inference weight and training provenance."""
     cfg = yaml.safe_load((directory / "config.full.yaml").read_text())
     step = cfg['trainer']['max_train_steps']
     model_path = directory / 'checkpoints' / f'steps_{step}_pytorch_model.pt'
-    state_path = directory / 'checkpoints' / f'steps_{step}_state'
     prefix = f"{model_prefix}/training/{cfg['run_id']}/step_{step:05d}"
     receipt = directory / f"publication_step_{step}.json"
     if receipt.is_file():
@@ -57,7 +56,6 @@ def publish_training_endpoint(directory: Path, model_prefix: str) -> None:
         stage = Path(staging)
         (stage / "checkpoints").mkdir()
         os.link(model_path, stage / "checkpoints/model.pt")
-        shutil.copytree(state_path, stage / "trainer_state", copy_function=os.link)
         full = yaml.safe_load((directory / "config.full.yaml").read_text())
         inference = {key: copy.deepcopy(full[key]) for key in ("framework", "version_id")}
         inference["framework"]["qwenvl"]["base_vlm"] = "Qwen/Qwen3-VL-4B-Instruct"

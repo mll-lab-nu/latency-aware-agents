@@ -1,0 +1,19 @@
+# @package _global_
+
+defaults:
+  - mixed_latency
+  - _self_
+
+datasets:
+  vla_data:
+    sequential_step_sampling: true
+    eval_sequential_step_sampling: false
+    eval_num_workers: 0
+    latency_curriculum:
+      enabled: true
+      strategy: curriculum_cumulative_distribution
+      latencies: ${rl_games.env_eval.latency.values}
+      phase_steps: null
+      phase_distributions: null
+
+mode: curriculum_cumulative_distribution

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export HF_ENDPOINT=https://huggingface.co
 
 # Run from the latency-sensitive-bench repo root on a GPU machine:
 #   conda activate latency
@@ -22,12 +23,12 @@ set -euo pipefail
 #   FILTER_PRESET=none
 #   EPISODE_RETURN_GT=<override acceptance gate, or none to disable>
 #   MAX_ATTEMPTS=<optional maximum rollout attempts>
-#   HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
+#   HF_ROLLOUT_REPO=MLL-Lab/LAGEN-datasets
 #   PUSH_TO_HUB=1
 #   ROLLOUT_MUJOCO_GL=glfw  # auto-runs under xvfb-run when DISPLAY is absent
 
 export HF_MODEL_REPO="${HF_MODEL_REPO:-latency-sensitive-bench/paper-experiment-models}"
-export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-latency-sensitive-bench/inverted_pendulum_200ep}"
+export HF_ROLLOUT_REPO="${HF_ROLLOUT_REPO:-MLL-Lab/LAGEN-datasets}"
 export INVERTED_PENDULUM_ROLLOUT_ROOT="${INVERTED_PENDULUM_ROLLOUT_ROOT:-${HOME}/talha}"
 export SMALL_MODEL_CKPT_ROOT="${SMALL_MODEL_CKPT_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_small_model_ckpts}"
 export ROLLOUT_DATA_ROOT="${ROLLOUT_DATA_ROOT:-${INVERTED_PENDULUM_ROLLOUT_ROOT}/inverted_pendulum_latency024_rollout_datasets}"
@@ -374,7 +375,7 @@ Defaults:
   EPISODE_RETURN_GT defaults by latency: l0 > 7000, l2 > 85, l4 > 24
   Set EPISODE_RETURN_GT=none to disable, or EPISODE_RETURN_GT=<number> to override.
   MAX_ATTEMPTS=<optional maximum total rollout attempts>
-  HF_ROLLOUT_REPO=latency-sensitive-bench/inverted_pendulum_200ep
+  HF_ROLLOUT_REPO=MLL-Lab/LAGEN-datasets
   PUSH_TO_HUB=1
   ROLLOUT_MUJOCO_GL=glfw by default; without DISPLAY the script auto-wraps itself in xvfb-run.
 

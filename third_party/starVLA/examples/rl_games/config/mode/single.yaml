@@ -1,0 +1,24 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  env_eval:
+    latency:
+      mode: single
+      values: [0]
+    mid_train:
+      latencies: [0]
+
+dataset:
+  source_hf: ${dataset.single_source_hf}
+  converted_name: ${dataset.single_converted_name}
+  latency_filter: ${dataset.single_latency_filter}
+
+datasets:
+  vla_data:
+    data_mix: ${dataset.converted_name}
+
+mode: single

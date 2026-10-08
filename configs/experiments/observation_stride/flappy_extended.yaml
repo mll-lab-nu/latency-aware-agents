@@ -5,12 +5,12 @@ train_dir: results/checkpoints/observation_stride/flappy
 output_root: outputs/observation_stride/flappy/extended
 device: cuda
 restart_behavior: resume
-train_upload_repo_id: latency-sensitive-bench/paper-experiment-models
+train_upload_repo_id: MLL-Lab/LAGEN-models
 train_upload_repo_type: model
-train_upload_path_prefix: observation_stride/flappy
-eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+train_upload_path_prefix: latency-aware/flappy/small-policy
+eval_upload_repo_id: MLL-Lab/LAGEN-datasets
 eval_upload_repo_type: dataset
-eval_upload_path_prefix: observation_stride/flappy/extended
+eval_upload_path_prefix: evaluations/flappy/observation-stride-extended
 seeds:
   - 10
   - 11

@@ -5,7 +5,7 @@ protocol:
   valid: [5, 6, 7, 8, 9]
   calibration_samples: 500
   calibration_rounds: 2
-model_repo: latency-sensitive-bench/benchmark-models
+model_repo: MLL-Lab/LAGEN-models
 model_revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
 backbone:
   repo_id: Qwen/Qwen3-VL-4B-Instruct
@@ -18,13 +18,13 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/flappy_qwenoft.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/flappy/vla/starvla-qwenoft-h1/flappy-qwenoft-hist8-scratch-s42-v2/evaluations/profile/eval_config.yaml
       policy_files: {}
       training_profile:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/flappy/vla/starvla-qwenoft-h1/flappy-qwenoft-hist8-scratch-s42-v2/profiles/profile.json
@@ -35,13 +35,13 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/flappy_qwenpi_v3.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/flappy/vla/starvla-qwenpi_v3-h1/flappy-qwenpi_v3-hist8-scratch-s42-v2-vlm3e-6/evaluations/profile/eval_config.yaml
       policy_files: {}
       training_profile:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/flappy/vla/starvla-qwenpi_v3-h1/flappy-qwenpi_v3-hist8-scratch-s42-v2-vlm3e-6/profiles/profile.json
@@ -52,13 +52,13 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/flappy_qwengr00t.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/flappy/vla/starvla-qwengr00t-h1/flappy-qwengr00t-hist8-scratch-s42-v2/evaluations/profile/eval_config.yaml
       policy_files: {}
       training_profile:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/flappy/vla/starvla-qwengr00t-h1/flappy-qwengr00t-hist8-scratch-s42-v2/profiles/profile.json
@@ -70,13 +70,13 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/demon_attack_qwenoft.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/demon-attack/vla/starvla-qwenoft-h1/demon_attack-qwenoft-hist8-scratch-s42-v2/evaluations/profile/eval_config.yaml
       policy_files: {}
       training_profile:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/demon-attack/vla/starvla-qwenoft-h1/demon_attack-qwenoft-hist8-scratch-s42-v2/profiles/profile.json
@@ -87,13 +87,13 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/demon_attack_qwenpi_v3.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/demon-attack/vla/starvla-qwenpi_v3-h1/demon_attack-qwenpi_v3-hist8-scratch-s42-v2-vlm3e-6/evaluations/profile/eval_config.yaml
       policy_files: {}
       training_profile:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/demon-attack/vla/starvla-qwenpi_v3-h1/demon_attack-qwenpi_v3-hist8-scratch-s42-v2-vlm3e-6/profiles/profile.json
@@ -104,13 +104,13 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/demon_attack_qwengr00t.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/demon-attack/vla/starvla-qwengr00t-h1/demon_attack-qwengr00t-hist8-scratch-s42-v2/evaluations/profile/eval_config.yaml
       policy_files: {}
       training_profile:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/demon-attack/vla/starvla-qwengr00t-h1/demon_attack-qwengr00t-hist8-scratch-s42-v2/profiles/profile.json
@@ -122,14 +122,14 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/asterix_qwenoft.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/asterix/vla/starvla-qwenoft-h1/asterix-qwenoft-hist8-profile-s42-v1/evaluation_profile/eval_config.yaml
       policy_files:
         task_manifest_path: manifest.json
       training_profile:
-        repo_id: latency-sensitive-bench/profiles
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
         revision: fbbba76b21fa705cf4e5d05ec1ecfb82a88b12d8
         path: profiles/qwenoft/1x-rtx3090/asterix/instance_d907cdaf680040e0/profile.json
@@ -140,14 +140,14 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/asterix_qwenpi_v3.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/asterix/vla/starvla-qwenpi_v3-h1/asterix-qwenpi_v3-hist8-profile-s42-v1/evaluation_profile/eval_config.yaml
       policy_files:
         task_manifest_path: manifest.json
       training_profile:
-        repo_id: latency-sensitive-bench/profiles
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
         revision: 36f784f257aabf73721d5edd63abc7b3dee1a272
         path: profiles/qwenpi_v3/1x-rtx3090/asterix/instance_d907cdaf680040e0/profile.json
@@ -158,14 +158,14 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/asterix_qwengr00t.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/asterix/vla/starvla-qwengr00t-h1/asterix-qwengr00t-hist8-profile-s42-v1/evaluation_profile/eval_config.yaml
       policy_files:
         task_manifest_path: manifest.json
       training_profile:
-        repo_id: latency-sensitive-bench/profiles
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
         revision: 15001405a402e30b7706476bc92aea45a61bb193
         path: profiles/qwengr00t/1x-rtx3090/asterix/instance_d907cdaf680040e0/profile.json
@@ -177,18 +177,18 @@ tasks:
       model_config: config.full.yaml
       eval_config: configs/experiments/sim2real/eval/ant_qwenoft.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-datasets
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: ant/profile_latency/OpenVLA/20260911T112232Z-ant/vla/evaluation/records/F.yaml
+        revision: ae3ae769e2814c06b1db728723ae18cc8b5e9d34
+        path: experiments/benchmark-training/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/OpenVLA/20260911T112232Z-ant/vla/evaluation/records/F.yaml
       policy_files:
         task_manifest_path: manifest.json
         latency_prompt_map_path: latency_prompt_map.json
       training_profile:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: ant/profile_latency/OpenVLA/20260911T112232Z-ant/profiling/profile/profile.json
+        revision: dd4a03153d49574d9444a9f5b9961c5f7d81308e
+        path: runs/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/OpenVLA/20260911T112232Z-ant/profiling/profile/profile.json
       checkpoint_kind: best
     qwenpi_v3:
       bundle: latency-aware/ant/vla/starvla-qwenpi_v3-h1/ant_pi05_profile_h1_5fps_g128_20260920
@@ -196,18 +196,18 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/ant_qwenpi_v3.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-datasets
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/config/F.yaml
+        revision: ae3ae769e2814c06b1db728723ae18cc8b5e9d34
+        path: experiments/benchmark-training/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/config/F.yaml
       policy_files:
         task_manifest_path: manifest.json
         latency_prompt_map_path: latency_prompt_map.json
       training_profile:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: ant/profile_latency/Pi05/h1_5fps_g128_20260920/profiling/profile/profile.json
+        revision: dd4a03153d49574d9444a9f5b9961c5f7d81308e
+        path: runs/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/Pi05/h1_5fps_g128_20260920/profiling/profile/profile.json
       checkpoint_kind: best
     qwengr00t:
       bundle: latency-aware/ant/vla/starvla-qwengr00t-h1/ant_profile_gr00t_h1_5fps_2h100_20260917
@@ -215,18 +215,18 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/ant_qwengr00t.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-datasets
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: ant/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/F.yaml
+        revision: ae3ae769e2814c06b1db728723ae18cc8b5e9d34
+        path: experiments/benchmark-training/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/F.yaml
       policy_files:
         task_manifest_path: manifest.json
         latency_prompt_map_path: latency_prompt_map.json
       training_profile:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: ant/profile_latency/GR00T/h1_5fps_20260917/profiling/profile.json
+        revision: dd4a03153d49574d9444a9f5b9961c5f7d81308e
+        path: runs/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/GR00T/h1_5fps_20260917/profiling/profile.json
       checkpoint_kind: best
   inverted_pendulum:
     qwenoft:
@@ -235,18 +235,18 @@ tasks:
       model_config: config.full.yaml
       eval_config: configs/experiments/sim2real/eval/inverted_pendulum_qwenoft.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-datasets
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: inverted_pendulum/profile_latency/OpenVLA/20260911T010114Z-ip10/vla/evaluation/records/F.yaml
+        revision: 8c74f4f9caf1ef0880649c62afa19092353913c0
+        path: experiments/sim2real-calibration/assets/inverted_pendulum/qwenoft/eval_source/F.yaml
       policy_files:
         task_manifest_path: manifest.json
         latency_prompt_map_path: latency_prompt_map.json
       training_profile:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: inverted_pendulum/profile_latency/OpenVLA/20260911T010114Z-ip10/profiling/profile/profile.json
+        revision: 8b0373a969a8addc659bddc5b5bf742d7825d735
+        path: experiments/sim2real-calibration/assets/inverted_pendulum/qwenoft/training_profile/profile.json
       checkpoint_kind: best
     qwenpi_v3:
       bundle: latency-aware/inverted-pendulum/vla/starvla-qwenpi_v3-h1/ip_profile_pi05_h1_5fps_2h100_20260918
@@ -254,18 +254,18 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/inverted_pendulum_qwenpi_v3.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-datasets
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918/vla/evaluation/config/F.yaml
+        revision: ae3ae769e2814c06b1db728723ae18cc8b5e9d34
+        path: experiments/benchmark-training/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918/vla/evaluation/config/F.yaml
       policy_files:
         task_manifest_path: manifest.json
         latency_prompt_map_path: latency_prompt_map.json
       training_profile:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918/profiling/profile/profile.json
+        revision: dd4a03153d49574d9444a9f5b9961c5f7d81308e
+        path: runs/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918/profiling/profile/profile.json
       checkpoint_kind: best
     qwengr00t:
       bundle: latency-aware/inverted-pendulum/vla/starvla-qwengr00t-h1/ip_profile_gr00t_h1_5fps_1h200_20260917
@@ -273,18 +273,18 @@ tasks:
       model_config: config.yaml
       eval_config: configs/experiments/sim2real/eval/inverted_pendulum_qwengr00t.yaml
       eval_source:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-datasets
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917/vla/evaluation/F.yaml
+        revision: 8c74f4f9caf1ef0880649c62afa19092353913c0
+        path: experiments/sim2real-calibration/assets/inverted_pendulum/qwengr00t/eval_source/F.yaml
       policy_files:
         task_manifest_path: manifest.json
         latency_prompt_map_path: latency_prompt_map.json
       training_profile:
-        repo_id: latency-sensitive-bench/Standard-Pipeline
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
-        revision: ff90f1b6c46a6eaae55bbf341762f03a2be6e013
-        path: inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917/profiling/profile/profile.json
+        revision: 8b0373a969a8addc659bddc5b5bf742d7825d735
+        path: experiments/sim2real-calibration/assets/inverted_pendulum/qwengr00t/training_profile/profile.json
       checkpoint_kind: best
   mikasa_intercept_grab_fast:
     qwenoft:
@@ -294,7 +294,7 @@ tasks:
       eval_config: configs/experiments/sim2real/eval/mikasa_intercept_grab_fast_qwenoft.yaml
       eval_source:
         archive: outputs/tasks/mikasa_intercept_grab_fast/h1_hold_last_reval_20260923/qwenoft/eval_config.yaml
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h1/mikasa_qwenoft_latency_3090_2xh200_20260922_evalfix_20260923/provenance.json
@@ -302,7 +302,7 @@ tasks:
       policy_files:
         task_contract_path: task_contract.json
       training_profile:
-        repo_id: latency-sensitive-bench/profiles
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
         revision: 66414463f2a609316da63935941a79abf0a73ce9
         path: profiles/qwenoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
@@ -314,7 +314,7 @@ tasks:
       eval_config: configs/experiments/sim2real/eval/mikasa_intercept_grab_fast_qwenpi_v3.yaml
       eval_source:
         archive: outputs/tasks/mikasa_intercept_grab_fast/h1_hold_last_reval_20260923/qwenpi_v3/eval_config.yaml
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_qwenpi_v3_latency_3090_2xh200_20260922_evalfix_20260923/provenance.json
@@ -322,7 +322,7 @@ tasks:
       policy_files:
         task_contract_path: task_contract.json
       training_profile:
-        repo_id: latency-sensitive-bench/profiles
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
         revision: 66414463f2a609316da63935941a79abf0a73ce9
         path: profiles/qwenpi_v3/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json
@@ -334,7 +334,7 @@ tasks:
       eval_config: configs/experiments/sim2real/eval/mikasa_intercept_grab_fast_qwengr00t.yaml
       eval_source:
         archive: outputs/tasks/mikasa_intercept_grab_fast/h1_hold_last_reval_20260923/qwengr00t/eval_config.yaml
-        repo_id: latency-sensitive-bench/benchmark-models
+        repo_id: MLL-Lab/LAGEN-models
         repo_type: model
         revision: 180da0effdaaaeacef218cf5fbaa4db41af67495
         path: latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwengr00t-h1/mikasa_qwengr00t_latency_3090_2xh200_20260922_evalfix_20260923/provenance.json
@@ -342,7 +342,7 @@ tasks:
       policy_files:
         task_contract_path: task_contract.json
       training_profile:
-        repo_id: latency-sensitive-bench/profiles
+        repo_id: MLL-Lab/LAGEN-profiles
         repo_type: dataset
         revision: 66414463f2a609316da63935941a79abf0a73ce9
         path: profiles/qwengr00t/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c/profile.json

@@ -109,7 +109,7 @@ the input module. `policy/starvla_tasks.py` remains the separate task-contract
 path for multi-view inputs and full action chunks. The training evaluation and
 resident DAgger integrations continue to reuse these policy interfaces.
 
-The Sample Factory source version is fixed by the repository's submodule commit.
+The Sample Factory source version is fixed by the benchmark repository commit.
 Compatibility code in `training/common` has active training consumers:
 
 - `sf_gpu_sampling_compat.py` adapts batched rollout advancement for GPU tensor
@@ -126,11 +126,6 @@ real training and performance checks. A local code cleanup alone does not justif
 removing a patch or changing its installation order.
 
 ## Validation and remaining release gates
-
-See [the refactor acceptance record](../program/REFACTOR.md) for the current
-implementation decisions and scoped verification. The
-[2026-09-20 cleanup record](audits/infra_release_cleanup.md) records that revision's
-checks and baseline failures; it does not establish the current test status.
 
 Use the owning suites under `tests/` and the existing infrastructure acceleration
 benchmark. Compare fixed checkpoints, resolved configs, episode IDs, seeds,
@@ -152,9 +147,8 @@ step. Record retention does not change these episode metrics; the existing
 [executor tests](../tests/executors/test_batched_simulated_executor.py) cover both
 retention modes. Historical result artifacts retain their original values.
 
-For release acceptance, exercise a fresh checkout with pinned submodules and
+For release acceptance, exercise a fresh checkout with vendored sources and
 explicit external artifacts, including evaluation from outside the checkout.
-[Archived audits](audits/archive/README.md) are dated implementation evidence,
-not a current checklist. Verified task results and decisions belong in
-[`program/PROGRESS.md`](../program/PROGRESS.md); operational history belongs in
-`program/logs/` and raw evidence in `outputs/`.
+Record the tested revision, environment, and results with the experiment artifacts.
+Public result references belong in the [artifact registry](artifacts.md).
+Development plans and operational history belong outside the source repository.

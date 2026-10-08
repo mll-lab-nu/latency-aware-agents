@@ -1,0 +1,60 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  model_alias: wan_oft
+
+model: wan_oft
+
+paths:
+  base_model_dir: playground/Pretrained_models/Wan-AI/Wan2.2-TI2V-5B-Diffusers
+
+base_model:
+  repo_id: Wan-AI/Wan2.2-TI2V-5B-Diffusers
+
+initialization:
+  checkpoint_local_dir: playground/Pretrained_models/WM4A-Wan2d2-OFT-LIBERO-4in1
+  checkpoint_hf_repo_id: StarVLA/WM4A-Wan2d2-OFT-LIBERO-4in1
+  checkpoint_filename: checkpoints/steps_60000_pytorch_model.pt
+
+framework:
+  name: WanOFT
+  qwenvl:
+    base_vlm: ${paths.base_model_dir}
+    attn_implementation: sdpa
+  world_model:
+    base_wm: ${paths.base_model_dir}
+    extract_layers: [-1]
+    num_frames: null
+  action_model:
+    action_model_type: MLP
+    action_dim: 7
+    action_env_dim: 2
+    state_dim: 7
+    action_horizon: 8
+    future_action_window_size: 7
+    past_action_window_size: 0
+    loss_type: discrete_ce
+    action_query_source: mean
+    action_query_num_heads: 24
+
+datasets:
+  vla_data:
+    include_state: true
+    observation_indices: [-3, -2, -1, 0]
+    language_indices: [0]
+    state_indices: [0]
+    action_indices: [0, 1, 2, 3, 4, 5, 6, 7]
+    pack_image_sequence: true
+    image_sequence_length: 4
+    context_images_column: observation.context_images
+    per_device_batch_size: 1
+
+trainer:
+  learning_rate:
+    base: 2.5e-05
+    action_model: 1.0e-04
+    action_query_proj: 1.0e-04

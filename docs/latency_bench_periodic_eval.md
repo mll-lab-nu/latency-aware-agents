@@ -14,7 +14,7 @@ configs/examples/flappy_periodic_latency_bench_eval.yaml
 python -m training.train --config configs/examples/flappy_periodic_latency_bench_eval.yaml
 ```
 
-本地生成的 `configs/train/flappy/latency_0/seed_0/train.yaml` 也已经加了同样字段；但 `configs/train` 在 `.gitignore` 中，所以长期保存用上面的 `configs/examples` 示例或直接继承 `configs/base/<env>.yaml`。
+`configs/train/` 存放本地生成的配置，不属于发布内容。长期保存的配方应使用上面的 `configs/examples` 示例，或继承 `configs/base/<env>.yaml`。
 
 关键字段：
 

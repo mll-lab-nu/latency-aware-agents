@@ -114,18 +114,6 @@ def test_registry_has_deadly_corridor_profile_presets():
         assert spec["simulation_parallel_envs"] == 1
 
 
-def test_registry_has_openvla_defend_the_line_profile_preset():
-    spec = load_profile_spec("configs/profiles.yaml", "openvla", "defend_the_line")
-
-    assert spec["session_count"] == 5
-    assert spec["eval_episodes"] == 10
-    assert spec["calibrate_env_fps"] is False
-    assert spec["model_artifact"]["checkpoint"] == "checkpoints/steps_7000_model.safetensors"
-    assert spec["model_artifact"]["local_root"].endswith(
-        "openvla_bridge_defend_the_line_single_latency_clean_data_exp1"
-    )
-
-
 def test_deployment_collection_preserves_cuda_device_selector(monkeypatch):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
     monkeypatch.setattr(

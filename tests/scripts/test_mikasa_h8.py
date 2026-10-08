@@ -724,9 +724,9 @@ def test_prefix63_report_keeps_matched_selection_and_fixed_prefix(tmp_path, trai
     assert "comparison" not in result
 
 
-@pytest.mark.parametrize("upload_result", ["ok", "missing-state", "network-error"])
-def test_prefix63_completed_phase_publication_requires_complete_remote_state(tmp_path, monkeypatch, upload_result):
-    """Long-lived publication contract: a model-only or failed upload cannot acknowledge recoverability."""
+@pytest.mark.parametrize("upload_result", ["ok", "missing-model", "network-error"])
+def test_prefix63_completed_phase_publication_requires_complete_inference_bundle(tmp_path, monkeypatch, upload_result):
+    """Long-lived publication contract: verify the inference bundle and retain recovery state locally."""
     from scripts.tasks.mikasa_intercept_grab_fast import publish_prefix63 as publish
 
     trained = tmp_path / "training"
@@ -760,7 +760,7 @@ def test_prefix63_completed_phase_publication_requires_complete_remote_state(tmp
     def paths_info(repo, paths, **kwargs):
         assert kwargs["revision"] == "verified-revision"
         return [SimpleNamespace(path=p, size=len(uploaded[p])) for p in paths
-                if not (upload_result == "missing-state" and p.endswith("optimizer.pt"))]
+                if not (upload_result == "missing-model" and p.endswith("checkpoints/model.pt"))]
 
     monkeypatch.setattr(publish, "HfApi", lambda **kwargs: SimpleNamespace(
         upload_folder=upload_folder, get_paths_info=paths_info))
@@ -774,7 +774,8 @@ def test_prefix63_completed_phase_publication_requires_complete_remote_state(tmp
         assert json.loads(receipt.read_text())["revision"] == "verified-revision"
         prefix = "test/fixed-2/training/dagger/step_05000/"
         assert uploaded[prefix + "checkpoints/model.pt"] == b"test-model"
-        assert uploaded[prefix + "trainer_state/optimizer.pt"] == b"test-optimizer"
+        assert not any("trainer_state/" in path for path in uploaded)
+        assert (state / "optimizer.pt").read_bytes() == b"test-optimizer"
         assert json.loads(uploaded[prefix + "task_contract.json"])["state_dim"] == 63
         def unexpected_network(**kwargs):
             raise AssertionError("Completed publication must use its saved revision")

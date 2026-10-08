@@ -1,0 +1,23 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  task: demon_attack
+  env_eval:
+    frameskip: 4
+    demon_attack:
+      noop_max: 30
+    task_description: "You are playing Demon Attack from a single game image. Choose exactly one action from: NOOP, FIRE, RIGHT, LEFT, RIGHTFIRE, LEFTFIRE."
+
+dataset:
+  single_source_hf: ""
+  mixed_source_hf: ""
+  single_converted_name: demon_attack_train
+  mixed_converted_name: demon_attack_mixed_latency_train
+  single_latency_filter: null
+  mixed_latency_filter: null
+
+env: demon_attack

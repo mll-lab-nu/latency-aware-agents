@@ -1,0 +1,23 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  task: defend_the_line
+  env_eval:
+    frameskip: 4
+    task_description: "You are playing Defend the Line in VizDoom. Your goal is to survive by turning toward enemies and shooting them before they reach you. The available actions are: TURN_LEFT, TURN_RIGHT, and ATTACK. Choose the best next action from the current visual observation."
+
+dataset:
+  single_source_hf: latency-sensitive-bench/benchmark-datasets
+  mixed_source_hf: latency-sensitive-bench/benchmark-datasets
+  revision: 4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a
+  source_subdir: zero-latency/defend-the-line/defend_the_line_fixed_latency_0_1000ep_7k2steps
+  single_converted_name: defend_the_line_train
+  mixed_converted_name: defend_the_line_mixed_latency_train
+  single_latency_filter: null
+  mixed_latency_filter: null
+
+env: defend_the_line

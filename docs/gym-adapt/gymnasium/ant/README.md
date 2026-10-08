@@ -35,15 +35,15 @@ L0 shared APPO 100 episodes, 88,667/10,000 rows; clock/prompt metadata20→5 FPS
 
 ### Models, data and evidence
 
-- [Profile data and final compact evidence](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/f23f353a9c6b3efaa4407d32134fda8fa30fe78e/ant/profile_latency/GR00T/h1_5fps_20260917)
+- [Profile data and final compact evidence](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/GR00T/h1_5fps_20260917)
 
-- [Final model](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/43f38eff5728642c0bb4dcaf844d15781fb47e68/ant/profile_latency/GR00T)
+- [Final model](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/ant/vla/starvla-qwengr00t-h1/ant_profile_gr00t_h1_5fps_2h100_20260917)
 
 - [Historical shared L0 teacher](assets/evidence/queue_eval_latency_0.json)
 
 - [Detailed experiment report](index.html)
 
-- [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/1a249d62d641428a6bd8b784d8f025655ceb5fb6/ant/zero_latency/GR00T)
+- [L0 VLA checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/ant/vla/starvla-qwengr00t-h1/ant_l0_gr00t_h1_5fps_2h100_20260917)
 
 ## OpenVLA
 
@@ -71,9 +71,9 @@ L0 strict>3000, 100 accepted/108 attempts, 90/10 episodes, 88,667/10,000 rows. P
 
 ### Models, data and evidence
 
-- [Complete fixed experiment archive](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/ant)
+- [Complete fixed experiment archive](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant)
 
-- [Completed pipeline and gate amendment](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/provenance/pipeline/status.md)
+- [Completed pipeline and gate amendment](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant/profile_latency/provenance/pipeline/status.md)
 
 - [Historical shared L0 teacher](assets/evidence/queue_eval_latency_0.json)
 
@@ -111,16 +111,16 @@ Profile probe12/12,100 accepted/101 attempts, strict>3000, 90/10 episodes, 89,80
 
 - [Reconciled metrics and evidence map](assets/evidence/pi05-pipeline-summary-20260922.md)
 
-- [Recovered B full audit](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/f7107e354eca862df087362307f0d574c2490349/ant/profile_latency/Pi05/h1_5fps_g128_20260920/baseline/validation/B-recovered-audit.json)
+- [Recovered B full audit](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/baseline/validation/B-recovered-audit.json)
 
-- [F20 full audit](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/591db41843567bf4a1946ddfe66d2f51aaf8d7c6/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/validation/F-verification.json)
+- [F20 full audit](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/validation/F-verification.json)
 
-- [Teacher verification](https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/Pi05/h1_5fps_g128_20260920/small_model/evaluation/verification.json)
+- [Teacher verification](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/Pi05/h1_5fps_g128_20260920/small_model/evaluation/verification.json)
 
-- [Profile checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/20f7452df3e281b6aea0f5a66a1602eb70297490/ant/profile_latency/Pi05)
+- [Profile checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/ant/vla/starvla-qwenpi_v3-h1/ant_pi05_profile_h1_5fps_g128_20260920)
 
 - [Historical shared L0 teacher](assets/evidence/queue_eval_latency_0.json)
 
 - [Detailed experiment report](index.html)
 
-- [L0 VLA checkpoint](https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/95dedf8583692024daa890fe3499b5540167eb77/ant/zero_latency/Pi05)
+- [L0 VLA checkpoint](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/ant/vla/starvla-qwenpi_v3-h1/ant_pi05_l0_h1_5fps_g128_20260920_m32)

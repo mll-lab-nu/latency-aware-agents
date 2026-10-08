@@ -3,7 +3,7 @@
 Use this pipeline to measure one model/workload on the GPUs that will serve
 inference, then build a latency profile that can be replayed in simulation.
 
-For the pinned 18-model experiment with five fitting and five held-out runs,
+For the published 30-case experiment with 25 fitting and 25 held-out runs,
 use the [single-experiment sim2real runner](../../scripts/experiments/sim2real/README.md).
 It calibrates clocks against each model's training profile and archived eval.
 
@@ -56,12 +56,14 @@ Use the backbone matching the checkpoint and retain the model family in its path
 the existing StarVLA loader uses that name to select its implementation. A legacy
 `framework.*.base_vlm`/`base_wm` value alone does not establish immutable identity.
 
-Balance uses all visible GPUs for inference. The other three tasks use logical
-`cuda:0` for the native simulator and `cuda:1..` for inference, so expose at
-least two GPUs. The launcher and its inference workers use the currently active
-Python environment.
+Balance and CPU-simulator workloads use all visible GPUs for inference.
+MIKASA uses logical `cuda:0` for simulation and `cuda:1..` for inference,
+so expose at least two GPUs. Select the workload's simulator and model
+interpreters as described in [installation](../QUICK_START.md).
 
-Every task runs five sessions of 10 episodes and writes under
+The registry specifies `session_count` and `eval_episodes` per workload.
+Current game presets use five sessions of 10 episodes. Balance and MIKASA
+presets use five sessions of 50 episodes. Runs write under
 `results/profiling/`. Results stay local unless `--publish` is added. Publishing
 starts only after the complete run and fitted profile exist:
 
@@ -98,7 +100,7 @@ models:
         model_artifact:
           local_root: outputs/path/to/model-root
           checkpoint: .
-          hf_repo: latency-sensitive-bench/benchmark-models
+          hf_repo: MLL-Lab/LAGEN-models
           hf_path: zero-latency/my-task/vla/my-model-v1
         checkpoint_kind: latest
         session_count: 5

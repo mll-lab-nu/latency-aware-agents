@@ -24,12 +24,16 @@ is the [MIKASA cookbook](https://github.com/ZihanWang314/latency-sensitive-bench
 
 ## Contents
 
+The published rollouts are retained in `MLL-Lab/LAGEN-datasets`
+at `4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a`, under
+`zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-v1/`. The paths below are relative
+to that directory.
+
 ```text
-data_npz/intercept_grab_fast_vla_v0/            # 275 raw episodes
-data_lerobot/
-├── local/intercept_grab_fast_vla_v0_h1_train/  # 250 episodes
-├── local/intercept_grab_fast_vla_v0_h1_val/    # 25 episodes
-└── mikasa_intercept_grab_fast_h1.json
+raw/                              # 275 raw episodes
+lerobot/                          # 250 training episodes
+lerobot__val/                     # 25 validation episodes
+mikasa_intercept_grab_fast_h1.json
 ```
 
 The raw rollout contains 275 successful episodes, 9,859 transitions, and 275
@@ -72,8 +76,8 @@ Each split is self-contained with `data/`, `videos/`, and `meta/`:
 | `frame_index` | `int64[1]` | frame id within episode |
 | `task_index` | `int64[1]` | task id |
 
-Use `local/intercept_grab_fast_vla_v0_h1_train` for training and keep
-`local/intercept_grab_fast_vla_v0_h1_val` for held-out action-loss evaluation.
+Use `lerobot` for training and keep
+`lerobot__val` for held-out action-loss evaluation.
 The mixture JSON records both exact StarVLA dataset names.
 
 ## Provenance

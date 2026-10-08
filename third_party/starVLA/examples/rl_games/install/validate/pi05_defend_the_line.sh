@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PYTHON_BIN="${PYTHON_BIN:-python}"
+"$PYTHON_BIN" - <<'PY'
+import gymnasium as gym
+import vizdoom
+import vizdoom.gymnasium_wrapper  # noqa: F401
+
+from starVLA.model.framework.VLM4A.QwenPI_v3 import Qwen_PI_v3  # noqa: F401
+
+env = gym.make(
+    "VizdoomDefendLine-MultiBinary-v1",
+    render_mode="rgb_array",
+    frame_skip=4,
+)
+env.reset()
+env.close()
+print("ok-pi05-defend-the-line")
+PY

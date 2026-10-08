@@ -1,0 +1,7 @@
+# @package _global_
+
+rl_games:
+  initialization_mode: scratch
+  action_carrier: native
+
+init: scratch

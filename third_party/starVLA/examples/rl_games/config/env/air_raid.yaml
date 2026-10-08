@@ -1,0 +1,35 @@
+# @package _global_
+
+defaults:
+  - base
+  - _self_
+
+rl_games:
+  task: air_raid
+  env_eval:
+    # AirRaid is PAL Atari: 50 raw frames/sec. The policy observes every
+    # fourth raw frame, so latency labels are observation-step latencies.
+    frameskip: 4
+    task_description: "Protect both buildings from flying saucers. Choose exactly one action from: noop, fire, right, left, rightfire, leftfire."
+    atari:
+      env_id: ALE/AirRaid-v5
+      # Keep the ALE env at native raw-frame stepping; StarVLA repeats actions
+      # frameskip=4 times per decision to match env_fps=50, obs_fps=12.5.
+      gym_frameskip: 1
+      noop_max: 30
+      fire_reset: true
+      mode: 1
+      difficulty: 0
+      repeat_action_probability: 0.0
+      full_action_space: false
+      max_num_frames_per_episode: 108000
+
+dataset:
+  single_source_hf: ""
+  mixed_source_hf: ""
+  single_converted_name: air_raid_train
+  mixed_converted_name: air_raid_mixed_latency_train
+  single_latency_filter: null
+  mixed_latency_filter: null
+
+env: air_raid

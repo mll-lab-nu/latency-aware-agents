@@ -214,11 +214,11 @@ def test_memory_rollout_teacher_spec_emits_single_uploadable_job(
     assert row["latency_label"] == latency_label
     assert row["latency_kind"] == "fixed"
     assert row["latency_fixed_frames"] == str(latency_frames)
-    assert row["train_upload_repo_id"] == "latency-sensitive-bench/paper-experiment-models"
+    assert row["train_upload_repo_id"] == "MLL-Lab/LAGEN-models"
     assert row["train_upload_repo_type"] == "model"
     assert row["eval_upload_repo_id"] == ""
     assert row["train_artifact_repo_path"].startswith(
-        f"memory/rollout_teachers/{env_name}/train/"
+        f"latency-aware/{env_name.replace('_', '-')}/small-policy/memory_rollout_teacher:{env_name}:"
     )
 
     train_cfg = yaml.safe_load(Path(row["train_config"]).read_text(encoding="utf-8"))
@@ -386,10 +386,10 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     assert {row["frame_stack"] for row in rows} == {"1", "2", "3", "4", "5", "6", "7", "8"}
     assert {row["observation_stride"] for row in rows} == {"1"}
     assert {row["train_upload_repo_id"] for row in rows} == {
-        "latency-sensitive-bench/paper-experiment-models"
+        "MLL-Lab/LAGEN-models"
     }
     assert {row["eval_upload_repo_id"] for row in rows} == {
-        "latency-sensitive-bench/paper-experiment-evals"
+        "MLL-Lab/LAGEN-datasets"
     }
 
     train_cfg = yaml.safe_load(

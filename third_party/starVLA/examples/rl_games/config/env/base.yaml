@@ -1,0 +1,27 @@
+# @package _global_
+
+rl_games:
+  env_eval:
+    image_size: 224
+    frameskip: 1
+    image_transform: raw_rgb
+    prompt_mode: raw
+    ghost_trail:
+      history_frames: 5
+      gamma: 1.3
+      min_alpha: 35
+      scroll_px_per_step: 4.0
+      ground_fraction: 0.22
+    seed: ${seed}
+    fixed_episode_seeds: true
+    latency_seed_stride: 0
+    task_seed_stride: 0
+    task_description: ""
+    # Envs evaluated in parallel per rollout when eval_backend=latency_bench
+    # (batched policy forward). 1 = sequential. VRAM grows ~linearly with this;
+    # per-stage override allowed under mid_train/post_train. Set in the launch
+    # script: rl_games.env_eval.eval_parallel_envs=8
+    eval_parallel_envs: 5
+    action_chunk_execution:
+      enabled: false
+      chunk_size: null

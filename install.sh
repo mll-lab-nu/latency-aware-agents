@@ -5,7 +5,6 @@ INSTALL_TIER="dev"
 MODEL_TARGET=""
 SKIP_FLASH_ATTN="false"
 RUN_VALIDATE="true"
-INIT_PRIVATE_SUBMODULES="false"
 PYTHON_VERSION="3.10"
 CUDA_VERSION="12.8.1"
 LATENCY_ENV_NAME="latency"
@@ -29,7 +28,6 @@ Options:
   --model <name|all>       Required: openvla|pi0|pi05|gr00t|wan_oft|all
   --skip-validate          Skip final validation in selected model envs
   --skip-flash-attn        Skip FlashAttention install/check in selected model envs
-  --init-private-submodules Initialize private model submodules too
   -h, --help               Show this help
 EOF
 }
@@ -50,10 +48,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-validate)
             RUN_VALIDATE="false"
-            shift
-            ;;
-        --init-private-submodules)
-            INIT_PRIVATE_SUBMODULES="true"
             shift
             ;;
         -h|--help)
@@ -212,31 +206,10 @@ install_latency_env() {
     echo "[install] latency environment complete"
 }
 
-init_model_submodules() {
-    local -a submodules=(
-        third_party/starVLA
-        third_party/sample-factory
-        third_party/flappy-bird-gymnasium
-    )
-
-    case "${MODEL_TARGET}" in
-        gr00t|all)
-            if [[ "${INIT_PRIVATE_SUBMODULES}" == "true" ]]; then
-                submodules+=(
-                    third_party/MIKASA-Robo
-                )
-            fi
-            ;;
-    esac
-
-    git submodule update --init "${submodules[@]}"
-}
-
 ensure_conda
 persist_conda_shell_init
 
 cd "${SCRIPT_DIR}"
-init_model_submodules
 
 CONDA_BASE="$(conda info --base)"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${CONDA_BASE}/.uv_cache}"

@@ -5,9 +5,12 @@ train_dir: results/checkpoints/memory/small_model/flappy
 output_root: outputs/memory/small_model/flappy/capped
 device: cuda
 restart_behavior: resume
-eval_upload_repo_id: latency-sensitive-bench/paper-experiment-evals
+train_upload_repo_id: MLL-Lab/LAGEN-models
+train_upload_repo_type: model
+train_upload_path_prefix: latency-aware/flappy/small-policy
+eval_upload_repo_id: MLL-Lab/LAGEN-datasets
 eval_upload_repo_type: dataset
-eval_upload_path_prefix: memory/small_model/flappy/capped
+eval_upload_path_prefix: evaluations/flappy/context-window-capped
 seeds:
   - 10
   - 11

@@ -7,6 +7,7 @@ REPO_ROOT=/workspace/latency-sensitive-bench
 set -a
 source "${REPO_ROOT}/.env"
 set +a
+export HF_ENDPOINT=https://huggingface.co
 echo "HF_TOKEN set: ${HF_TOKEN:+yes}    WANDB_API_KEY set: ${WANDB_API_KEY:+yes}"
 
 # non-interactive bash doesn't auto-load conda's shell hook
@@ -22,16 +23,21 @@ else
 fi
 
 # --- download data (latency_2) ---
-hf download latency-sensitive-bench/flappy_200ep_7k2steps \
+DATASET_REVISION="15d17287246bd19940c837d6c8a5327564f969c5"
+DATASET_PREFIX="latency-aware/flappy/flappy_fix_latency_2_200ep_7k2steps"
+DATASET_CACHE="${REPO_ROOT}/third_party/starVLA/data/raw/.hf-benchmark-datasets/${DATASET_REVISION}"
+RAW_DATA_ROOT="${DATASET_CACHE}/${DATASET_PREFIX}"
+hf download MLL-Lab/LAGEN-datasets \
+  --revision "${DATASET_REVISION}" \
   --repo-type dataset \
-  --include "flappy_fix_latency_2_200ep_7k2steps/**" \
-  --local-dir "${REPO_ROOT}/third_party/starVLA/data/raw/flappy_fix_latency_2_200ep_7k2steps"
+  --include "latency-aware/flappy/flappy_fix_latency_2_200ep_7k2steps/**" \
+  --local-dir "${DATASET_CACHE}"
 
 # --- process data ---
 # convert 脚本用相对路径，需在 third_party/starVLA/ 下运行；真实路径在 bash_scripts/gr00t/data_conversion/。
 cd "${REPO_ROOT}/third_party/starVLA"
 python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_flappy_to_starvla_lerobot.py \
-  --dataset-name data/raw/flappy_fix_latency_2_200ep_7k2steps \
+  --dataset-name "${RAW_DATA_ROOT}" \
   --source-fps 30 \
   --obs-stride-raw-frames 1 \
   --source-latency-column latency_raw_frames \
@@ -53,9 +59,9 @@ CHECKPOINT_DIR="${RUN_DIR}/checkpoints"
 compgen -G "${CHECKPOINT_DIR}/steps_*_model.safetensors" > /dev/null
 find "${CHECKPOINT_DIR}" -maxdepth 1 -type d -name "steps_*_state" -exec rm -rf {} +
 
-hf upload latency-sensitive-bench/memory \
+hf upload MLL-Lab/LAGEN-models \
   "${RUN_DIR}" \
-  ./flappy_fix_latency_2_200ep_7k2steps_kv_memory_flex \
+  ./latency-aware/flappy/vla/starvla-qwenoft-h1/flappy_fix_latency_2_200ep_7k2steps_kv_memory_flex \
   --exclude "wandb/**" \
   --exclude "checkpoints/_initialization/**" \
   --exclude "checkpoints/*_state/**" \

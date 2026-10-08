@@ -25,7 +25,7 @@ cd "${REPO_ROOT}"
 CUDA_VISIBLE_DEVICES=0 "${PYTHON}" -c \
   "from training.flappy_sf.flappy_cuda_extension import load_flappy_cuda_extension; load_flappy_cuda_extension()"
 
-"${HF_CLI}" download latency-sensitive-bench/profiles \
+"${HF_CLI}" download MLL-Lab/LAGEN-profiles \
   --repo-type dataset \
   --revision "${PROFILE_REVISION}" \
   --include "profiles/openvla/1x-rtx3090/flappy/instance_a5037b165aa0cedc/*" \

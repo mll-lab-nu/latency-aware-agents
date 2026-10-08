@@ -12,7 +12,7 @@ scheduler:
   hold_last_chunk_action: true
 
 profile_source:
-  repo_id: latency-sensitive-bench/profiles
+  repo_id: MLL-Lab/LAGEN-profiles
   revision: 66414463f2a609316da63935941a79abf0a73ce9
   path: profiles/qwenoft/1x-rtx3090/mikasa_intercept_grab_fast/instance_3a0d42681a03715c
 

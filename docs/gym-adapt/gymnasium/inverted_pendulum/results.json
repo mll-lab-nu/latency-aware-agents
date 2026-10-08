@@ -26,15 +26,15 @@
       "sources": [
         {
           "label": "Profile data, raw B/F traces and final comparison",
-          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/b561e4d1e15ee32dd133046896d4ded3087898a9/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917"
+          "url": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/inverted_pendulum/profile_latency/GR00T/h1_5fps_20260917"
         },
         {
           "label": "Profile checkpoint",
-          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/df76ab5e19a7b90d49c2a27a8f4133701d6d559f/inverted_pendulum/profile_latency/GR00T"
+          "url": "https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/inverted-pendulum/vla/starvla-qwengr00t-h1/ip_profile_gr00t_h1_5fps_1h200_20260917"
         },
         {
           "label": "L0 checkpoint",
-          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/6358f39350b2ce864479637c4d9cbbf4137343a0/inverted_pendulum/zero_latency/GR00T"
+          "url": "https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/inverted-pendulum/vla/starvla-qwengr00t-h1/ip_l0_gr00t_h1_5fps_1h200_20260917"
         },
         {
           "label": "Detailed experiment report",
@@ -67,11 +67,11 @@
       "sources": [
         {
           "label": "Fixed complete experiment archive",
-          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum"
+          "url": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum"
         },
         {
           "label": "Historical E10 summary",
-          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/small_model/evaluation/summary.json"
+          "url": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/inverted_pendulum/profile_latency/small_model/evaluation/summary.json"
         },
         {
           "label": "Profile model bundle",
@@ -115,15 +115,15 @@
         },
         {
           "label": "Final model",
-          "url": "https://huggingface.co/latency-sensitive-bench/Standard-Pipeline/tree/1eb76cfa0299bc778a66452bf248c84dbc24ddc6/inverted_pendulum/profile_latency/Pi05"
+          "url": "https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/inverted-pendulum/vla/starvla-qwenpi_v3-h1/ip_profile_pi05_h1_5fps_2h100_20260918"
         },
         {
           "label": "Complete science evidence",
-          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/1c23cb1c6cde53f07917909dd04a100fbb1160f2/inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918"
+          "url": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/1c23cb1c6cde53f07917909dd04a100fbb1160f2/inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918"
         },
         {
           "label": "Full audited F traces",
-          "url": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/e20d12cc7ae30558947f36ab38b886aa89b20c9d/inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918/vla/evaluation/traces"
+          "url": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/inverted_pendulum/profile_latency/Pi05/h1_5fps_20260918/vla/evaluation/traces"
         },
         {
           "label": "Detailed experiment report",

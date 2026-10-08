@@ -210,12 +210,12 @@
   "losses": 1,
   "scientific_scope": "Within-model descriptive B/F comparison under the stated Ant protocol; no architecture ranking or equal-delay causal claim.",
   "sources": {
-    "B_audit": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/f7107e354eca862df087362307f0d574c2490349/ant/profile_latency/Pi05/h1_5fps_g128_20260920/baseline/validation/B-recovered-audit.json",
-    "P_audit": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/f7107e354eca862df087362307f0d574c2490349/ant/profile_latency/Pi05/h1_5fps_g128_20260920/profiling/validation/P-verification.json",
+    "B_audit": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/baseline/validation/B-recovered-audit.json",
+    "P_audit": "https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles/blob/8baa06beca7265b239f50826bc8cea0f989326ad/runs/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/profiling/validation/P-verification.json",
     "F_audit_local": "/Users/dongqianyu/Research/latency-sensitive-bench/outputs/pi05/ant/h1_5fps_g128_20260920/F-verification.json",
     "comparison_local": "/Users/dongqianyu/Research/latency-sensitive-bench/outputs/pi05/ant/h1_5fps_g128_20260920/comparison.json",
-    "F_audit": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/591db41843567bf4a1946ddfe66d2f51aaf8d7c6/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/validation/F-verification.json",
-    "comparison": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/591db41843567bf4a1946ddfe66d2f51aaf8d7c6/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/comparison.json"
+    "F_audit": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/validation/F-verification.json",
+    "comparison": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/comparison.json"
   },
   "publication": {
     "state": "PUBLISHED_AND_HASH_VERIFIED",
@@ -223,11 +223,11 @@
     "hf_commit_started": true,
     "post_eval_metadata_hash_check": "VERIFIED",
     "dataset_revision": "591db41843567bf4a1946ddfe66d2f51aaf8d7c6",
-    "dataset_root": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/tree/591db41843567bf4a1946ddfe66d2f51aaf8d7c6/ant/profile_latency/Pi05/h1_5fps_g128_20260920",
-    "F_verification": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/591db41843567bf4a1946ddfe66d2f51aaf8d7c6/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/validation/F-verification.json",
-    "comparison": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/591db41843567bf4a1946ddfe66d2f51aaf8d7c6/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/comparison.json",
-    "traces": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/591db41843567bf4a1946ddfe66d2f51aaf8d7c6/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/traces/episode_metrics.jsonl",
-    "teacher_training_verification": "https://huggingface.co/datasets/latency-sensitive-bench/Standard-Pipeline/blob/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/Pi05/h1_5fps_g128_20260920/small_model/evaluation/verification.json",
+    "dataset_root": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920",
+    "F_verification": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/validation/F-verification.json",
+    "comparison": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/comparison.json",
+    "traces": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/ant/profile_latency/Pi05/h1_5fps_g128_20260920/vla/evaluation/traces/episode_metrics.jsonl",
+    "teacher_training_verification": "https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/ff90f1b6c46a6eaae55bbf341762f03a2be6e013/ant/profile_latency/Pi05/h1_5fps_g128_20260920/small_model/evaluation/verification.json",
     "teacher_evidence_revision": "ff90f1b6c46a6eaae55bbf341762f03a2be6e013"
   }
 }

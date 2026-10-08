@@ -133,6 +133,9 @@ if [[ -n "${HF_REPO_ID:-}" ]]; then
     if [[ -n "${HF_CONFIG_NAME:-}" ]]; then
         CMD+=(--hf-config-name "${HF_CONFIG_NAME}")
     fi
+    if [[ -v HF_DATA_DIR ]]; then
+        CMD+=(--hf-data-dir "${HF_DATA_DIR}")
+    fi
 fi
 
 printf '==> Running teacher dataset export\n'
