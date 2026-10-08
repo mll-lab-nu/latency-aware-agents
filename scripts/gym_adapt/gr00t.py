@@ -273,8 +273,10 @@ def main():
         print(args.output / "eval.yaml")
     elif args.command == "profile":
         from latency_bench.profiling.runner import run_profile
+        from latency_bench.profiling.profile_resolver import resolve_model_artifacts
 
         spec = profile_spec(args.task, args.config.resolve(), args.bundle.resolve(), args.output.resolve())
+        spec = resolve_model_artifacts(spec, model_path=args.bundle.resolve())
         print(json.dumps(run_profile(spec, resume_run_id=args.resume, publish=False)))
 
 

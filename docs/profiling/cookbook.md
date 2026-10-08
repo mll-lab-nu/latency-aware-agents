@@ -41,6 +41,21 @@ The Demon Attack launchers use the model-specific StarVLA environment active in
 the current shell; run them from the matching `starvla_rl_games_*` environment or
 pass `--hf-artifacts` to download the registered model artifact.
 
+StarVLA profiling also binds the backbone's model and processor files. Bundles
+with `backbone.repo_id` metadata in their actual `config.yaml` resolve that
+backbone to a concrete HF snapshot. For older bundles, supply its local directory
+explicitly (or set `policy.backbone_path` in the base evaluation config):
+
+```bash
+CUDA_VISIBLE_DEVICES=0 bash scripts/profile.sh run \
+  --model openvla --workload flappy --model-path MODEL_PATH \
+  --backbone-path /models/Qwen2.5-VL-3B-Instruct
+```
+
+Use the backbone matching the checkpoint and retain the model family in its path;
+the existing StarVLA loader uses that name to select its implementation. A legacy
+`framework.*.base_vlm`/`base_wm` value alone does not establish immutable identity.
+
 Balance uses all visible GPUs for inference. The other three tasks use logical
 `cuda:0` for the native simulator and `cuda:1..` for inference, so expose at
 least two GPUs. The launcher and its inference workers use the currently active
@@ -58,7 +73,11 @@ To resume, rerun the same command with `--resume "$RUN_ID"`; completed
 sessions are skipped and the incomplete session is rerun. The local
 `run_contract.json` must exactly match the resolved artifacts, interpreter,
 entrypoint, deployment and generated config. Legacy runs without this contract,
-or runs created with another checkpoint/config, cannot be resumed.
+or runs created with another checkpoint/config, cannot be resumed. Content hashes
+cover the checkpoint, bundle configs/statistics/contracts, final evaluation input
+files, and backbone. Replacing a file at the same path also invalidates resume.
+Inputs are checked before and after calibration/measurement; these checks happen
+outside the measured inference interval.
 
 ## Configure a profile
 
@@ -171,6 +190,8 @@ results/profiling/
     latency_burst_model.json
     hardware.json
     DONE
+  downloads/profiles/<model>/<gpu>/<workload>/<instance>/<hf-commit>/
+    profile.json                     # complete immutable downloaded bundle
   simulations/<model>/<gpu>/<workload>/<instance>/<run-id>/<method>/<seed>/
 ```
 
@@ -196,9 +217,30 @@ bash scripts/profile.sh simulate \
 
 Replay methods are `zero`, `temporal`, `iid`, `fixed`, and `normal`. `zero`
 uses the same generated simulated-eval config as profile replay, but injects
-zero virtual latency. `simulate` deliberately has no model-path override: it
-uses the artifact coordinates recorded by the selected profile and the current
-repository contents.
+zero virtual latency. Base-config evaluation suites are removed so the requested
+method and latency seed govern replay.
+
+Each `resolve` checks the remote snapshot and returns `PROFILE_PATH` under its
+exact HF commit. The profile, distributions, burst model and optional plot all
+come from that revision. Existing returned paths stay unchanged when a new
+profile is published. Use the returned path in downstream configs; do not
+construct the old flat `downloads/profiles/.../<instance>/profile.json` path.
+In particular, Balance DAgger accepts this path through `--profile-path`; existing
+experiments with fixed paths keep their previously selected files.
+
+`simulate` uses the model snapshot recorded by the profile and verifies its
+contents. For a locally measured bundle, use `--model-path MODEL_PATH` when its
+location differs from the preset, and `--backbone-path BACKBONE_PATH` for a local
+backbone. A byte-identical local mirror of an HF model is also accepted. It never
+substitutes current HF model contents for an unverified local measurement.
+Inputs are checked before and after each seed, before writing `DONE`.
+
+Legacy profiles without full content identity are rejected by shared `simulate`,
+and old measurement contracts cannot resume. Establish the original measured
+inputs from archived evidence or measure a new run; assigning today's hashes to
+an old measurement does not establish provenance. Direct fixed-profile training
+and evaluation still accept their existing profile files, including experiments
+whose trained student intentionally differs from the model used for profiling.
 
 ## Train a small model with IID profile latency
 

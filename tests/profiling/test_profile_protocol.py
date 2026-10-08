@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from latency_bench.core.config import load_config
+from latency_bench.eval.suites import parse_eval_suites
 from latency_bench.profiling import runner
 from latency_bench.profiling.artifacts import (
     profile_dir,
@@ -20,6 +21,7 @@ from latency_bench.profiling.artifacts import (
 )
 from latency_bench.profiling.profile_resolver import (
     profile_refs_from_repo_files,
+    resolve_model_artifacts,
     resolve_remote_profile,
 )
 from latency_bench.profiling.cli import main
@@ -320,6 +322,9 @@ def test_profile_lock_serializes_current_writers(tmp_path):
 
 
 def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "bundle" / "model.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"model weights")
     base_config = tmp_path / "base.json"
     base_config.write_text(
         json.dumps(
@@ -330,8 +335,8 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
                 "latency": {},
                 "scheduler": {},
                 "policy": {
-                    "type": "starvla",
-                    "checkpoint_path": "/models/openvla",
+                    "type": "dummy",
+                    "checkpoint_path": str(checkpoint),
                 },
                 "logging": {},
                 "evaluation": {},
@@ -347,13 +352,17 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
         "eval_episodes": 1,
         "evaluation_seed": 0,
         "base_config": str(base_config),
-        "checkpoint_path": "/models/openvla",
+        "model_artifact": {
+            "local_root": str(checkpoint.parent),
+            "checkpoint": checkpoint.name,
+        },
         "checkpoint_kind": "best",
         "gpu_models": {"rtx4090": {"aliases": ["NVIDIA RTX 4090"]}},
         "simulation_gpu": None,
         "calibrate_env_fps": False,
         "simulation_env": {},
     }
+    spec = resolve_model_artifacts(spec)
     deployment = {
         "gpu_class": "2x-rtx4090",
         "instance_id": "instance_abc",
@@ -406,7 +415,7 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
     assert (runs / "run_2" / "DONE").exists()
     assert json.loads((current / "profile.json").read_text())["source_run_id"] == "run_2"
     contract = json.loads((runs / "run_2" / "run_contract.json").read_text())
-    assert contract["identity"]["checkpoint_path"] == "/models/openvla"
+    assert contract["identity"]["checkpoint_path"] == str(checkpoint)
     assert contract["calibration_config"]["logging"]["output_dir"] == (
         "__latency_bench_contract_output__/calibration_probe"
     )
@@ -415,9 +424,21 @@ def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch
     )
 
 
-def test_resume_requires_matching_run_contract(tmp_path):
+@pytest.mark.parametrize("change", ["path", "weights"])
+def test_resume_requires_matching_run_contract(tmp_path, change):
     spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
-    spec["checkpoint_path"] = "/models/openvla"
+    checkpoint = tmp_path / "bundle" / "model.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"model weights")
+    spec["model_artifact"] = {
+        "local_root": str(checkpoint.parent),
+        "checkpoint": checkpoint.name,
+    }
+    backbone = tmp_path / "backbone"
+    backbone.mkdir()
+    (backbone / "processor_config.json").write_text("{}")
+    spec["backbone_path"] = str(backbone)
+    spec = resolve_model_artifacts(spec)
     deployment = {
         "gpu_class": "2x-rtx4090",
         "instance_id": "instance_abc",
@@ -437,7 +458,13 @@ def test_resume_requires_matching_run_contract(tmp_path):
 
     runner._assert_run_contract(spec, deployment, source_dir)
 
-    spec["checkpoint_path"] = "/models/another-openvla"
+    if change == "path":
+        other_root = tmp_path / "another-bundle"
+        other_root.mkdir()
+        (other_root / checkpoint.name).write_bytes(checkpoint.read_bytes())
+        spec = resolve_model_artifacts(spec, model_path=other_root)
+    else:
+        checkpoint.write_bytes(b"replacement weights")
     with pytest.raises(ValueError, match="run contract does not match"):
         runner._assert_run_contract(spec, deployment, source_dir)
 
@@ -454,13 +481,16 @@ def test_legacy_run_without_contract_cannot_resume(tmp_path):
 
 
 @pytest.mark.parametrize("method", ["fixed", "normal", "iid", "temporal"])
-def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path, method):
-    spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
-    spec["checkpoint_path"] = "/models/openvla"
+@pytest.mark.parametrize("model", ["openvla", "wanoft"])
+def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path, method, model):
+    spec = load_profile_spec("configs/profiles.yaml", model, "flappy")
+    spec["checkpoint_path"] = f"/models/{model}"
     base = load_config(spec["base_config"])
+    if model == "wanoft":
+        assert parse_eval_suites(base)[0].fixed_latency_values == [3]
     observation_stride = base["env"]["env_fps"] / base["env"]["obs_fps"]
     profile = {
-        "model_id": "openvla",
+        "model_id": model,
         "gpu_class": "2x-rtx4090",
         "workload_id": "flappy",
         "instance_id": "instance_abc",
@@ -475,7 +505,7 @@ def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path, method):
         spec,
         output_dir=tmp_path,
         profile_path=tmp_path / "profile.json",
-        profile_ref=Path("openvla/2x-rtx4090/flappy/instance_abc"),
+        profile_ref=Path(f"{model}/2x-rtx4090/flappy/instance_abc"),
         profile=profile,
         method=method,
         latency_seed=7,
@@ -485,6 +515,9 @@ def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path, method):
     assert config["env"]["obs_fps"] == pytest.approx(20 / observation_stride)
     assert config["executor"]["simulated_worker_capacity"] == 2
     assert config["policy"]["checkpoint_path"] == spec["checkpoint_path"]
+    assert config["latency"]["method"] == method
+    assert config["evaluation"]["eval_latency_values"] is None
+    assert parse_eval_suites(config) == []
     assert config["latency"]["source_run_id"] == "run_1"
     assert config["latency"]["seed"] == 7
     if method == "fixed":
@@ -567,40 +600,57 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
 
 def test_download_fetches_current_profile(tmp_path, monkeypatch):
     ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
-    profile = tmp_path / "profiles" / ref
-    profile.mkdir(parents=True)
-    for name in (
-        "profile.json",
-        "latency_distribution.json",
-        "latency_burst_model.json",
-        "hardware.json",
-        "DONE",
-    ):
-        (profile / name).touch()
-    (profile / "profile.json").write_text("{}", encoding="utf-8")
-    calls = {}
+    snapshots = [tmp_path / "cache" / "snapshots" / (commit * 40) for commit in "ab"]
+    for snapshot, run_id in zip(snapshots, ["run_A", "run_B"]):
+        profile = snapshot / "profiles" / ref
+        profile.mkdir(parents=True)
+        for name in (
+            "latency_distribution.json",
+            "latency_burst_model.json",
+            "hardware.json",
+            "DONE",
+        ):
+            (profile / name).write_text(run_id, encoding="utf-8")
+        (profile / "profile.json").write_text(
+            json.dumps({"source_run_id": run_id}), encoding="utf-8"
+        )
+    destination = tmp_path / "downloads"
+    shutil.copytree(snapshots[0] / "profiles" / ref, destination)
+    current_snapshots = iter(snapshots)
+    calls = []
+
     def snapshot_download(**kwargs):
-        calls.update(kwargs)
-        return str(tmp_path)
+        calls.append(kwargs)
+        return str(next(current_snapshots))
 
     monkeypatch.setitem(
         sys.modules,
         "huggingface_hub", SimpleNamespace(snapshot_download=snapshot_download),
     )
 
-    local = download_profile(
+    first = download_profile(
         {"hf_repo": "org/profiles"},
         ref,
-        local_dir=tmp_path / "downloads",
+        local_dir=destination,
+    )
+    second = download_profile(
+        {"hf_repo": "org/profiles"},
+        ref,
+        local_dir=destination,
     )
 
-    assert local == tmp_path / "downloads"
-    assert "revision" not in calls
+    assert first == destination / snapshots[0].name
+    assert second == destination / snapshots[1].name
+    assert json.loads((first / "profile.json").read_text())["source_run_id"] == "run_A"
+    assert json.loads((second / "profile.json").read_text())["source_run_id"] == "run_B"
+    assert (first / "latency_distribution.json").read_text() == "run_A"
+    assert (second / "latency_distribution.json").read_text() == "run_B"
+    assert all("revision" not in call for call in calls)
 
 
 def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypatch):
     ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
-    cache = tmp_path / "cache"
+    cache = tmp_path / "cache" / "snapshots" / ("a" * 40)
     source = cache / "profiles" / ref
     source.mkdir(parents=True)
     (source / "profile.json").write_text(
@@ -617,10 +667,24 @@ def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypa
 
     local_dir = tmp_path / "downloads"
     shutil.copytree(source, local_dir)
+    newer_cache = cache.with_name("b" * 40)
+    newer_source = newer_cache / "profiles" / ref
+    newer_source.mkdir(parents=True)
+    (newer_source / "latency_profile.png").write_bytes(b"newer png")
+    calls = []
+
+    def snapshot_download(**kwargs):
+        calls.append(kwargs)
+        if "revision" not in kwargs and kwargs["allow_patterns"] == [
+            f"profiles/{ref.as_posix()}/latency_profile.png"
+        ]:
+            return str(newer_cache)
+        return str(cache)
+
     monkeypatch.setitem(
         sys.modules,
         "huggingface_hub",
-        SimpleNamespace(snapshot_download=lambda **kwargs: str(cache)),
+        SimpleNamespace(snapshot_download=snapshot_download),
     )
 
     with pytest.raises(FileNotFoundError):
@@ -629,6 +693,8 @@ def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypa
             ref,
             local_dir=local_dir,
         )
+    assert not (local_dir / cache.name).exists()
+    assert list(local_dir.glob(f".{cache.name}.*")) == []
     (source / "latency_profile.png").write_bytes(b"png")
 
     local = download_profile(
@@ -637,13 +703,14 @@ def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypa
         local_dir=local_dir,
     )
 
-    assert local == local_dir
+    assert local == local_dir / cache.name
     assert (local / "latency_profile.png").read_bytes() == b"png"
+    assert [call["revision"] for call in calls if "revision" in call] == [cache.name, cache.name]
 
 
 def test_download_materializes_hf_snapshot_symlinks(tmp_path, monkeypatch):
     ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
-    cache = tmp_path / "cache"
+    cache = tmp_path / "cache" / "snapshots" / ("a" * 40)
     source = cache / "profiles" / ref
     source.mkdir(parents=True)
     blobs = tmp_path / "blobs"
@@ -667,14 +734,15 @@ def test_download_materializes_hf_snapshot_symlinks(tmp_path, monkeypatch):
         local_dir=tmp_path / "artifact_root" / "downloads" / "profiles" / ref,
     )
 
-    assert local == tmp_path / "artifact_root" / "downloads" / "profiles" / ref
+    assert local == tmp_path / "artifact_root" / "downloads" / "profiles" / ref / cache.name
     assert all(not (local / name).is_symlink() for name in ("profile.json", "DONE"))
     assert (local / "profile.json").read_text(encoding="utf-8") == "{}"
 
 
 def test_concurrent_download_materializes_a_profile_once(tmp_path, monkeypatch):
     ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
-    source = tmp_path / "cache" / "profiles" / ref
+    cache = tmp_path / "cache" / "snapshots" / ("a" * 40)
+    source = cache / "profiles" / ref
     source.mkdir(parents=True)
     for name in (
         "profile.json",
@@ -692,7 +760,7 @@ def test_concurrent_download_materializes_a_profile_once(tmp_path, monkeypatch):
         sys.modules,
         "huggingface_hub",
         SimpleNamespace(
-            snapshot_download=lambda **kwargs: str(tmp_path / "cache"),
+            snapshot_download=lambda **kwargs: str(cache),
         ),
     )
     copy_started = Event()
@@ -732,6 +800,45 @@ def test_concurrent_download_materializes_a_profile_once(tmp_path, monkeypatch):
         assert first.result() == second.result()
 
     assert copy_count == 5
+
+
+def test_interrupted_download_does_not_install_partial_revision(tmp_path, monkeypatch):
+    ref = Path("openvla/2x-rtx4090/flappy/instance_abc")
+    cache = tmp_path / "cache" / "snapshots" / ("a" * 40)
+    source = cache / "profiles" / ref
+    source.mkdir(parents=True)
+    for name in (
+        "profile.json",
+        "latency_distribution.json",
+        "latency_burst_model.json",
+        "hardware.json",
+        "DONE",
+    ):
+        (source / name).write_text("{}", encoding="utf-8")
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(snapshot_download=lambda **kwargs: str(cache)),
+    )
+    copyfile = shutil.copyfile
+
+    def interrupted_copyfile(source_path, destination_path):
+        if source_path.name == "latency_distribution.json":
+            destination_path.write_text("{TRUNCATED", encoding="utf-8")
+            raise OSError("interrupted copy")
+        return copyfile(source_path, destination_path)
+
+    destination = tmp_path / "downloads"
+    monkeypatch.setattr("latency_bench.profiling.sync.shutil.copyfile", interrupted_copyfile)
+    with pytest.raises(OSError, match="interrupted copy"):
+        download_profile({"hf_repo": "org/profiles"}, ref, local_dir=destination)
+    assert sorted(path.name for path in destination.iterdir()) == [".lock"]
+
+    monkeypatch.setattr("latency_bench.profiling.sync.shutil.copyfile", copyfile)
+    local = download_profile({"hf_repo": "org/profiles"}, ref, local_dir=destination)
+    assert local == destination / cache.name
+    assert json.loads((local / "latency_distribution.json").read_text()) == {}
+    assert (local / "DONE").exists()
 
 
 def test_remote_profile_coordinates_must_match_request(tmp_path, monkeypatch):

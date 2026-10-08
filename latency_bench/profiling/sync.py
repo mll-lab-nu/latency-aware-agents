@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import shutil
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from latency_bench.latency.profile import load_profile_manifest
@@ -80,25 +81,28 @@ def download_profile(
     profile_filenames = _profile_filenames(source_dir)
     visualization_filenames = profile_filenames[len(PROFILE_FILENAMES) - 1 : -1]
     if visualization_filenames:
-        snapshot = Path(
-            snapshot_download(
-                repo_id=spec["hf_repo"],
-                repo_type="dataset",
-                allow_patterns=[
-                    f"{remote_dir.as_posix()}/{name}"
-                    for name in visualization_filenames
-                ],
-            )
+        snapshot_download(
+            repo_id=spec["hf_repo"],
+            repo_type="dataset",
+            revision=snapshot.name,
+            allow_patterns=[
+                f"{remote_dir.as_posix()}/{name}"
+                for name in visualization_filenames
+            ],
         )
-        source_dir = snapshot / remote_dir
     local_dir.mkdir(parents=True, exist_ok=True)
+    revision_dir = local_dir / snapshot.name
     with (local_dir / ".lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if not all((local_dir / name).is_file() for name in profile_filenames):
-            for name in profile_filenames:
-                shutil.copyfile(source_dir / name, local_dir / name)
-        (local_dir / "DONE").read_bytes()
-    return local_dir
+        if not revision_dir.exists():
+            with TemporaryDirectory(prefix=f".{snapshot.name}.", dir=local_dir) as temporary:
+                bundle = Path(temporary) / "profile"
+                bundle.mkdir()
+                for name in profile_filenames:
+                    shutil.copyfile(source_dir / name, bundle / name)
+                bundle.rename(revision_dir)
+        (revision_dir / "DONE").read_bytes()
+    return revision_dir
 
 
 def _profile_filenames(profile_dir: Path) -> tuple[str, ...]:

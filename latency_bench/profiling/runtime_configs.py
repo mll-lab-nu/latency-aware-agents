@@ -93,6 +93,7 @@ def simulation_config(
     if "inference_batch_size" in spec:
         config["executor"]["inference_batch_size"] = spec["inference_batch_size"]
     config["evaluation"]["eval_latency_values"] = None
+    config["evaluation"].pop("eval_suites", None)
     _enable_records(config)
     return config
 

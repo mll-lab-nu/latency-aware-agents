@@ -1,17 +1,23 @@
 """Artifact boundary contracts and snapshot containment."""
 
+import hashlib
+import json
 from pathlib import Path
+import shutil
 import sys
 from types import SimpleNamespace
 
 import pytest
 
 from latency_bench.profiling.profile_resolver import (
+    profile_input_identity,
     resolve_model_artifacts,
     resolve_profile_artifacts,
 )
 import latency_bench.profiling.cli as protocol
+from latency_bench.profiling import runner
 from latency_bench.eval.config import resolve_evaluation_config
+from latency_bench.core.config import load_config
 from latency_bench.profiling.spec import load_profile_spec
 
 
@@ -81,9 +87,8 @@ def test_local_model_root_resolves_exact_checkpoint_and_provenance(tmp_path):
     assert resolved["checkpoint_path"] == str(checkpoint.resolve())
     assert resolved["model_provenance"] == {
         "source": "local",
-        "repo_id": "org/models",
-        "path_in_repo": "zero-latency/task/vla/model-v1",
         "checkpoint": "checkpoints/final.pt",
+        "files_sha256": {"checkpoints/final.pt": hashlib.sha256(b"").hexdigest()},
     }
 
 
@@ -148,6 +153,7 @@ def test_missing_local_root_downloads_only_exact_hf_artifact(tmp_path, monkeypat
         "zero-latency/task/vla/model-v1/**"
     ]
     assert resolved["model_provenance"]["source"] == "hf"
+    assert resolved["model_provenance"]["revision"] == "b" * 40
     if pinned:
         assert calls["snapshot"]["revision"] == "b" * 40
         assert resolved["model_provenance"]["revision"] == "b" * 40
@@ -160,6 +166,9 @@ def test_missing_local_root_downloads_only_exact_hf_artifact(tmp_path, monkeypat
     resolve_evaluation_config(config)
     assert config["policy"]["checkpoint_path"] == str(checkpoint)
     assert Path(config["policy"]["checkpoint_path"]).read_bytes() == blob.read_bytes()
+    replay = resolve_profile_artifacts(spec, {"provenance": {"model_artifact": resolved["model_provenance"]}})
+    assert replay["checkpoint_path"] == str(checkpoint)
+    assert calls["snapshot"]["revision"] == "b" * 40
 
 
 def test_root_hf_artifact_downloads_from_snapshot_root(tmp_path, monkeypatch):
@@ -251,6 +260,9 @@ def test_model_config_resolves_from_the_same_artifact_root(tmp_path, monkeypatch
     (root / "checkpoints").mkdir(parents=True)
     (root / "checkpoints/final.pt").touch()
     (root / "config.full.yaml").write_text(
+        "backbone:\n  repo_id: org/unused-backbone\n"
+    )
+    (root / "config.yaml").write_text(
         "backbone:\n  repo_id: org/backbone\n  revision: fixed-commit\n"
         "  allow_patterns: ['*.safetensors']\n"
     )
@@ -283,6 +295,7 @@ def test_simulation_resolves_the_model_artifact_recorded_by_the_profile(
     checkpoint.parent.mkdir(parents=True)
     checkpoint.touch()
     (root / "profile-config.yaml").touch()
+    (root / "config.yaml").write_text("{}\n")
     calls = {}
     monkeypatch.setitem(
         sys.modules,
@@ -302,6 +315,11 @@ def test_simulation_resolves_the_model_artifact_recorded_by_the_profile(
                 "model_config": "profile-config.yaml",
                 "revision": "model-revision",
                 "source": "hf",
+                "files_sha256": {
+                    "checkpoints/final.pt": hashlib.sha256(b"").hexdigest(),
+                    "profile-config.yaml": hashlib.sha256(b"").hexdigest(),
+                    "config.yaml": hashlib.sha256(b"{}\n").hexdigest(),
+                },
             }
         }
     }
@@ -311,6 +329,11 @@ def test_simulation_resolves_the_model_artifact_recorded_by_the_profile(
         profile["provenance"]["runtime_artifact"] = {
             **profile["provenance"]["model_artifact"],
             "checkpoint": "runtime.pt",
+            "files_sha256": {
+                "runtime.pt": hashlib.sha256(b"").hexdigest(),
+                "profile-config.yaml": hashlib.sha256(b"").hexdigest(),
+                "config.yaml": hashlib.sha256(b"{}\n").hexdigest(),
+            },
         }
         (root / "runtime.pt").touch()
 
@@ -344,6 +367,8 @@ def test_profile_artifact_paths_must_stay_under_the_snapshot_root(tmp_path, monk
         "path_in_repo": "../../elsewhere",
         "checkpoint": "weights.pt",
         "source": "hf",
+        "revision": "fixed",
+        "files_sha256": {},
     }
     with pytest.raises(ValueError):
         resolve_profile_artifacts(
@@ -355,6 +380,8 @@ def test_profile_artifact_paths_must_stay_under_the_snapshot_root(tmp_path, monk
         "path_in_repo": "zero-latency/task",
         "checkpoint": "/etc/passwd",
         "source": "hf",
+        "revision": "fixed",
+        "files_sha256": {},
     }
     with pytest.raises(ValueError):
         resolve_profile_artifacts(
@@ -467,3 +494,205 @@ def test_protocol_forwards_explicit_hf_artifact_overrides(monkeypatch):
         "model_config": "config.full.yaml",
     }
     assert captured["kwargs"] == {"resume_run_id": None, "publish": False}
+
+
+def _resolved_run_spec(tmp_path):
+    spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
+    spec.update(_spec(tmp_path))
+    spec["artifact_root"] = str(tmp_path / "results")
+    root = Path(spec["model_artifact"]["local_root"])
+    (root / "checkpoints").mkdir(parents=True)
+    (root / "checkpoints/final.pt").write_bytes(b"measured weights")
+    spec["model_artifact"]["model_config"] = "config.full.yaml"
+    for name in ("config.yaml", "config.full.yaml", "dataset_statistics.json", "task_contract.json"):
+        (root / name).write_text("{}\n")
+    backbone = tmp_path / "backbone"
+    backbone.mkdir()
+    (backbone / "processor_config.json").write_text("{}\n")
+    spec["backbone_path"] = str(backbone)
+    base = load_config(spec["base_config"])
+    for key in ("task_contract_path", "task_manifest_path", "latency_prompt_map_path"):
+        path = tmp_path / f"{key}.json"
+        path.write_text("{}\n")
+        base["policy"][key] = str(path)
+    base_path = tmp_path / "base.json"
+    base_path.write_text(json.dumps(base))
+    spec["base_config"] = str(base_path)
+    return resolve_model_artifacts(spec)
+
+
+@pytest.mark.parametrize("changed", [
+    "checkpoints/final.pt", "config.yaml", "config.full.yaml",
+    "dataset_statistics.json", "task_contract.json", "backbone",
+    "task_contract_path", "task_manifest_path", "latency_prompt_map_path",
+])
+def test_resume_rejects_changed_input_bytes_at_same_path(tmp_path, changed):
+    spec = _resolved_run_spec(tmp_path)
+    deployment = {"gpu_class": "1x-test", "instance_id": "instance_test", "gpus": [{}]}
+    source = tmp_path / "run"
+    source.mkdir()
+    (source / "run_contract.json").write_text(json.dumps(runner._run_contract(spec, deployment)))
+    runner._assert_run_contract(spec, deployment, source)
+    if changed == "backbone":
+        path = Path(spec["backbone_path"]) / "processor_config.json"
+    elif changed.endswith("_path"):
+        path = tmp_path / f"{changed}.json"
+    else:
+        path = Path(spec["model_artifact_root"]) / changed
+    path.write_bytes(b"replacement bytes")
+    with pytest.raises(ValueError, match="run contract does not match"):
+        runner._assert_run_contract(spec, deployment, source)
+
+
+def test_local_profile_replay_requires_identical_bytes_without_hf_substitution(tmp_path, monkeypatch):
+    spec = _resolved_run_spec(tmp_path)
+    profile = {"provenance": {"model_artifact": spec["model_provenance"]}}
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(
+        snapshot_download=lambda **kwargs: pytest.fail("local profile must not substitute HF contents")
+    ))
+    copy = tmp_path / "relocated"
+    shutil.copytree(spec["model_artifact_root"], copy)
+    replay = resolve_profile_artifacts(spec, profile, model_path=copy)
+    assert profile_input_identity(replay) == profile_input_identity(spec)
+    (copy / "checkpoints/final.pt").write_bytes(b"other weights")
+    with pytest.raises(ValueError, match="identity does not match"):
+        resolve_profile_artifacts(spec, profile, model_path=copy)
+    del profile["provenance"]["model_artifact"]["files_sha256"]
+    with pytest.raises(ValueError, match="no verified model identity"):
+        resolve_profile_artifacts(spec, profile)
+
+
+def test_starvla_implicit_backbone_requires_explicit_identity(tmp_path):
+    spec = _resolved_run_spec(tmp_path)
+    del spec["backbone_path"]
+    (Path(spec["model_artifact_root"]) / "config.yaml").write_text(
+        "framework:\n  qwenvl:\n    base_vlm: org/mutable-backbone\n"
+    )
+    with pytest.raises(ValueError, match="requires --backbone-path"):
+        resolve_model_artifacts(spec)
+    base = load_config(spec["base_config"])
+    base["policy"]["backbone_path"] = str(tmp_path / "backbone")
+    Path(spec["base_config"]).write_text(json.dumps(base))
+    assert resolve_model_artifacts(spec)["backbone_path"] == str(tmp_path / "backbone")
+
+
+def test_backbone_identity_includes_directory_symlink_contents(tmp_path):
+    spec = _resolved_run_spec(tmp_path)
+    tokenizer = tmp_path / "shared-tokenizer"
+    tokenizer.mkdir()
+    (tokenizer / "tokenizer.json").write_text("{}")
+    (Path(spec["backbone_path"]) / "tokenizer").symlink_to(tokenizer, target_is_directory=True)
+    identity = profile_input_identity(spec)
+    assert identity["backbone"]["tokenizer/tokenizer.json"] == hashlib.sha256(b"{}").hexdigest()
+    (tokenizer / "tokenizer.json").write_text('{"changed": true}')
+    assert profile_input_identity(spec) != identity
+
+
+def test_measurement_input_mutation_cannot_mark_a_session_done(tmp_path, monkeypatch):
+    spec = _resolved_run_spec(tmp_path)
+    deployment = {"gpu_class": "1x-test", "instance_id": "instance_test", "gpus": [{}]}
+    source_ref = Path("openvla/1x-test/flappy/instance_test/run_test")
+    source = Path(spec["artifact_root"]) / "runs" / source_ref
+    source.mkdir(parents=True)
+    calibration = {"selected_env_fps": 30, "selected_obs_fps": 30}
+    (source / "calibration.json").write_text(json.dumps(calibration))
+    (source / "calibration.DONE").touch()
+    (source / "run_contract.json").write_text(json.dumps(runner._run_contract(spec, deployment, calibration)))
+    monkeypatch.setattr(runner, "_run_evaluation", lambda *args:
+                        Path(spec["checkpoint_path"]).write_bytes(b"changed during measurement"))
+    with pytest.raises(ValueError, match="run contract does not match"):
+        runner._measure_session(spec, deployment, calibration, source_ref, 0, resume=False)
+    assert not (source / "sessions/0/DONE").exists()
+
+
+def test_calibration_cannot_replace_the_initial_model_identity(tmp_path, monkeypatch):
+    spec = _resolved_run_spec(tmp_path)
+    original = profile_input_identity(spec)
+    deployment = {"gpu_class": "1x-test", "instance_id": "instance_test", "gpus": [{}]}
+    monkeypatch.setattr(runner, "_collect_deployment", lambda _: (deployment, {}))
+    monkeypatch.setattr(runner, "_new_run_id", lambda: "run_test")
+
+    def calibrate(*args):
+        Path(spec["checkpoint_path"]).write_bytes(b"changed during calibration")
+        return {"selected_env_fps": 30, "selected_obs_fps": 30}
+
+    monkeypatch.setattr(runner, "_calibrate", calibrate)
+    with pytest.raises(ValueError, match="changed during calibration"):
+        runner.run_profile(spec, resume_run_id=None, publish=False)
+    contract = next(Path(spec["artifact_root"]).rglob("run_contract.json"))
+    assert json.loads(contract.read_text())["input_files_sha256"] == original
+    assert not (contract.parent / "DONE").exists()
+
+
+@pytest.mark.parametrize("changed", [None, "checkpoint_path", "backbone_path"])
+def test_replay_checks_input_identity_for_each_seed(tmp_path, monkeypatch, changed):
+    spec = _resolved_run_spec(tmp_path)
+    profile = {
+        "source_run_id": "measured", "model_id": "openvla", "workload_id": "flappy",
+        "gpu_class": "1x-test", "instance_id": "instance_test", "env_fps": 30,
+        "per_slot_summary": [{}],
+        "provenance": {"model_artifact": spec["model_provenance"],
+                       "input_files_sha256": profile_input_identity(spec)},
+    }
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(json.dumps(profile))
+    ref = Path("openvla/1x-test/flappy/instance_test")
+    monkeypatch.setattr(runner, "resolve_remote_profile", lambda *args, **kwargs: (ref, profile_path))
+    calls = []
+
+    def evaluate(spec, config, output):
+        calls.append(output)
+        if changed is None:
+            return
+        path = Path(spec[changed])
+        if changed == "backbone_path":
+            path /= "processor_config.json"
+        path.write_bytes(b"changed during evaluation")
+
+    monkeypatch.setattr(runner, "_run_evaluation", evaluate)
+    if changed is None:
+        runner.run_simulation(spec, gpu_class="1x-test", instance_id="instance_test",
+                              method="temporal", latency_seeds=[0, 1], publish=False)
+        assert len(calls) == 2
+        assert all((output / "DONE").exists() for output in calls)
+        return
+    with pytest.raises(ValueError, match="inputs differ"):
+        runner.run_simulation(spec, gpu_class="1x-test", instance_id="instance_test",
+                              method="temporal", latency_seeds=[0, 1], publish=False)
+    assert len(calls) == 1
+    assert not (calls[0] / "DONE").exists()
+    assert not list(Path(spec["artifact_root"]).rglob("DONE"))
+
+
+def test_protocol_forwards_explicit_backbone_and_replay_paths(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(protocol, "load_profile_spec", lambda *args: {})
+    monkeypatch.setattr(protocol, "resolve_model_artifacts", lambda spec, **kwargs: dict(spec))
+    monkeypatch.setattr(protocol, "run_profile", lambda spec, **kwargs: captured.update(spec) or {})
+    protocol.main(["run", "--model", "m", "--workload", "w", "--backbone-path", "/b"])
+    assert captured["backbone_path"] == "/b"
+    monkeypatch.setattr(protocol, "run_simulation", lambda spec, **kwargs: captured.update(kwargs) or {})
+    protocol.main(["simulate", "--model", "m", "--workload", "w", "--gpu", "g",
+                   "--instance", "i", "--method", "zero", "--seeds", "0",
+                   "--model-path", "/m", "--backbone-path", "/b"])
+    assert captured["model_path"] == Path("/m")
+    assert captured["backbone_path"] == Path("/b")
+
+
+def test_gr00t_profile_entrypoint_resolves_model_identity(tmp_path, monkeypatch):
+    from scripts.gym_adapt import gr00t
+
+    spec = _resolved_run_spec(tmp_path)
+    root = Path(spec["model_artifact_root"])
+    Path(spec["checkpoint_path"]).rename(root / "checkpoints/model.pt")
+    base = load_config(spec["base_config"])
+    base["policy"]["backbone_path"] = spec["backbone_path"]
+    Path(spec["base_config"]).write_text(json.dumps(base))
+    captured = {}
+    monkeypatch.setattr(runner, "run_profile", lambda resolved, **kwargs: captured.update(resolved) or {})
+    monkeypatch.setattr(sys, "argv", ["gr00t", "profile", "--task", "ant",
+                                    "--config", spec["base_config"], "--bundle", str(root),
+                                    "--output", str(tmp_path / "profile")])
+    gr00t.main()
+    assert captured["model_provenance"]["files_sha256"]["checkpoints/model.pt"] == hashlib.sha256(b"measured weights").hexdigest()
+    assert captured["backbone_path"] == spec["backbone_path"]

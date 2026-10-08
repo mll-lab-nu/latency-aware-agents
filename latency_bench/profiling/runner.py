@@ -21,6 +21,7 @@ from latency_bench.profiling.artifacts import (
     simulation_seed_dir,
 )
 from latency_bench.profiling.profile_resolver import (
+    profile_input_identity,
     resolve_profile_artifacts,
     resolve_remote_profile,
 )
@@ -64,6 +65,11 @@ def run_profile(
     publish: bool,
 ) -> dict[str, str]:
     deployment, fingerprint = _collect_deployment(spec)
+    initial_contract = _run_contract(spec, deployment)
+    prepared_identity = initial_contract["input_files_sha256"]
+    for role in ("model", "runtime"):
+        if role in prepared_identity and prepared_identity[role] != spec[f"{role}_provenance"]["files_sha256"]:
+            raise ValueError(f"Resolved {role} artifact changed before profiling")
     current_ref = profile_ref(
         spec["model_id"],
         deployment["gpu_class"],
@@ -76,15 +82,18 @@ def run_profile(
     if resume_run_id is None:
         source_dir.mkdir(parents=True)
         write_json(source_dir / "hardware.json", fingerprint)
-        write_json(source_dir / "run_contract.json", _run_contract(spec, deployment))
+        write_json(source_dir / "run_contract.json", initial_contract)
     else:
         (source_dir / "hardware.json").read_bytes()
         _assert_run_contract(spec, deployment, source_dir)
 
     calibration = _calibrate(spec, deployment, source_dir)
+    calibrated_contract = _run_contract(spec, deployment, calibration)
+    if calibrated_contract["input_files_sha256"] != prepared_identity:
+        raise ValueError("Model/backbone/contract inputs changed during calibration")
     write_json(
         source_dir / "run_contract.json",
-        _run_contract(spec, deployment, calibration),
+        calibrated_contract,
     )
     session_ids = list(range(spec["session_count"]))
     for session_id in session_ids:
@@ -120,11 +129,10 @@ def run_profile(
                 "base_config": spec["base_config"],
                 "checkpoint_kind": spec["checkpoint_kind"],
                 "session_ids": session_ids,
-                **(
-                    {"model_artifact": spec["model_provenance"]}
-                    if "model_provenance" in spec
-                    else {"checkpoint_path": spec["checkpoint_path"]}
-                ),
+                "model_artifact": spec["model_provenance"],
+                "input_files_sha256": read_json(source_dir / "run_contract.json")["input_files_sha256"],
+                **({"backbone_artifact": spec["backbone_provenance"]}
+                   if "backbone_provenance" in spec else {}),
                 **(
                     {"runtime_artifact": spec["runtime_provenance"]}
                     if "runtime_provenance" in spec
@@ -184,6 +192,8 @@ def run_simulation(
     method: str,
     latency_seeds: list[int],
     publish: bool,
+    model_path: str | Path | None = None,
+    backbone_path: str | Path | None = None,
 ) -> dict[str, str]:
     canonical_ref, selected_profile = resolve_remote_profile(
         spec,
@@ -191,7 +201,9 @@ def run_simulation(
         instance_id=instance_id,
     )
     profile = read_json(selected_profile)
-    spec = resolve_profile_artifacts(spec, profile)
+    if "input_files_sha256" not in profile["provenance"]:
+        raise ValueError("Profile has no verified evaluation input identity; re-establish the measured artifact provenance")
+    spec = resolve_profile_artifacts(spec, profile, model_path=model_path, backbone_path=backbone_path)
     output_dirs = [
         simulation_seed_dir(
             spec["artifact_root"],
@@ -206,6 +218,7 @@ def run_simulation(
         if (output_dir / "DONE").exists():
             raise FileExistsError(output_dir / "DONE")
     for latency_seed, output_dir in zip(latency_seeds, output_dirs):
+        _assert_replay_identity(spec, profile)
         if output_dir.exists():
             shutil.rmtree(output_dir)
         config_path = output_dir / "generated.yaml"
@@ -220,6 +233,7 @@ def run_simulation(
         )
         write_generated_config(config_path, config)
         _run_evaluation(spec, config_path, output_dir)
+        _assert_replay_identity(spec, profile)
         (output_dir / "DONE").touch()
 
     result = {
@@ -241,6 +255,11 @@ def run_simulation(
             remote_dirs=remote_dirs,
         )
     return result
+
+
+def _assert_replay_identity(spec: dict[str, Any], profile: dict[str, Any]) -> None:
+    if profile_input_identity(spec) != profile["provenance"]["input_files_sha256"]:
+        raise ValueError("Replay model/backbone/contract inputs differ from those used to measure this profile")
 
 
 def _collect_deployment(spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -321,9 +340,7 @@ def _run_contract(
             if "runtime_checkpoint_path" in spec
             else None
         ),
-        "model_provenance": (
-            spec["model_provenance"] if "model_provenance" in spec else None
-        ),
+        "model_provenance": spec["model_provenance"],
         "runtime_provenance": (
             spec["runtime_provenance"] if "runtime_provenance" in spec else None
         ),
@@ -335,6 +352,7 @@ def _run_contract(
     }
     return {
         "identity": identity,
+        "input_files_sha256": profile_input_identity(spec),
         "calibration_config": calibration_config(
             spec,
             deployment,
@@ -394,11 +412,14 @@ def _measure_session(
     if session_dir.exists():
         shutil.rmtree(session_dir)
     config_path = session_dir / "generated.yaml"
+    source_dir = run_dir(spec["artifact_root"], source_ref)
+    _assert_run_contract(spec, deployment, source_dir)
     write_generated_config(
         config_path,
         measure_config(spec, deployment, session_dir, calibration),
     )
     _run_evaluation(spec, config_path, session_dir)
+    _assert_run_contract(spec, deployment, source_dir)
     done.touch()
 
 

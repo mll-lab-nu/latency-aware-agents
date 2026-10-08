@@ -57,6 +57,7 @@ def main(argv: list[str] | None = None) -> None:
         help="override the model config path within the selected Hugging Face repo",
     )
     run.add_argument("--resume", metavar="RUN_ID", type=_path_segment)
+    run.add_argument("--backbone-path", type=Path, help="Backbone directory whose contents will be bound to this profile")
     run.add_argument("--publish", action="store_true")
 
     publish = commands.add_parser("publish", help="publish the current local profile")
@@ -83,6 +84,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     simulate.add_argument("--seeds", type=int, nargs="+", required=True)
     simulate.add_argument("--publish", action="store_true")
+    simulate.add_argument("--model-path", type=Path, help="Local copy of the measured model bundle; its identity must match the profile")
+    simulate.add_argument("--backbone-path", type=Path, help="Local copy of the measured backbone; its identity must match the profile")
 
     args = parser.parse_args(argv)
     if args.command == "list":
@@ -102,6 +105,8 @@ def main(argv: list[str] | None = None) -> None:
         if args.model_path is not None and _has_hf_artifact_overrides(args):
             parser.error("--model-path cannot be combined with Hugging Face artifact overrides")
         spec = _apply_hf_artifact_overrides(spec, args)
+        if args.backbone_path is not None:
+            spec["backbone_path"] = str(args.backbone_path)
         spec = resolve_model_artifacts(
             spec,
             model_path=args.model_path,
@@ -137,6 +142,8 @@ def main(argv: list[str] | None = None) -> None:
             method=args.method,
             latency_seeds=args.seeds,
             publish=args.publish,
+            model_path=args.model_path,
+            backbone_path=args.backbone_path,
         )
         _print_result(result)
 
