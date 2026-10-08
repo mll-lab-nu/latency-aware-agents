@@ -47,10 +47,11 @@ and 100 development episodes per cell. It is not a 200-episode held-out final
 acceptance result. Preserve each experiment's checkpoint and input contract.
 See the [artifact registry](../artifacts.md) for published references.
 
-## Original image-only H1 recipe
+## Original image-only H1 reference
 
-The following recipe reproduces the original zero-delay QwenOFT baseline.
-It uses `train_vla.sh`, not the state-based `train_qwenoft.sh` launcher above.
+The published original baseline uses image-only inputs. Its fixed protocol and
+artifacts are recorded below. The current launchers use the shared state-based
+pipeline described above.
 
 ### Fixed contract
 
@@ -70,47 +71,6 @@ It uses `train_vla.sh`, not the state-based `train_qwenoft.sh` launcher above.
 This is a zero-delay baseline. It does not train with fixed delay, device
 profiles, action chunks, state/delay inputs, or online RL.
 
-### Run the original recipe
-
-Install MIKASA, StarVLA, and both converters using
-[QUICK_START.md](../QUICK_START.md#4-mikasa-与两个转换环境). The original wrappers
-below run `uv sync` again. Use them only with the unmodified MIKASA lockfile.
-On a host that needs a Torch override, use the installed interpreters for the
-individual stages in [train_vla.sh](../../scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh),
-without repeating its installation step. Run from the repository root:
-
-```bash
-bash scripts/tasks/mikasa_intercept_grab_fast/train_small_policy.sh
-```
-
-The task entrypoint runs the native PPO recipe and prints the accepted teacher
-checkpoint. Use that exact path for the VLA stages:
-
-```bash
-conda activate starvla_rl_games_openvla
-bash scripts/tasks/mikasa_intercept_grab_fast/train_vla.sh \
-  /absolute/path/to/final_success_ckpt.pt
-```
-
-The VLA entrypoint collects and audits the 275 demonstrations, creates the
-250/25 LeRobot split, trains the 5,000-step QwenOFT model, starts the policy
-server for the canonical evaluation, and writes the final metrics under its
-output root. It does not publish artifacts automatically.
-
-For a manual run, the underlying stages are:
-
-```text
-scripts/mikasa/evaluate.py
-scripts/mikasa/prepare_starvla_dataset.py
-MIKASA NPZ -> RLDS -> LeRobot converter
-StarVLA starVLA/training/train_starvla.py
-```
-
-The task-owned entrypoint supplies the same fixed split and model settings.
-Use the [simulator check](../QUICK_START.md#mikasa-runtime-check) before collecting data.
-The original recipe requires `WANDB_ENTITY` and the Bridge/RT-1 initialization
-checkpoint specified by `MIKASA_INIT_CKPT` in the launcher.
-
 ## Profile the final VLA
 
 Expose one simulator GPU and at least one inference GPU, then run:
@@ -128,49 +88,7 @@ Logical `cuda:0` runs MIKASA. Logical `cuda:1..` run inference.
 Add `--resume RUN_ID` to continue a partial profiling run. Add `--publish` to
 upload the completed run and profile to `MLL-Lab/LAGEN-profiles`.
 
-## Manual stage gates
-
-### Teacher
-
-Run the PPO smoke first, then the formal teacher. Evaluate the selected
-checkpoint independently on 100 fixed seeds before collecting data:
-
-```bash
-python scripts/mikasa/evaluate.py \
-  --policy ppo \
-  --checkpoint /absolute/path/to/final_success_ckpt.pt \
-  --episodes 100 \
-  --output-dir outputs/mikasa/ppo_teacher_strict_eval
-```
-
-The checkpoint is accepted only when both the trainer gate and the canonical
-`95/100` gate pass. Do not collect demonstrations from a smoke or failed
-candidate.
-
-### Dataset
-
-The accepted collector output must contain 275 successful trajectories. The
-fixed split is:
-
-```text
-train: episodes 0..249   (250 episodes)
-val:   episodes 250..274 (25 episodes)
-fps:   20
-```
-
-Audit the NPZ metadata, unique seeds, success markers, action shape, and
-`[-1, 1]` action range before conversion. The mixture file must reference the
-exact train and validation dataset names used by the QwenOFT configuration.
-
-### VLA and evaluation
-
-Use the supplied Qwen3-VL and Bridge/RT-1 initialization checkpoints. Keep
-global batch 64; the validated Blackwell setting is microbatch 8 and
-accumulation 8 with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
-After 5,000 optimizer steps, evaluate 50 fixed seeds at zero delay and judge
-only the `success_once` JSON, not the held-out action loss.
-
-## Reproduced result
+## Original baseline result
 
 The completed reference run produced:
 
@@ -207,5 +125,5 @@ LeRobot split.
   before collecting demonstrations. Record any training changes with that run.
 - If SFT runs out of memory, restart from step 0 with a new run id while
   preserving global batch 64; do not resume an incomplete checkpoint.
-- A final model is valid only when its 5,000-step state, inference weights,
-  resolved config, and 50-episode evaluation belong to the same run.
+- For the original baseline, keep its 5,000-step state, inference weights,
+  resolved config, and 50-episode evaluation tied to the same run.

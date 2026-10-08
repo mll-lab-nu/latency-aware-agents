@@ -9,17 +9,6 @@ Each subtree starts with a squashed upstream baseline. LAGEN adaptations are
 separate commits above that baseline, so upstream updates can preserve them.
 Original licenses and runtime assets remain in each directory.
 
-## Remaining converter dependency
-
-MIKASA's NPZ-to-RLDS builder is still a submodule at
-`third_party/MIKASA-Robo/utils/convert_npz_to_rlds/rlds_dataset_builder`.
-Its required commit is `61622284900c67b05883e1b3eb3f5f5ca68f170c`.
-The configured repository does not currently provide that commit. The original
-gitlink remains recorded until its exact source can be recovered and imported.
-The NPZ-to-RLDS installation steps require a checkout containing this version.
-Do not substitute the upstream default branch: it does not identify the required
-LAGEN data-conversion implementation.
-
 ## Source baselines
 
 These are the original upstream commits and their deterministically filtered
@@ -77,7 +66,7 @@ The filter removes presentation media with `.gif`, `.mp4`, `.webm`, `.mov`,
 `.avi`, or `.mkv` extensions, case-insensitively. It also removes:
 
 - Flappy: `flappy_bird_gymnasium/assets/model/`, containing upstream DQN example weights.
-- MIKASA: `.gitmodules` and the `utils/convert_npz_to_rlds/rlds_dataset_builder` gitlink. The converter is managed separately from the parent subtree.
+- MIKASA: `.gitmodules` and the `utils/convert_npz_to_rlds/rlds_dataset_builder` gitlink. These upstream Git links are excluded from imported source trees.
 
 LAGEN removes the Flappy DQN entrypoint and documentation embeds after import.
 Flappy sprites/audio and HumanoidBench models, meshes, and textures remain.

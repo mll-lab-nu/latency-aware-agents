@@ -26,10 +26,9 @@ nvidia-smi
 | 四种 StarVLA 模型训练与独立推理进程 | Conda `starvla_rl_games_openvla`，3.10 | `install.sh --model openvla --tier dev` |
 | 原有 RL-games 模型独立栈 | Conda `starvla_rl_games_{pi0,pi05,gr00t,wan_oft}`，3.10 | 对应 `--model`，或 `--model all` |
 | MIKASA / ManiSkill | `third_party/MIKASA-Robo/.venv`，3.10 | `scripts/mikasa/install.sh` |
-| MIKASA NPZ → RLDS | builder 目录内 `.venv`，3.9 | 需已有固定版本源码，见第 4 节 |
-| MIKASA RLDS → LeRobot | converter 目录内 `.venv`，3.10 | 本页第 4 节 |
+| MIKASA H8 / DAgger 的 LeRobot 数据打包 | converter 目录内 `.venv`，3.10 | 本页第 4 节 |
 
-`--model all` 只表示所有模型环境加共享 `latency`，不包含后三类模拟器或 MIKASA 转换环境。`qwenoft/qwenpi_v3/qwengr00t/wanoft` 是统一 StarVLA 流水线模型名，四者默认共用 `starvla_rl_games_openvla`。
+`--model all` 只表示所有模型环境加共享 `latency`，不包含 MIKASA 模拟器和 LeRobot 数据打包环境。`qwenoft/qwenpi_v3/qwengr00t/wanoft` 是统一 StarVLA 流水线模型名，四者默认共用 `starvla_rl_games_openvla`。
 
 ## 3. 共享环境、Balance 与模型环境
 
@@ -61,7 +60,7 @@ conda deactivate
 bash install.sh --model all --tier dev
 ```
 
-## 4. MIKASA 与两个转换环境
+## 4. MIKASA 与数据打包环境
 
 ```bash
 cd "$BENCH_ROOT"
@@ -77,24 +76,19 @@ uv pip install --python "$MIKASA_PY" \
   --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1
 ```
 
-覆盖后直接调用 `$MIKASA_PY`，再次 `uv sync` / `uv run` 会按锁文件恢复旧 Torch。原有 MIKASA `train_small_policy.sh` / `train_vla.sh` 会再次调用安装脚本；在覆盖 Torch 的 Blackwell 主机上，优先使用 `train_qwenoft.sh` 等共享启动器，它们不会重新同步模拟器环境。原始 image-only H1 流程的限制见 [MIKASA cookbook](mikasa/cookbook.md#original-image-only-h1-recipe)。不要在该环境安装根项目的完整依赖，它们会覆盖 MIKASA 的 NumPy/Torch 约束；任务启动器通过 `PYTHONPATH` 引入 benchmark。
+覆盖后直接调用 `$MIKASA_PY`，再次 `uv sync` / `uv run` 会按锁文件恢复旧 Torch。MIKASA `train_small_policy.sh` 会再次调用安装脚本；在覆盖 Torch 的 Blackwell 主机上，优先使用 `train_qwenoft.sh` 等共享启动器，它们不会重新同步模拟器环境。不要在该环境安装根项目的完整依赖，它们会覆盖 MIKASA 的 NumPy/Torch 约束；任务启动器通过 `PYTHONPATH` 引入 benchmark。
 
-需要自己采集 MIKASA 数据时，另外安装这两个环境；`scripts/mikasa/install.sh` 不会安装它们：
-
-NPZ → RLDS 转换器仍需要原有固定版本的源码。当前配置的远端无法提供该提交，
-因此下面的转换器安装命令只适用于已经保存该版本的 checkout。
-版本与来源状态见[第三方源码维护](../third_party/README.md#remaining-converter-dependency)。
+当前共享 H1 使用已发布的 LeRobot 数据。
+当前 conditioned H8 和 DAgger 将采集的 NPZ 直接打包成 LeRobot，只需要下面的打包环境。
+环境目录沿用 `convert_rlds_to_lerobot` 名称，实际运行的是
+`scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset`。
+`scripts/mikasa/install.sh` 不会安装该打包环境：
 
 ```bash
-uv sync --project third_party/MIKASA-Robo/utils/convert_npz_to_rlds/rlds_dataset_builder --python 3.9
 uv sync --project third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot --python 3.10
-third_party/MIKASA-Robo/utils/convert_npz_to_rlds/rlds_dataset_builder/.venv/bin/python \
-  -c 'import tensorflow, tensorflow_datasets; print(tensorflow.__version__)'
 third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/.venv/bin/python \
-  -c 'import lerobot, tensorflow; print(tensorflow.__version__)'
+  -c 'import lerobot; print(lerobot.__file__)'
 ```
-
-只复用已发布的 H1 bootstrap 数据时不会经过 NPZ/RLDS 转换。
 
 <a id="mikasa-runtime-check"></a>
 ### 模拟器检查

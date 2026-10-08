@@ -4,11 +4,56 @@ import json
 import subprocess
 from types import SimpleNamespace
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from latency_bench.utils.paths import REPO_ROOT
 from scripts.starvla import runtime
 from scripts.starvla import train_task
+
+
+@pytest.mark.parametrize('smoke', [False, True])
+def test_mikasa_bootstrap_prepares_published_lerobot_splits(tmp_path, monkeypatch, smoke):
+    snapshot = tmp_path / 'snapshot'
+    source_path = 'zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-v1'
+    rows = pa.table({'observation.state': [[0.0] * 7, [1.0] * 7],
+                     'action': [[-1.0] * 7, [1.0] * 7]})
+    for split in ('lerobot', 'lerobot__val'):
+        directory = snapshot / source_path / split
+        (directory / 'data/chunk-000').mkdir(parents=True)
+        (directory / 'meta').mkdir()
+        pq.write_table(rows, directory / 'data/chunk-000/episode.parquet')
+        (directory / 'meta/info.json').write_text(json.dumps({'features': {
+            key: {'shape': [7], 'names': None} for key in rows.column_names
+        }}))
+        (directory / 'meta/modality.json').write_text(json.dumps({
+            'state': {'proprio': {'start': 0, 'end': 7}},
+            'action': {'target': {'start': 0, 'end': 7}},
+            'video': {'top': {'original_key': 'observation.images.top'},
+                      'wrist': {'original_key': 'observation.images.wrist'}},
+            'annotation': {},
+        }))
+    monkeypatch.setattr(runtime, 'ROOT', tmp_path / 'benchmark')
+    monkeypatch.setattr(train_task, 'HfApi', lambda **kwargs: SimpleNamespace(file_exists=lambda *a, **kw: False))
+    monkeypatch.setattr(train_task, 'snapshot_download', lambda *args, **kwargs: str(snapshot))
+    monkeypatch.setattr(train_task, 'resolve_token', lambda _: None)
+    monkeypatch.setattr(train_task, 'code_revisions', lambda _: {})
+    args = SimpleNamespace(task='mikasa', condition='zero-latency', smoke=smoke,
+                           output_dir=tmp_path / 'run', dataset_dir=None, force=False,
+                           no_publish=True)
+
+    shared, reference = train_task.prepare_shared(
+        args, tmp_path / 'teacher.pt', {}, tmp_path / 'simulator-python',
+    )
+
+    for split in ('lerobot', 'lerobot__val'):
+        assert pq.read_table(shared / split / 'data/chunk-000/episode.parquet') == rows
+        contract = json.loads((shared / split / 'task_contract.json').read_text())
+        assert (contract['state_dim'], contract['action_dim'], contract['action_horizon']) == (7, 7, 1)
+    provenance = json.loads((shared / 'provenance.json').read_text())
+    assert provenance['source_dataset']['path'] == source_path
+    assert reference['local_dir'] == str(shared)
 
 
 def test_code_revisions_scope_dirty_state_to_each_source_directory(tmp_path, monkeypatch):

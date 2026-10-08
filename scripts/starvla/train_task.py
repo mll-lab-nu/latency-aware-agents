@@ -141,8 +141,6 @@ def publish_data(reference: dict, *, task: str, model=None, run_id=None, round_n
 
 
 def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Path) -> tuple[Path, dict]:
-    from scripts.starvla.collect import collect_bootstrap
-
     shared = (args.output_dir / 'bootstrap' if args.smoke else
               runtime.ROOT / 'outputs/starvla/datasets' / task_spec(args.task).name /
               f'teacher-rollouts-h{task_spec(args.task).action_horizon}-state-v1')
@@ -165,7 +163,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
             provenance['code_revisions'] = code_revisions(args.task)
             write_json(shared / 'provenance.json', provenance)
         if args.task == 'balance' and not contract_file.exists():
-            from scripts.starvla.collect import _prepare_balance_bootstrap
+            from scripts.starvla.prepare_dataset import prepare_balance_bootstrap
             policy_path = args.output_dir / 'bootstrap_policy.yaml'
             policy_path.write_text(yaml.safe_dump(eval_config(args, args.output_dir / 'inference', shared), sort_keys=False))
             command = [task_python, '-m', 'scripts.starvla.balance_dagger', '--bootstrap',
@@ -174,7 +172,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
             if args.smoke:
                 command.append('--smoke')
             runtime.run_command(command, args.output_dir / 'bootstrap_collect.log')
-            _prepare_balance_bootstrap(shared / 'raw', shared / 'lerobot')
+            prepare_balance_bootstrap(shared / 'raw', shared / 'lerobot')
             raw_metadata = json.loads((shared / 'raw/metadata.json').read_text())
             write_json(shared / 'provenance.json', {'teacher': teacher_reference,
                        'label_provenance': raw_metadata['label_provenance'],
@@ -184,7 +182,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                        'train_episodes': 2 if args.smoke else 90, 'val_episodes': 1 if args.smoke else 10,
                        'label': 'expert closed-loop selected absolute request windows'})
             (shared / 'README.md').write_text('Balance closed-loop H8 teacher data with valid-frame mask; per-arm bootstrap statistics frozen.\n')
-        if not contract_file.exists() and args.dataset_dir is None:
+        if args.task == 'mikasa' and not contract_file.exists() and args.dataset_dir is None:
             hub = HfApi(token=resolve_token(''))
             remote_exists = not args.smoke and hub.file_exists(
                 artifacts.DATASET_REPO_ID, f'{ref["path"]}/lerobot/task_contract.json', repo_type='dataset'
@@ -196,33 +194,20 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                 shutil.copytree(snapshot / ref['path'], shared)
                 ref['revision'] = revision
             else:
-                if args.task in ('balance', 'mikasa'):
-                    from scripts.starvla.prepare_dataset import prepare_lerobot
+                from scripts.starvla.prepare_dataset import prepare_lerobot
 
-                    provenance = {'task': task_spec(args.task).name, 'kind': 'bootstrap',
-                                  'code_revisions': code_revisions(args.task)}
-                    source_path = f'zero-latency/{task_spec(args.task).name.replace("_", "-")}/teacher-rollouts-v1'
-                    snapshot = Path(snapshot_download(
-                        artifacts.DATASET_REPO_ID, repo_type='dataset',
-                        allow_patterns=[f'{source_path}/lerobot/**', f'{source_path}/lerobot__val/**'],
-                        token=resolve_token(''),
-                    ))
-                    prepare_lerobot(args.task, snapshot / source_path / 'lerobot',
-                                    snapshot / source_path / 'lerobot__val', shared / 'lerobot')
-                    provenance['source_dataset'] = {'repo_id': artifacts.DATASET_REPO_ID,
-                                                    'path': source_path}
-                else:
-                    provenance = {'task': task_spec(args.task).name, 'teacher': teacher_reference,
-                                  'seed': 0, 'split_seed': 0,
-                                  'kind': 'bootstrap', 'code_revisions': code_revisions(args.task),
-                                  'collection': {
-                                      'train_episodes': 2 if args.smoke else 250,
-                                      'validation_episodes': 1 if args.smoke else 25,
-                                      'keep_failed': args.smoke,
-                                      'simulator_device': args.simulator_device,
-                                  }}
-                    collect_bootstrap(task_spec(args.task).name, teacher, shared, task_python,
-                                      smoke=args.smoke, device=args.simulator_device)
+                provenance = {'task': task_spec(args.task).name, 'kind': 'bootstrap',
+                              'code_revisions': code_revisions(args.task)}
+                source_path = f'zero-latency/{task_spec(args.task).name.replace("_", "-")}/teacher-rollouts-v1'
+                snapshot = Path(snapshot_download(
+                    artifacts.DATASET_REPO_ID, repo_type='dataset',
+                    allow_patterns=[f'{source_path}/lerobot/**', f'{source_path}/lerobot__val/**'],
+                    token=resolve_token(''),
+                ))
+                prepare_lerobot(args.task, snapshot / source_path / 'lerobot',
+                                snapshot / source_path / 'lerobot__val', shared / 'lerobot')
+                provenance['source_dataset'] = {'repo_id': artifacts.DATASET_REPO_ID,
+                                                'path': source_path}
                 write_json(shared / 'provenance.json', provenance)
                 (shared / 'README.md').write_text(
                     f'# {task_spec(args.task).name} H1 teacher data\n\n'
