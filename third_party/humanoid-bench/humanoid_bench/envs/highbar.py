@@ -57,7 +57,6 @@ class HighBarBase(Task):
         return terminated, {}
 
     def reset_model(self):
-        self._env.randomness = 0
         return super().reset_model()
 
 

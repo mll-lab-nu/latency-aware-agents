@@ -163,4 +163,5 @@ class Package(Task):
         self._env.model.body_pos[-1] = np.array(
             [np.random.uniform(-2, 2), np.random.uniform(-2, 2), 0]
         )
+        mujoco.mj_forward(self._env.model, self._env.data)
         return super().reset_model()

@@ -47,6 +47,10 @@ class Spoon(Task):
             global _STAND_HEIGHT
             _STAND_HEIGHT = 1.28
 
+    def reset_model(self):
+        self.step_counter = 0
+        return super().reset_model()
+
     @property
     def observation_space(self):
         return Box(

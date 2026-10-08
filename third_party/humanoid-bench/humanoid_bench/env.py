@@ -233,7 +233,7 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
         # Add randomness
         init_qpos = self.data.qpos.copy()
         init_qvel = self.data.qvel.copy()
-        r = self.randomness
+        r = 0 if isinstance(self.task, (HighBarSimple, HighBarHard)) else self.randomness
         self.set_state(
             init_qpos + self.np_random.uniform(-r, r, size=self.model.nq), init_qvel
         )

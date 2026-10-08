@@ -64,7 +64,16 @@ class Truck(Task):
         self.packages_picked_up = []
         self.packages_on_table = []
 
-        self.initialized = False
+    def reset_model(self):
+        obs = super().reset_model()
+        self.packages_on_truck = [x for x in self.package_list]
+        self.packages_picked_up = []
+        self.packages_on_table = []
+        self.initial_zs = {
+            package: self._env.named.data.xpos[package][2]
+            for package in self.package_list
+        }
+        return obs
 
     @property
     def observation_space(self):
@@ -86,13 +95,6 @@ class Truck(Task):
 
     def get_reward(self):
         reward = 0
-
-        # Store initial z positions of packages
-        if self.initialized == False:
-            self.initialized = True
-            self.initial_zs = {}
-            for package in self.package_list:
-                self.initial_zs[package] = self._env.named.data.xpos[package][2]
 
         # Check if packages have been picked up from truck
         for package in self.packages_on_truck:

@@ -1,9 +1,9 @@
 import numpy as np
 import gymnasium as gym
 from gymnasium.spaces import Box
-from dm_control.utils import rewards
 
 _STAND_HEIGHT = 1.65
+_GAUSSIAN_SCALE = np.sqrt(-2.0 * np.log(0.1))
 
 from humanoid_bench.tasks import Task
 
@@ -28,29 +28,22 @@ class BalanceBase(Task):
         )
 
     def get_reward(self):
-        standing = rewards.tolerance(
-            self.robot.head_height(),
-            bounds=(_STAND_HEIGHT + 0.37, float("inf")),
-            margin=_STAND_HEIGHT / 4,
+        standing_distance = max(
+            0.0, (_STAND_HEIGHT + 0.37 - self.robot.head_height()) / (_STAND_HEIGHT / 4)
         )
-        upright = rewards.tolerance(
-            self.robot.torso_upright(),
-            bounds=(0.9, float("inf")),
-            sigmoid="linear",
-            margin=1.9,
-            value_at_margin=0,
-        )
+        standing = np.exp(-0.5 * (standing_distance * _GAUSSIAN_SCALE) ** 2)
+        upright_distance = max(0.0, (0.9 - self.robot.torso_upright()) / 1.9)
+        upright = max(0.0, 1.0 - upright_distance)
         stand_reward = standing * upright
-        small_control = rewards.tolerance(
-            self.robot.actuator_forces(),
-            margin=10,
-            value_at_margin=0,
-            sigmoid="quadratic",
-        ).mean()
+        force_distance = np.abs(self.robot.actuator_forces()) / 10.0
+        small_control = np.maximum(0.0, 1.0 - force_distance**2).mean()
         small_control = (4 + small_control) / 5
 
         horizontal_velocity = self.robot.center_of_mass_velocity()[[0, 1]]
-        dont_move = rewards.tolerance(horizontal_velocity, margin=2).mean()
+        velocity_distance = np.abs(horizontal_velocity) / 2.0
+        dont_move = np.exp(
+            -0.5 * (velocity_distance * _GAUSSIAN_SCALE) ** 2
+        ).mean()
         return small_control * stand_reward * dont_move, {
             "small_control": small_control,
             "stand_reward": stand_reward,

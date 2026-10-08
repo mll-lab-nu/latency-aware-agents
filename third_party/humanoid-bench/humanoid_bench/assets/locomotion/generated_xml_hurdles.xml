@@ -695,14 +695,14 @@
                 <geom type="box" pos="0 0 0.34" size="0.01 0.45 0.03" class="visual"/>
             </body>
         </body>
-<geom type="box" pos="7 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="14 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="21 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="28 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="35 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="42 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="49 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="56 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="63 0 0.1875" size="0.03 5 0.1875" class="collision"/>
-<geom type="box" pos="70 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_1_collision" pos="7 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_2_collision" pos="14 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_3_collision" pos="21 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_4_collision" pos="28 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_5_collision" pos="35 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_6_collision" pos="42 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_7_collision" pos="49 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_8_collision" pos="56 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_9_collision" pos="63 0 0.1875" size="0.03 5 0.1875" class="collision"/>
+<geom type="box" name="hurdle_10_collision" pos="70 0 0.1875" size="0.03 5 0.1875" class="collision"/>
 </mujoco>
