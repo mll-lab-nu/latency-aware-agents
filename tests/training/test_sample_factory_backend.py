@@ -586,7 +586,7 @@ def test_flappy_sf_resize_does_not_change_env_screen_size():
 
 
 def test_flappy_sf_shape_mismatch_fails_fast():
-    from latency_bench.policy.sample_factory_common import validate_sample_factory_obs_shape
+    from latency_bench.policy.sample_factory import validate_sample_factory_obs_shape
 
     with pytest.raises(ValueError, match="observation shape mismatch"):
         validate_sample_factory_obs_shape(

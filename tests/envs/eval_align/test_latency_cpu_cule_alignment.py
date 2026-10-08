@@ -184,7 +184,7 @@ def test_frozen_h8_teacher_cpu_and_cule_continue_beyond_first_life_loss(tmp_path
     from latency_bench.data.sf_teacher_runtime import build_sample_factory_rollout_cfg
     from latency_bench.eval.driver import run_from_config
     from latency_bench.executors.backend_selection import build_env_step_backend
-    from latency_bench.policy.sample_factory_common import SampleFactoryPolicyRunner
+    from latency_bench.policy.sample_factory import SampleFactoryPolicyRunner
 
     config = load_config(os.environ["DEMON_ATTACK_TEACHER_EVAL_CONFIG"])
     config["experiment"]["seed"] = 42

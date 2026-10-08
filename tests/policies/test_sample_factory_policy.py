@@ -16,7 +16,6 @@ from latency_bench.envs.factory import register_env_adapter
 from latency_bench.integrations.sample_factory import actions as sf_actions
 from latency_bench.integrations.sample_factory import runtime as sf_runtime
 from latency_bench.policy import sample_factory as sample_factory_policy
-from latency_bench.policy import sample_factory_common
 
 
 def test_sample_factory_integration_builds_policy_config_with_eval_parser():
@@ -28,7 +27,7 @@ def test_sample_factory_integration_builds_policy_config_with_eval_parser():
             parse_eval=lambda argv: calls.append(argv) or parsed_cfg
         ),
     )
-    integration = sf_runtime.SampleFactoryIntegrationModule(module, "register_components")
+    integration = sample_factory_policy.SampleFactoryIntegrationModule(module, "register_components")
 
     result = integration.build_sf_cfg_from_config({"experiment": "teacher"})
 
@@ -94,7 +93,7 @@ def _old_obs_batch_to_sf_inputs_reference(observations, device):
     expected_keys: set[str] | None = None
     action_masks: list[torch.Tensor | None] = []
     for index, observation in enumerate(observations):
-        obs_dict, action_mask = sample_factory_common._obs_to_sf_inputs(observation, device)
+        obs_dict, action_mask = sample_factory_policy._obs_to_sf_inputs(observation, device)
         keys = set(obs_dict)
         if expected_keys is None:
             expected_keys = keys
@@ -435,7 +434,7 @@ def _build_discrete_runner(monkeypatch, *, action_space=None, use_rnn: bool = Fa
         lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
-    runner = sample_factory_common.SampleFactoryPolicyRunner(
+    runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=config,
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(
@@ -464,7 +463,7 @@ def _build_rnn_discrete_runner(monkeypatch):
         lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
-    runner = sample_factory_common.SampleFactoryPolicyRunner(
+    runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=config,
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(
@@ -493,7 +492,7 @@ def _build_state_echo_discrete_runner(monkeypatch, *, use_rnn: bool):
         lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
-    runner = sample_factory_common.SampleFactoryPolicyRunner(
+    runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=config,
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(
@@ -561,7 +560,7 @@ def _build_tuple_runner(
     config = _config("/tmp/model.pth")
     config["policy"]["type"] = "deadly_corridor_sf"
     config["env"]["noop_action"] = [0, 0, 0, 0]
-    runner = sample_factory_common.SampleFactoryPolicyRunner(
+    runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=config,
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(
@@ -739,7 +738,7 @@ def test_sample_factory_policy_loads_config_from_checkpoint_when_checkpoint_path
     )
 
     config = _config("")
-    runner = sample_factory_common.SampleFactoryPolicyRunner(
+    runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=config,
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(),
@@ -777,7 +776,7 @@ def test_sample_factory_policy_skips_config_checkpoint_load_for_explicit_checkpo
         fake_load_state_dict,
     )
 
-    runner = sample_factory_common.SampleFactoryPolicyRunner(
+    runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=_config("/tmp/model.pth"),
         action_resolver=ActionResolver(_config("/tmp/model.pth")["env"]),
         integration_module=_FakeIntegration(),
@@ -806,7 +805,7 @@ def test_sample_factory_policy_unsqueezes_discrete_argmax_actions_before_preproc
         lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
 
-    runner = sample_factory_common.SampleFactoryPolicyRunner(
+    runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=_config("/tmp/model.pth"),
         action_resolver=ActionResolver(_config("/tmp/model.pth")["env"]),
         integration_module=_FakeIntegration(),
@@ -864,7 +863,7 @@ def test_sample_factory_policy_emits_chunk_from_physical_observation(monkeypatch
     del config["env"]["action_map"]
     config["env"]["action_space"] = {"type": "box", "labels": [f"a{i}" for i in range(action_dim)], "low": [-bound] * action_dim, "high": [bound] * action_dim}
     action_space = Box(-1.0, 1.0, (horizon * action_dim,), dtype=np.float32)
-    runner = sample_factory_common.SampleFactoryPolicyRunner(
+    runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=config,
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(
@@ -948,9 +947,9 @@ def test_obs_batch_to_sf_inputs_stacks_homogeneous_numpy_chw_before_tensor_conve
         converted_shapes.append(tuple(np.asarray(value).shape) if not isinstance(value, torch.Tensor) else tuple(value.shape))
         return original_as_tensor(value, *args, **kwargs)
 
-    monkeypatch.setattr(sample_factory_common.torch, "as_tensor", tracking_as_tensor)
+    monkeypatch.setattr(sample_factory_policy.torch, "as_tensor", tracking_as_tensor)
 
-    actual = sample_factory_common._obs_batch_to_sf_inputs(observations, torch.device("cpu"))
+    actual = sample_factory_policy._obs_batch_to_sf_inputs(observations, torch.device("cpu"))
 
     _assert_sf_input_batches_equal(actual, expected)
     assert converted_shapes == [(4, 3, 2, 2)]
@@ -972,9 +971,9 @@ def test_obs_batch_to_sf_inputs_batches_homogeneous_torch_chw_without_numpy_conv
             raise AssertionError("torch tensor observations must not be converted through numpy")
         return np.asarray(value, *args, **kwargs)
 
-    monkeypatch.setattr(sample_factory_common.np, "asarray", fail_asarray)
+    monkeypatch.setattr(sample_factory_policy.np, "asarray", fail_asarray)
 
-    actual = sample_factory_common._obs_batch_to_sf_inputs(observations, torch.device("cpu"))
+    actual = sample_factory_policy._obs_batch_to_sf_inputs(observations, torch.device("cpu"))
 
     _assert_sf_input_batches_equal(actual, expected)
 
@@ -1033,7 +1032,7 @@ def test_obs_batch_to_sf_inputs_batches_homogeneous_torch_chw_without_numpy_conv
 def test_obs_batch_to_sf_inputs_matches_old_tensor_semantics(observations):
     device = torch.device("cpu")
     expected = _old_obs_batch_to_sf_inputs_reference(observations, device)
-    actual = sample_factory_common._obs_batch_to_sf_inputs(observations, device)
+    actual = sample_factory_policy._obs_batch_to_sf_inputs(observations, device)
 
     _assert_sf_input_batches_equal(actual, expected)
 

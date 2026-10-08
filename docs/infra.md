@@ -92,6 +92,23 @@ identity and revision from the artifact provenance, never from a local basename.
 
 ## Training-framework boundaries
 
+The executor-facing `policy` package owns `PolicyRunner` implementations and
+their observation-to-action conversion. `policy/sample_factory.py` contains
+the Sample Factory runner, its environment-specific construction, and the thin
+adapter to training integrations. Shared checkpoint/device and action-space
+helpers remain in `integrations/sample_factory` for policy, training, and teacher
+dataset consumers.
+
+For StarVLA, `integrations/starvla_runtime.py` owns lazy framework imports and
+saved model configuration compatibility. `policy/_starvla_input.py` owns the
+shared frame plan, raw-image layout conversion, and lazy stitching;
+`policy/_starvla_actions.py` converts model action payloads into benchmark actions.
+The generic runner assembles prompts/state and orchestrates inference in
+`policy/starvla.py`; its existing public image-conversion export delegates to
+the input module. `policy/starvla_tasks.py` remains the separate task-contract
+path for multi-view inputs and full action chunks. The training evaluation and
+resident DAgger integrations continue to reuse these policy interfaces.
+
 The Sample Factory source version is fixed by the repository's submodule commit.
 Compatibility code in `training/common` has active training consumers:
 

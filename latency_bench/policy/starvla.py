@@ -25,7 +25,9 @@ from latency_bench.envs.tasks.contracts import (
     gymnasium_action_space_contract,
     gymnasium_task_contract,
 )
+from latency_bench.integrations import starvla_runtime
 from latency_bench.policy.base import PolicyRunner
+from latency_bench.policy._starvla_input import observation_data_to_hwc_uint8_frames
 from latency_bench.policy import _starvla_input as model_input, _starvla_actions as action_decode
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 
@@ -80,7 +82,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._image_transform = str(
             self._image_transform_config.get("image_transform", "raw_rgb") or "raw_rgb"
         ).strip().lower()
-        model_cfg = model_input._normalized_model_cfg(wrapper._model_cfg if model_cfg is None else model_cfg)
+        model_cfg = starvla_runtime.normalize_model_config(wrapper._model_cfg if model_cfg is None else model_cfg)
         self._include_state = model_cfg["datasets"]["vla_data"]["include_state"]
         self._state_dim = model_cfg["framework"]["action_model"]["state_dim"] if self._include_state else None
         self._state_normalization = dict(state_normalization or {})
@@ -197,7 +199,7 @@ class StarVlaPolicyRunner(PolicyRunner):
                 raise ValueError("image_transform is not compatible with image_mode=stitch")
             # Tile the window into one image; matches _pack_sample's stitch branch
             # (raw frames passed to stitch_frames, which resizes each cell to 224).
-            images = [_get_stitch_frames()(frames, grid=self._input_plan.stitch_grid, size=(224, 224))]
+            images = [model_input.get_stitch_frames()(frames, grid=self._input_plan.stitch_grid, size=(224, 224))]
         else:
             if self._obs_resize is not None:
                 height, width = self._obs_resize
@@ -329,63 +331,6 @@ class StarVlaPolicyRunner(PolicyRunner):
         )
 
 
-def observation_data_to_hwc_uint8_frames(data: Any) -> list[npt.NDArray[np.uint8]]:
-    frame = _extract_observation_array(data)
-    if frame.ndim == 4 and frame.shape[-1] == 3:
-        return [_as_uint8_image(item) for item in frame]
-    if frame.ndim == 4 and frame.shape[1] == 3:
-        return [_as_uint8_image(np.transpose(item, (1, 2, 0))) for item in frame]
-    if frame.ndim == 3 and frame.shape[-1] == 3:
-        return [_as_uint8_image(frame)]
-    if frame.ndim == 3 and frame.shape[0] == 3:
-        return [_as_uint8_image(np.transpose(frame, (1, 2, 0)))]
-    if (
-        frame.ndim == 3
-        and frame.shape[0] % 3 == 0
-        and frame.shape[0] < frame.shape[1]
-        and frame.shape[0] < frame.shape[2]
-    ):
-        return [
-            _as_uint8_image(np.transpose(frame[start : start + 3, :, :], (1, 2, 0)))
-            for start in range(0, frame.shape[0], 3)
-        ]
-    if frame.ndim == 3 and frame.shape[-1] % 3 == 0:
-        return [
-            _as_uint8_image(frame[:, :, start : start + 3])
-            for start in range(0, frame.shape[-1], 3)
-        ]
-    if frame.ndim == 3 and frame.shape[0] % 3 == 0:
-        return [
-            _as_uint8_image(np.transpose(frame[start : start + 3, :, :], (1, 2, 0)))
-            for start in range(0, frame.shape[0], 3)
-        ]
-    return [_as_uint8_image(frame)]
-
-
-def _extract_observation_array(data: Any) -> npt.NDArray[Any]:
-    if isinstance(data, Mapping):
-        return np.asarray(data["observation"])
-    return np.asarray(data)
-
-
-def _as_uint8_image(frame: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
-    return np.ascontiguousarray(frame, dtype=np.uint8)
-
-
-_STITCH_FRAMES = None
-
-
-def _get_stitch_frames():
-    """Lazily import starVLA's stitch_frames (starVLA path is added at runtime)."""
-    global _STITCH_FRAMES
-    if _STITCH_FRAMES is None:
-        model_input._ensure_starvla_path()
-        from starVLA.training.trainer_utils.trainer_tools import stitch_frames
-
-        _STITCH_FRAMES = stitch_frames
-    return _STITCH_FRAMES
-
-
 def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
     """Apply the saved checkpoint input contract before env construction."""
     if config["policy"]["type"] != "starvla":
@@ -404,13 +349,9 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
         config["env"]["frame_stack"] = 1
         return
     if "model_config_path" in policy_cfg:
-        model_cfg = model_input._load_starvla_model_config(policy_cfg["model_config_path"])
+        model_cfg = starvla_runtime.load_model_config(policy_cfg["model_config_path"])
     else:
-        model_input._ensure_starvla_path()
-        from starVLA.model.framework.share_tools import read_mode_config
-
-        saved_model_cfg, _norm_stats = read_mode_config(policy_cfg["checkpoint_path"])
-        model_cfg = model_input._normalized_model_cfg(saved_model_cfg)
+        model_cfg = starvla_runtime.load_checkpoint_config(policy_cfg["checkpoint_path"])
     if config["env"]["name"] == "gymnasium":
         image_size = model_cfg["rl_games"]["env_eval"]["image_size"]
         config["env"]["obs_resize"] = [image_size, image_size]
@@ -429,13 +370,6 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
         model_cfg=model_cfg,
         image_transform=image_transform,
     )
-
-
-def _load_policy_wrapper_class() -> Any:
-    model_input._ensure_starvla_path()
-    from deployment.model_server.policy_wrapper import PolicyServerWrapper
-
-    return PolicyServerWrapper
 
 
 def _profiler_stage(profiler: Any, name: str) -> Any:
@@ -474,7 +408,7 @@ class LiveStarVlaWrapper:
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
             resolve_asterix_action_decode_spec,
-        ) = action_decode._load_rl_games_action_decode()
+        ) = starvla_runtime.load_rl_games_action_decode()
         self._action_layout = action_layout
         self._multibinary_threshold = multibinary_threshold
         if self._rl_games_env_name == "deadly_corridor":
@@ -745,21 +679,21 @@ def build_starvla_policy(
 ) -> PolicyRunner:
     policy_cfg = config["policy"]
     if "task_contract_path" in policy_cfg:
-        model_input._ensure_starvla_path()
+        starvla_runtime.ensure_starvla_path()
         from latency_bench.policy.starvla_tasks import build_task_starvla_policy
 
         return build_task_starvla_policy(config)
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]
     model_cfg = (
-        model_input._load_starvla_model_config(policy_cfg["model_config_path"])
+        starvla_runtime.load_model_config(policy_cfg["model_config_path"])
         if integration_env_name == "gymnasium" or "model_config_path" in policy_cfg
         else None
     )
     runner_kwargs = _starvla_runner_kwargs(
         config, action_resolver, model_cfg, base_prompt=env_cfg.get("base_prompt")
     )
-    wrapper_cls = _load_policy_wrapper_class()
+    wrapper_cls = starvla_runtime.load_policy_wrapper_class()
     wrapper_kwargs: dict[str, Any] = dict(
         ckpt_path=policy_cfg["checkpoint_path"],
         device=policy_cfg["device"],
@@ -841,7 +775,7 @@ def build_live_starvla_policy(
     env_cfg = config["env"]
     integration_env_name = env_cfg["name"]
     normalized_model_cfg = (
-        model_input._normalized_model_cfg(model_cfg)
+        starvla_runtime.normalize_model_config(model_cfg)
         if integration_env_name == "gymnasium"
         else None
     )

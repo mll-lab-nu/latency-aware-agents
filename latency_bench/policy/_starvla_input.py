@@ -1,85 +1,16 @@
-"""Resolve saved StarVLA model configuration and temporal image inputs."""
+"""Plan temporal image inputs and convert raw frames for StarVLA policies."""
+
 from __future__ import annotations
 
-import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
+import numpy as np
+import numpy.typing as npt
+
 from latency_bench.core.clock import EnvClock
-from latency_bench.utils.paths import REPO_ROOT
-
-STARVLA_ROOT = REPO_ROOT / "third_party" / "starVLA"
-STATEFUL_STARVLA_MODEL_IDS: tuple[str, ...] = (
-    "pi0",
-    "pi-0",
-    "pi05",
-    "pi-0.5",
-    "gr00t",
-    "qwenpi",
-    "qwenpi_v3",
-    "qwengr00t",
-)
-STATELESS_STARVLA_MODEL_IDS: tuple[str, ...] = (
-    "openvla",
-    "qwenoft",
-)
-
-
-def _normalized_model_cfg(model_cfg: Mapping[str, Any]) -> dict[str, Any]:
-    _ensure_starvla_path()
-    from omegaconf import OmegaConf
-    from starVLA.model.framework.share_tools import apply_config_compat
-
-    cfg = OmegaConf.create(model_cfg)
-    apply_config_compat(cfg)
-    _apply_model_family_include_state_compat(cfg)
-    return OmegaConf.to_container(cfg, resolve=True)
-
-
-
-def _load_starvla_model_config(path: str | Path) -> dict[str, Any]:
-    from omegaconf import OmegaConf
-
-    return _normalized_model_cfg(OmegaConf.load(path))
-
-
-
-def _apply_model_family_include_state_compat(cfg: Any) -> None:
-    from omegaconf import OmegaConf
-
-    if OmegaConf.select(cfg, "datasets.vla_data.include_state") is not None:
-        return
-
-    model_ids = (
-        _normalized_optional_config_string(cfg, ("model",)),
-        _normalized_optional_config_string(cfg, ("rl_games", "model_alias")),
-        _normalized_optional_config_string(cfg, ("framework", "name")),
-    )
-    if any(model_id in STATEFUL_STARVLA_MODEL_IDS for model_id in model_ids if model_id is not None):
-        OmegaConf.update(cfg, "datasets.vla_data.include_state", True, force_add=True)
-        return
-    if any(model_id in STATELESS_STARVLA_MODEL_IDS for model_id in model_ids if model_id is not None):
-        OmegaConf.update(cfg, "datasets.vla_data.include_state", False, force_add=True)
-
-
-
-def _normalized_optional_config_string(cfg: Any, path: tuple[str, ...]) -> str | None:
-    from omegaconf import OmegaConf
-
-    value = OmegaConf.select(cfg, ".".join(path))
-    if value is None:
-        return None
-    return str(value).strip().lower()
-
-
-
-def _ensure_starvla_path() -> None:
-    starvla_root = str(STARVLA_ROOT)
-    if starvla_root not in sys.path:
-        sys.path.insert(0, starvla_root)
-
+from latency_bench.integrations import starvla_runtime
 
 
 def _observation_stride_raw_frames(config: Mapping[str, Any]) -> int:
@@ -88,7 +19,6 @@ def _observation_stride_raw_frames(config: Mapping[str, Any]) -> int:
         env_fps=float(env_cfg["env_fps"]),
         obs_fps=float(env_cfg["obs_fps"]),
     ).obs_stride_raw_frames
-
 
 
 @dataclass(frozen=True)
@@ -131,3 +61,60 @@ def apply_starvla_model_input_config(config, *, model_cfg, image_transform="raw_
         raise ValueError("WanOFT packed image sequences require image_transform=raw_rgb")
     if raw_transform:
         config["env"]["frame_stack"] = max(config["env"]["frame_stack"], plan.raw_span)
+
+
+def observation_data_to_hwc_uint8_frames(data: Any) -> list[npt.NDArray[np.uint8]]:
+    frame = _extract_observation_array(data)
+    if frame.ndim == 4 and frame.shape[-1] == 3:
+        return [_as_uint8_image(item) for item in frame]
+    if frame.ndim == 4 and frame.shape[1] == 3:
+        return [_as_uint8_image(np.transpose(item, (1, 2, 0))) for item in frame]
+    if frame.ndim == 3 and frame.shape[-1] == 3:
+        return [_as_uint8_image(frame)]
+    if frame.ndim == 3 and frame.shape[0] == 3:
+        return [_as_uint8_image(np.transpose(frame, (1, 2, 0)))]
+    if (
+        frame.ndim == 3
+        and frame.shape[0] % 3 == 0
+        and frame.shape[0] < frame.shape[1]
+        and frame.shape[0] < frame.shape[2]
+    ):
+        return [
+            _as_uint8_image(np.transpose(frame[start : start + 3, :, :], (1, 2, 0)))
+            for start in range(0, frame.shape[0], 3)
+        ]
+    if frame.ndim == 3 and frame.shape[-1] % 3 == 0:
+        return [
+            _as_uint8_image(frame[:, :, start : start + 3])
+            for start in range(0, frame.shape[-1], 3)
+        ]
+    if frame.ndim == 3 and frame.shape[0] % 3 == 0:
+        return [
+            _as_uint8_image(np.transpose(frame[start : start + 3, :, :], (1, 2, 0)))
+            for start in range(0, frame.shape[0], 3)
+        ]
+    return [_as_uint8_image(frame)]
+
+
+def _extract_observation_array(data: Any) -> npt.NDArray[Any]:
+    if isinstance(data, Mapping):
+        return np.asarray(data["observation"])
+    return np.asarray(data)
+
+
+def _as_uint8_image(frame: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
+    return np.ascontiguousarray(frame, dtype=np.uint8)
+
+
+_STITCH_FRAMES = None
+
+
+def get_stitch_frames():
+    """Lazily import starVLA's stitch_frames (starVLA path is added at runtime)."""
+    global _STITCH_FRAMES
+    if _STITCH_FRAMES is None:
+        starvla_runtime.ensure_starvla_path()
+        from starVLA.training.trainer_utils.trainer_tools import stitch_frames
+
+        _STITCH_FRAMES = stitch_frames
+    return _STITCH_FRAMES

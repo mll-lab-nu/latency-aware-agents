@@ -9,6 +9,7 @@ import pytest
 pytest.importorskip("omegaconf", exc_type=ImportError)
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.integrations import starvla_runtime
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
 from latency_bench.policy.factory import build_policy
@@ -201,7 +202,7 @@ def test_starvla_passes_latest_raw_frame_and_base_prompt_by_default(monkeypatch,
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
     frame_stack = np.zeros((2, 3, 6), dtype=np.uint8)
@@ -245,7 +246,7 @@ def test_starvla_uses_explicit_multiview_deployment_actions(monkeypatch, tmp_pat
             return {"actions": np.asarray([[[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]]])}
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: DeploymentWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: DeploymentWrapper)
     config = _config(tmp_path)
     config["env"]["name"] = "mikasa_intercept_grab_fast"
     config["env"]["base_prompt"] = "Intercept the rolling ball."
@@ -287,7 +288,7 @@ def test_starvla_passes_action_decode_overrides_to_checkpoint_wrapper(monkeypatc
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     config["policy"]["action_layout"] = "multibinary_7"
     config["policy"]["multibinary_threshold"] = 0.25
@@ -303,7 +304,7 @@ def test_starvla_policy_uses_wrapper_default_unnorm_key(monkeypatch, tmp_path: P
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     del config["policy"]["unnorm_key"]
     policy = build_policy(config, ActionResolver(config["env"]))
@@ -328,7 +329,7 @@ def test_starvla_policy_uses_saved_checkpoint_no_state_config(monkeypatch, tmp_p
 
     from latency_bench.policy import starvla
 
-    monkeypatch.syspath_prepend(starvla.model_input.STARVLA_ROOT)
+    monkeypatch.syspath_prepend(starvla_runtime.STARVLA_ROOT)
     from starVLA.model.framework.share_tools import apply_config_compat
 
     class SavedCheckpointPolicyServerWrapper(FakePolicyServerWrapper):
@@ -388,7 +389,7 @@ def test_starvla_policy_uses_saved_checkpoint_no_state_config(monkeypatch, tmp_p
             self._model_cfg = OmegaConf.to_container(cfg, resolve=True)
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: SavedCheckpointPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: SavedCheckpointPolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -430,7 +431,7 @@ def test_starvla_policy_uses_legacy_train_data_include_state_config(monkeypatch,
             }
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: Pi05CheckpointPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: Pi05CheckpointPolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -472,7 +473,7 @@ def test_starvla_policy_uses_pi05_model_family_include_state_config(monkeypatch,
             }
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: Pi05CheckpointPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: Pi05CheckpointPolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -514,7 +515,7 @@ def test_starvla_policy_uses_openvla_model_family_no_state_config(monkeypatch, t
             }
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: OpenVlaCheckpointPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: OpenVlaCheckpointPolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -535,7 +536,7 @@ def test_starvla_passes_single_raw_frame_and_base_prompt(monkeypatch, tmp_path: 
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -591,8 +592,7 @@ def test_starvla_multiframe_passes_four_temporal_images(
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(
-        starvla,
-        "_load_policy_wrapper_class",
+        starvla_runtime, "load_policy_wrapper_class",
         lambda: MultiframePolicyServerWrapper,
     )
     config = _config(tmp_path)
@@ -639,8 +639,7 @@ def test_starvla_stitch_builds_one_temporal_mosaic(monkeypatch, tmp_path: Path):
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(
-        starvla,
-        "_load_policy_wrapper_class",
+        starvla_runtime, "load_policy_wrapper_class",
         lambda: StitchPolicyServerWrapper,
     )
     config = _config(tmp_path)
@@ -696,8 +695,7 @@ def test_starvla_wanoft_samples_decision_observations_from_raw_history(
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(
-        starvla,
-        "_load_policy_wrapper_class",
+        starvla_runtime, "load_policy_wrapper_class",
         lambda: WanOftPolicyServerWrapper,
     )
     config = _config(tmp_path)
@@ -738,10 +736,9 @@ def test_starvla_wanoft_uses_explicit_full_model_config(
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     monkeypatch.setattr(
-        starvla.model_input,
-        "_load_starvla_model_config",
+        starvla_runtime, "load_model_config",
         lambda _path: {
             "datasets": {
                 "vla_data": {
@@ -808,8 +805,7 @@ def test_prepare_starvla_checkpoint_input_config_uses_explicit_full_model_config
     from latency_bench.policy import starvla
 
     monkeypatch.setattr(
-        starvla.model_input,
-        "_load_starvla_model_config",
+        starvla_runtime, "load_model_config",
         lambda _path: {
             "datasets": {
                 "vla_data": {
@@ -839,8 +835,7 @@ def test_prepare_starvla_checkpoint_input_config_sizes_plain_multiframe_history(
     from latency_bench.policy import starvla
 
     monkeypatch.setattr(
-        starvla.model_input,
-        "_load_starvla_model_config",
+        starvla_runtime, "load_model_config",
         lambda _path: {
             "datasets": {
                 "vla_data": {
@@ -887,8 +882,7 @@ def test_starvla_wanoft_rejects_incomplete_decision_history(
 
     FakePolicyServerWrapper.instances.clear()
     monkeypatch.setattr(
-        starvla,
-        "_load_policy_wrapper_class",
+        starvla_runtime, "load_policy_wrapper_class",
         lambda: WanOftPolicyServerWrapper,
     )
     config = _config(tmp_path)
@@ -918,8 +912,8 @@ def test_starvla_decision_history_uses_transport_and_requires_it(monkeypatch, tm
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", lambda _path: {
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", lambda _path: {
         "datasets": {"vla_data": {"include_state": True}},
         "framework": {"action_model": {"state_dim": state_dim}},
     })
@@ -996,7 +990,7 @@ def test_starvla_omits_state_when_checkpoint_excludes_state(monkeypatch, tmp_pat
             }
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: NoStatePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: NoStatePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -1039,7 +1033,7 @@ def test_starvla_kv_memory_passes_required_slot_id_and_metadata(monkeypatch, tmp
             }
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: KvMemoryPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: KvMemoryPolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -1089,7 +1083,7 @@ def test_starvla_kv_memory_requires_slot_id(monkeypatch, tmp_path: Path):
             }
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: KvMemoryPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: KvMemoryPolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -1108,7 +1102,7 @@ def test_starvla_reset_state_forwards_slot_id_to_wrapper_memory(monkeypatch, tmp
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -1135,7 +1129,7 @@ def test_starvla_requires_state_dim_when_checkpoint_includes_state(monkeypatch, 
             }
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: MissingStateDimWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: MissingStateDimWrapper)
     config = _config(tmp_path)
     with pytest.raises(KeyError, match="state_dim"):
         build_policy(config, ActionResolver(config["env"]))
@@ -1145,7 +1139,7 @@ def test_starvla_latency_prompt_map_preserves_default_single_frame_selection(mon
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     prompt_map_path = tmp_path / "latency_prompt_map.json"
     prompt_map_path.write_text(
         json.dumps({"3": {"latency_raw_frames": 3, "latency_ms": 100.0, "prompt": "latency prompt 3"}}),
@@ -1182,7 +1176,7 @@ def test_starvla_latency_prompt_map_prefers_explicit_prompt_key(monkeypatch, tmp
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     prompt_map_path = tmp_path / "latency_prompt_map.json"
     prompt_map_path.write_text(
         json.dumps(
@@ -1218,7 +1212,7 @@ def test_starvla_latency_prompt_map_uses_raw_rgb_frame_stack_metadata(monkeypatc
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     prompt_map_path = tmp_path / "latency_prompt_map.json"
     prompt_map_path.write_text(
         json.dumps({"2": {"latency_raw_frames": 2, "latency_ms": 33.0, "prompt": "latency prompt 2"}}),
@@ -1299,7 +1293,7 @@ def test_starvla_requires_raw_rgb_frame_stack_metadata(monkeypatch, tmp_path: Pa
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -1345,7 +1339,7 @@ def test_starvla_policy_uses_decoded_actions_not_raw_scores(monkeypatch, tmp_pat
             }
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: ConflictingPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: ConflictingPolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -1369,7 +1363,7 @@ def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
     observations = [
@@ -1400,7 +1394,7 @@ def test_predict_batch_records_stages_into_ambient_profiler(monkeypatch, tmp_pat
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
     observations = [
@@ -1442,7 +1436,7 @@ def test_predict_batch_without_profiler_scope_records_nothing(monkeypatch, tmp_p
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
     observation = Observation(
@@ -1462,7 +1456,7 @@ def test_starvla_default_policy_metadata_omits_input_frame_hashes(monkeypatch, t
     from latency_bench.policy import starvla
 
     FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     policy = build_policy(config, ActionResolver(config["env"]))
 
@@ -1565,7 +1559,7 @@ def test_live_starvla_wrapper_uses_shared_deadly_multibinary_decode():
 def test_seeded_action_noise_uses_episode_and_frame_not_batch_slot(monkeypatch, tmp_path):
     from latency_bench.policy import starvla
 
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
     config = _config(tmp_path)
     config["policy"]["action_noise_seeded"] = True
     policy = build_policy(config, ActionResolver(config["env"]))

@@ -1,3 +1,5 @@
+"""Sample Factory checkpoint loading and device helpers shared across workflows."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -51,22 +53,3 @@ def load_sample_factory_policy_state_dict(
         )
     actor_critic.load_state_dict(checkpoint["model"])
     return checkpoint, resolved_checkpoint_path
-
-
-class SampleFactoryIntegrationModule:
-    """Adapt a training-side integration module to the policy runner interface."""
-
-    def __init__(self, module: Any, register_attr: str):
-        self.module = module
-        self._register_attr = register_attr
-
-    def register_components(self) -> None:
-        getattr(self.module, self._register_attr)()
-
-    def build_sf_cfg_from_config(self, config: dict[str, Any]):
-        return self.module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(
-            self.module.build_cli_args_from_config(config)
-        )
-
-    def make_reference_env(self, cfg: Any):
-        return self.module.make_reference_env(cfg)

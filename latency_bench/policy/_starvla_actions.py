@@ -8,7 +8,6 @@ import numpy as np
 import numpy.typing as npt
 
 from latency_bench.core.types import Action
-from latency_bench.policy._starvla_input import _ensure_starvla_path
 from latency_bench.data.action_layouts import (
     DEADLY_CORRIDOR_ATTACK_LABELS as _DEADLY_CORRIDOR_ATTACK_LABELS,
     DEADLY_CORRIDOR_MOVE_LABELS as _DEADLY_CORRIDOR_MOVE_LABELS,
@@ -128,15 +127,3 @@ def deadly_corridor_action_from_tuple(
         "action_label": action_name,
         **metadata,
     }
-
-
-
-def _load_rl_games_action_decode() -> tuple[Any, Any, Any]:
-    _ensure_starvla_path()
-    from deployment.model_server.rl_games_action_decode import (
-        decode_rl_games_actions,
-        resolve_asterix_action_decode_spec,
-        resolve_deadly_action_decode_spec,
-    )
-
-    return decode_rl_games_actions, resolve_deadly_action_decode_spec, resolve_asterix_action_decode_spec

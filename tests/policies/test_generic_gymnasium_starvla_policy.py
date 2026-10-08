@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.integrations import starvla_runtime
 from latency_bench.core.types import Observation
 from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy.factory import build_policy
@@ -169,16 +170,14 @@ def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
 
     GenericPolicyServerWrapper.instances.clear()
     monkeypatch.setattr(
-        starvla,
-        "_load_policy_wrapper_class",
+        starvla_runtime, "load_policy_wrapper_class",
         lambda: GenericPolicyServerWrapper,
     )
     monkeypatch.setattr(
-        starvla.model_input,
-        "_normalized_model_cfg",
+        starvla_runtime, "normalize_model_config",
         lambda model_cfg: model_cfg,
     )
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     if backbone_path is not None:
         config["policy"]["backbone_path"] = backbone_path
@@ -213,9 +212,9 @@ def test_generic_checkpoint_policy_accepts_legacy_environment_namespace(
 ):
     from latency_bench.policy import starvla
 
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
-    monkeypatch.setattr(starvla.model_input, "_normalized_model_cfg", lambda model_cfg: model_cfg)
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     config["env"].update(
         task_name="hopper",
@@ -251,9 +250,9 @@ def test_generic_checkpoint_policy_keeps_stateless_gymnasium_stateless(
     from latency_bench.policy import starvla
 
     GenericPolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
-    monkeypatch.setattr(starvla.model_input, "_normalized_model_cfg", lambda model_cfg: model_cfg)
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     del config["env"]["state_space"]
     contract = gymnasium_task_contract(config["env"])
@@ -297,8 +296,8 @@ def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
 ):
     from latency_bench.policy import starvla
 
-    monkeypatch.setattr(starvla.model_input, "_normalized_model_cfg", lambda model_cfg: model_cfg)
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     manifest_path = Path(config["policy"]["task_manifest_path"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -320,8 +319,8 @@ def test_synthetic_continuous_checkpoint_policy_passes_state_and_box_contract(
     from latency_bench.policy import starvla
 
     GenericPolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
-    monkeypatch.setattr(starvla.model_input, "_normalized_model_cfg", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda model_cfg: model_cfg)
     config = {
         "env": {
             "name": "gymnasium",
@@ -380,7 +379,7 @@ def test_synthetic_continuous_checkpoint_policy_passes_state_and_box_contract(
         },
         "framework": {"action_model": {"action_env_dim": 2, "state_dim": 2}},
     }
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", lambda path: model_cfg)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", lambda path: model_cfg)
     state = np.asarray([1.25, -2.5], dtype=np.float32)
 
     policy = build_policy(config, ActionResolver(config["env"]))
@@ -413,9 +412,9 @@ def test_generic_policy_allows_eval_only_reset_wrapper_overrides(
     from latency_bench.policy import starvla
 
     GenericPolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
-    monkeypatch.setattr(starvla.model_input, "_normalized_model_cfg", lambda model_cfg: model_cfg)
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     config["env"]["make_kwargs"] = {
         "render_mode": "rgb_array",
@@ -435,16 +434,14 @@ def test_generic_prompt_map_takes_priority_over_explicit_base_prompt(
 
     GenericPolicyServerWrapper.instances.clear()
     monkeypatch.setattr(
-        starvla,
-        "_load_policy_wrapper_class",
+        starvla_runtime, "load_policy_wrapper_class",
         lambda: GenericPolicyServerWrapper,
     )
     monkeypatch.setattr(
-        starvla.model_input,
-        "_normalized_model_cfg",
+        starvla_runtime, "normalize_model_config",
         lambda model_cfg: model_cfg,
     )
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     prompt_map_path = tmp_path / "latency_prompt_map.json"
     prompt_map_path.write_text(
         json.dumps({"3": {"prompt": "Use the latency-three policy."}}),
@@ -506,16 +503,14 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
         }
 
     monkeypatch.setattr(
-        starvla.action_decode,
-        "_load_rl_games_action_decode",
+        starvla_runtime, "load_rl_games_action_decode",
         lambda: (decode_rl_games_actions, None, None),
     )
     monkeypatch.setattr(
-        starvla.model_input,
-        "_normalized_model_cfg",
+        starvla_runtime, "normalize_model_config",
         lambda model_cfg: model_cfg,
     )
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     framework = GenericLiveFramework()
     model_cfg = json.loads(
@@ -570,18 +565,16 @@ def test_generic_starvla_rejects_eval_task_contract_drift(
     from latency_bench.policy import starvla
 
     monkeypatch.setattr(
-        starvla,
-        "_load_policy_wrapper_class",
+        starvla_runtime, "load_policy_wrapper_class",
         lambda: GenericPolicyServerWrapper,
     )
     monkeypatch.setattr(
-        starvla.model_input,
-        "_normalized_model_cfg",
+        starvla_runtime, "normalize_model_config",
         lambda model_cfg: model_cfg,
     )
     config = _generic_config(tmp_path)
     mutate_env(config["env"])
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
 
     with pytest.raises(ValueError, match="dataset manifest"):
         build_policy(config, ActionResolver(config["env"]))
@@ -594,12 +587,11 @@ def test_generic_starvla_rejects_model_config_contract_drift(
     from latency_bench.policy import starvla
 
     monkeypatch.setattr(
-        starvla,
-        "_load_policy_wrapper_class",
+        starvla_runtime, "load_policy_wrapper_class",
         lambda: GenericPolicyServerWrapper,
     )
-    monkeypatch.setattr(starvla.model_input, "_normalized_model_cfg", lambda model_cfg: model_cfg)
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda model_cfg: model_cfg)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     model_cfg = _read_model_config(config["policy"]["model_config_path"])
     model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]["action_values"] = [0, 2, 1]
@@ -635,9 +627,9 @@ def test_generic_policy_calibrated_clock_preserves_training_semantics(
 ):
     from latency_bench.policy import starvla
 
-    monkeypatch.setattr(starvla, "_load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
-    monkeypatch.setattr(starvla.model_input, "_normalized_model_cfg", lambda config: config)
-    monkeypatch.setattr(starvla.model_input, "_load_starvla_model_config", _read_model_config)
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
+    monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda config: config)
+    monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     config["env"].update(env_fps=101.88019608871818, obs_fps=101.88019608871818 / 3)
     if mutation == "changed_ratio":
