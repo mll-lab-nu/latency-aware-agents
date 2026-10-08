@@ -18,6 +18,7 @@ from mani_skill.vector.wrappers.gymnasium import ManiSkillVectorEnv
 
 import mikasa_robo_suite.vla.memory_envs  # noqa: F401
 from baselines.ppo.ppo_memtasks import AgentStateOnly, FlattenRGBDObservationWrapper
+from mikasa_robo_suite.seed_reset import reset_seeded_slots
 from mikasa_robo_suite.vla.utils.dataset_naming import env_id_to_dataset_name
 from mikasa_robo_suite.vla.utils.wrappers import *
 
@@ -405,15 +406,16 @@ def collect_batched_data_from_ckpt(
     checkpoint_path: Optional[str] = None,
     path_to_save_data: str = "data_mikasa_robo",
     num_train_data: int = 250,
+    latency_config: Optional[str] = None,
+    keep_failed: bool = False,
+    num_envs: Optional[int] = None,
 ):
-    """Collect episodes in batches; keep a batch only if all episodes are successful."""
+    """Collect aligned issued labels; keep_failed allows finite smoke collection."""
 
     target_successful_episodes = num_train_data
     batch_size = BATCH_SIZE_OVERRIDE_BY_ENV.get(env_id, DEFAULT_BATCH_SIZE)
-    if target_successful_episodes <= 0:
-        raise ValueError(f"num_train_data must be > 0, got {target_successful_episodes}")
-    if batch_size <= 0:
-        raise ValueError(f"batch_size must be > 0, got {batch_size} for env_id={env_id}")
+    if num_envs is not None:
+        batch_size = num_envs
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -485,15 +487,26 @@ def collect_batched_data_from_ckpt(
     agent.load_state_dict(torch.load(checkpoint_path, map_location=device))
     agent.eval()
 
+    transport = None
+    if latency_config is not None:
+        from latency_bench.core.config import load_config
+        from training.common.action_latency import ActionLatencyBatch
+
+        config = load_config(latency_config)
+        transport = ActionLatencyBatch(
+            config, num_envs=batch_size, device=device,
+            noop_command=config["env"]["noop_action"],
+        )
+
     dataset_name = env_id_to_dataset_name(env_id)
     _, batched_root = npz_layout_roots(path_to_save_data)
     save_dir = batched_root / dataset_name
     save_dir.mkdir(parents=True, exist_ok=True)
 
     print(
-        f"Collecting {target_successful_episodes} successful episodes for {env_id} "
+        f"Collecting {target_successful_episodes} episodes for {env_id} "
         f"(timeout={episode_timeout}, batch_size={batch_size}, "
-        f"keep_only_full_success_batches=True, min_episode_len={MIN_EPISODE_LENGTH_TO_SAVE}, "
+        f"keep_failed={keep_failed}, min_episode_len={MIN_EPISODE_LENGTH_TO_SAVE}, "
         f"log_episode_lengths={int(LOG_EPISODE_LENGTHS)})"
     )
 
@@ -502,14 +515,16 @@ def collect_batched_data_from_ckpt(
     accepted_batches = 0
     skipped_short_episodes = 0
 
-    progress = tqdm(total=target_successful_episodes, desc="Successful episodes", unit="ep")
+    progress = tqdm(total=target_successful_episodes, desc="Saved episodes", unit="ep")
     while saved_successful < target_successful_episodes:
         remaining_needed = target_successful_episodes - saved_successful
         seeds = [attempted_batches * batch_size + i for i in range(batch_size)]
         attempted_batches += 1
 
-        obs_state, _ = env_state.reset(seed=seeds)
-        obs_rgb, _ = env_rgb.reset(seed=seeds)
+        obs_state = reset_seeded_slots(env_state, seeds)
+        obs_rgb = reset_seeded_slots(env_rgb, seeds)
+        if transport is not None:
+            transport.reset()
 
         rgb_steps = []
         proprio_steps = []
@@ -517,6 +532,11 @@ def collect_batched_data_from_ckpt(
         reward_steps = []
         success_steps = []
         done_steps = []
+        admitted_steps = []
+        applied_steps = []
+        ready_steps = []
+        applied_source_steps = []
+        applied_chunk_steps = []
 
         language_by_env: list[Optional[str]] = [None for _ in range(batch_size)]
         success_once = np.zeros((batch_size,), dtype=np.bool_)
@@ -543,8 +563,26 @@ def collect_batched_data_from_ckpt(
             # Clip to [-1, 1] to match what the controller actually receives
             # (PDEEPoseController clips internally; store the effective action).
             action_np = np.clip(action_np, -1.0, 1.0)
+            if transport is not None:
+                admitted = transport.submit(action.clamp(-1, 1))
+                action = transport.actions()
+                admitted_steps.append(admitted.cpu().numpy())
+                applied_steps.append(action.cpu().numpy())
+                applied_source_steps.append([
+                    record["source_raw_frame"] for record in transport.last_application
+                ])
+                applied_chunk_steps.append([
+                    record["chunk_index"] for record in transport.last_application
+                ])
+                ready_steps.append([
+                    record["ready_raw_frame"] if record is not None else -1
+                    for record in transport.last_submission
+                ])
             obs_state, _, _, _, _ = env_state.step(action)
             obs_rgb, reward_rgb, term_rgb, trunc_rgb, info_rgb = env_rgb.step(action)
+            if transport is not None:
+                transport.advance()
+                transport.reset(torch.nonzero(term_rgb | trunc_rgb).flatten().tolist())
 
             batch_language = _extract_language_instruction_batch(info_rgb, batch_size)
             for i, lang in enumerate(batch_language):
@@ -605,7 +643,7 @@ def collect_batched_data_from_ckpt(
                     flush=True,
                 )
 
-        if not batch_all_success:
+        if not batch_all_success and not keep_failed:
             progress.set_postfix(attempted_batches=attempted_batches, accepted_batches=accepted_batches)
             continue
 
@@ -620,7 +658,7 @@ def collect_batched_data_from_ckpt(
         episodes_in_this_batch = []
         for env_idx in range(max_to_take):
             ep_len = int(episode_lengths[env_idx])
-            if ep_len < MIN_EPISODE_LENGTH_TO_SAVE:
+            if ep_len < MIN_EPISODE_LENGTH_TO_SAVE and not keep_failed:
                 skipped_short_episodes += 1
                 continue
 
@@ -636,10 +674,22 @@ def collect_batched_data_from_ckpt(
                 "success": success_arr[:ep_len, env_idx].astype(np.int32, copy=False),
                 "done": done_arr[:ep_len, env_idx].astype(np.int32, copy=False),
                 "language_instruction": np.array(language_instruction, dtype=np.str_),
-                "success_once": np.array(True, dtype=np.bool_),
+                "success_once": np.array(success_once[env_idx], dtype=np.bool_),
                 "episode_length": np.array(ep_len, dtype=np.int32),
                 "episode_seed": np.array(seeds[env_idx], dtype=np.int64),
             }
+            if transport is not None:
+                episode_data.update(
+                    command_admitted=np.stack(admitted_steps)[:ep_len, env_idx],
+                    applied_command=np.stack(applied_steps)[:ep_len, env_idx],
+                    applied_source_raw_frame=np.asarray(applied_source_steps)[:ep_len, env_idx],
+                    applied_chunk_index=np.asarray(applied_chunk_steps)[:ep_len, env_idx],
+                    issued_raw_frame=np.arange(ep_len, dtype=np.int64),
+                    ready_raw_frame=np.asarray(ready_steps)[:ep_len, env_idx],
+                    latency_config=np.array(str(Path(latency_config).resolve())),
+                    resolved_latency_config=np.array(json.dumps(config, sort_keys=True)),
+                    teacher_checkpoint=np.array(str(Path(checkpoint_path).resolve())),
+                )
             episodes_in_this_batch.append(episode_data)
 
         if len(episodes_in_this_batch) == 0:
@@ -657,7 +707,7 @@ def collect_batched_data_from_ckpt(
             batch_file,
             episode_data=batch_payload,
             batch_size=np.array(len(episodes_in_this_batch), dtype=np.int32),
-            all_success_once=np.array(True, dtype=np.bool_),
+            all_success_once=np.array(batch_all_success, dtype=np.bool_),
         )
 
         saved_successful += len(episodes_in_this_batch)
@@ -673,7 +723,7 @@ def collect_batched_data_from_ckpt(
     env_rgb.close()
 
     print(
-        f"Saved {saved_successful} successful episodes "
+        f"Saved {saved_successful} episodes "
         f"(attempted_batches={attempted_batches}, accepted_batches={accepted_batches}, "
         f"skipped_short={skipped_short_episodes}) to {save_dir}"
     )
@@ -682,6 +732,7 @@ def collect_batched_data_from_ckpt(
 def collect_unbatched_data_from_batched(
     env_id: str = "ShellGameTouch-VLA-v0",
     path_to_save_data: str = "data_mikasa_robo",
+    keep_failed: bool = False,
 ):
     dataset_name = env_id_to_dataset_name(env_id)
     npz_root, batched_root = npz_layout_roots(path_to_save_data)
@@ -705,26 +756,22 @@ def collect_unbatched_data_from_batched(
         if "episode_data" in data:
             episodes = list(np.asarray(data["episode_data"], dtype=object).reshape(-1))
             for episode_data in episodes:
-                success_once = bool(np.asarray(episode_data.get("success_once", np.array(False))).reshape(-1)[0])
-                if not success_once:
+                success_once = episode_data["success_once"].item()
+                if not success_once and not keep_failed:
                     continue
 
-                ep_len = int(
-                    np.asarray(episode_data.get("episode_length", np.array(episode_data["action"].shape[0]))).reshape(
-                        -1
-                    )[0]
-                )
-                if ep_len < MIN_EPISODE_LENGTH_TO_SAVE:
+                ep_len = episode_data["episode_length"].item()
+                if ep_len < MIN_EPISODE_LENGTH_TO_SAVE and not keep_failed:
                     continue
 
                 out_file = unbatched_dir / f"train_data_{traj_idx}.npz"
                 np.savez(out_file, **episode_data)
 
                 ep_reward_sum = float(np.asarray(episode_data["reward"], dtype=np.float32).sum())
-                ep_seed = int(np.asarray(episode_data.get("episode_seed", np.array(-1))).reshape(-1)[0])
+                ep_seed = episode_data["episode_seed"].item()
 
                 episode_lengths.append(ep_len)
-                success_once_list.append(True)
+                success_once_list.append(success_once)
                 reward_sums.append(ep_reward_sum)
                 seeds.append(ep_seed)
                 traj_idx += 1
@@ -789,17 +836,24 @@ def collect_for_env(
     checkpoint: str,
     path_to_save_data: str,
     num_train_data: int,
+    latency_config: Optional[str] = None,
+    keep_failed: bool = False,
+    num_envs: Optional[int] = None,
 ):
     collect_batched_data_from_ckpt(
         env_id=env_id,
         checkpoint_path=checkpoint,
         path_to_save_data=path_to_save_data,
         num_train_data=num_train_data,
+        latency_config=latency_config,
+        keep_failed=keep_failed,
+        num_envs=num_envs,
     )
 
     collect_unbatched_data_from_batched(
         env_id=env_id,
         path_to_save_data=path_to_save_data,
+        keep_failed=keep_failed,
     )
 
     maybe_remove_empty_batched_dir(env_id=env_id, path_to_save_data=path_to_save_data)
@@ -811,17 +865,20 @@ class Args:
     path_to_save_data: str = "data_mikasa_robo"
     ckpt_dir: str = "."
     num_train_data: int = 250
+    checkpoint: Optional[str] = None
+    latency_config: Optional[str] = None
+    keep_failed: bool = False
+    num_envs: Optional[int] = None
 
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
 
-    checkpoints = get_list_of_all_checkpoints_available(ckpt_dir=args.ckpt_dir)
-    checkpoint_map = {env: ckpt for env, ckpt in checkpoints}
-
-    if args.env_id not in checkpoint_map:
-        available = sorted(checkpoint_map.keys())
-        raise ValueError(f"Checkpoint for env_id={args.env_id} not found. Available: {available}")
+    if args.checkpoint is not None:
+        checkpoint_map = {args.env_id: args.checkpoint}
+    else:
+        checkpoints = get_list_of_all_checkpoints_available(ckpt_dir=args.ckpt_dir)
+        checkpoint_map = {env: ckpt for env, ckpt in checkpoints}
 
     print(f"Collecting data for {args.env_id} from {checkpoint_map[args.env_id]}")
     collect_for_env(
@@ -829,6 +886,9 @@ if __name__ == "__main__":
         checkpoint=checkpoint_map[args.env_id],
         path_to_save_data=args.path_to_save_data,
         num_train_data=args.num_train_data,
+        latency_config=args.latency_config,
+        keep_failed=args.keep_failed,
+        num_envs=args.num_envs,
     )
 
 # python3 mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets.py --env-id=ShellGameTouch-VLA-v0 --path-to-save-data=data_mikasa_robo --ckpt-dir=. --num-train-data=250

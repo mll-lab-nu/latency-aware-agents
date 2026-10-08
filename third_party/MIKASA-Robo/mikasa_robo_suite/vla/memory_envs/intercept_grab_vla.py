@@ -8,6 +8,7 @@ import torch
 from mani_skill.agents.robots.panda.panda import Panda
 from mani_skill.agents.robots.panda.panda_wristcam import PandaWristCam
 from mani_skill.envs.sapien_env import BaseEnv
+from mani_skill.render import SAPIEN_RENDER_SYSTEM
 from mani_skill.sensors.camera import CameraConfig
 from mani_skill.utils import sapien_utils
 from mani_skill.utils.building import actors
@@ -56,6 +57,26 @@ class InterceptGrabVLABaseEnv(BaseEnv):
         self.robot_init_qpos_noise = robot_init_qpos_noise
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
 
+    def _after_reconfigure(self, options):
+        super()._after_reconfigure(options)
+        self._render_cuda_stream = None
+
+    def _get_obs_sensor_data(self, apply_texture_transforms: bool = True):
+        if self.gpu_sim_enabled and not self.scene.parallel_in_single_scene and SAPIEN_RENDER_SYSTEM == "3.0":
+            if self._render_cuda_stream is None:
+                # ManiSkill creates the batched camera groups on the first render update.
+                self.scene.update_render()
+                self._render_cuda_stream = torch.cuda.Stream(device=self.device)
+                self.scene.render_system_group.set_cuda_stream(self._render_cuda_stream.cuda_stream)
+            self._render_cuda_stream.wait_stream(torch.cuda.current_stream(self.device))
+        return super()._get_obs_sensor_data(apply_texture_transforms=apply_texture_transforms)
+
+    def capture_sensor_data(self):
+        super().capture_sensor_data()
+        if self._render_cuda_stream is not None:
+            # Observation kernels consume images only after CUDA/Vulkan capture completes.
+            torch.cuda.current_stream(self.device).wait_stream(self._render_cuda_stream)
+
     @property
     def _default_sim_config(self):
         return SimConfig(
@@ -95,9 +116,11 @@ class InterceptGrabVLABaseEnv(BaseEnv):
         )
 
         self.reached_status = torch.zeros(self.num_envs, dtype=torch.float32)
+        self.oracle_info = torch.zeros((self.num_envs, 3), dtype=torch.float32)
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         self.reached_status = self.reached_status.to(self.device)
+        self.oracle_info = self.oracle_info.to(self.device)
         with torch.device(self.device):
             b = len(env_idx)
             self.table_scene.initialize(env_idx)
@@ -117,7 +140,7 @@ class InterceptGrabVLABaseEnv(BaseEnv):
             initial_velocity[..., 1] = torch.rand((b,)) * (max_vel - min_vel) + min_vel
             self.ball.set_linear_velocity(initial_velocity)
 
-            self.oracle_info = initial_velocity
+            self.oracle_info[env_idx] = initial_velocity
 
             if self.robot_uids in ("panda", "panda_wristcam"):
                 qpos = np.array([0.0, 0, 0, -np.pi * 2 / 3, 0, np.pi * 2 / 3, np.pi / 4, 0.04, 0.04])
