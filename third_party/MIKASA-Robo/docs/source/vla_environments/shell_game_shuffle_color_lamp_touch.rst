@@ -10,11 +10,6 @@ Shell Game Shuffle Color Lamp Touch
 
    Hidden color-location tracking: track cup-color associations through shuffling and touch the lamp-matching cup.
 
-.. image:: ../_static/videos/shell_game_shuffle_color_lamp_touch.gif
-   :alt: Render preview for Shell Game Shuffle Color Lamp Touch
-   :width: 720px
-   :align: center
-
 Source
 ------
 

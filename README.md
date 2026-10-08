@@ -9,7 +9,7 @@ environment applies actions on the raw environment timeline.
 
 This repository owns the benchmark runtime, latency execution semantics,
 rollout/profile generation, and experiment configs. VLA training and inference
-use the pinned `third_party/starVLA` submodule.
+use the vendored `third_party/starVLA` source.
 
 ## Overview
 
@@ -54,7 +54,7 @@ latency-sensitive-bench/
   training/             # teacher training and framework integrations
   configs/              # shared defaults, task recipes, experiment records
   scripts/              # task launchers and artifact preparation
-  third_party/           # pinned simulator and model source submodules
+  third_party/           # vendored simulator and model sources
     starVLA/            # VLA training and inference
   docs/                 # setup, task cookbooks, and semantic contracts
 ```
@@ -70,12 +70,11 @@ For setup across all simulators, model runtimes, and dataset converters, follow
 [环境配置快速指南](docs/QUICK_START.md). `--model all` installs all model
 environments; MIKASA requires the separate setup steps there.
 
-Clone this repository with submodules:
+Clone this repository, including its vendored dependencies:
 
 ```bash
 git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-bench.git
 cd latency-sensitive-bench
-git submodule update --init --depth 1 --jobs 8
 ```
 
 The shared `latency` environment and the RL-games model environments use
@@ -115,7 +114,7 @@ teacher-training tools used by the experiment scripts.
 
 ## StarVLA Layout
 
-StarVLA is the submodule at `third_party/starVLA`. Run the current task
+StarVLA is vendored at `third_party/starVLA`. Run the current task
 launchers from this repository; a sibling checkout is not required.
 
 The four continuous-state StarVLA variants (`qwenoft`, `qwenpi_v3`, `qwengr00t`,

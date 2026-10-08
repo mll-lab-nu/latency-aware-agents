@@ -10,11 +10,6 @@ Shell Game Push
 
    Hidden object selection: remember which cup hides the ball and push that cup forward.
 
-.. image:: ../_static/videos/shell_game_push.gif
-   :alt: Render preview for Shell Game Push
-   :width: 720px
-   :align: center
-
 Source
 ------
 

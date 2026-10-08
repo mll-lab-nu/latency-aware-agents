@@ -10,11 +10,6 @@ Shell Game Color Lamp Touch
 
    Hidden color-location binding: remember which color is under each cup and touch the cup matching the lamp color.
 
-.. image:: ../_static/videos/shell_game_color_lamp_touch.gif
-   :alt: Render preview for Shell Game Color Lamp Touch
-   :width: 720px
-   :align: center
-
 Source
 ------
 

@@ -10,11 +10,6 @@ Gather And Recall
 
    Concurrent manipulation plus cue recall: gather cubes while a lamp briefly flashes, then press the button matching the remembered color.
 
-.. image:: ../_static/videos/gather_and_recall.gif
-   :alt: Render preview for Gather And Recall
-   :width: 720px
-   :align: center
-
 Source
 ------
 

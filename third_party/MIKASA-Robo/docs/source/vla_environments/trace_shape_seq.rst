@@ -10,11 +10,6 @@ Trace Shape Sequence
 
    Long-horizon demonstration imitation: watch and reproduce a sequence of traced shapes.
 
-.. image:: ../_static/videos/trace_shape_seq.gif
-   :alt: Render preview for Trace Shape Sequence
-   :width: 720px
-   :align: center
-
 Source
 ------
 

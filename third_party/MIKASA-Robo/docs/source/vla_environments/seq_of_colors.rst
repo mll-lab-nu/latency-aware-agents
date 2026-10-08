@@ -10,11 +10,6 @@ Seq Of Colors
 
    Sequential cue, unordered execution: colors are shown sequentially, but the remembered targets can be touched in any order.
 
-.. image:: ../_static/videos/seq_of_colors.gif
-   :alt: Render preview for Seq Of Colors
-   :width: 720px
-   :align: center
-
 Source
 ------
 

@@ -10,11 +10,6 @@ Batteries Checker Easy
 
    Sequential verification: insert batteries into a socket, observe the lamp result, remember which batteries work, and press the confirmation button.
 
-.. image:: ../_static/videos/batteries_checker_easy.gif
-   :alt: Render preview for Batteries Checker Easy
-   :width: 720px
-   :align: center
-
 Source
 ------
 

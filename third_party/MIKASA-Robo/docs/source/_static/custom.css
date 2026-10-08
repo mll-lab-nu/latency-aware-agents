@@ -12,76 +12,6 @@
   margin-bottom: 1rem;
 }
 
-.visual-abstract {
-  --gif-gap: 10px;
-  --gif-tile-width: clamp(190px, calc((100% - (3 * var(--gif-gap))) / 4), 290px);
-  overflow: hidden;
-  position: relative;
-  margin: 0.75rem 0 1.5rem;
-  padding: 2px 0;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
-}
-
-.visual-abstract__track {
-  display: flex;
-  gap: 0;
-  width: max-content;
-  animation: visual-abstract-scroll 120s linear infinite;
-}
-
-.visual-abstract:hover .visual-abstract__track {
-  animation-play-state: paused;
-}
-
-.visual-abstract__group {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-  grid-auto-columns: var(--gif-tile-width);
-  gap: var(--gif-gap);
-  padding-right: var(--gif-gap);
-  flex: 0 0 auto;
-}
-
-.visual-abstract img {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  object-position: center center;
-  border-radius: 6px;
-  border: 1px solid var(--pst-color-border);
-  background: #111827;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-}
-
-@keyframes visual-abstract-scroll {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .visual-abstract__track {
-    animation: none;
-  }
-}
-
-@media (max-width: 900px) {
-  .visual-abstract {
-    --gif-tile-width: clamp(160px, calc((100% - var(--gif-gap)) / 2), 260px);
-  }
-}
-
-@media (max-width: 520px) {
-  .visual-abstract {
-    --gif-tile-width: min(82vw, 280px);
-  }
-}
-
 .bd-content table {
   font-size: 0.92rem;
 }
@@ -142,21 +72,6 @@ table.wide-table {
   border-color: var(--pst-color-primary);
 }
 
-
-.task-overview-preview {
-  width: 180px;
-  max-width: 100%;
-  height: auto;
-  border-radius: 6px;
-  border: 1px solid var(--pst-color-border);
-  background: #111827;
-  display: block;
-}
-
-.bd-content table.wide-table td:first-child,
-.bd-content table.wide-table th:first-child {
-  min-width: 180px;
-}
 
 .hf-inline-icon {
   height: 1.1em;

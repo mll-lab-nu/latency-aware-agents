@@ -10,11 +10,6 @@ Find Imposter Shape
 
    Out-of-set shape detection: remember shown shapes and touch the object whose shape was absent from the cue.
 
-.. image:: ../_static/videos/find_imposter_shape.gif
-   :alt: Render preview for Find Imposter Shape
-   :width: 720px
-   :align: center
-
 Source
 ------
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../install/_host.sh"
 
 # Roll out Sample Factory small models for the next cross-task data mix.
 #
@@ -12,7 +13,7 @@ set -euo pipefail
 # then publishes named configurations in benchmark-datasets.
 
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
-BENCH_DIR="${BENCH_DIR:-${WORKSPACE_DIR}/latency-sensitive-bench}"
+BENCH_DIR="${BENCH_DIR:-${LATENCY_BENCH_ROOT}}"
 CONDA_ENV="${CONDA_ENV:-latency}"
 
 HF_MODEL_REPO_ID="${HF_MODEL_REPO_ID:-latency-sensitive-bench/paper-experiment-models}"
@@ -53,7 +54,7 @@ Usage:
 
 Expected on the Vast box:
   WORKSPACE_DIR=/workspace
-  /workspace/latency-sensitive-bench exists
+  the containing benchmark checkout exists
   conda env "latency" exists
   HF_TOKEN or HUGGINGFACE_HUB_TOKEN is set if the repos are private or uploads require auth
 

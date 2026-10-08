@@ -10,11 +10,6 @@ Trace Shape
 
    Demonstration imitation: watch a cube trace a shape, then reproduce the path.
 
-.. image:: ../_static/videos/trace_shape.gif
-   :alt: Render preview for Trace Shape
-   :width: 720px
-   :align: center
-
 Source
 ------
 

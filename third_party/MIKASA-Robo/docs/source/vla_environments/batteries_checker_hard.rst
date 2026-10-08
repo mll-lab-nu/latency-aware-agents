@@ -10,11 +10,6 @@ Batteries Checker Hard
 
    Hard sequential verification: test each battery, remember the result, return it to its slot, and submit the working set.
 
-.. image:: ../_static/videos/batteries_checker_hard.gif
-   :alt: Render preview for Batteries Checker Hard
-   :width: 720px
-   :align: center
-
 Source
 ------
 

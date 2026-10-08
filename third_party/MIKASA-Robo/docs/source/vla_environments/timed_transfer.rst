@@ -15,11 +15,6 @@ Timed Transfer
 
    Delayed timing: after a lamp cue, move the cube at a precise future timestep.
 
-.. image:: ../_static/videos/timed_transfer.gif
-   :alt: Render preview for Timed Transfer
-   :width: 720px
-   :align: center
-
 Source
 ------
 

@@ -10,11 +10,6 @@ Shell Game Touch
 
    Short hidden object memory: observe which cup hides the ball, wait, and touch that cup.
 
-.. image:: ../_static/videos/shell_game_touch.gif
-   :alt: Render preview for Shell Game Touch
-   :width: 720px
-   :align: center
-
 Source
 ------
 

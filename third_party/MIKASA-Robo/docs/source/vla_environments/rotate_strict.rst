@@ -10,11 +10,6 @@ Rotate Strict
 
    Spatial transformation: rotate a peg while keeping its center close to the original position.
 
-.. image:: ../_static/videos/rotate_strict.gif
-   :alt: Render preview for Rotate Strict
-   :width: 720px
-   :align: center
-
 Source
 ------
 

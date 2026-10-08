@@ -30,7 +30,6 @@ After that, install the benchmark from source:
 
    git clone git@github.com:CognitiveAISystems/MIKASA-Robo.git
    cd MIKASA-Robo
-   git submodule update --init --recursive
    uv sync --frozen
 
 Alternatively, install the released package directly:
@@ -80,4 +79,4 @@ or:
 
    If you run into errors during setup, check the :doc:`faq` page for common
    installation problems (``uv`` environment conflicts, CUDA mismatches, missing
-   submodules).
+   source files).

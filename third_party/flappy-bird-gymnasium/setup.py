@@ -71,7 +71,6 @@ setuptools.setup(
         "flappy_bird_gymnasium": [
             "assets/sprites/*",
             "assets/audio/*",
-            "assets/model/*",
         ]
     },
     install_requires=REQUIRED_PACKAGES,

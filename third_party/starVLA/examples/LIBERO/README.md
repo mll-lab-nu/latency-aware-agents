@@ -88,9 +88,7 @@ bash examples/LIBERO/eval_files/eval_libero.sh
 
 Also ensure the environment variables at the top of `eval_libero.sh` are correctly set.
 
-Finally, each result will also save a video for visualization, as shown below:
-
-![Example](example.gif)
+Each result also saves a video for visualization.
 
 ---
 

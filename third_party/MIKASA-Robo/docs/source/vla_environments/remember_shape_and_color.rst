@@ -10,11 +10,6 @@ Remember Shape And Color
 
    Delayed binding recall: remember both shape and color and select the matching object.
 
-.. image:: ../_static/videos/remember_shape_and_color.gif
-   :alt: Render preview for Remember Shape And Color
-   :width: 720px
-   :align: center
-
 Source
 ------
 

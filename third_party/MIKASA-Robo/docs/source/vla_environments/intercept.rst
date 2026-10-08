@@ -10,11 +10,6 @@ Intercept
 
    Predictive interception: infer a rolling ball path and deflect it toward the target.
 
-.. image:: ../_static/videos/intercept.gif
-   :alt: Render preview for Intercept
-   :width: 720px
-   :align: center
-
 Source
 ------
 

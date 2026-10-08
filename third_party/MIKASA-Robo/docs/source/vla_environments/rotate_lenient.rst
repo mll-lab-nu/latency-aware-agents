@@ -10,11 +10,6 @@ Rotate Lenient
 
    Spatial transformation: rotate a peg by a requested angle with a lenient center-position criterion.
 
-.. image:: ../_static/videos/rotate_lenient.gif
-   :alt: Render preview for Rotate Lenient
-   :width: 720px
-   :align: center
-
 Source
 ------
 

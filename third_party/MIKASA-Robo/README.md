@@ -19,21 +19,6 @@
   </a>
 </p>
 
-<table align="center">
-  <tr>
-    <td align="center"><img src="assets/GatherAndRecall9-VLA-v0.gif" width="180"/><br><sub>Gather And Recall</sub></td>
-    <td align="center"><img src="assets/ShellGameShuffleColorLampTouch-VLA-v0.gif" width="180"/><br><sub>Shell Game Shuffle Color Lamp Touch</sub></td>
-    <td align="center"><img src="assets/RememberColor9-VLA-v0.gif" width="180"/><br><sub>Remember Color</sub></td>
-    <td align="center"><img src="assets/BatteriesCheckerHard-6-VLA-v0.gif" width="180"/><br><sub>Batteries Checker</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="assets/BlinkCountButtonPressMedium-VLA-v0.gif" width="180"/><br><sub>Find Imposter Color</sub></td>
-    <td align="center"><img src="assets/InterceptFast-VLA-v0.gif" width="180"/><br><sub>Intercept</sub></td>
-    <td align="center"><img src="assets/ChainOfColors7-VLA-v0.gif" width="180"/><br><sub>Chain Of Colors</sub></td>
-    <td align="center"><img src="assets/TakeItBack-VLA-v0.gif" width="180"/><br><sub>Take It Back</sub></td>
-  </tr>
-</table>
-
 ## What is MIKASA-Robo-VLA?
 
 MIKASA-Robo-VLA extends the MIKASA-Robo memory benchmark to language-conditioned Vision-Language-Action research. It provides tabletop robotic manipulation environments that require an agent to retain and use information across delayed, occluded, temporal, or multi-stage interactions.
@@ -70,11 +55,10 @@ cd MIKASA-Robo
 uv sync --frozen
 ```
 
-> [!TIP]
-> The submodule (`utils/convert_npz_to_rlds/`) is only needed if you plan to **collect your own trajectory datasets** (`.npz`) and then **convert them to RLDS format**. For benchmarking, evaluation, or training on the released datasets, you can skip it. To initialize it when needed:
-> ```bash
-> git submodule update --init --recursive
-> ```
+The nested RLDS builder is required for NPZ-to-RLDS data conversion.
+Its pinned source is currently unavailable from the configured remote. See the
+[converter source status](../README.md#remaining-converter-dependency) before
+setting up that conversion environment.
 
 See the [installation guide](https://mikasarobo.github.io/installation.html) for system requirements, package-install alternatives, and setup troubleshooting.
 

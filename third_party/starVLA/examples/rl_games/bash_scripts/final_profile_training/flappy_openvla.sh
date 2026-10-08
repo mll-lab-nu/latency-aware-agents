@@ -11,8 +11,8 @@ export HUGGINGFACE_HUB_CACHE="${HF_HOME}/hub"
 export TRANSFORMERS_CACHE="${HF_HOME}/transformers"
 mkdir -p "$HF_HOME" "$HF_HUB_CACHE" "$TRANSFORMERS_CACHE"
 
-if [[ ! -d "${CODE_ROOT}/starVLA" ]]; then
-  echo "[error] missing StarVLA repo: ${CODE_ROOT}/starVLA" >&2
+if [[ ! -d "${CODE_ROOT}/latency-sensitive-bench/third_party/starVLA" ]]; then
+  echo "[error] missing StarVLA repo: ${CODE_ROOT}/latency-sensitive-bench/third_party/starVLA" >&2
   exit 2
 fi
 if [[ ! -d "${CODE_ROOT}/latency-sensitive-bench/.git" ]]; then
@@ -21,21 +21,8 @@ if [[ ! -d "${CODE_ROOT}/latency-sensitive-bench/.git" ]]; then
 fi
 
 cd "${CODE_ROOT}/latency-sensitive-bench"
-git config --global url."https://github.com/".insteadOf git@github.com:
-git config --global url."https://github.com/".insteadOf ssh://git@github.com/
-git config -f .gitmodules submodule.flappy-bird-gymnasium.url https://github.com/mindorigin150/flappy-bird-gymnasium.git
-git submodule sync -- third_party/starVLA third_party/flappy-bird-gymnasium third_party/sample-factory
-git submodule update --init --recursive third_party/starVLA
-git submodule update --init --recursive third_party/sample-factory
 
-if [[ ! -f third_party/flappy-bird-gymnasium/pyproject.toml && ! -f third_party/flappy-bird-gymnasium/setup.py ]]; then
-  git submodule deinit -f -- third_party/flappy-bird-gymnasium || true
-  rm -rf .git/modules/third_party/flappy-bird-gymnasium
-  rm -rf third_party/flappy-bird-gymnasium
-fi
-git submodule update --init --recursive third_party/flappy-bird-gymnasium
-
-cd "${CODE_ROOT}/starVLA"
+cd "${CODE_ROOT}/latency-sensitive-bench/third_party/starVLA"
 
 if command -v apt-get >/dev/null 2>&1 && [[ "${SKIP_APT_INSTALL:-0}" != "1" ]]; then
   sudo apt-get update
@@ -65,7 +52,7 @@ bash examples/rl_games/install/install_stack.sh openvla flappy
 
 conda activate starvla_rl_games_openvla
 
-WORKSPACE_DIR="${CODE_ROOT}" bash "${CODE_ROOT}/starVLA/examples/rl_games/bash_scripts/install/latency_deps.sh"
+WORKSPACE_DIR="${CODE_ROOT}" bash "${CODE_ROOT}/latency-sensitive-bench/third_party/starVLA/examples/rl_games/bash_scripts/install/latency_deps.sh"
 
 mkdir -p "${DATA_WORKSPACE_DIR}"
 export PYTHONPATH="${CODE_ROOT}/latency-sensitive-bench:${PYTHONPATH:-}"
@@ -103,4 +90,4 @@ CUDA_VISIBLE_DEVICES=2 python examples/rl_games/scripts/launch_train.py \
     rl_games.env_eval.eval_backend=latency_bench \
     ++rl_games.env_eval.post_train.latencies_from_prompt_map=true \
     rl_games.env_eval.post_train.num_episodes=100 \
-    rl_games.env_eval.post_train.max_steps_per_episode=3600 
+    rl_games.env_eval.post_train.max_steps_per_episode=3600

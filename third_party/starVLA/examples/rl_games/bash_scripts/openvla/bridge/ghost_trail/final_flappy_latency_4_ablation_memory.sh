@@ -1,16 +1,18 @@
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../install/_host.sh"
+
 export WORKSPACE_DIR
 
-bash "${WORKSPACE_DIR}/starVLA/examples/rl_games/bash_scripts/install/pre_launch.sh"
+bash "${STARVLA_ROOT}/examples/rl_games/bash_scripts/install/pre_launch.sh"
 
-cd "${WORKSPACE_DIR}/starVLA"
+cd "${STARVLA_ROOT}"
 
 bash examples/rl_games/install/install_stack.sh openvla flappy
 
 conda activate starvla_rl_games_openvla
 
-bash "${WORKSPACE_DIR}/starVLA/examples/rl_games/bash_scripts/install/latency_deps.sh"
+bash "${STARVLA_ROOT}/examples/rl_games/bash_scripts/install/latency_deps.sh"
 
-export PYTHONPATH="${WORKSPACE_DIR}/latency-sensitive-bench:${PYTHONPATH:-}"
+export PYTHONPATH="${LATENCY_BENCH_ROOT}:${PYTHONPATH:-}"
 
 python examples/rl_games/scripts/launch_train.py \
     model=openvla \

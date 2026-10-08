@@ -5,29 +5,16 @@ CODE_ROOT="${CODE_ROOT:-/home/ubuntu/talha}"
 DATA_WORKSPACE_DIR="${DATA_WORKSPACE_DIR:-/mnt/local/talha}"
 export CODE_ROOT DATA_WORKSPACE_DIR
 
-if [[ ! -d "${CODE_ROOT}/starVLA" ]]; then
-  echo "[error] missing StarVLA repo: ${CODE_ROOT}/starVLA" >&2
+if [[ ! -d "${CODE_ROOT}/latency-sensitive-bench/third_party/starVLA" ]]; then
+  echo "[error] missing StarVLA repo: ${CODE_ROOT}/latency-sensitive-bench/third_party/starVLA" >&2
 fi
 if [[ ! -d "${CODE_ROOT}/latency-sensitive-bench/.git" ]]; then
   echo "[error] missing latency-sensitive-bench repo: ${CODE_ROOT}/latency-sensitive-bench" >&2
 fi
 
 cd "${CODE_ROOT}/latency-sensitive-bench"
-git config --global url."https://github.com/".insteadOf git@github.com:
-git config --global url."https://github.com/".insteadOf ssh://git@github.com/
-git config -f .gitmodules submodule.flappy-bird-gymnasium.url https://github.com/mindorigin150/flappy-bird-gymnasium.git
-git submodule sync -- third_party/starVLA third_party/flappy-bird-gymnasium third_party/sample-factory
-git submodule update --init --recursive third_party/starVLA
-git submodule update --init --recursive third_party/sample-factory
 
-if [[ ! -f third_party/flappy-bird-gymnasium/pyproject.toml && ! -f third_party/flappy-bird-gymnasium/setup.py ]]; then
-  git submodule deinit -f -- third_party/flappy-bird-gymnasium || true
-  rm -rf .git/modules/third_party/flappy-bird-gymnasium
-  rm -rf third_party/flappy-bird-gymnasium
-fi
-git submodule update --init --recursive third_party/flappy-bird-gymnasium
-
-cd "${CODE_ROOT}/starVLA"
+cd "${CODE_ROOT}/latency-sensitive-bench/third_party/starVLA"
 
 if command -v apt-get >/dev/null 2>&1 && [[ "${SKIP_APT_INSTALL:-0}" != "1" ]]; then
   sudo apt-get update
@@ -57,7 +44,7 @@ bash examples/rl_games/install/install_stack.sh gr00t deadly_corridor
 
 conda activate starvla_rl_games_gr00t
 
-WORKSPACE_DIR="${CODE_ROOT}" bash "${CODE_ROOT}/starVLA/examples/rl_games/bash_scripts/install/latency_deps.sh"
+WORKSPACE_DIR="${CODE_ROOT}" bash "${CODE_ROOT}/latency-sensitive-bench/third_party/starVLA/examples/rl_games/bash_scripts/install/latency_deps.sh"
 
 mkdir -p "${DATA_WORKSPACE_DIR}"
 export PYTHONPATH="${CODE_ROOT}/latency-sensitive-bench:${PYTHONPATH:-}"

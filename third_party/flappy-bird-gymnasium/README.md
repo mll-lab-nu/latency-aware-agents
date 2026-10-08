@@ -45,14 +45,6 @@ There exist two options for the observations:
 * -1.0 - **dying**
 * −0.5 - **touch the top of the screen**
 
-<br>
-
-<p align="center">
-  <img align="center" 
-       src="https://github.com/markub3327/flappy-bird-gymnasium/blob/main/imgs/dqn.gif?raw=true" 
-       width="200"/>
-</p>
-
 ## Installation
 
 To install `flappy-bird-gymnasium`, simply run the following command:
@@ -95,7 +87,3 @@ To play the game (human mode), run the following command:
 To see a random agent playing, add an argument to the command:
 
     $ flappy_bird_gymnasium --mode random
-
-To see a Deep Q Network agent playing, add an argument to the command:
-
-    $ flappy_bird_gymnasium --mode dqn

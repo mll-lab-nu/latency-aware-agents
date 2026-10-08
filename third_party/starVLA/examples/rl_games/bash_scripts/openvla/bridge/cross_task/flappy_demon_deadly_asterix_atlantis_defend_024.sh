@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../install/_host.sh"
 set -euo pipefail
 export HF_ENDPOINT=https://huggingface.co
 
@@ -6,9 +7,9 @@ WORKSPACE_DIR="${WORKSPACE_DIR:-/home/ubuntu/talha}"
 DATA_WORKSPACE_DIR="${DATA_WORKSPACE_DIR:-/mnt/local/talha}"
 export WORKSPACE_DIR DATA_WORKSPACE_DIR
 
-bash "${WORKSPACE_DIR}/starVLA/examples/rl_games/bash_scripts/install/pre_launch.sh"
+bash "${STARVLA_ROOT}/examples/rl_games/bash_scripts/install/pre_launch.sh"
 
-cd "${WORKSPACE_DIR}/starVLA"
+cd "${STARVLA_ROOT}"
 
 bash examples/rl_games/install/install_stack.sh openvla cross_task
 
@@ -17,7 +18,7 @@ CONDA_BASE="$(conda info --base)"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
 conda activate starvla_rl_games_openvla
 
-bash "${WORKSPACE_DIR}/starVLA/examples/rl_games/bash_scripts/install/latency_deps.sh"
+bash "${STARVLA_ROOT}/examples/rl_games/bash_scripts/install/latency_deps.sh"
 
 mkdir -p "${DATA_WORKSPACE_DIR}"
 mkdir -p "${DATA_WORKSPACE_DIR}/.cache/huggingface"
@@ -25,7 +26,7 @@ export HF_HOME="${DATA_WORKSPACE_DIR}/.cache/huggingface"
 export HUGGINGFACE_HUB_CACHE="${DATA_WORKSPACE_DIR}/.cache/huggingface/hub"
 export HF_HUB_CACHE="${DATA_WORKSPACE_DIR}/.cache/huggingface/hub"
 export TRANSFORMERS_CACHE="${DATA_WORKSPACE_DIR}/.cache/huggingface/transformers"
-export PYTHONPATH="${WORKSPACE_DIR}/latency-sensitive-bench:${PYTHONPATH:-}"
+export PYTHONPATH="${LATENCY_BENCH_ROOT}:${PYTHONPATH:-}"
 
 RUN_ID="${RUN_ID:-openvla_bridge_cross_mixed_all_024_5env200ep_deadly1000ep_exp1}"
 MAX_EPISODES_PER_ENV="${MAX_EPISODES_PER_ENV:-200}"

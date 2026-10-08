@@ -10,11 +10,6 @@ Blink Count Button Press
 
    Temporal counting: count blue-lamp blinks, wait for execution, press the red button exactly that many times, then submit.
 
-.. image:: ../_static/videos/blink_count_button_press.gif
-   :alt: Render preview for Blink Count Button Press
-   :width: 720px
-   :align: center
-
 Source
 ------
 

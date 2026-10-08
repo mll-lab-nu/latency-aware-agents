@@ -11,6 +11,36 @@ from scripts.starvla import runtime
 from scripts.starvla import train_task
 
 
+def test_code_revisions_scope_dirty_state_to_each_source_directory(tmp_path, monkeypatch):
+    subprocess.run(['git', 'init', '-q', str(tmp_path)], check=True)
+    starvla = tmp_path / 'third_party/starVLA'
+    mikasa = tmp_path / 'third_party/MIKASA-Robo'
+    for directory in (starvla, mikasa):
+        directory.mkdir(parents=True)
+        (directory / 'source.py').write_text('version = 1\n')
+    subprocess.run(['git', '-C', str(tmp_path), 'add', '.'], check=True)
+    subprocess.run([
+        'git', '-C', str(tmp_path), '-c', 'user.name=Test',
+        '-c', 'user.email=test@example.com', 'commit', '-qm', 'Initial sources',
+    ], check=True)
+    revision = subprocess.check_output(
+        ['git', '-C', str(tmp_path), 'rev-parse', 'HEAD'], text=True,
+    ).strip()
+    monkeypatch.setattr(runtime, 'ROOT', tmp_path)
+    monkeypatch.setattr(runtime, 'STARVLA', starvla)
+
+    assert train_task.code_revisions('mikasa') == {
+        name: {'revision': revision, 'dirty': False}
+        for name in ('benchmark', 'starvla', 'mikasa')
+    }
+    (starvla / 'source.py').write_text('version = 2\n')
+    assert train_task.code_revisions('mikasa') == {
+        'benchmark': {'revision': revision, 'dirty': True},
+        'starvla': {'revision': revision, 'dirty': True},
+        'mikasa': {'revision': revision, 'dirty': False},
+    }
+
+
 @pytest.mark.parametrize(
     ('task', 'model', 'phase', 'condition', 'wandb_condition'),
     [('balance', 'qwenoft', 'bootstrap', 'zero-latency', 'zero-latency'),

@@ -1,6 +1,8 @@
-bash /workspace/starVLA/examples/rl_games/bash_scripts/install/pre_launch.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../../install/_host.sh"
 
-cd /workspace/starVLA
+bash "${STARVLA_ROOT}"/examples/rl_games/bash_scripts/install/pre_launch.sh
+
+cd "${STARVLA_ROOT}"
 
 bash examples/rl_games/install/install_stack.sh openvla demon_attack
 
@@ -8,7 +10,7 @@ conda activate starvla_rl_games_openvla
 
 bash examples/rl_games/install/flash_attn.sh --check >/dev/null 2>&1 || bash examples/rl_games/install/flash_attn.sh
 
-bash /workspace/starVLA/examples/rl_games/bash_scripts/install/latency_deps.sh
+bash "${STARVLA_ROOT}"/examples/rl_games/bash_scripts/install/latency_deps.sh
 
 python examples/rl_games/scripts/launch_train.py \
     model=openvla \

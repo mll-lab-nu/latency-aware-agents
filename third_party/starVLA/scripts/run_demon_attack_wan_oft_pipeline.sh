@@ -20,7 +20,7 @@ Options:
   --context-window <N>        Context window size (default: 5)
   --max-episodes <N>          Maximum source episodes per split (default: 200)
   --max-train-steps <N>       Training steps (default: 2000)
-  --benchmark-root <path>     latency-sensitive-bench checkout (default: sibling checkout)
+  --benchmark-root <path>     latency-sensitive-bench checkout (default: containing benchmark checkout)
   --dataset-cache-dir <path>  Optional Hugging Face cache directory
   --upload-repo <repo>        HF model repo; specifying this enables upload (default: local only)
   --upload-path <path>        Path inside the HF repo (default: <run_id>)
@@ -144,10 +144,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 if [[ -z "${BENCHMARK_ROOT}" ]]; then
-  BENCHMARK_ROOT="$(git -C "${REPO_ROOT}" rev-parse --show-superproject-working-tree)"
-  if [[ -z "${BENCHMARK_ROOT}" ]]; then
-    BENCHMARK_ROOT="${REPO_ROOT}/../latency-sensitive-bench"
-  fi
+  BENCHMARK_ROOT="$(cd "${REPO_ROOT}/../.." && pwd)"
 fi
 CONVERTED_DATA_ROOT="data/demon_attack_fix_latency_${LATENCY_RAW_FRAMES}_${MAX_EPISODES}ep_context${CONTEXT_WINDOW}"
 CONVERTED_DATA_DIR="${CONVERTED_DATA_ROOT}/demon_attack_train__bridge"

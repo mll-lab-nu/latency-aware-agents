@@ -60,7 +60,7 @@ identity and revision from the artifact provenance, never from a local basename.
 
 ## Training-framework boundaries
 
-The Sample Factory source version is fixed by the repository's submodule commit.
+The Sample Factory source version is fixed by the benchmark repository commit.
 Compatibility code in `training/common` has active training consumers:
 
 - `sf_gpu_sampling_compat.py` adapts batched rollout advancement for GPU tensor
@@ -98,7 +98,7 @@ step. Record retention does not change these episode metrics; the existing
 [executor tests](../tests/executors/test_batched_simulated_executor.py) cover both
 retention modes. Historical result artifacts retain their original values.
 
-For release acceptance, exercise a fresh checkout with pinned submodules and
+For release acceptance, exercise a fresh checkout with vendored sources and
 explicit external artifacts, including evaluation from outside the checkout.
 Record the tested revision, environment, and results with the experiment artifacts.
 Public result references belong in the [artifact registry](artifacts.md).

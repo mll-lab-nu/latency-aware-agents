@@ -10,11 +10,6 @@ Find Imposter Shape And Color
 
    Out-of-set binding detection: remember shape-color combinations and touch the novel combination.
 
-.. image:: ../_static/videos/find_imposter_shape_and_color.gif
-   :alt: Render preview for Find Imposter Shape And Color
-   :width: 720px
-   :align: center
-
 Source
 ------
 

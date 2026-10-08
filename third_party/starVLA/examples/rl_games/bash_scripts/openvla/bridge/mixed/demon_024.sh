@@ -1,12 +1,14 @@
-bash /workspace/starVLA/examples/rl_games/bash_scripts/install/pre_launch.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../install/_host.sh"
 
-cd /workspace/starVLA
+bash "${STARVLA_ROOT}"/examples/rl_games/bash_scripts/install/pre_launch.sh
+
+cd "${STARVLA_ROOT}"
 
 bash examples/rl_games/install/install_stack.sh openvla demon_attack
 
 conda activate starvla_rl_games_openvla
 
-bash /workspace/starVLA/examples/rl_games/bash_scripts/install/latency_deps.sh 
+bash "${STARVLA_ROOT}"/examples/rl_games/bash_scripts/install/latency_deps.sh
 
 python examples/rl_games/scripts/launch_train.py \
     model=openvla \

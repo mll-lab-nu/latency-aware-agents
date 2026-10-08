@@ -10,11 +10,6 @@ Remember Shape
 
    Delayed shape recall: observe one target shape, wait, and touch the object with the same shape.
 
-.. image:: ../_static/videos/remember_shape.gif
-   :alt: Render preview for Remember Shape
-   :width: 720px
-   :align: center
-
 Source
 ------
 

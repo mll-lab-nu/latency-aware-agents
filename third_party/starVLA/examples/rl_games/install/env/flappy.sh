@@ -19,7 +19,7 @@ pip_install -e "${FLAPPY_FORK}"
 pip_install --force-reinstall --no-deps "pygame==2.6.1" "pillow==12.1.1"
 
 # The libpng symbol-interposition fix lives IN the fork source now (the fork is our
-# own submodule): flappy_bird_gymnasium.envs.utils._load_sprite falls back to Pillow
+# vendored sources): flappy_bird_gymnasium.envs.utils._load_sprite falls back to Pillow
 # when SDL2_image's bundled libpng — interposed by PyAV/OpenCV/Pillow/torchvision in
 # the heavy trainer process — cannot decode a sprite. So this script no longer patches
 # any installed file; it only smoke-tests that rendering works.

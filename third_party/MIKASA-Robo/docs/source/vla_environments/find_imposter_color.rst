@@ -10,11 +10,6 @@ Find Imposter Color
 
    Out-of-set color detection: remember shown colors and touch the cube whose color was absent from the cue.
 
-.. image:: ../_static/videos/find_imposter_color.gif
-   :alt: Render preview for Find Imposter Color
-   :width: 720px
-   :align: center
-
 Source
 ------
 

@@ -693,7 +693,7 @@ def code_revisions(task: str) -> dict:
         'mikasa_conditioned_h8': ('mikasa', runtime.ROOT / 'third_party/MIKASA-Robo'),
     }[task]
     return {name: {'revision': subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip(),
-                   'dirty': bool(subprocess.check_output(['git', '-C', str(path), 'status', '--porcelain'], text=True))}
+                   'dirty': bool(subprocess.check_output(['git', '-C', str(path), 'status', '--porcelain', '--', '.'], text=True))}
             for name, path in [('benchmark', runtime.ROOT), ('starvla', runtime.STARVLA), task_repo]}
 
 

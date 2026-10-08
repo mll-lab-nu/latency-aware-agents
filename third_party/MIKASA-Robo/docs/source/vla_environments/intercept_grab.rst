@@ -10,11 +10,6 @@ Intercept Grab
 
    Predictive capture: infer a rolling ball path and grasp or stop it.
 
-.. image:: ../_static/videos/intercept_grab.gif
-   :alt: Render preview for Intercept Grab
-   :width: 720px
-   :align: center
-
 Source
 ------
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../install/_host.sh"
 # Reasoning traces for the TRAINED mixed-latency flappy VLA.
 # Builds a balanced per-latency test set (per-class samples per latency, deterministic
 # first-N so it matches the bridge run on the same frames) and dumps a CSV + frames.
 set -euo pipefail
 
-cd /workspace/starVLA
+cd "${STARVLA_ROOT}"
 conda activate starvla_rl_games_openvla
 
 HF_REPO_ID="talha15032/openvla_bridge_flappy_latency_mixed_exp2"

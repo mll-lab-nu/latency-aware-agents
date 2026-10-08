@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../install/_host.sh"
 # Reasoning traces for the BASE (pre-flappy) bridge VLA, on the SAME balanced test set.
 # The bridge checkpoint is self-contained (ships config.yaml + dataset_statistics.json + .pt);
 # --checkpoint-kind bridge auto-rewrites its stale base_vlm path to the local base VLM.
@@ -6,7 +7,7 @@
 # not meaningful for flappy -- the comparable artifact is the reasoning text.
 set -euo pipefail
 
-cd /workspace/starVLA
+cd "${STARVLA_ROOT}"
 conda activate starvla_rl_games_openvla
 
 HF_REPO_ID="StarVLA/Qwen3VL-OFT-Bridge-RT-1"

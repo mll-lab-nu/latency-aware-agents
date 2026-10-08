@@ -1,6 +1,10 @@
 Datasets
 ========
 
+The LAGEN NPZ-to-RLDS converter requires a pinned builder that is currently
+unavailable from its configured remote. See the repository
+`source status <../../../README.md#remaining-converter-dependency>`_.
+
 MIKASA-Robo-VLA trajectories are available on Hugging Face and can be collected
 locally.  The benchmark ships **22,500 trajectories** (250 per task × 90 tasks)
 and more than **6,000,000 timesteps** across three interoperable formats.

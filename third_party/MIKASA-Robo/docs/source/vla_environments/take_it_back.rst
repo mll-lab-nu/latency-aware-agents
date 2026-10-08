@@ -10,11 +10,6 @@ Take It Back
 
    Spatial restoration: push a cube to a target, then return it to its original position after the target changes.
 
-.. image:: ../_static/videos/take_it_back.gif
-   :alt: Render preview for Take It Back
-   :width: 720px
-   :align: center
-
 Source
 ------
 

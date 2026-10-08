@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../install/_host.sh"
 export HF_ENDPOINT=https://huggingface.co
 
 # Eval-only sweep for the Demon Attack mixed-0/2/4-latency OpenVLA bridge policy.
@@ -8,7 +9,7 @@ export HF_ENDPOINT=https://huggingface.co
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../../.." && pwd)"
-WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "${REPO_ROOT}/.." && pwd)}"
+WORKSPACE_DIR="${WORKSPACE_DIR:-$(cd "${LATENCY_BENCH_ROOT}/.." && pwd)}"
 export WORKSPACE_DIR
 
 MODEL_TAG="demon_attack_mixed_024_latency"
@@ -38,19 +39,6 @@ RUN_ROOT="${RUN_ROOT:-${REPO_ROOT}/results/Evals/${MODEL_TAG}_cross_games}"
 
 cd "${REPO_ROOT}"
 
-detect_latency_bench_root() {
-  if [[ -n "${LATENCY_BENCH_ROOT:-}" && -d "${LATENCY_BENCH_ROOT}" ]]; then
-    return
-  fi
-  if [[ -d "${WORKSPACE_DIR}/latency-sensitive-bench" ]]; then
-    LATENCY_BENCH_ROOT="${WORKSPACE_DIR}/latency-sensitive-bench"
-  elif [[ -d "${WORKSPACE_DIR}/latency-sensitive-bench-realtime-human" ]]; then
-    LATENCY_BENCH_ROOT="${WORKSPACE_DIR}/latency-sensitive-bench-realtime-human"
-  else
-    LATENCY_BENCH_ROOT=""
-  fi
-  export LATENCY_BENCH_ROOT
-}
 
 activate_conda_env() {
   if [[ "${ACTIVATE_CONDA}" != "1" ]]; then
@@ -258,7 +246,6 @@ add_task_overrides() {
   esac
 }
 
-detect_latency_bench_root
 
 if [[ "${RUN_INSTALL}" == "1" ]]; then
   bash examples/rl_games/install/install_stack.sh openvla demon_attack
@@ -266,16 +253,10 @@ fi
 
 activate_conda_env
 
-if [[ -n "${LATENCY_BENCH_ROOT}" ]]; then
-  export PYTHONPATH="${LATENCY_BENCH_ROOT}:${PYTHONPATH:-}"
-fi
+export PYTHONPATH="${LATENCY_BENCH_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 if [[ "${RUN_LATENCY_DEPS}" == "1" ]]; then
-  if [[ -d "${WORKSPACE_DIR}/latency-sensitive-bench/third_party/flappy-bird-gymnasium" ]]; then
-    bash examples/rl_games/bash_scripts/install/latency_deps.sh
-  else
-    echo "[warn] skipping latency_deps.sh because ${WORKSPACE_DIR}/latency-sensitive-bench is not present" >&2
-  fi
+  bash examples/rl_games/bash_scripts/install/latency_deps.sh
 fi
 
 HF_LOCAL_DIR="${HF_CACHE_ROOT}/openvla_bridge_demon_attack_latency_mixed_024_exp1"

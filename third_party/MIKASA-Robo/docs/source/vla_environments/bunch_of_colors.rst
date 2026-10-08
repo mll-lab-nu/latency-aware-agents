@@ -10,11 +10,6 @@ Bunch Of Colors
 
    Set memory: observe a set of colored cubes, then touch all remembered colors in any order and press the center button.
 
-.. image:: ../_static/videos/bunch_of_colors.gif
-   :alt: Render preview for Bunch Of Colors
-   :width: 720px
-   :align: center
-
 Source
 ------
 

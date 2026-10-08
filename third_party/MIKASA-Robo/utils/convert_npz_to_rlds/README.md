@@ -1,5 +1,8 @@
 # NPZ to RLDS Converter
 
+This converter requires the pinned builder source. The configured remote does not
+currently provide it; see [source status](../../../README.md#remaining-converter-dependency).
+
 This utility converts locally collected MIKASA-Robo-VLA NPZ episodes into an
 episodic RLDS / TFDS dataset. It is the first export step in the local dataset
 pipeline:

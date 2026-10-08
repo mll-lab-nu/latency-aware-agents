@@ -10,11 +10,6 @@ Shell Game Shuffle Touch
 
    Hidden object tracking: track the ball-hiding cup through shuffles and touch it.
 
-.. image:: ../_static/videos/shell_game_shuffle_touch.gif
-   :alt: Render preview for Shell Game Shuffle Touch
-   :width: 720px
-   :align: center
-
 Source
 ------
 

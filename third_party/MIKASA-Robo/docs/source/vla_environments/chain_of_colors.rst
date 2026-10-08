@@ -10,11 +10,6 @@ Chain Of Colors
 
    Ordered sequence memory: observe colors in order, then touch the remembered colors in the same order before submission.
 
-.. image:: ../_static/videos/chain_of_colors.gif
-   :alt: Render preview for Chain Of Colors
-   :width: 720px
-   :align: center
-
 Source
 ------
 

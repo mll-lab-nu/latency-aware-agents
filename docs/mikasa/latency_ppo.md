@@ -33,8 +33,7 @@ experiment name, and artifact path differ:
 
 ## Training
 
-After the normal benchmark setup, initialize the MIKASA submodule and install
-its runtime with `bash scripts/mikasa/install.sh`. From the repository root:
+After the normal benchmark setup, install the MIKASA runtime with `bash scripts/mikasa/install.sh`. From the repository root:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 third_party/MIKASA-Robo/.venv/bin/python -m \

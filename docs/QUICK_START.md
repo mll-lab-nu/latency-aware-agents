@@ -8,20 +8,11 @@
 git lfs install
 git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-bench.git
 cd latency-sensitive-bench
-git submodule update --init --depth 1 --jobs 8
 export BENCH_ROOT="$PWD"
 nvidia-smi
 ```
 
-根仓库保留完整 commit/tree 历史，旧版本文件内容按需下载；父仓库记录的固定
-顶层 submodule commit 以 depth 1 检出，不递归初始化第三方仓库内部的任务专用依赖。
-需要修改某个顶层 submodule 并查看其完整历史时，执行
-`git -C third_party/<name> fetch --unshallow`。
-
-已有 checkout 更新子模块使用 `git submodule update --init`，新初始化的顶层子模块会
-遵循 `.gitmodules` 中的浅克隆设置；根目录安装脚本也会执行此命令。该设置不会清理已经下载
-的完整子模块历史。需要回收已有 checkout 的磁盘空间时，先保存子模块中的修改，再重新 clone，
-不要直接删除 `.git/modules`。
+第三方源码随主仓库检出，版本由主仓库 commit 固定。直接修改 `third_party/` 中的源码并在主仓库提交。上游来源、资源裁剪规则和更新步骤见 [第三方源码维护](../third_party/README.md)。
 
 主机需有 Git、Git LFS、编译工具、可用的 NVIDIA 驱动，以及支持离屏渲染的 NVIDIA EGL/Vulkan runtime。`nvidia-smi` 成功只说明 CUDA 驱动可见，不能代替渲染检查。MIKASA 还需要与主机驱动匹配的 Vulkan 用户态库。安装后执行下方的模拟器检查。
 
@@ -35,7 +26,7 @@ nvidia-smi
 | 四种 StarVLA 模型训练与独立推理进程 | Conda `starvla_rl_games_openvla`，3.10 | `install.sh --model openvla --tier dev` |
 | 原有 RL-games 模型独立栈 | Conda `starvla_rl_games_{pi0,pi05,gr00t,wan_oft}`，3.10 | 对应 `--model`，或 `--model all` |
 | MIKASA / ManiSkill | `third_party/MIKASA-Robo/.venv`，3.10 | `scripts/mikasa/install.sh` |
-| MIKASA NPZ → RLDS | builder 目录内 `.venv`，3.9 | 本页第 4 节 |
+| MIKASA NPZ → RLDS | builder 目录内 `.venv`，3.9 | 需已有固定版本源码，见第 4 节 |
 | MIKASA RLDS → LeRobot | converter 目录内 `.venv`，3.10 | 本页第 4 节 |
 
 `--model all` 只表示所有模型环境加共享 `latency`，不包含后三类模拟器或 MIKASA 转换环境。`qwenoft/qwenpi_v3/qwengr00t/wanoft` 是统一 StarVLA 流水线模型名，四者默认共用 `starvla_rl_games_openvla`。
@@ -89,6 +80,10 @@ uv pip install --python "$MIKASA_PY" \
 覆盖后直接调用 `$MIKASA_PY`，再次 `uv sync` / `uv run` 会按锁文件恢复旧 Torch。原有 MIKASA `train_small_policy.sh` / `train_vla.sh` 会再次调用安装脚本；在覆盖 Torch 的 Blackwell 主机上，优先使用 `train_qwenoft.sh` 等共享启动器，它们不会重新同步模拟器环境。原始 image-only H1 流程的限制见 [MIKASA cookbook](mikasa/cookbook.md#original-image-only-h1-recipe)。不要在该环境安装根项目的完整依赖，它们会覆盖 MIKASA 的 NumPy/Torch 约束；任务启动器通过 `PYTHONPATH` 引入 benchmark。
 
 需要自己采集 MIKASA 数据时，另外安装这两个环境；`scripts/mikasa/install.sh` 不会安装它们：
+
+NPZ → RLDS 转换器仍需要原有固定版本的源码。当前配置的远端无法提供该提交，
+因此下面的转换器安装命令只适用于已经保存该版本的 checkout。
+版本与来源状态见[第三方源码维护](../third_party/README.md#remaining-converter-dependency)。
 
 ```bash
 uv sync --project third_party/MIKASA-Robo/utils/convert_npz_to_rlds/rlds_dataset_builder --python 3.9

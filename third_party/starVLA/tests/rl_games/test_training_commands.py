@@ -344,16 +344,6 @@ def test_wan_oft_commands_explicitly_use_eval_core() -> None:
         assert "rl_games.env_eval.eval_backend=eval_core" in command_text, command_path
 
 
-def test_archived_release_commands_share_shell_structure() -> None:
-    command_paths = sorted((REPO_ROOT / "commands" / "openvla").glob("train_*.sh"))
-    command_paths += sorted((REPO_ROOT / "commands" / "pi0").glob("train_*.sh"))
-    command_paths += sorted((REPO_ROOT / "commands" / "pi05").glob("train_*.sh"))
-    command_paths += sorted((REPO_ROOT / "commands" / "wanoft").glob("train_*.sh"))
-
-    for command_path in command_paths:
-        command_text = command_path.read_text(encoding="utf-8")
-        assert command_text.startswith("#!/usr/bin/env bash\n\nset -euo pipefail\n\n# Usage:\n"), command_path
-
 
 def test_archived_wan_oft_commands_only_run_post_train_eval() -> None:
     script_names = (
@@ -574,7 +564,6 @@ def test_demon_attack_wan_oft_fixed_latency_pipeline_uses_archived_memory_histor
     assert 'CONDA_ENV_NAME="starvla_rl_games_wan_oft"' in script_text
     assert 'BENCHMARK_ROOT="${LATENCY_BENCH_ROOT:-}"' in script_text
     assert "--benchmark-root <path>" in script_text
-    assert "rev-parse --show-superproject-working-tree" in script_text
     assert 'third_party/flappy-bird-gymnasium/setup.py' in script_text
     assert 'LATENCY_BENCH_ROOT="${BENCHMARK_ROOT}" "${BOOTSTRAP_ARGS[@]}"' in script_text
     assert "--tier dev" in script_text
@@ -626,7 +615,6 @@ def test_deadly_corridor_wan_oft_pipeline_uses_fixed_latency_history_data_withou
     assert "LATENCY_RAW_FRAMES=6" in script_text
     assert 'CONDA_ENV_NAME="starvla_rl_games_wan_oft"' in script_text
     assert "--model wan_oft" in script_text
-    assert "rev-parse --show-superproject-working-tree" in script_text
     assert 'LATENCY_BENCH_ROOT="${BENCHMARK_ROOT}" "${BOOTSTRAP_ARGS[@]}"' in script_text
     assert "--conda-env" not in script_text
     assert "--python-version" not in script_text

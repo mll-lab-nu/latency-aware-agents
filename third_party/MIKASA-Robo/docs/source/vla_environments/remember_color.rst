@@ -10,11 +10,6 @@ Remember Color
 
    Delayed color recall: observe one target color, wait, and touch the cube with the same color.
 
-.. image:: ../_static/videos/remember_color.gif
-   :alt: Render preview for Remember Color
-   :width: 720px
-   :align: center
-
 Source
 ------
 
