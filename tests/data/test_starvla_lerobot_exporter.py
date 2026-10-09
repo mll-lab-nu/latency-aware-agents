@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import io
+from pathlib import Path
 import json
 
+import numpy as np
+from PIL import Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -561,10 +565,7 @@ def test_starvla_lerobot_exporter_writes_handoff_for_generic_continuous_state(
     assert manifest["active_action_dim"] == 6
     assert manifest["state_dim"] == 17
     assert manifest["robot_type"] == "rl_games_gymnasium"
-    if action_carrier == "native":
-        assert "openvla_carrier_dim" not in manifest["gymnasium_task"]["action_space"]
-        assert "openvla_padding" not in manifest["gymnasium_task"]["action_space"]
-    else:
+    if action_carrier == "bridge":
         assert manifest["gymnasium_task"]["action_space"]["openvla_carrier_dim"] == 7
     assert table.to_pylist()[0]["action"] == pytest.approx(
         [0.1] * 6 + ([0.0] if action_carrier == "bridge" else [])
@@ -576,6 +577,22 @@ def test_starvla_lerobot_exporter_writes_handoff_for_generic_continuous_state(
     assert (
         tmp_path / f"_generated_mixtures/continuous_state__{action_carrier}.json"
     ).exists()
+    assert manifest["state_labels"] == state_labels
+    assert manifest["state_normalization"] == {
+        "type": "min_max", "min": [float(index) for index in range(17)],
+        "max": [float(index + 1) for index in range(17)],
+    }
+    info = json.loads((output_dir / "meta/info.json").read_text())
+    assert info["features"]["observation.state"]["names"] == state_labels
+    if action_carrier == "native":
+        raw_output = tmp_path / "raw_state"
+        raw_manifest = convert_canonical_rollout_to_lerobot(raw_export, raw_output, normalize_state=False)
+        raw_rows = pq.read_table(raw_output / "data/chunk-000/episode_000000.parquet").to_pylist()
+        assert [row["observation.state"] for row in raw_rows] == [
+            [float(index) for index in range(17)],
+            [float(index + 1) for index in range(17)],
+        ]
+        assert raw_manifest["state_normalization"] is None
 
 
 def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_path):
@@ -599,3 +616,354 @@ def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_pa
 
     with pytest.raises(ValueError, match="Unsupported Gymnasium action_layout"):
         convert_canonical_rollout_to_lerobot(raw_export, tmp_path / "lerobot")
+
+
+ACTION_LABELS = ["PUSH_LEFT", "COAST", "PUSH_RIGHT"]
+
+
+def _canonical_row(
+    image_path: Path,
+    *,
+    action_id: int = 1,
+    task_name: str = "mountain_car",
+    decision_step: int = 0,
+    context_images: list[Path] | None = None,
+    state: list[float] | None = None,
+) -> dict:
+    action = [0.0] * len(ACTION_LABELS)
+    action[action_id] = 1.0
+    row = {
+        "image": str(image_path),
+        "env_name": task_name,
+        "episode_idx": 0,
+        "decision_step": decision_step,
+        "split": "train",
+        "seed": 4,
+        "prompt": "Drive the car up the hill.",
+        "latency_raw_frames": 1,
+        "latency_ms": 33.33,
+        "raw_reward": -1.0,
+        "action_id": action_id,
+        "action": action,
+        "action_text": ACTION_LABELS[action_id],
+    }
+    if context_images is not None:
+        row["context_images"] = [str(path) for path in context_images]
+    if state is not None:
+        row["state"] = state
+    return row
+
+
+def _write_generic_export(
+    raw_export: Path,
+    train_rows: list[dict],
+    *,
+    task_name: str = "mountain_car",
+    integration_name: str = "gymnasium",
+    include_state: bool = False,
+    state_labels: list[str] | None = None,
+) -> None:
+    from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
+    from test_rollout_hf_parquet import write_rollout_fixture
+
+    action_spec = gymnasium_discrete_action_spec(ACTION_LABELS)
+    write_rollout_fixture(
+        raw_export,
+        train_rows,
+        [],
+        action_spec=action_spec,
+    )
+    metadata = {
+        "env_name": task_name,
+        "integration_name": integration_name,
+        "schema_version": 2,
+        "action_layout": "gymnasium_discrete_v1",
+        "reward_field": "raw_reward",
+        "action_labels": list(action_spec.labels),
+        "gymnasium_task": {
+            "task_name": task_name,
+            "env_id": "MountainCar-v0",
+            "make_kwargs": {"render_mode": "rgb_array"},
+            "registration_imports": [],
+            "action_labels": list(action_spec.labels),
+            "action_values": [0, 1, 2],
+            "noop_action_id": 1,
+            "base_prompt": "Drive the car up the hill.",
+            "env_fps": 30.0,
+            "obs_fps": 10.0,
+            "frame_stack": 1,
+        },
+        "rows_unit": "decision_step",
+        "obs_fps": 10.0,
+        "obs_stride_raw_frames": 3,
+    }
+    if include_state:
+        labels = state_labels or [f"state_{index}" for index in range(len(train_rows[0]["state"]))]
+        metadata["gymnasium_task"]["state_space"] = {"labels": labels}
+    elif state_labels is not None:
+        metadata["gymnasium_task"]["state_space"] = {"labels": state_labels}
+    (raw_export / "metadata.json").write_text(
+        json.dumps(metadata), encoding="utf-8"
+    )
+
+
+def test_starvla_lerobot_converter_writes_handoff_contract(tmp_path):
+    from latency_bench.data.lerobot_export import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 7)
+    raw_export = tmp_path / "raw"
+    # The generic task name may match a built-in environment name.
+    rows = [_canonical_row(image_path, task_name="flappy", decision_step=step) for step in range(2)]
+    _write_generic_export(raw_export, rows, task_name="flappy")
+
+    output_dir = tmp_path / "lerobot"
+    manifest = convert_canonical_rollout_to_lerobot(raw_export, output_dir, force=True)
+
+    table = pq.read_table(output_dir / "data/chunk-000/episode_000000.parquet")
+    assert table["density_weight"].to_pylist() == [1.0, 1.0]
+    row = table.to_pylist()[0]
+    info = json.loads((output_dir / "meta/info.json").read_text(encoding="utf-8"))
+    modality = json.loads(
+        (output_dir / "meta/modality.json").read_text(encoding="utf-8")
+    )
+    prompt_map = json.loads(
+        (output_dir / "latency_prompt_map.json").read_text(encoding="utf-8")
+    )
+    mixtures = json.loads(
+        (tmp_path / "_generated_mixtures/lerobot.json").read_text(encoding="utf-8")
+    )
+    validation_manifest = json.loads(
+        (tmp_path / "lerobot__val/manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert manifest["action_dim"] == 3
+    assert manifest["active_action_dim"] == 3
+    assert manifest["action_carrier"] == "native"
+    assert manifest["robot_type"] == "rl_games_gymnasium"
+    assert manifest["integration_name"] == "gymnasium"
+    assert manifest["task_name"] == "flappy"
+    assert manifest["gymnasium_task"]["action_values"] == [0, 1, 2]
+    assert manifest["gymnasium_task"]["noop_action_id"] == 1
+    assert validation_manifest["integration_name"] == "gymnasium"
+    assert validation_manifest["task_name"] == "flappy"
+    assert validation_manifest["gymnasium_task"] == manifest["gymnasium_task"]
+    assert validation_manifest["active_action_dim"] == 3
+    assert validation_manifest["training_dataset_name"] == "lerobot"
+    assert row["action"] == [0.0, 1.0, 0.0]
+    assert row["observation.state"] == [0.0]
+    assert info["chunks_size"] == 1000
+    assert info["data_path"] == (
+        "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
+    )
+    assert info["video_path"] == (
+        "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
+    )
+    assert info["features"]["observation.image"] == {
+        "dtype": "image",
+        "shape": [2, 2, 3],
+        "names": ["height", "width", "channel"],
+        "video_info": {"video.fps": 10.0},
+    }
+    assert info["features"]["observation.state"] == {
+        "dtype": "float32",
+        "shape": [1],
+        "names": ["state"],
+    }
+    assert info["features"]["action"] == {
+        "dtype": "float32",
+        "shape": [3],
+        "names": ACTION_LABELS,
+    }
+    assert info["features"]["latency"] == {"dtype": "int64", "shape": [1]}
+    assert modality == {
+        "state": {
+            "game_state": {
+                "start": 0,
+                "end": 1,
+                "dtype": "float32",
+                "absolute": True,
+                "original_key": "observation.state",
+            }
+        },
+        "action": {
+            "button": {
+                "start": 0,
+                "end": 3,
+                "dtype": "float32",
+                "absolute": True,
+                "original_key": "action",
+            }
+        },
+        "video": {"image": {"original_key": "observation.image"}},
+        "annotation": {"human.task_description": {"original_key": "task_index"}},
+    }
+    assert prompt_map == {
+        "1": {
+            "prompt": "Drive the car up the hill.",
+            "latency_raw_frames": 1,
+            "latency_ms": 33.33,
+        }
+    }
+    assert mixtures == {
+        "lerobot": [["lerobot", 1.0, "rl_games_gymnasium"]],
+        "lerobot__val": [["lerobot__val", 1.0, "rl_games_gymnasium"]],
+    }
+
+
+def test_generic_dataset_language_matches_registered_loader(tmp_path, monkeypatch):
+    pytest.importorskip("accelerate")
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
+    from examples.rl_games.train_files.data_registry.data_config import GymnasiumDataConfig
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+
+    image = tmp_path / "image.png"
+    save_test_image(image, 7)
+    raw = tmp_path / "raw"
+    _write_generic_export(raw, [_canonical_row(image)])
+    converted = tmp_path / "lerobot"
+    convert_canonical_rollout_to_lerobot(raw, converted)
+    modality = json.loads((converted / "meta/modality.json").read_text())
+    language_key = GymnasiumDataConfig.language_keys[0].removeprefix("annotation.")
+    assert modality["annotation"][language_key]["original_key"] == "task_index"
+
+
+def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_state(tmp_path):
+    from latency_bench.data.lerobot_export import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    image_path = tmp_path / "image.png"
+    save_test_image(image_path, 7)
+    raw_export = tmp_path / "raw"
+    state = [float(index) for index in range(17)]
+    _write_generic_export(
+        raw_export,
+        [
+            _canonical_row(image_path, action_id=2, state=state),
+            _canonical_row(
+                image_path,
+                action_id=2,
+                decision_step=1,
+                state=[value + 1.0 for value in state],
+            ),
+        ],
+        include_state=True,
+        state_labels=[f"state_{index}" for index in range(17)],
+    )
+
+    output_dir = tmp_path / "lerobot"
+    manifest = convert_canonical_rollout_to_lerobot(
+        raw_export,
+        output_dir,
+        force=True,
+        action_carrier="bridge",
+    )
+
+    row = pq.read_table(
+        output_dir / "data/chunk-000/episode_000000.parquet"
+    ).to_pylist()[0]
+    info = json.loads((output_dir / "meta/info.json").read_text(encoding="utf-8"))
+
+    assert manifest["action_dim"] == 7
+    assert manifest["active_action_dim"] == 3
+    assert manifest["carrier_action_labels"] == [
+        *ACTION_LABELS,
+        "BRIDGE_PAD_3",
+        "BRIDGE_PAD_4",
+        "BRIDGE_PAD_5",
+        "BRIDGE_PAD_6",
+    ]
+    assert row["action"] == [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    assert row["observation.state"] == [-1.0] * 17
+    assert info["features"]["action"]["shape"] == [7]
+    assert info["features"]["observation.state"] == {
+        "dtype": "float32",
+        "shape": [17],
+        "names": [f"state_{index}" for index in range(17)],
+    }
+
+
+def test_starvla_lerobot_bridge_carrier_rejects_more_than_seven_actions(tmp_path):
+    from latency_bench.data.lerobot_export import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    raw_export = tmp_path / "raw"
+    raw_export.mkdir()
+    action_labels = [f"ACTION_{index}" for index in range(8)]
+    (raw_export / "metadata.json").write_text(
+        json.dumps(
+            {
+                "env_name": "eight_action_task",
+                "integration_name": "gymnasium",
+                "schema_version": 2,
+                "action_layout": "gymnasium_discrete_v1",
+                "action_labels": action_labels,
+                "gymnasium_task": {
+                    "task_name": "eight_action_task",
+                    "env_id": "EightAction-v0",
+                    "make_kwargs": {"render_mode": "rgb_array"},
+                    "registration_imports": [],
+                    "action_labels": action_labels,
+                    "action_values": list(range(8)),
+                    "noop_action_id": 0,
+                    "base_prompt": "Choose one action.",
+                    "env_fps": 30.0,
+                    "obs_fps": 10.0,
+                    "frame_stack": 1,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="supports at most 7 actions"):
+        convert_canonical_rollout_to_lerobot(
+            raw_export,
+            tmp_path / "lerobot",
+            action_carrier="bridge",
+        )
+
+
+def test_starvla_lerobot_preserves_context_images_oldest_to_newest(tmp_path):
+    from latency_bench.data.lerobot_export import (
+        convert_canonical_rollout_to_lerobot,
+    )
+
+    image_path = tmp_path / "current.png"
+    context_paths = [tmp_path / f"context_{index}.png" for index in range(3)]
+    save_test_image(image_path, 40)
+    for context_path, fill in zip(context_paths, [10, 20, 30], strict=True):
+        save_test_image(context_path, fill)
+    raw_export = tmp_path / "raw"
+    _write_generic_export(
+        raw_export,
+        [_canonical_row(image_path, context_images=context_paths)],
+    )
+
+    output_dir = tmp_path / "lerobot"
+    convert_canonical_rollout_to_lerobot(raw_export, output_dir, force=True)
+
+    row = pq.read_table(
+        output_dir / "data/chunk-000/episode_000000.parquet"
+    ).to_pylist()[0]
+    info = json.loads((output_dir / "meta/info.json").read_text(encoding="utf-8"))
+    modality = json.loads(
+        (output_dir / "meta/modality.json").read_text(encoding="utf-8")
+    )
+    fills = [
+        int(np.asarray(Image.open(io.BytesIO(entry["bytes"])).convert("RGB"))[0, 0, 0])
+        for entry in row["observation.context_images"]
+    ]
+
+    assert fills == [10, 20, 30]
+    assert info["features"]["observation.context_images"] == {
+        "dtype": "image_sequence",
+        "shape": [3, 2, 2, 3],
+        "names": ["time", "height", "width", "channel"],
+        "video_info": {"video.fps": 10.0},
+    }
+    assert modality["video"] == {"image": {"original_key": "observation.image"}}

@@ -334,7 +334,8 @@ def encode_action_for_env(
         ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
         ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
     ):
-        action = [float(item) for item in _to_python_action(raw_action)]
+        value = raw_action.detach().cpu().numpy() if hasattr(raw_action, "detach") else raw_action
+        action = [float(item) for item in np.asarray(value).reshape(-1)]
         return {
             "action": action,
             "action_text": "[" + ", ".join(f"{item:.6f}" for item in action) + "]",

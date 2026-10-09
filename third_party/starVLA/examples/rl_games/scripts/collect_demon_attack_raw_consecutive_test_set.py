@@ -37,9 +37,9 @@ from examples.rl_games.scripts.build_bullet_aware_ghost_trails_demon_attack impo
 )
 from examples.rl_games.scripts.image_patching import DEMON_ATTACK_SHIP_RGB
 from latency_bench.data.rollout_image_io import frames_from_env_raw_rgb_info
-from latency_bench.data.sf_teacher_config import load_rollout_training_config
-from latency_bench.data.sf_teacher_drivers import BatchedTeacherRolloutDriver, SerialTeacherRolloutDriver
-from latency_bench.data.sf_teacher_runtime import (
+from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
+from latency_bench.integrations.sample_factory.teacher_drivers import BatchedTeacherRolloutDriver, SerialTeacherRolloutDriver
+from latency_bench.integrations.sample_factory.teacher_runtime import (
     build_rollout_driver_runtime,
     rollout_step_flags,
     step_teacher_policy,

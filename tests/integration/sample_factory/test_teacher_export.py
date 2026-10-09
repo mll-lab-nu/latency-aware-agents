@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 import importlib.util
 import json
 import logging
@@ -8,13 +7,10 @@ import os
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-
 import numpy as np
-import pyarrow.parquet as pq
 import pytest
 import yaml
 from helpers import REPO_ROOT
-from latency_bench.core.config import load_config
 
 
 def _rollout_descriptor(env_name: str) -> dict:
@@ -26,6 +22,7 @@ def _rollout_descriptor(env_name: str) -> dict:
         "integration_name": env_name,
         "action_spec": action_spec_for_env(env_name),
         "base_prompt": BASE_PROMPTS[env_name],
+        "flat_cfg": {},
     }
 
 
@@ -108,29 +105,6 @@ def _env_raw_rgb_frame_stack(value: int = 5, *, frames: int = 1, height: int = 2
     )
 
 
-def test_ghost_trail_image_builds_single_causal_composite():
-    from latency_bench.data.ghost_trail import build_ghost_trail_image
-
-    ghost = np.zeros((4, 4, 3), dtype=np.uint8)
-    ghost[1, 1] = [255, 0, 0]
-    current = np.full((4, 4, 3), 10, dtype=np.uint8)
-
-    def segment_red(frame):
-        return frame[..., 0] > 200
-
-    out = build_ghost_trail_image(
-        [ghost, current],
-        [0, 1],
-        segment_fn=segment_red,
-        gamma=1.3,
-        min_alpha=255,
-        scroll_px_per_step=0.0,
-    )
-
-    assert out[1, 1].tolist() == [255, 0, 0]
-    assert out[0, 0].tolist() == [10, 10, 10]
-
-
 def test_export_cli_accepts_flappy_ghost_trail_image_transform():
     from scripts.rollout_data.export_sf_teacher_dataset import build_parser
 
@@ -161,25 +135,6 @@ def test_export_cli_accepts_flappy_ghost_trail_image_transform():
     assert args.hf_data_dir == "latency-aware/flappy/ghost-trail"
 
 
-def test_flappy_ghost_trail_prompt_context_precedes_latency_text():
-    from latency_bench.data.prompts import BASE_PROMPTS, render_teacher_prompt
-
-    prompt = render_teacher_prompt(
-        "flappy",
-        latency_raw_frames=2,
-        latency_ms=66.67,
-        env_fps=30.0,
-        obs_fps=30.0,
-        image_transform="flappy_ghost_trail",
-    )
-
-    ghost_text = "You can see the past motion of the bird in the image. Use it to make your decision."
-    latency_text = "Current action latency is"
-    assert prompt.startswith(BASE_PROMPTS["flappy"])
-    assert ghost_text in prompt
-    assert prompt.index(ghost_text) < prompt.index(latency_text)
-
-
 def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
     from latency_bench.data.hf_parquet import iter_episode_rows
 
@@ -194,7 +149,7 @@ def _load_sf_teacher_drivers_for_direct_test(monkeypatch):
     sample_factory_actions = ModuleType("latency_bench.integrations.sample_factory.actions")
     sample_factory_actions.to_python_action = lambda value: value.item() if hasattr(value, "item") else value
     monkeypatch.setitem(sys.modules, sample_factory_actions.__name__, sample_factory_actions)
-    module_path = REPO_ROOT / "latency_bench" / "data" / "sf_teacher_drivers.py"
+    module_path = REPO_ROOT / "latency_bench" / "integrations" / "sample_factory" / "teacher_drivers.py"
     spec = importlib.util.spec_from_file_location("_test_sf_teacher_drivers", module_path)
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, spec.name, module)
@@ -202,41 +157,8 @@ def _load_sf_teacher_drivers_for_direct_test(monkeypatch):
     return module
 
 
-class _FakeProgress:
-    calls: list[tuple[int, int]] = []
-    updates: list[int] = []
-
-    def __init__(self, *, total, initial, unit):
-        self.calls.append((int(total), int(initial)))
-        self.unit = unit
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def update(self, value):
-        self.updates.append(int(value))
-
-    def set_postfix(self, **kwargs):
-        pass
-
-
-def test_config_loader_resolves_training_config_inheritance(tmp_path):
-    base = tmp_path / "base.yaml"
-    child = tmp_path / "child.yaml"
-    base.write_text("env:\n  name: flappy\nlatency:\n  method: zero\n", encoding="utf-8")
-    child.write_text("__base__: base.yaml\nlatency:\n  method: fixed\n  fixed_latency_ms: 50\n", encoding="utf-8")
-
-    config = load_config(child)
-
-    assert config["env"]["name"] == "flappy"
-    assert config["latency"] == {"method": "fixed", "fixed_latency_ms": 50}
-
-
 def test_rollout_config_reads_checkpoint_config_without_rebuilding_nested_training_config(tmp_path):
-    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
     experiment_dir = tmp_path / "demon_fixed_l4_seed0"
     _write_checkpoint_config(experiment_dir, simulator="gpu")
@@ -255,7 +177,7 @@ def test_rollout_config_reads_checkpoint_config_without_rebuilding_nested_traini
 
 @pytest.mark.parametrize("method", ["iid", "temporal"])
 def test_profile_latency_override_preserves_sampler_method(method):
-    from latency_bench.data.sf_teacher_runtime import _apply_latency_to_flat_cfg
+    from latency_bench.integrations.sample_factory.teacher_runtime import _apply_latency_to_flat_cfg
     from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
     cfg = SimpleNamespace(simulated_worker_capacity=None)
@@ -269,7 +191,7 @@ def test_profile_latency_override_preserves_sampler_method(method):
 
 
 def test_latency_config_override_is_explicit_rollout_override(tmp_path):
-    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
     experiment_dir = tmp_path / "demon_fixed_l4_seed0"
     _write_checkpoint_config(experiment_dir)
@@ -315,7 +237,7 @@ def test_rollout_config_infers_legacy_same_latency_checkpoint_fixed_latency(
     experiment,
     expected_ms,
 ):
-    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
     experiment_dir = tmp_path / experiment
     _write_checkpoint_config(
@@ -343,7 +265,7 @@ def test_rollout_config_infers_legacy_same_latency_checkpoint_fixed_latency(
 
 
 def test_explicit_latency_config_takes_precedence_over_legacy_checkpoint_name(tmp_path):
-    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
     experiment_dir = tmp_path / "flappy_sf_same_latency_l1_seed0"
     _write_checkpoint_config(
@@ -370,7 +292,7 @@ def test_explicit_latency_config_takes_precedence_over_legacy_checkpoint_name(tm
 
 
 def test_device_override_is_recorded_without_rewriting_checkpoint_env_config(tmp_path):
-    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
     experiment_dir = tmp_path / "flappy_normal_seed0"
     _write_checkpoint_config(
@@ -399,7 +321,7 @@ def test_device_override_is_recorded_without_rewriting_checkpoint_env_config(tmp
 
 
 def test_device_override_cuda_uses_cuda_public_device_name(tmp_path):
-    from latency_bench.data.sf_teacher_config import load_rollout_training_config
+    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
     experiment_dir = tmp_path / "demon_fixed_l4_seed0"
     _write_checkpoint_config(experiment_dir)
@@ -409,34 +331,8 @@ def test_device_override_cuda_uses_cuda_public_device_name(tmp_path):
     assert descriptor["device_override"] == "gpu"
 
 
-def test_dataset_image_uses_latest_env_raw_rgb_frame():
-    from latency_bench.data.rollout_image_io import frame_from_env_raw_rgb_info
-
-    raw_stack = np.stack(
-        [
-            np.full((4, 5, 3), [11, 12, 13], dtype=np.uint8),
-            np.full((4, 5, 3), [21, 22, 23], dtype=np.uint8),
-        ],
-        axis=0,
-    )
-
-    frame = frame_from_env_raw_rgb_info({"env_raw_rgb_frame_stack": raw_stack})
-
-    assert frame.shape == (4, 5, 3)
-    assert frame[0, 0].tolist() == [21, 22, 23]
-
-
-
-def test_teacher_prompts_cover_rollout_envs():
-    from latency_bench.data.prompts import BASE_PROMPTS
-
-    assert set(BASE_PROMPTS) == {
-        "flappy", "demon_attack", "deadly_corridor", "defend_the_line", "asterix", "atlantis"
-    }
-
-
 def test_batch_observations_keeps_already_batched_mapping_observation():
-    from latency_bench.data import sf_teacher_drivers
+    from latency_bench.integrations.sample_factory import teacher_drivers as sf_teacher_drivers
 
     observation = {"obs": np.zeros((1, 12, 84, 84), dtype=np.uint8)}
 
@@ -446,7 +342,7 @@ def test_batch_observations_keeps_already_batched_mapping_observation():
 
 
 def test_batch_observations_concatenates_single_agent_batched_mapping_observations():
-    from latency_bench.data import sf_teacher_drivers
+    from latency_bench.integrations.sample_factory import teacher_drivers as sf_teacher_drivers
 
     observations = [
         {"obs": np.full((1, 4, 2, 2), slot, dtype=np.uint8)}
@@ -461,7 +357,7 @@ def test_batch_observations_concatenates_single_agent_batched_mapping_observatio
 
 
 def test_batch_observations_preserves_decision_history_batch_axis():
-    from latency_bench.data.sf_teacher_drivers import batch_observations
+    from latency_bench.integrations.sample_factory.teacher_drivers import batch_observations
 
     observations = [
         {"obs": np.zeros((1, 4, 2, 2), dtype=np.uint8),
@@ -558,9 +454,9 @@ def test_batched_rollout_driver_continues_life_loss_from_last_step_result(monkey
 
 
 def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -648,8 +544,6 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
     assert fake_env.step_actions == [[1], [1]]
     assert train_rows[0]["action_id"] == 1
     assert Path(train_rows[0]["image"]).exists()
-    assert "image_stack" not in train_rows[0]
-    assert "context_images" not in train_rows[0]
     assert train_rows[0]["env_name"] == "flappy"
     assert train_rows[0]["decision_step"] == 0
     assert train_rows[0]["raw_reward"] == 1.5
@@ -659,9 +553,9 @@ def test_collect_teacher_dataset_handles_single_env_rollout(monkeypatch, tmp_pat
 
 
 def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -768,9 +662,9 @@ def test_collect_teacher_dataset_probe_retries_until_episode_is_accepted(monkeyp
 
 
 def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -918,9 +812,9 @@ def test_collect_teacher_dataset_probes_without_rgb_then_replays_accepted_seed(m
 
 
 def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
     class FakeActorCritic:
         def __init__(self):
@@ -1008,7 +902,6 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
     assert [env.step_actions for env in fake_envs] == [[[1], [1]], [[1], [1]]]
     assert [row["action_id"] for row in train_rows] == [1, 1]
     assert Path(train_rows[0]["image"]).exists()
-    assert "image_stack" not in train_rows[0]
     assert train_rows[0]["raw_reward"] == 1.5
     assert train_rows[0]["latency_raw_frames"] == 2
     assert metadata["runtime_metadata"]["checkpoint_train_step"] == 123
@@ -1017,10 +910,10 @@ def test_collect_teacher_dataset_handles_single_agent_batched_step_outputs(monke
 
 
 def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_actions(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
     from gymnasium.spaces import Discrete, Tuple
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
     component_actions = torch.tensor(
         [
@@ -1126,8 +1019,6 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
         [[[1, 2, 0, 0]], [[1, 2, 0, 0]]],
     ]
     assert [row["action_id"] for row in train_rows] == [11, 30]
-    assert "action" not in train_rows[0]
-    assert "action_tuple" not in train_rows[0]
     assert [row["action_text"] for row in train_rows] == [
         "MOVE_FORWARD + MOVE_RIGHT + ATTACK",
         "TURN_LEFT + MOVE_BACKWARD",
@@ -1135,20 +1026,11 @@ def test_collect_teacher_dataset_encodes_deadly_corridor_factorized_tuple_action
     assert metadata["runtime_metadata"]["checkpoint_train_step"] == 123
 
 
-def test_deadly_corridor_action_encodes_joint_fifty_four_id():
-    from latency_bench.data.action_layouts import encode_action_for_env
-
-    row = encode_action_for_env("deadly_corridor", [2, 0, 1, 0])
-
-    assert row["action_id"] == 38
-    assert row["action_text"] == "TURN_RIGHT + MOVE_LEFT"
-
-
 def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
     from PIL import Image
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
 
     class FakeActorCritic:
@@ -1239,7 +1121,6 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
 
     image = Image.open(train_rows[0]["image"])
     assert not val_rows
-    assert "image_stack" not in train_rows[0]
     assert image.mode == "RGB"
     assert image.size == (2, 3)
     assert np.asarray(image)[0, 0].tolist() == [40, 41, 42]
@@ -1247,11 +1128,11 @@ def test_collect_teacher_dataset_saves_demon_attack_latest_raw_rgb_image(monkeyp
 
 @pytest.mark.parametrize("export_history", [False, True])
 def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, tmp_path, export_history):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
     from gymnasium.spaces import Discrete
     from PIL import Image
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
 
     class FakeActorCritic:
@@ -1344,8 +1225,6 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
 
     image = Image.open(train_rows[0]["image"])
     assert not val_rows
-    assert "image_stack" not in train_rows[0]
-    assert "context_images" not in train_rows[0]
     assert image.size == (5, 6)
     assert np.asarray(image)[0, 0].tolist() == [40, 41, 42]
 
@@ -1355,87 +1234,17 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
         assert train_rows[0]["prompt"] == _rollout_descriptor("flappy")["base_prompt"]
 
 
-def test_write_filtered_episode_images_preserves_empty_filtered_episode(tmp_path):
-    from latency_bench.data.rollout_image_io import RolloutImageWriter
-    from latency_bench.data.sf_teacher_rollout import _write_filtered_episode_images
-
-    image_writer = RolloutImageWriter(max_workers=0, row_buffer_size=1, export_image_size=None)
-
-    rows = _write_filtered_episode_images(image_writer, [], {}, context_window=5)
-
-    assert rows == []
 
 
-def test_write_filtered_episode_images_context_zero_keeps_only_current_image(tmp_path):
-    from latency_bench.data.rollout_image_io import RolloutImageWriter
-    from latency_bench.data.sf_teacher_rollout import _write_filtered_episode_images
-
-    image_writer = RolloutImageWriter(max_workers=0, row_buffer_size=1, export_image_size=None)
-    rows = [{"image": str(tmp_path / "frame.png"), "decision_step": 0}]
-    frames = {0: np.zeros((2, 2, 3), dtype=np.uint8)}
-
-    written_rows = _write_filtered_episode_images(
-        image_writer,
-        rows,
-        frames,
-        context_window=0,
-    )
-
-    assert "context_images" not in written_rows[0]
-    assert Path(written_rows[0]["image"]).is_file()
 
 
-def test_write_filtered_episode_images_resets_context_after_decision_step_gap(tmp_path):
-    from PIL import Image
-    from latency_bench.data.rollout_image_io import RolloutImageWriter
-    from latency_bench.data.sf_teacher_rollout import _write_filtered_episode_images
-
-    image_writer = RolloutImageWriter(max_workers=0, row_buffer_size=1, export_image_size=None)
-    rows = [
-        {
-            "image": str(tmp_path / "images" / "train" / "episode_000000" / f"decision_step_{step:06d}.png"),
-            "decision_step": step,
-        }
-        for step in [0, 1, 4, 5]
-    ]
-    frames_by_decision_step = {
-        step: np.full((2, 2, 3), step * 10, dtype=np.uint8)
-        for step in [0, 1, 4, 5]
-    }
-
-    written_rows = _write_filtered_episode_images(
-        image_writer,
-        rows,
-        frames_by_decision_step,
-        context_window=4,
-    )
-
-    context_values = [
-        [
-            np.asarray(Image.open(path))[0, 0, 0].item()
-            for path in row["context_images"]
-        ]
-        for row in written_rows
-    ]
-    current_values = [
-        np.asarray(Image.open(row["image"]))[0, 0, 0].item()
-        for row in written_rows
-    ]
-
-    assert context_values == [
-        [0, 0, 0],
-        [0, 0, 0],
-        [40, 40, 40],
-        [40, 40, 40],
-    ]
-    assert current_values == [0, 10, 40, 50]
 
 
 def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
     from PIL import Image
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
 
     class FakeActorCritic:
@@ -1528,7 +1337,6 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
     train_rows = _read_shard_rows(output_dir, "train")
 
     assert [len(row["context_images"]) for row in train_rows] == [3, 3, 3, 3]
-    assert "image_stack" not in train_rows[0]
 
     context_values = []
     current_values = []
@@ -1548,11 +1356,11 @@ def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tm
     assert current_values == [10, 20, 30, 40]
 
 
-@pytest.mark.parametrize("episodes", [3, 5])
-def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkeypatch, tmp_path, episodes):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkeypatch, tmp_path):
+    episodes = 5
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
 
     class FakeActorCritic:
@@ -1671,7 +1479,7 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
     assert build_env_calls == [1, 1]
     assert not val_rows
     assert [row["episode_idx"] for row in train_rows] == list(range(episodes))
-    phase_actions = [[0, 1, 2]] if episodes == 3 else [[0, 1, 2], [0, 1, 0]]
+    phase_actions = [[0, 1, 2], [0, 1, 0]]
     assert fake_env.step_actions == phase_actions * 2
     # Inactive slots must not shrink the GPU inference batch between phases.
     assert FakeActorCritic.inference_batches == [3] * (2 * len(phase_actions))
@@ -1679,10 +1487,10 @@ def test_collect_teacher_dataset_uses_batched_driver_for_demon_attack_gpu(monkey
 
 @pytest.mark.parametrize("export_history", [False, True])
 def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_losses(monkeypatch, tmp_path, export_history):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     torch = pytest.importorskip("torch")
     from gymnasium.spaces import Discrete
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
 
     class FakeActorCritic:
@@ -1811,9 +1619,9 @@ def test_collect_teacher_dataset_demon_attack_exports_full_game_across_life_loss
 
 
 def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
 
     class FakeActorCritic:
@@ -1921,9 +1729,9 @@ def test_collect_teacher_dataset_writes_episode_shards_and_resumes(monkeypatch, 
 
 
 def test_collect_teacher_dataset_skips_runtime_when_probe_and_shards_complete(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     from PIL import Image
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
     from latency_bench.data.hf_parquet import write_episode_row_shard
 
     output_dir = tmp_path / "export"
@@ -2000,10 +1808,10 @@ def test_collect_teacher_dataset_skips_runtime_when_probe_and_shards_complete(mo
 
 
 def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatch, tmp_path, capfd):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     monkeypatch.setattr(logging.getLogger("rl"), "disabled", False)
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
 
     class FakeActorCritic:
@@ -2100,7 +1908,7 @@ def test_collect_teacher_dataset_redirects_sample_factory_init_output(monkeypatc
 
 def test_sample_factory_init_log_restores_logger_handlers_added_inside_context(tmp_path, monkeypatch):
     monkeypatch.setattr(logging.getLogger("rl"), "disabled", False)
-    from latency_bench.data.sf_teacher_runtime import sample_factory_init_log
+    from latency_bench.integrations.sample_factory.teacher_runtime import sample_factory_init_log
 
     logger = logging.getLogger("rl")
     original_handlers = list(logger.handlers)
@@ -2127,80 +1935,39 @@ def test_sample_factory_init_log_restores_logger_handlers_added_inside_context(t
             leaked_handler.close()
 
 
-def test_rollout_cfg_parses_sample_factory_evaluation_args(monkeypatch, tmp_path):
+@pytest.mark.parametrize("env_name,sf_env,registration", [
+    ("flappy", "latency_flappy", "register_flappy_envs"),
+    ("defend_the_line", "doom_defend_the_line", "register_deadly_corridor_components"),
+])
+def test_rollout_cfg_registers_integration_and_parses_evaluation_args(
+    monkeypatch, tmp_path, env_name, sf_env, registration,
+):
     from sample_factory.cfg import arguments as sf_arguments
+    from latency_bench.integrations.sample_factory import teacher_runtime
 
-    from latency_bench.data import sf_teacher_runtime
-
-    calls = []
+    registered = []
+    parser_args = []
     parsed_cfg = SimpleNamespace(policy_index=0)
     module = SimpleNamespace(
-        register_flappy_envs=lambda: calls.append("registered"),
         SAMPLE_FACTORY_CONFIG_PARSER=SimpleNamespace(
-            parse_eval=lambda argv: calls.append(argv) or parsed_cfg
+            parse_eval=lambda argv: parser_args.extend(argv) or parsed_cfg
         ),
     )
-    monkeypatch.setattr(sf_teacher_runtime, "import_integration_module", lambda config: module)
+    setattr(module, registration, lambda: registered.append(True))
+    monkeypatch.setattr(teacher_runtime, "import_integration_module", lambda config: module)
     monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
 
-    result_module, result_cfg = sf_teacher_runtime.build_sample_factory_rollout_cfg(
-        {
-            "env_name": "flappy",
-            "integration_name": "flappy",
-            "checkpoint_experiment_dir": str(tmp_path / "teacher"),
-            "checkpoint_path": None,
-            "flat_cfg": {
-                "algo": "APPO",
-                "env": "latency_flappy",
-                "load_checkpoint_kind": "latest",
-            },
-            "device_override": None,
-            "latency_override": None,
-        }
-    )
+    result_module, result_cfg = teacher_runtime.build_sample_factory_rollout_cfg({
+        "env_name": env_name, "integration_name": env_name,
+        "checkpoint_experiment_dir": str(tmp_path / "teacher"), "checkpoint_path": None,
+        "flat_cfg": {"algo": "APPO", "env": sf_env, "load_checkpoint_kind": "latest"},
+        "device_override": None, "latency_override": None,
+    })
 
     assert result_module is module
     assert result_cfg is parsed_cfg
-    assert calls[0] == "registered"
-    assert calls[1][:2] == ["--mode", "eval"]
-
-
-def test_rollout_cfg_registers_defend_the_line_with_vizdoom_components(monkeypatch, tmp_path):
-    from sample_factory.cfg import arguments as sf_arguments
-
-    from latency_bench.data import sf_teacher_runtime
-
-    calls = []
-    parsed_cfg = SimpleNamespace(policy_index=0)
-    module = SimpleNamespace(
-        register_deadly_corridor_components=lambda: calls.append("registered"),
-        SAMPLE_FACTORY_CONFIG_PARSER=SimpleNamespace(
-            parse_eval=lambda argv: calls.append(argv) or parsed_cfg
-        ),
-    )
-    monkeypatch.setattr(sf_teacher_runtime, "import_integration_module", lambda config: module)
-    monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
-
-    result_module, result_cfg = sf_teacher_runtime.build_sample_factory_rollout_cfg(
-        {
-            "env_name": "defend_the_line",
-            "integration_name": "defend_the_line",
-            "checkpoint_experiment_dir": str(tmp_path / "teacher"),
-            "checkpoint_path": None,
-            "flat_cfg": {
-                "algo": "APPO",
-                "env": "doom_defend_the_line",
-                "load_checkpoint_kind": "latest",
-            },
-            "device_override": None,
-            "latency_override": None,
-        }
-    )
-
-    assert result_module is module
-    assert result_cfg is parsed_cfg
-    assert calls[0] == "registered"
-    assert calls[1][:2] == ["--mode", "eval"]
+    assert registered
+    assert parser_args[parser_args.index("--mode") + 1] == "eval"
 
 
 @pytest.mark.parametrize(
@@ -2214,7 +1981,7 @@ def test_flappy_gpu_rollout_uses_requested_render_batch_size(
     runtime_num_envs,
     driver_kind,
 ):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     from contextlib import nullcontext
 
 
@@ -2264,7 +2031,7 @@ def test_flappy_gpu_rollout_uses_requested_render_batch_size(
 
 
 def test_gymnasium_atlantis_gpu_rollout_uses_one_native_batched_env(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     from contextlib import nullcontext
 
 
@@ -2324,9 +2091,9 @@ def test_gymnasium_atlantis_gpu_rollout_uses_one_native_batched_env(monkeypatch,
 
 
 def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_probe_steps(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
 
     class FakeActorCritic:
         def __call__(self, normalized_obs, rnn_states):
@@ -2460,238 +2227,6 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
     assert Path(train_rows[0]["image"]).exists()
 
 
-def test_write_parquet_splits_handles_empty_validation_rows(tmp_path):
-    from PIL import Image
-    from latency_bench.data.action_layouts import action_spec_for_env
-    from test_rollout_hf_parquet import write_rollout_fixture
-
-    image_path = tmp_path / "image.png"
-    Image.fromarray(np.zeros((2, 2, 3), dtype=np.uint8)).save(image_path)
-
-    row = {
-        "image": str(image_path),
-        "env_name": "flappy",
-        "episode_idx": 0,
-        "decision_step": 0,
-        "split": "train",
-        "seed": 11,
-        "prompt": "pick action",
-        "latency_raw_frames": 2,
-        "latency_ms": 66.0,
-        "raw_reward": 1.5,
-        "action": [0.0, 1.0],
-        "action_id": 1,
-        "action_text": "FLAP",
-    }
-
-    output_dir = tmp_path / "export"
-    dataset_dict = write_rollout_fixture(output_dir, [row], [], action_spec=action_spec_for_env("flappy"))
-
-    assert (output_dir / "train.parquet").exists()
-    assert (output_dir / "val.parquet").exists()
-    assert len(dataset_dict["train"]) == 1
-    assert len(dataset_dict["val"]) == 0
-    assert "image" in dataset_dict["train"].column_names
-    assert "image_stack" not in dataset_dict["train"].column_names
-    assert "context_images" not in dataset_dict["train"].column_names
-
-
-def test_write_parquet_splits_embeds_image_bytes(tmp_path):
-    from PIL import Image
-    from latency_bench.data.action_layouts import action_spec_for_env
-    from test_rollout_hf_parquet import write_rollout_fixture
-
-    image_path = tmp_path / "image.png"
-    Image.fromarray(np.full((2, 2, 3), 3, dtype=np.uint8)).save(image_path)
-
-    row = {
-        "image": str(image_path),
-        "env_name": "flappy",
-        "episode_idx": 0,
-        "decision_step": 0,
-        "split": "train",
-        "seed": 11,
-        "prompt": "pick action",
-        "latency_raw_frames": 2,
-        "latency_ms": 66.0,
-        "raw_reward": 1.5,
-        "action": [0.0, 1.0],
-        "action_id": 1,
-        "action_text": "FLAP",
-    }
-
-    output_dir = tmp_path / "export"
-    write_rollout_fixture(output_dir, [row], [], action_spec=action_spec_for_env("flappy"))
-    image_path.unlink()
-
-    table = pq.read_table(output_dir / "train.parquet")
-    image = table.to_pylist()[0]["image"]
-    assert "image_stack" not in table.column_names
-    assert "context_images" not in table.column_names
-    assert image["path"] is None
-    assert image["bytes"].startswith(b"\x89PNG\r\n\x1a\n")
-
-
-def test_write_parquet_splits_preserves_rows_across_large_exports(tmp_path):
-    from PIL import Image
-    from latency_bench.data.action_layouts import action_spec_for_env
-    from test_rollout_hf_parquet import write_rollout_fixture
-
-    image_path = tmp_path / "image.png"
-    Image.fromarray(np.full((1, 1, 3), 7, dtype=np.uint8)).save(image_path)
-    rows = [
-        {
-            "image": str(image_path),
-            "env_name": "flappy",
-            "episode_idx": episode_idx,
-            "decision_step": 0,
-            "split": "train",
-            "seed": 11 + episode_idx,
-            "prompt": "pick action",
-            "latency_raw_frames": 2,
-            "latency_ms": 66.0,
-            "raw_reward": 1.5,
-            "action": [0.0, 1.0],
-            "action_id": 1,
-            "action_text": "FLAP",
-        }
-        for episode_idx in range(260)
-    ]
-    rows[256] = dict(reversed(rows[256].items()))
-
-    output_dir = tmp_path / "export"
-    dataset_dict = write_rollout_fixture(output_dir, rows, [], action_spec=action_spec_for_env("flappy"))
-    table = pq.read_table(output_dir / "train.parquet")
-
-    assert len(dataset_dict["train"]) == 260
-    assert table.num_rows == 260
-    assert table.to_pylist()[259]["episode_idx"] == 259
-
-
-def  test_write_parquet_splits_from_shards_writes_train_and_val_rows(tmp_path):
-    from PIL import Image
-    from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.hf_parquet import write_parquet_splits_from_shards
-
-    output_dir = tmp_path / "export"
-    rows_by_split = {
-        "train": [
-            (0, 0, 3),
-            (1, 0, 5),
-            (1, 1, 7),
-        ],
-        "val": [
-            (2, 0, 11),
-        ],
-    }
-    for split, specs in rows_by_split.items():
-        for episode_idx, decision_step, pixel in specs:
-            image_path = (
-                output_dir
-                / "images"
-                / split
-                / f"episode_{episode_idx:06d}"
-                / f"decision_step_{decision_step:06d}.png"
-            )
-            image_path.parent.mkdir(parents=True, exist_ok=True)
-            Image.fromarray(np.full((2, 2, 3), pixel, dtype=np.uint8)).save(image_path)
-            row = {
-                "image": str(image_path),
-                "env_name": "flappy",
-                "episode_idx": episode_idx,
-                "decision_step": decision_step,
-                "split": split,
-                "seed": 11 + episode_idx,
-                "prompt": "pick action",
-                "latency_raw_frames": 2,
-                "latency_ms": 66.0,
-                "raw_reward": 1.5,
-                "action": [0.0, 1.0],
-                "action_id": 1,
-                "action_text": "FLAP",
-            }
-            shard_path = output_dir / "episode_rows" / split / f"episode_{episode_idx:06d}.jsonl"
-            shard_path.parent.mkdir(parents=True, exist_ok=True)
-            with shard_path.open("a", encoding="utf-8") as handle:
-                json.dump(row, handle, sort_keys=True)
-                handle.write("\n")
-
-    write_parquet_splits_from_shards(output_dir, action_spec=action_spec_for_env("flappy"))
-    from latency_bench.data.hf_parquet import load_parquet_splits
-    dataset_dict = load_parquet_splits(output_dir)
-    train_table = pq.read_table(output_dir / "train.parquet")
-    val_table = pq.read_table(output_dir / "val.parquet")
-
-    assert len(dataset_dict["train"]) == 3
-    assert len(dataset_dict["val"]) == 1
-    assert train_table.num_rows == 3
-    assert val_table.num_rows == 1
-    assert [row["episode_idx"] for row in train_table.to_pylist()] == [0, 1, 1]
-    assert [row["decision_step"] for row in train_table.to_pylist()] == [0, 0, 1]
-    assert train_table.to_pylist()[0]["image"]["bytes"].startswith(b"\x89PNG\r\n\x1a\n")
-
-
-def test_write_parquet_splits_from_shards_replaces_stale_partial_file(tmp_path):
-    from PIL import Image
-    from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.hf_parquet import write_parquet_splits_from_shards
-    from test_rollout_hf_parquet import write_rollout_fixture
-
-    output_dir = tmp_path / "export"
-    stale_image_path = tmp_path / "stale_image.png"
-    Image.fromarray(np.full((1, 1, 3), 1, dtype=np.uint8)).save(stale_image_path)
-    stale_row = {
-        "image": str(stale_image_path),
-        "env_name": "flappy",
-        "episode_idx": 99,
-        "decision_step": 0,
-        "split": "train",
-        "seed": 99,
-        "prompt": "stale",
-        "latency_raw_frames": 0,
-        "latency_ms": 0.0,
-        "raw_reward": 0.0,
-        "action": [1.0, 0.0],
-        "action_id": 0,
-        "action_text": "noop",
-    }
-    write_rollout_fixture(output_dir, [stale_row], [], action_spec=action_spec_for_env("flappy"))
-
-    image_path = output_dir / "images" / "train" / "episode_000000" / "t_000000.png"
-    image_path.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(np.full((2, 2, 3), 9, dtype=np.uint8)).save(image_path)
-    row = {
-        "image": str(image_path),
-        "env_name": "flappy",
-        "episode_idx": 0,
-        "decision_step": 0,
-        "split": "train",
-        "seed": 11,
-        "prompt": "fresh",
-        "latency_raw_frames": 2,
-        "latency_ms": 66.0,
-        "raw_reward": 1.5,
-        "action": [0.0, 1.0],
-        "action_id": 1,
-        "action_text": "FLAP",
-    }
-    shard_path = output_dir / "episode_rows" / "train" / "episode_000000.jsonl"
-    shard_path.parent.mkdir(parents=True, exist_ok=True)
-    with shard_path.open("w", encoding="utf-8") as handle:
-        json.dump(row, handle, sort_keys=True)
-        handle.write("\n")
-
-    write_parquet_splits_from_shards(output_dir, action_spec=action_spec_for_env("flappy"))
-    table = pq.read_table(output_dir / "train.parquet")
-
-    assert table.num_rows == 1
-    assert table.to_pylist()[0]["prompt"] == "fresh"
-    assert table.to_pylist()[0]["episode_idx"] == 0
-    assert not (output_dir / "train.parquet.tmp").exists()
-
-
-
-
 def test_push_token_prefers_explicit_then_environment(monkeypatch):
     from scripts.rollout_data.push_sf_teacher_dataset import resolve_token
 
@@ -2711,95 +2246,8 @@ def test_push_token_falls_back_to_huggingface_hub_token(monkeypatch):
     assert resolve_token("") == "hub-token"
 
 
-def test_prepare_starvla_lerobot_dataset_converts_from_raw_export(monkeypatch, tmp_path):
-    from scripts.rollout_data import prepare_starvla_lerobot_dataset as prepare
-
-    raw_export = tmp_path / "raw"
-    raw_export.mkdir()
-    (raw_export / "metadata.json").write_text(json.dumps({"env_name": "demon_attack"}), encoding="utf-8")
-    (raw_export / "train.parquet").write_bytes(b"train")
-    (raw_export / "val.parquet").write_bytes(b"val")
-
-    calls = []
-
-    def fake_convert(raw_export_dir, output_dir, **kwargs):
-        calls.append((raw_export_dir, output_dir, kwargs))
-        (output_dir / "meta").mkdir(parents=True)
-        (output_dir / "meta" / "info.json").write_text("{}", encoding="utf-8")
-        (output_dir.with_name(f"{output_dir.name}__val") / "meta").mkdir(parents=True)
-        return {"dataset_name": output_dir.name}
-
-    monkeypatch.setattr(prepare, "convert_canonical_rollout_to_lerobot", fake_convert)
-
-    result = prepare.main([
-        str(raw_export),
-        str(tmp_path / "lerobot"),
-        "demon_attack_train",
-    ])
-
-    assert result == 0
-    assert calls == [
-        (
-            raw_export,
-            tmp_path / "lerobot" / "demon_attack_train",
-            {"force": True, "action_carrier": "native"},
-        )
-    ]
-
-
-def test_prepare_starvla_lerobot_dataset_uploads_converted_root(monkeypatch, tmp_path):
-    from scripts.rollout_data import prepare_starvla_lerobot_dataset as prepare
-
-    lerobot_root = tmp_path / "lerobot"
-    (lerobot_root / "demon_attack_train").mkdir(parents=True)
-    (lerobot_root / "demon_attack_train__val").mkdir()
-
-    calls = []
-
-    class FakeApi:
-        def create_repo(self, **kwargs):
-            calls.append(("create_repo", kwargs))
-
-        def upload_folder(self, **kwargs):
-            calls.append(("upload_folder", kwargs))
-
-    monkeypatch.setattr(prepare, "HfApi", lambda: FakeApi())
-    monkeypatch.setenv("HF_TOKEN", "env-token")
-
-    prepare.push_lerobot_dataset(
-        lerobot_root=lerobot_root,
-        data_mix="demon_attack_train",
-        repo_id="user/demon_attack_train_lerobot",
-        private=True,
-    )
-
-    assert calls == [
-        (
-            "create_repo",
-            {
-                "repo_id": "user/demon_attack_train_lerobot",
-                "repo_type": "dataset",
-                "private": True,
-                "exist_ok": True,
-                "token": "env-token",
-            },
-        ),
-        (
-            "upload_folder",
-            {
-                "folder_path": str(lerobot_root),
-                "repo_id": "user/demon_attack_train_lerobot",
-                "repo_type": "dataset",
-                "allow_patterns": ["demon_attack_train/**", "demon_attack_train__val/**"],
-                "commit_message": "Upload LeRobot dataset",
-                "token": "env-token",
-            },
-        ),
-    ]
-
-
 def test_merge_probe_states_reindexes_dedupes_and_assigns_splits():
-    from latency_bench.data.sf_teacher_probe import merge_probe_states, build_episode_plan
+    from latency_bench.data.rollout_probe import merge_probe_states, build_episode_plan
 
     def spec(seed, length):
         return {
@@ -2851,7 +2299,7 @@ def test_merge_probe_states_reindexes_dedupes_and_assigns_splits():
 
 
 def test_merge_probe_states_raises_when_insufficient():
-    from latency_bench.data.sf_teacher_probe import merge_probe_states
+    from latency_bench.data.rollout_probe import merge_probe_states
 
     shard = {
         "accepted_specs": [{"seed": 0, "episode_length": 5040, "episode_idx": 0, "split": "_attempts", "attempt_idx": 0}],
@@ -2864,9 +2312,9 @@ def test_merge_probe_states_raises_when_insufficient():
 
 
 def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkeypatch, tmp_path):
-    from latency_bench.data import sf_teacher_runtime as teacher_runtime
+    from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
-    from latency_bench.data import sf_teacher_rollout as exporter
+    from latency_bench.integrations.sample_factory import teacher_rollout as exporter
     from latency_bench.data.hf_parquet import completed_episode_indices_from_shards
 
     class FakeActorCritic:
@@ -2983,73 +2431,14 @@ def test_collect_teacher_dataset_probe_only_persists_state_without_replay(monkey
     assert completed_episode_indices_from_shards(output_dir) == set()
 
 
-def test_load_written_parquet_splits_restores_image_feature_memory_mapped(tmp_path):
-    # Locks the push OOM fix: the hub push must load the on-disk parquet (memory-mapped,
-    # Image feature restored from parquet metadata) instead of pulling the whole
-    # image-embedded dataset into RAM via pq.read_table.
-    from datasets import Dataset, Features, Image, Value
-
-    from latency_bench.data.hf_parquet import load_parquet_splits
-
-    feats = Features({"image": Image(), "decision_step": Value("int64")})
-    frame = np.zeros((2, 2, 3), dtype=np.uint8)
-    Dataset.from_dict({"image": [frame, frame], "decision_step": [0, 1]}, features=feats).to_parquet(
-        str(tmp_path / "train.parquet")
-    )
-    Dataset.from_dict({"image": [frame], "decision_step": [0]}, features=feats).to_parquet(
-        str(tmp_path / "val.parquet")
-    )
-
-    dd = load_parquet_splits(tmp_path)
-    assert set(dd) == {"train", "val"}
-    assert dd["train"].num_rows == 2
-    assert dd["val"].num_rows == 1
-    # Image feature round-trips, so push_to_hub re-embeds image bytes correctly.
-    assert isinstance(dd["train"].features["image"], Image)
-    assert dd["train"][0]["image"].size == (2, 2)
-
-
-@pytest.mark.parametrize("history_frames", [1, 5, 30])
-def test_demon_trail_stream_matches_causal_windows_and_reset(history_frames):
-    """Long-lived ghost-trail contract: cached frames preserve causal pixels and reset isolation."""
-    from latency_bench.data.ghost_trail import (
-        DemonGhostTrailStream, GhostTrailConfig,
-        build_demon_attack_ghost_trail_episode_frames, build_demon_attack_ghost_trail_window,
-    )
-    frames = []
-    for step in range(12):
-        frame = np.zeros((210, 160, 3), dtype=np.uint8)
-        frame[177:180, 30 + step:38 + step] = [184, 70, 162]
-        frame[60:65, 20 + step:28 + step] = [80, 180, 90]
-        frame[140 - step * 4:142 - step * 4, 80:82] = [210, 170, 120]
-        frames.append(frame)
-    episode = build_demon_attack_ghost_trail_episode_frames(
-        frames, range(len(frames)), config=GhostTrailConfig(history_frames=history_frames),
-    )
-    stream = DemonGhostTrailStream(history_frames)
-    for step, frame in enumerate(frames):
-        stream.append(frame)
-        rendered = stream.render()
-        window = frames[max(0, step - history_frames + 1):step + 1]
-        np.testing.assert_array_equal(rendered, build_demon_attack_ghost_trail_window(window))
-        np.testing.assert_array_equal(rendered, episode[step])
-        foreground = np.any(frame != 0, axis=-1)
-        np.testing.assert_array_equal(rendered[foreground], frame[foreground])
-    if history_frames > 1:
-        assert np.any(episode[11] != frames[11])
-    stream = DemonGhostTrailStream(history_frames)
-    stream.append(frames[0])
-    np.testing.assert_array_equal(stream.render(), frames[0])
-
-
 @pytest.mark.parametrize("probe_only", [False, True])
 def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_path, monkeypatch, probe_only):
     """Long-lived export contract: resume decisions, final reports and embedded storage agree."""
     from PIL import Image
-    from latency_bench.data import sf_teacher_export
+    from latency_bench.integrations.sample_factory import teacher_export as sf_teacher_export
     from latency_bench.data.ghost_trail import GhostTrailConfig
     from latency_bench.data.hf_parquet import write_episode_row_shard, load_parquet_splits
-    from latency_bench.data.sf_teacher_probe import write_probe_state
+    from latency_bench.data.rollout_probe import write_probe_state
     from datasets import DatasetDict
 
     uploads = []

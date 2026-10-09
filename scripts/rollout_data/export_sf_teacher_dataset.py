@@ -12,7 +12,7 @@ from typing import Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from latency_bench.data.ghost_trail import GhostTrailConfig
-from latency_bench.data.sf_teacher_export import export_sample_factory_teacher_dataset
+from latency_bench.integrations.sample_factory.teacher_export import export_sample_factory_teacher_dataset
 
 
 def _parse_image_size(value: str) -> tuple[int, int] | None:

@@ -12,11 +12,41 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Protocol
 
-if TYPE_CHECKING:
-    from latency_bench.core.types import EpisodeMetrics
-    from latency_bench.logging.trajectory_logger import TrajectoryLogger
+from latency_bench.core.types import EpisodeMetrics, Observation, PolicyOutput, StepRecord
+from latency_bench.logging.trajectory_logger import TrajectoryLogger
+
+
+class CollectionObserver(Protocol):
+    """Receive executor observations, predictions and steps for data collection."""
+
+    capture_rgb: bool
+
+    @property
+    def stop_requested(self) -> bool:
+        ...
+
+    def start_episode(self, episode_id: int, seed: int | None, slot_id: int) -> None:
+        ...
+
+    def observation(
+        self,
+        episode_id: int,
+        *,
+        obs_id: int,
+        observation: Observation,
+        image: Any = None,
+        latency_ms: float | None = None,
+        latency_raw_frames: int | None = None,
+    ) -> None:
+        ...
+
+    def output(self, episode_id: int, *, obs_id: int, output: PolicyOutput) -> None:
+        ...
+
+    def step(self, record: StepRecord, *, terminated: bool, truncated: bool) -> None:
+        ...
 
 
 class Executor(ABC):
@@ -60,5 +90,6 @@ class BatchedExecutor(Executor):
         seeds: Sequence[int | None],
         eval_max_steps: int = 10000,
         on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
+        next_episode: Callable[[], dict[str, Any] | None] | None = None,
     ) -> list[EpisodeMetrics]:
         ...

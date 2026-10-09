@@ -18,7 +18,7 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
-from latency_bench.data.sf_teacher_probe import write_probe_state, merge_probe_states
+from latency_bench.data.rollout_probe import write_probe_state, merge_probe_states
 
 
 ROOT = Path(__file__).resolve().parents[3]

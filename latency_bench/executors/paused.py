@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
-from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors.base import EpisodeExecutor
+from latency_bench.envs.base import EnvAdapter, collection_frame
+from latency_bench.executors.base import CollectionObserver, EpisodeExecutor
 from latency_bench.logging.metrics import (
     apply_latency_record_raw_fields,
     compute_episode_metrics,
@@ -19,6 +19,8 @@ from latency_bench.scheduler.decision import DecisionScheduler
 
 class PausedLatencyExecutor(EpisodeExecutor):
     """Run inference and apply actions without advancing simulated time during inference."""
+    collection_observer: CollectionObserver | None = None
+
     def __init__(
         self,
         env: EnvAdapter,
@@ -54,6 +56,8 @@ class PausedLatencyExecutor(EpisodeExecutor):
 
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
+        if self.collection_observer is not None:
+            self.collection_observer.start_episode(episode_id, seed, 0)
         self.policy.reset_state(slot_id=0)
         if self.video_recorder is not None:
             self.video_recorder.start_episode(
@@ -82,9 +86,17 @@ class PausedLatencyExecutor(EpisodeExecutor):
                 observation = with_action_prefix(
                     self.env.observe(), self.action_scheduler, self.action_prefix
                 )
-                policy_output = self.policy.predict(observation)
                 obs_id = self._next_obs_id
                 self._next_obs_id += 1
+                if self.collection_observer is not None:
+                    self.collection_observer.observation(
+                        episode_id, obs_id=obs_id, observation=observation,
+                        image=collection_frame(self.env, observation) if self.collection_observer.capture_rgb else None,
+                        latency_ms=0.0, latency_raw_frames=0,
+                    )
+                policy_output = self.policy.predict(observation)
+                if self.collection_observer is not None:
+                    self.collection_observer.output(episode_id, obs_id=obs_id, output=policy_output)
 
                 latency_record = LatencyRecord(
                     obs_id=obs_id,
@@ -133,6 +145,10 @@ class PausedLatencyExecutor(EpisodeExecutor):
                 frame_ms=self.clock.frame_ms,
                 latency_type=latency_type,
             )
+            if self.collection_observer is not None:
+                self.collection_observer.step(
+                    record, terminated=result.done, truncated=result.truncated,
+                )
             step_records.append(record)
             if self.logger is not None:
                 self.logger.log_step(record)

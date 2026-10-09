@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from latency_bench.core.types import Action, Observation, StepResult
-from latency_bench.envs.base import EnvAdapter
+from latency_bench.envs.base import EnvAdapter, collection_frame
 from latency_bench.envs.factory import build_env_adapter
 from latency_bench.executors.thread_env import set_thread_env_defaults
 
@@ -33,6 +33,7 @@ class EnvStepResponse:
 class EnvStepBackend(Protocol):
     slot_handles: Sequence[EnvAdapter]
     last_step_metadata_by_slot: dict[int, dict[str, Any]]
+    collection_frames: dict[int, Any]
     closed: bool
 
     @property
@@ -49,7 +50,7 @@ class EnvStepBackend(Protocol):
     def reset_slot(self, slot_id: int, *, episode_id: int, seed: int | None) -> Observation:
         ...
 
-    def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
+    def observe_slots(self, slot_ids: Sequence[int], *, capture_rgb: bool = False) -> dict[int, Observation]:
         ...
 
     def step_slots(self, actions_by_slot: Mapping[int, Action]) -> dict[int, EnvStepResponse]:
@@ -148,6 +149,7 @@ class SerialEnvStepBackend:
         if not self.slot_handles:
             raise ValueError("SerialEnvStepBackend requires at least one env slot")
         self.last_step_metadata_by_slot: dict[int, dict[str, Any]] = {}
+        self.collection_frames: dict[int, Any] = {}
         self.closed = False
 
     @property
@@ -167,9 +169,16 @@ class SerialEnvStepBackend:
         observation = env.reset(seed=seed)
         return observation
 
-    def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
+    def observe_slots(self, slot_ids: Sequence[int], *, capture_rgb: bool = False) -> dict[int, Observation]:
         self._raise_if_closed()
-        return {int(slot_id): self.slot_handles[int(slot_id)].observe() for slot_id in slot_ids}
+        observations = {}
+        for slot_id in slot_ids:
+            env = self.slot_handles[int(slot_id)]
+            obs = env.observe()
+            if capture_rgb:
+                self.collection_frames[int(slot_id)] = collection_frame(env, obs)
+            observations[int(slot_id)] = obs
+        return observations
 
     def step_slots(self, actions_by_slot: Mapping[int, Action]) -> dict[int, EnvStepResponse]:
         self._raise_if_closed()
@@ -194,6 +203,7 @@ class SerialEnvStepBackend:
         return responses
 
     def close(self) -> None:
+        self.collection_frames.clear()
         if self.closed:
             return
         self.closed = True
@@ -227,6 +237,7 @@ class SubprocEnvStepBackend:
         self._processes: list[mp.Process] = []
         self.slot_handles: list[RemoteEnvSlotHandle] = []
         self.last_step_metadata_by_slot: dict[int, dict[str, Any]] = {}
+        self.collection_frames: dict[int, Any] = {}
         self.closed = False
         self._start_workers(int(num_slots))
 
@@ -252,15 +263,17 @@ class SubprocEnvStepBackend:
         handle.update_observation(observation, metadata)
         return observation
 
-    def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
+    def observe_slots(self, slot_ids: Sequence[int], *, capture_rgb: bool = False) -> dict[int, Observation]:
         self._raise_if_closed()
         slot_ids = [int(slot_id) for slot_id in slot_ids]
         for slot_id in slot_ids:
-            self._send(slot_id, "observe", {})
+            self._send(slot_id, "observe", {"capture_rgb": True} if capture_rgb else {})
         observations: dict[int, Observation] = {}
         for slot_id in slot_ids:
             payload = self._recv(slot_id, "observe_result")
             observation = payload["observation"]
+            if capture_rgb:
+                self.collection_frames[slot_id] = payload["collection_frame"]
             self.slot_handles[slot_id].update_observation(observation, None)
             observations[slot_id] = observation
         return observations
@@ -289,6 +302,7 @@ class SubprocEnvStepBackend:
         return responses
 
     def close(self) -> None:
+        self.collection_frames.clear()
         self._shutdown_workers(terminate=False)
 
     def _start_workers(self, num_slots: int) -> None:
@@ -445,13 +459,10 @@ def _env_worker(connection: Any, config: dict[str, Any], noop_action: Action, sl
                 ))
             elif command == "observe":
                 observation = env.observe()
-                connection.send((
-                    "observe_result",
-                    {
-                        "observation": observation,
-                        "worker_pid": worker_pid,
-                    },
-                ))
+                response = {"observation": observation, "worker_pid": worker_pid}
+                if payload.get("capture_rgb"):
+                    response["collection_frame"] = collection_frame(env, observation)
+                connection.send(("observe_result", response))
             elif command == "step":
                 start = time.perf_counter()
                 result = env.step(_action_from_step_payload(payload["action"]))

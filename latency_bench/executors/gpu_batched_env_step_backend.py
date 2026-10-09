@@ -21,6 +21,7 @@ import gymnasium as gym
 import numpy as np
 
 from latency_bench.core.types import Action, Observation, StepResult
+from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.executors.env_step_backend import EnvStepResponse, RemoteEnvSlotHandle
 
 
@@ -66,6 +67,7 @@ class GpuBatchedEnvStepBackendBase(ABC):
             for slot_id in range(self._num_slots)
         ]
         self.last_step_metadata_by_slot: dict[int, dict[str, Any]] = {}
+        self.collection_frames: dict[int, np.ndarray] = {}
         self.closed = False
 
     @property
@@ -94,9 +96,18 @@ class GpuBatchedEnvStepBackendBase(ABC):
         self.slot_handles[slot_id].update_observation(observation, metadata)
         return observation
 
-    def observe_slots(self, slot_ids: Sequence[int]) -> dict[int, Observation]:
+    def observe_slots(self, slot_ids: Sequence[int], *, capture_rgb: bool = False) -> dict[int, Observation]:
         self._raise_if_closed()
         observations = self._observe_slot_observations([int(slot_id) for slot_id in slot_ids])
+        if capture_rgb:
+            missing_rgb = [slot for slot, obs in observations.items()
+                           if ENV_RAW_RGB_FRAME_STACK_INFO_KEY not in obs.metadata]
+            frames = self._capture_rgb_frames(missing_rgb) if missing_rgb else {}
+            self.collection_frames = {
+                slot: np.array(obs.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1]
+                               if ENV_RAW_RGB_FRAME_STACK_INFO_KEY in obs.metadata else frames[slot], copy=True)
+                for slot, obs in observations.items()
+            }
         for slot_id, observation in observations.items():
             self.slot_handles[slot_id].update_observation(observation, None)
         return observations
@@ -152,6 +163,7 @@ class GpuBatchedEnvStepBackendBase(ABC):
         return responses
 
     def close(self) -> None:
+        self.collection_frames.clear()
         self.closed = True
 
     @abstractmethod
@@ -169,6 +181,10 @@ class GpuBatchedEnvStepBackendBase(ABC):
     @abstractmethod
     def _slot_step_outcome(self, state: Any, slot_id: int) -> SlotStepOutcome:
         """Extract one slot's step outcome; runs after the slot's env_step counter advanced."""
+
+    def _capture_rgb_frames(self, slot_ids: list[int]) -> dict[int, np.ndarray]:
+        """Capture current student RGB without changing policy frame history."""
+        raise NotImplementedError(f"{self.backend_name} does not provide collection RGB")
 
     def _raise_if_closed(self) -> None:
         if self.closed:

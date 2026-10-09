@@ -137,3 +137,10 @@ Pass constructed components to `build_executor(config, env=env, policy=policy)`
 for single-environment simulated or paused execution. The executor closes its
 environment when it closes. Use importable factory strings for realtime or
 pooled inference, where live objects cannot cross the process boundary.
+
+## Collect teacher demonstrations
+
+The same external factories support [canonical demonstration collection](rollout_collection.md).
+Select student RGB and optional state separately from teacher input. The output
+pairs each source observation with its teacher command and can be passed directly
+to the existing training-format converter.

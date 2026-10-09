@@ -46,7 +46,7 @@ from examples.rl_games.scripts.collect_demon_attack_raw_consecutive_test_set imp
     resolve_checkpoint_root,
     save_contact_sheet,
 )
-from latency_bench.data.sf_teacher_config import load_rollout_training_config
+from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
 SCRIPT_DIR = Path(__file__).parent
 DEFAULT_OUT_DIR = SCRIPT_DIR / "ghost_test_trail_ablation_demon_attack_same_endpoints"

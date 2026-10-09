@@ -24,7 +24,8 @@ def user_project(tmp_path):
     return project
 
 
-def _run_user_project(project, mode, policy_factory="make_policy"):
+def _run_user_project(project, mode, policy_factory="make_policy", *, collection=False,
+                      parallel_envs=1, inference_pool=False):
     output = project / "output"
     config = {
         "experiment": {"name": "outside_project", "seed": 7},
@@ -45,6 +46,19 @@ def _run_user_project(project, mode, policy_factory="make_policy"):
         "factory_audit_path": str(project / "audit.jsonl"),
     }
     config_path = project / "eval.yaml"
+    if collection:
+        config["env"]["factory"] = "outside_lagen:make_collection_env"
+        config["policy"]["factory"] = "outside_lagen:make_collection_policy"
+        config["env"].update(task_name="external_counter", base_prompt="Choose the next count.",
+                             action_order=["zero", "one", "two", "three", "four"],
+                             action_map={"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4},
+                             noop_action="zero")
+        config["collection"] = {"student_observation": {"image_key": None if parallel_envs > 1 else "rgb"}, "val_fraction": 0.5}
+        config["latency"] = {"method": "fixed", "fixed_latency_ms": 100} if mode == "simulated" else {"method": "zero"}
+        config["evaluation"]["eval_parallel_envs"] = parallel_envs
+        config["executor"]["simulated_inference_pool"] = inference_pool
+        if inference_pool:
+            config["executor"]["inference_batch_size"] = parallel_envs
     config_path.write_text(yaml.safe_dump(config))
     env = {
         **os.environ,
@@ -52,12 +66,51 @@ def _run_user_project(project, mode, policy_factory="make_policy"):
         "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
         "MPLBACKEND": "Agg", "LATENCY_BENCH_ENV_BACKEND_START_METHOD": "spawn",
     }
+    command = [sys.executable, "-m", "latency_bench.run", "--config", str(config_path)]
+    if collection:
+        command = [sys.executable, "-c",
+                   "from latency_bench.core.config import load_config; "
+                   "from latency_bench.data.rollout import collect_rollouts; "
+                   "import sys; collect_rollouts(load_config(sys.argv[1]))", str(config_path)]
     result = subprocess.run(
-        [sys.executable, "-m", "latency_bench.run", "--config", str(config_path)],
+        command,
         cwd=project, env=env, capture_output=True, text=True, timeout=60,
     )
+    assert (project / "audit.jsonl").exists(), result.stdout + result.stderr
     records = [json.loads(line) for line in (project / "audit.jsonl").read_text().splitlines()]
     return result, output, records
+
+
+@pytest.mark.parametrize("mode,parallel_envs,inference_pool", [
+    ("paused", 1, False), ("simulated", 1, False), ("simulated", 2, False),
+    ("simulated", 1, True), ("simulated", 2, True),
+])
+def test_external_collection_preserves_inputs_across_execution_modes(
+    user_project, mode, parallel_envs, inference_pool,
+):
+    import io
+    import numpy as np
+    import pyarrow.parquet as pq
+    from PIL import Image
+    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+
+    result, output, records = _run_user_project(
+        user_project, mode, collection=True, parallel_envs=parallel_envs, inference_pool=inference_pool,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    all_rows = []
+    for split in ("train", "val"):
+        rows = pq.read_table(output / f"{split}.parquet").to_pylist()
+        assert rows
+        for row in rows:
+            rgb = np.asarray(Image.open(io.BytesIO(row["image"]["bytes"])))
+            assert (rgb == row["decision_step"]).all()
+            assert row["action_id"] == row["decision_step"] + 1
+        all_rows.extend(rows)
+    assert {row["episode_idx"] for row in all_rows} == {0, 1}
+    assert any(row["event"] == "env_closed" for row in records)
+    converted = convert_canonical_rollout_to_lerobot(output, output.with_name("converted"), action_carrier="native")
+    assert converted["frames"] == 4
 
 
 @pytest.mark.parametrize("mode", ["simulated", "realtime"])

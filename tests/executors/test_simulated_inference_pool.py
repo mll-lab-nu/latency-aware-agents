@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import Action, LatencyRecord, Observation, OrderingPolicy, PolicyOutput
@@ -155,10 +156,10 @@ def _build_executor(tmp_path: Path, *, pool: FakeInferencePool | None, horizon=1
 
 
 def _run_episodes(executor: SimulatedLatencyExecutor, n_episodes: int = 3):
-    metrics = [
-        executor.run_episode(episode_id=episode_id, seed=episode_id, eval_max_steps=60)
-        for episode_id in range(n_episodes)
-    ]
+    metrics = []
+    for episode_id in range(n_episodes):
+        result = executor.run_episode(episode_id=episode_id, seed=episode_id, eval_max_steps=60)
+        metrics.append(result)
     executor.logger.flush()
     return metrics
 
@@ -187,7 +188,8 @@ def test_pooled_execution_is_identical_to_inline(tmp_path, horizon):
     # Delay pattern: every third observation takes 4 polls, others 1, so
     # results habitually return out of submission order.
     pool = FakeInferencePool(PureObsPolicy(horizon), worker_count=2, delay_for_obs=lambda obs_id: 4 if obs_id % 3 == 0 else 1)
-    pooled_metrics = _run_episodes(_build_executor(pooled_dir, pool=pool, horizon=horizon))
+    pooled = _build_executor(pooled_dir, pool=pool, horizon=horizon)
+    pooled_metrics = _run_episodes(pooled)
 
     assert _comparable_metrics(pooled_metrics) == _comparable_metrics(inline_metrics)
     for name in ("steps.jsonl", "actions.jsonl", "latencies.jsonl"):
@@ -199,11 +201,32 @@ def test_pooled_execution_is_identical_to_inline(tmp_path, horizon):
 def test_pooled_execution_with_single_worker_blocks_and_matches(tmp_path):
     # One fake worker (fewer than the virtual capacity of 2) forces the
     # parent-side submit queue and the blocking wait to engage.
-    inline_metrics = _run_episodes(_build_executor(tmp_path / "inline", pool=None))
-    pool = FakeInferencePool(PureObsPolicy(), worker_count=1, delay_for_obs=lambda obs_id: 2)
-    pooled_metrics = _run_episodes(_build_executor(tmp_path / "pooled", pool=pool))
+    class ReusedObservationEnv(DummyEnvAdapter):
+        def __init__(self):
+            super().__init__(max_steps=40)
+            self.buffer = np.zeros(1, dtype=np.int64)
+
+        def _make_observation(self, metadata=None):
+            observation = super()._make_observation(metadata)
+            self.buffer[0] = self.env_step
+            observation.data = self.buffer
+            return observation
+
+    class StatePolicy(PolicyRunner):
+        def predict(self, observation):
+            return PolicyOutput(Action(f"a{observation.data[0]}"))
+
+    inline = _build_executor(tmp_path / "inline", pool=None)
+    inline.env = ReusedObservationEnv()
+    inline.policy = StatePolicy()
+    inline_metrics = _run_episodes(inline)
+    pool = FakeInferencePool(StatePolicy(), worker_count=1, delay_for_obs=lambda obs_id: 4)
+    pooled = _build_executor(tmp_path / "pooled", pool=pool)
+    pooled.env = ReusedObservationEnv()
+    pooled_metrics = _run_episodes(pooled)
 
     assert _comparable_metrics(pooled_metrics) == _comparable_metrics(inline_metrics)
+    assert load_jsonl_records(tmp_path / "pooled/actions.jsonl") == load_jsonl_records(tmp_path / "inline/actions.jsonl")
 
 
 def test_pool_lifecycle_is_driven_by_the_executor(tmp_path):

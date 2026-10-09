@@ -26,7 +26,7 @@ Tests mirror the source tree. A test lives in the subdirectory that matches the
 | `tests/logging/` | `latency_bench/logging/` (records, trajectory logger, video, pipeline) |
 | `tests/analysis/` | `latency_bench/analysis/` (tables, stats, figures, diagnostics, fits) |
 | `tests/profiling/` | `latency_bench/profiling/` (deployment profiling, artifact resolution, calibration and CLI contracts) |
-| `tests/data/` | `latency_bench/data/` (rollout schema/filters/parquet, LeRobot conversion, sf teacher) |
+| `tests/data/` | `latency_bench/data/` (teacher demonstrations, schema/filters/parquet, LeRobot conversion) |
 | `tests/training/` | `training/` (sample_factory backend, sf-compat shims, episode metrics) |
 | `tests/training/gpu/` | `training/{flappy_sf,demon_attack_sf}` and anything needing a CUDA GPU |
 | `tests/scripts/test_sim2real.py` | `scripts/experiments/sim2real/` (frozen protocols, resume/publication and statistical reports) |
@@ -150,3 +150,10 @@ noise.
   marker (`gpu`/`vizdoom`/`slow`) so it's deselected-but-runnable, not dead.
 - If a test only passes because it's skipped in every environment, it isn't
   testing anything — either give it a runnable path or remove it.
+
+Sample Factory checkpoint, execution-adapter and export tests live
+in `tests/integration/sample_factory/`. Generic collection contracts live in
+`tests/data/test_rollout.py`. Existing executor suites cover scheduling and
+buffer ownership. `tests/integration/test_external_factories.py` covers collection
+from an external project through simulated inference worker processes. These are long-lived
+interface and regression tests.

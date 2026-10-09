@@ -851,3 +851,77 @@ def test_legacy_training_run_cannot_reuse_cached_evaluations(tmp_path, monkeypat
     ])
     with pytest.raises(ValueError, match="Resume requires a fixed-K run"):
         profile.main()
+
+
+def test_prepare_starvla_lerobot_dataset_converts_from_raw_export(monkeypatch, tmp_path):
+    from scripts.rollout_data import prepare_starvla_lerobot_dataset as prepare
+
+    raw_export = tmp_path / "raw"
+    raw_export.mkdir()
+    (raw_export / "metadata.json").write_text(json.dumps({"env_name": "demon_attack"}), encoding="utf-8")
+    (raw_export / "train.parquet").write_bytes(b"train")
+    (raw_export / "val.parquet").write_bytes(b"val")
+
+    calls = []
+
+    def fake_convert(raw_export_dir, output_dir, **kwargs):
+        calls.append((raw_export_dir, output_dir, kwargs))
+        (output_dir / "meta").mkdir(parents=True)
+        (output_dir / "meta" / "info.json").write_text("{}", encoding="utf-8")
+        (output_dir.with_name(f"{output_dir.name}__val") / "meta").mkdir(parents=True)
+        return {"dataset_name": output_dir.name}
+
+    monkeypatch.setattr(prepare, "convert_canonical_rollout_to_lerobot", fake_convert)
+
+    result = prepare.main([
+        str(raw_export),
+        str(tmp_path / "lerobot"),
+        "demon_attack_train",
+    ])
+
+    assert result == 0
+    assert calls == [
+        (
+            raw_export,
+            tmp_path / "lerobot" / "demon_attack_train",
+            {"force": True, "action_carrier": "native"},
+        )
+    ]
+
+
+def test_prepare_starvla_lerobot_dataset_uploads_converted_root(monkeypatch, tmp_path):
+    from scripts.rollout_data import prepare_starvla_lerobot_dataset as prepare
+
+    lerobot_root = tmp_path / "lerobot"
+    (lerobot_root / "demon_attack_train").mkdir(parents=True)
+    (lerobot_root / "demon_attack_train__val").mkdir()
+
+    created = {}
+    uploaded = {}
+
+    class FakeApi:
+        def create_repo(self, **kwargs):
+            created.update(kwargs)
+
+        def upload_folder(self, **kwargs):
+            uploaded.update(kwargs)
+
+    monkeypatch.setattr(prepare, "HfApi", lambda: FakeApi())
+    monkeypatch.setenv("HF_TOKEN", "env-token")
+
+    prepare.push_lerobot_dataset(
+        lerobot_root=lerobot_root,
+        data_mix="demon_attack_train",
+        repo_id="user/demon_attack_train_lerobot",
+        private=True,
+    )
+
+    for request in (created, uploaded):
+        assert request["repo_id"] == "user/demon_attack_train_lerobot"
+        assert request["repo_type"] == "dataset"
+        assert request["token"] == "env-token"
+    assert created["private"] is True
+    assert uploaded["folder_path"] == str(lerobot_root)
+    assert set(uploaded["allow_patterns"]) == {
+        "demon_attack_train/**", "demon_attack_train__val/**",
+    }

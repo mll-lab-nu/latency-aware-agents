@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from copy import deepcopy
 import json
 import logging
 import os
@@ -13,9 +14,9 @@ from typing import Any, Mapping
 
 import numpy as np
 import torch
-from gymnasium.spaces import Box
+from gymnasium.spaces import Discrete
 
-from latency_bench.data.sf_teacher_drivers import (
+from latency_bench.integrations.sample_factory.teacher_drivers import (
     BatchedTeacherRolloutDriver,
     RolloutStepResult,
     SerialTeacherRolloutDriver,
@@ -274,7 +275,6 @@ def step_teacher_policy(
     rnn_states: torch.Tensor,
     deterministic: bool,
     preserve_leading_batch: bool = False,
-    preserve_issued_actions: bool = False,
 ) -> tuple[list[Any], torch.Tensor, dict[int, Any]]:
     """Run one teacher policy/env step for active rollout slots.
 
@@ -287,7 +287,7 @@ def step_teacher_policy(
         deterministic: Whether to use deterministic teacher actions.
 
     Returns:
-        Raw actions, new RNN states for the active batch, and step results.
+        Issued native commands, new RNN states for the active batch, and step results.
     """
     actor_critic = runtime["actor_critic"]
     device = runtime["device"]
@@ -338,13 +338,10 @@ def step_teacher_policy(
             len(active_slots),
             action_space=driver.action_space,
         )
+    # Discrete commands are immutable; vector commands need ownership across env.step.
+    issued_actions = raw_actions if isinstance(driver.action_space, Discrete) else deepcopy(raw_actions)
     step_results = driver.step(active_slots, raw_actions)
-    if isinstance(driver.action_space, Box) and not preserve_issued_actions:
-        raw_actions = [
-            step_results[slot].info["applied_action"]
-            for slot in active_slots
-        ]
-    return raw_actions, new_rnn_states, step_results
+    return issued_actions, new_rnn_states, step_results
 
 
 def rollout_step_flags(

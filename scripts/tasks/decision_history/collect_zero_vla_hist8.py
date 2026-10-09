@@ -14,7 +14,7 @@ from huggingface_hub import snapshot_download
 
 from latency_bench.utils.io import write_json_atomic
 from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
-from latency_bench.data.sf_teacher_probe import write_probe_state, merge_probe_states
+from latency_bench.data.rollout_probe import write_probe_state, merge_probe_states
 from scripts.tasks.decision_history.collect_vla_hist8 import (
     ROOT, TASK_SETTINGS, HISTORY_DIMS, _file_sha256, _export_command, _quality_report,
 )

@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.types import Action, PolicyOutput
@@ -61,3 +62,35 @@ def make_policy(config, action_resolver):
 
 def fail_policy(config, action_resolver):
     raise RuntimeError("user policy construction failed")
+
+
+class CollectionEnv(UserEnv):
+    """Reuse observation arrays to expose missing copies in rollout recording."""
+
+    def __init__(self, config, noop_action):
+        self.frame = np.zeros((8, 8, 3), dtype=np.uint8)
+        super().__init__(config, noop_action)
+
+    def _make_observation(self, metadata=None):
+        observation = super()._make_observation(metadata)
+        self.frame.fill(self.env_step)
+        observation.data["rgb"] = self.frame
+        return observation
+
+
+class CollectionPolicy(UserPolicy):
+    """Predict from observed state for serial and concurrent collection."""
+
+    def predict(self, observation):
+        return PolicyOutput(Action(observation.data["state"] + 1))
+
+    def predict_batch(self, observations):
+        return [self.predict(observation) for observation in observations]
+
+
+def make_collection_env(config, noop_action):
+    return CollectionEnv(config, noop_action)
+
+
+def make_collection_policy(config, action_resolver):
+    return CollectionPolicy(config)

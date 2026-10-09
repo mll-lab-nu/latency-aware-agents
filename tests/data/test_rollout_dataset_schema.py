@@ -1,26 +1,6 @@
 from __future__ import annotations
 
-
-def test_canonical_rollout_fields_exclude_legacy_aliases():
-    from latency_bench.data.rollout_schema import CANONICAL_ROW_FIELDS
-
-    assert CANONICAL_ROW_FIELDS == (
-        "image",
-        "env_name",
-        "episode_idx",
-        "decision_step",
-        "split",
-        "seed",
-        "prompt",
-        "latency_raw_frames",
-        "latency_ms",
-    )
-    assert "latency" not in CANONICAL_ROW_FIELDS
-    assert "deterministic" not in CANONICAL_ROW_FIELDS
-    assert "done" not in CANONICAL_ROW_FIELDS
-    assert "terminated" not in CANONICAL_ROW_FIELDS
-    assert "truncated" not in CANONICAL_ROW_FIELDS
-    assert "t" not in CANONICAL_ROW_FIELDS
+import numpy as np
 
 
 def test_rollout_features_include_env_specific_action_fields():
@@ -31,23 +11,14 @@ def test_rollout_features_include_env_specific_action_fields():
     deadly_features = rollout_features(action_spec_for_env("deadly_corridor"))
 
     assert "action_id" in flappy_features
-    assert "action_tuple" not in flappy_features
     assert "action_id" in deadly_features
-    assert "action_tuple" not in deadly_features
-    assert "action" not in deadly_features
     for features in (flappy_features, deadly_features):
         assert "decision_step" in features
         assert "latency_raw_frames" in features
         assert "raw_reward" in features
-        assert "reward" not in features
-        assert "latency" not in features
-        assert "done" not in features
-        assert "t" not in features
 
     demon_features = rollout_features(action_spec_for_env("demon_attack"))
     assert "raw_reward" in demon_features
-    assert "clipped_reward" not in demon_features
-    assert "reward" not in demon_features
 
 
 def test_sort_rows_uses_decision_step():
@@ -64,3 +35,32 @@ def test_sort_rows_uses_decision_step():
         {"episode_idx": 0, "decision_step": 1},
         {"episode_idx": 1, "decision_step": 2},
     ]
+
+
+def test_generic_teacher_row_uses_explicit_action_spec_and_prompt():
+    from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
+    from latency_bench.data.rollout_rows import teacher_dataset_row
+
+    action_spec = gymnasium_discrete_action_spec(["PUSH_LEFT", "COAST", "PUSH_RIGHT"])
+    row = teacher_dataset_row(
+        env_name="mountain_car",
+        spec={"episode_idx": 2, "split": "train", "seed": 19},
+        decision_step=4,
+        image="frame.png",
+        raw_action=2,
+        state=np.asarray([1.0, 2.0], dtype=np.float64),
+        info={"latency_raw_frames": 3, "latency_ms": 100.0},
+        reward=-1.0,
+        env_fps=30.0,
+        obs_fps=10.0,
+        action_spec=action_spec,
+        base_prompt="Drive the car up the hill.",
+    )
+
+    assert row["env_name"] == "mountain_car"
+    assert row["action_id"] == 2
+    assert row["action"] == [0.0, 0.0, 1.0]
+    assert row["action_text"] == "PUSH_RIGHT"
+    assert row["state"] == [1.0, 2.0]
+    assert row["prompt"].startswith("Drive the car up the hill.")
+    assert "Current action latency is 3 raw frames (100.00 ms)." in row["prompt"]

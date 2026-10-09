@@ -113,11 +113,7 @@ def completed_episode_indices_from_shards(output_dir: Path) -> set[int]:
     completed_episode_indices: set[int] = set()
     for split in ("train", "val"):
         for shard_path in sorted((output_dir / "episode_rows" / split).glob("episode_*.jsonl")):
-            with shard_path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    if line.strip():
-                        completed_episode_indices.add(int(json.loads(line)["episode_idx"]))
-                        break
+            completed_episode_indices.add(int(shard_path.stem.removeprefix("episode_")))
     return completed_episode_indices
 
 
@@ -189,15 +185,16 @@ def episode_row_shard_path(output_dir: Path, split: str, episode_idx: int) -> Pa
     return output_dir / "episode_rows" / str(split) / f"episode_{int(episode_idx):06d}.jsonl"
 
 
-def write_episode_row_shard(output_dir: Path, rows: list[dict[str, Any]]) -> None:
+def write_episode_row_shard(output_dir: Path, rows: list[dict[str, Any]], *, episode_spec=None) -> None:
     """Write one episode's canonical rows as an atomic JSONL shard.
 
     Args:
         output_dir: Rollout export directory.
         rows: Canonical rows from a single completed episode.
     """
-    split = str(rows[0]["split"])
-    episode_idx = int(rows[0]["episode_idx"])
+    identity = rows[0] if rows else episode_spec
+    split = str(identity["split"])
+    episode_idx = int(identity["episode_idx"])
     shard_path = episode_row_shard_path(output_dir, split, episode_idx)
     shard_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = shard_path.with_name(f"{shard_path.name}.tmp")

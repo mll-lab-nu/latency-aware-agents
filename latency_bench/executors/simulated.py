@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from copy import deepcopy
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -14,14 +15,14 @@ from latency_bench.core.types import (
     PolicyOutput,
     StepRecord,
 )
-from latency_bench.envs.base import EnvAdapter
+from latency_bench.envs.base import EnvAdapter, collection_frame
 from latency_bench.latency.sample import LatencySample
 from latency_bench.scheduler.simulated_timeline import (
     SimulatedResultTimeline,
     SimulatedWorkerCapacity,
 )
 from latency_bench.executors._simulated_events import build_simulated_action_event
-from latency_bench.executors.base import EpisodeExecutor
+from latency_bench.executors.base import CollectionObserver, EpisodeExecutor
 from latency_bench.executors.realtime.messages import RealtimeObservationTask
 from latency_bench.latency.samplers import LatencySampler
 from latency_bench.logging.metrics import (
@@ -75,6 +76,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
     is reset there at each episode boundary.
     """
 
+    collection_observer: CollectionObserver | None = None
+
     def __init__(
         self,
         env: EnvAdapter,
@@ -127,6 +130,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         else:
             self.policy.reset_state(slot_id=0)
         self.env.reset(seed=seed)
+        if self.collection_observer is not None:
+            self.collection_observer.start_episode(episode_id, seed, 0)
         if self.video_recorder is not None:
             self.video_recorder.start_episode(
                 episode_id=episode_id,
@@ -156,6 +161,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
             # waiting for the oldest forward pass would defeat latest_ready.
             while pending_results:
                 obs_id, policy_output = pending_results.popitem()
+                if self.collection_observer is not None:
+                    self.collection_observer.output(episode_id, obs_id=obs_id, output=policy_output)
                 item = next(
                     pending_item
                     for pending_item in pending_inferences
@@ -272,8 +279,16 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                     worker_capacity.submit(worker_slot, raw_frame + latency_sample.worker_service_raw_frames)
                     action_id = self._next_action_id
                     self._next_action_id += 1
+                    if self.collection_observer is not None:
+                        self.collection_observer.observation(
+                            episode_id, obs_id=obs_id, observation=policy_observation,
+                            image=collection_frame(self.env, policy_observation)
+                            if self.collection_observer.capture_rgb else None,
+                        )
                     if pool is None:
                         policy_output = self.policy.predict(policy_observation)
+                        if self.collection_observer is not None:
+                            self.collection_observer.output(episode_id, obs_id=obs_id, output=policy_output)
                         latency_record, event = build_simulated_action_event(
                             action_id=action_id,
                             obs_id=obs_id,
@@ -299,7 +314,8 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                         result_timeline.mark_submitted(obs_id=obs_id)
                         task = RealtimeObservationTask(
                             obs_id=obs_id,
-                            observation=policy_observation,
+                            # A queued request can outlive the environment's reusable buffers.
+                            observation=deepcopy(policy_observation),
                             submit_env_step=raw_frame,
                             submit_time_ms=current_time_ms,
                             observation_start_time_ms=time.perf_counter() * 1000.0,
@@ -357,6 +373,10 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 latency_type=latency_type,
                 pre_active_info=pre_active_info,
             )
+            if self.collection_observer is not None:
+                self.collection_observer.step(
+                    record, terminated=result.done, truncated=result.truncated,
+                )
             step_records.append(record)
             if self.logger is not None:
                 self.logger.log_step(record)

@@ -115,3 +115,9 @@ class EnvAdapter(ABC):
 
     def close(self) -> None:
         return None
+
+def collection_frame(env, observation):
+    """Snapshot student RGB in its owner without adding pixels to teacher input."""
+    frame = (observation.metadata[ENV_RAW_RGB_FRAME_STACK_INFO_KEY][-1]
+             if ENV_RAW_RGB_FRAME_STACK_INFO_KEY in observation.metadata else env.render_game_frame())
+    return np.array(frame, copy=True)

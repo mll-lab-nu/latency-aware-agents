@@ -122,6 +122,11 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
             observations[slot_id] = self._observe_slot(slot_id)
         return observations
 
+    def _capture_rgb_frames(self, slot_ids: list[int]) -> dict[int, np.ndarray]:
+        # Observe refreshed this buffer; CHW policies refresh it during raw stepping.
+        frames = self._raw_rgb_buffer.detach().cpu().numpy()
+        return {slot: frames[slot] for slot in slot_ids}
+
     def _step_cores(self, slot_ids: list[int], *, actions: np.ndarray, active_mask: np.ndarray) -> Any:
         with self.gpu_render_profiler.time("env_step_s"):
             step_result = self.core.step_batch(actions, active_mask=active_mask)

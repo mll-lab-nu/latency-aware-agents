@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from latency_bench.data.sf_teacher_probe import write_probe_state, merge_probe_states
+from latency_bench.data.rollout_probe import write_probe_state, merge_probe_states
 
 
 def main(argv: Sequence[str] | None = None) -> int:

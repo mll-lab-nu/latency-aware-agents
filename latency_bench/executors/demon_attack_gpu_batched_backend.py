@@ -68,6 +68,10 @@ class _AtariGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
     def _observe_slot_observations(self, slot_ids: list[int]) -> dict[int, Observation]:
         return {slot_id: self._observe_slot(slot_id) for slot_id in slot_ids}
 
+    def _capture_rgb_frames(self, slot_ids: list[int]) -> dict[int, np.ndarray]:
+        frames = self.core.native_rgb_frames().detach().cpu().numpy()
+        return {slot: frames[slot] for slot in slot_ids}
+
     def _step_cores(self, slot_ids: list[int], *, actions: np.ndarray, active_mask: np.ndarray) -> Any:
         step_result = self.core.step_batch(actions, active_mask=active_mask)
         rewards = step_result.rewards.detach().cpu().numpy().astype(np.float32, copy=False)

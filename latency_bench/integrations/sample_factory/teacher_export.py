@@ -2,29 +2,26 @@
 
 from __future__ import annotations
 
-import json
-from copy import deepcopy
 from dataclasses import asdict
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping
 
-from latency_bench.data.hf_parquet import (
-    cleanup_rollout_intermediates,
-    load_parquet_splits,
-    write_parquet_splits_from_shards,
-)
+from latency_bench.data.hf_parquet import load_parquet_splits
+from latency_bench.data.rollout_export import finalize_dataset
+
 from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS, TIMING_SUFFIX
 from latency_bench.data.action_layouts import (
     ACTION_LAYOUT_GYMNASIUM_CONTINUOUS_V1,
     ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
     action_spec_for_env,
 )
-from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE, demon_raw_score_bin_counts
-from latency_bench.data.rollout_schema import SCHEMA_VERSION
+from latency_bench.data.filters import FILTER_PRESET_CLEAN_V1, FILTER_PRESET_NONE
 from latency_bench.data.ghost_trail import GhostTrailConfig
-from latency_bench.data.sf_teacher_config import load_rollout_training_config
-from latency_bench.data.sf_teacher_rollout import collect_teacher_dataset
+from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
+from latency_bench.integrations.sample_factory.teacher_rollout import collect_teacher_dataset, collection_task
 from latency_bench.utils.hf import resolve_token
+from latency_bench.utils.io import write_json_atomic
 
 
 def export_sample_factory_teacher_dataset(
@@ -126,6 +123,20 @@ def export_sample_factory_teacher_dataset(
         ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1,
     ):
         filter_preset = FILTER_PRESET_NONE
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(output_dir / "resolved_config.yaml", {
+        **config, "action_spec": asdict(action_spec),
+        "collection": dict(max_episodes=max_episodes, max_attempts=max_attempts,
+                           max_steps_per_episode=max_steps_per_episode, val_fraction=val_fraction,
+                           split_seed=split_seed, num_envs=num_envs, replay_num_envs=replay_num_envs,
+                           deterministic=deterministic, filter_preset=filter_preset,
+                           episode_return_gt=episode_return_gt, episode_acceptance=episode_acceptance,
+                           demon_episode_threshold=demon_episode_threshold,
+                           export_image_size=export_image_size, image_writer_workers=image_writer_workers,
+                           row_buffer_size=row_buffer_size, context_window=context_window,
+                           rollout_seed_offset=rollout_seed_offset, probe_only=probe_only,
+                           image_transform=asdict(GhostTrailConfig() if image_transform_config is None else image_transform_config)),
+    })
     probe_state = collect_teacher_dataset(
         config,
         output_dir=output_dir,
@@ -175,95 +186,35 @@ def export_sample_factory_teacher_dataset(
             }
         return metadata
 
-    split_stats = write_parquet_splits_from_shards(output_dir, action_spec=action_spec)
     image_transform_config = GhostTrailConfig() if image_transform_config is None else image_transform_config
-    runtime_metadata = probe_state["runtime_metadata"]
-    env_fps = runtime_metadata["env_fps"]
-    obs_fps = runtime_metadata["obs_fps"]
-    filter_report = _filter_report_from_probe_state(
-        split_stats,
-        probe_state,
-        env_name=config["integration_name"],
-        filter_preset=filter_preset,
-        episode_return_field=action_spec.episode_return_field,
-        episode_return_gt=episode_return_gt,
-        episode_acceptance=episode_acceptance,
-    )
-    if demon_episode_threshold is not None:
-        filter_report["demon_episode_threshold"] = demon_episode_threshold
-    rollout_metadata = {
-        "schema_version": SCHEMA_VERSION,
-        "action_layout": action_spec.layout,
-        "action_labels": list(action_spec.labels),
-        "reward_field": action_spec.reward_field,
-        "episode_return_field": action_spec.episode_return_field,
-        "reward_semantics": action_spec.reward_semantics,
-        "filter_preset": filter_preset,
-        "filter_report": filter_report,
-        "checkpoint_train_step": runtime_metadata["checkpoint_train_step"],
-        "frame_stack": runtime_metadata["frame_stack"],
-        "env_fps": env_fps,
-        "obs_fps": obs_fps,
-        "obs_stride_raw_frames": int(env_fps / obs_fps),
-        "max_steps_unit": "raw_frame",
-        "image_source": "env_raw_rgb"
-        if image_transform_config.image_transform == "raw_rgb"
-        else f"env_raw_rgb_{image_transform_config.image_transform}",
-        "image_transform": asdict(image_transform_config),
-        "image_resolution": split_stats["image_resolution"],
-        "context_window": context_window,
-        "context_image_count": max(0, context_window - 1),
-        "replay_num_envs": replay_num_envs,
-        "train_episodes": split_stats["train_episodes"],
-        "val_episodes": split_stats["val_episodes"],
-    }
-    if "flat_cfg" in config and config["flat_cfg"].get("action_history_decisions") is not None:
-        rollout_metadata["action_history_decisions"] = config["flat_cfg"]["action_history_decisions"]
-    if "export_zero_action_history" in config:
-        rollout_metadata["action_history_decisions"] = config["export_zero_action_history"]
-    if ("flat_cfg" in config and config["flat_cfg"].get("latency_type") == "profile_sample"
-            and rollout_metadata.get("action_history_decisions") == 8):
-        rollout_metadata["profile_seed_by_reset"] = "env_reset_seed"
-    if episode_return_gt is not None:
-        rollout_metadata["episode_return_gate"] = filter_report["episode_return_gate"]
-    metadata = {
+    task = collection_task(config)
+    source_metadata = {
         **config_metadata,
-        **rollout_metadata,
-        "env_name": config["env_name"],
         "prompt_source": (
-            "sample_factory_checkpoint:gym_base_prompt"
-            if config["integration_name"] == "gymnasium"
-            else "sample_factory_checkpoint:base_prompt"
-            if "action_history_decisions" in rollout_metadata
+            "sample_factory_checkpoint:gym_base_prompt" if config["integration_name"] == "gymnasium"
+            else "sample_factory_checkpoint:base_prompt" if task["prompt_override"] is not None
             else "latency_bench.data.prompts"
         ),
-        "base_prompt": config["base_prompt"],
         "image_transform_prompt_contexts": IMAGE_TRANSFORM_CONTEXTS,
-        "max_episodes": int(max_episodes),
-        "max_steps_per_episode": int(max_steps_per_episode),
-        "val_fraction": float(val_fraction),
-        "split_seed": int(split_seed),
-        "num_envs": int(num_envs),
-        "train_rows": split_stats["train_rows"],
-        "val_rows": split_stats["val_rows"],
-        "total_rows": split_stats["total_rows"],
-        "rows_unit": "decision_step",
-        "total_episodes": split_stats["total_episodes"],
     }
-    if config["integration_name"] == "gymnasium":
-        metadata["integration_name"] = "gymnasium"
-    if (action_spec.layout != ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1
-            and "action_history_decisions" not in rollout_metadata):
-        metadata["prompt_timing_suffix"] = TIMING_SUFFIX
-    if episode_acceptance is not None:
-        metadata["episode_acceptance"] = dict(episode_acceptance)
-    with (output_dir / "metadata.json").open("w", encoding="utf-8") as handle:
-        json.dump(metadata, handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    with (output_dir / "filter_report.json").open("w", encoding="utf-8") as handle:
-        json.dump(rollout_metadata["filter_report"], handle, indent=2, sort_keys=True)
-        handle.write("\n")
-    cleanup_rollout_intermediates(output_dir)
+    flat = config["flat_cfg"]
+    if flat.get("action_history_decisions") is not None:
+        source_metadata["action_history_decisions"] = flat["action_history_decisions"]
+    if "export_zero_action_history" in config:
+        source_metadata["action_history_decisions"] = config["export_zero_action_history"]
+    if flat.get("latency_type") == "profile_sample" and source_metadata.get("action_history_decisions") == 8:
+        source_metadata["profile_seed_by_reset"] = "env_reset_seed"
+    if action_spec.layout != ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1 and "action_history_decisions" not in source_metadata:
+        source_metadata["prompt_timing_suffix"] = TIMING_SUFFIX
+    metadata = finalize_dataset(
+        output_dir=output_dir, task=task, probe_state=probe_state, source_metadata=source_metadata,
+        options=dict(max_episodes=max_episodes, max_steps_per_episode=max_steps_per_episode,
+                     val_fraction=val_fraction, split_seed=split_seed, num_envs=num_envs,
+                     replay_num_envs=replay_num_envs, context_window=context_window,
+                     filter_preset=filter_preset, episode_return_gt=episode_return_gt,
+                     episode_acceptance=episode_acceptance, demon_episode_threshold=demon_episode_threshold,
+                     image_transform_config=image_transform_config),
+    )
 
     if push_to_hub:
         # Memory-mapped loading preserves embedded image features without a full RAM copy.
@@ -278,55 +229,3 @@ def export_sample_factory_teacher_dataset(
             push_kwargs["data_dir"] = hf_data_dir
         load_parquet_splits(output_dir).push_to_hub(**push_kwargs)
     return deepcopy(metadata)
-
-
-def _filter_report_from_probe_state(
-    split_stats: Mapping[str, Any],
-    probe_state: Mapping[str, Any],
-    *,
-    env_name: str,
-    episode_return_field: str,
-    filter_preset: str = FILTER_PRESET_CLEAN_V1,
-    episode_return_gt: float | None = None,
-    episode_acceptance: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build final filter report from probe state and written row shards.
-
-    Args:
-        split_stats: Counts returned by the canonical Parquet writer.
-        probe_state: Persisted probe state with accepted specs and attempt counters.
-        env_name: Canonical benchmark environment name.
-        filter_preset: Filter preset name recorded in the report.
-        episode_return_field: Canonical episode-return field used by the acceptance gate.
-        episode_return_gt: Optional strict lower bound for accepted episode returns.
-        episode_acceptance: Explicit task-specific episode acceptance contract.
-
-    Returns:
-        Filter report written to metadata and ``filter_report.json``.
-    """
-    accepted_specs = probe_state["accepted_specs"]
-    train_specs = [spec for spec in accepted_specs if spec["split"] == "train"]
-    val_specs = [spec for spec in accepted_specs if spec["split"] == "val"]
-    report = {
-        "preset": filter_preset,
-        "attempted_episodes": probe_state["attempted_episodes"],
-        "accepted_episodes": len(accepted_specs),
-        "rejected_episodes": probe_state["rejected_episodes"],
-        "accepted_train_episodes": len(train_specs),
-        "accepted_val_episodes": len(val_specs),
-        "train_rows_before_row_filter": sum(spec["episode_length"] for spec in train_specs),
-        "train_rows_after_row_filter": split_stats["train_rows"],
-        "val_rows_before_row_filter": sum(spec["episode_length"] for spec in val_specs),
-        "val_rows_after_row_filter": split_stats["val_rows"],
-    }
-    if episode_acceptance is not None:
-        report["episode_acceptance"] = dict(episode_acceptance)
-    if episode_return_gt is not None:
-        report["episode_return_gate"] = {
-            "field": episode_return_field,
-            "operator": ">",
-            "threshold": episode_return_gt,
-        }
-    if env_name == "demon_attack":
-        report["raw_score_bins"] = demon_raw_score_bin_counts(accepted_specs)
-    return report

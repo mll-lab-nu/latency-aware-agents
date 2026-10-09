@@ -308,3 +308,24 @@ def test_flappy_cpu_serial_executor_matches_gpu_batched_executor_episode_metrics
         cpu_executor.close()
 
     assert _metrics_contract(gpu_metrics) == _metrics_contract(cpu_metrics)
+
+
+def test_collection_captures_gpu_backend_rgb_without_changing_teacher_observation(tmp_path):
+    """Long-lived collection contract: raw RGB is available to non-VLA teachers on demand."""
+    from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
+
+    config = _gpu_backend_config(str(tmp_path), frame_stack=4)
+    config["policy"] = {"type": "constant", "action": "flap"}
+    backend = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=2)
+    try:
+        for slot in (0, 1):
+            backend.reset_slot(slot, episode_id=slot, seed=7 + slot)
+        before = backend.observe_slots([0, 1])
+        captured = backend.observe_slots([0, 1], capture_rgb=True)
+        for slot in (0, 1):
+            np.testing.assert_array_equal(captured[slot].data, before[slot].data)
+            image = backend.collection_frames[slot]
+            assert image.ndim == 3 and image.shape[-1] == 3
+            assert captured[slot].metadata.keys() == before[slot].metadata.keys()
+    finally:
+        backend.close()
