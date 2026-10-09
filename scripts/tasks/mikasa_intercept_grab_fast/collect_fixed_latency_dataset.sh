@@ -31,14 +31,13 @@ Optional environment variables:
   VAL_EPISODES         Default: 25.
   TASK_PY             Default: third_party/MIKASA-Robo/.venv/bin/python.
   UV                  uv executable; default: uv. Creates converter environments.
-  RLDS_PY             Optional existing RLDS interpreter instead of uv run.
   LEROBOT_PY          Optional existing LeRobot interpreter instead of uv run.
   HF_PRIVATE          1 creates a private repo; default: 0.
   HF_PATH_PREFIX      Override the latency-specific upload directory.
   HF_TOKEN            HF authentication; an existing Hub login also works.
 
-Run with the MIKASA simulator environment installed. Packaging initializes the
-RLDS builder submodule and uses uv to install its isolated conversion dependencies.
+Run with the MIKASA simulator environment installed. Packaging converts NPZ
+directly to LeRobot and uses uv to install its isolated conversion dependencies.
 Use a fresh output root for new collection. --package-only skips collection and
 preserves the saved NPZ episodes and latency config.
 EOF
@@ -68,11 +67,6 @@ HF_REPO_ID="$5"
 TASK_PY="${TASK_PY:-${REPO_ROOT}/third_party/MIKASA-Robo/.venv/bin/python}"
 MIKASA_ROOT="${REPO_ROOT}/third_party/MIKASA-Robo"
 UV="${UV:-uv}"
-if [[ -n "${RLDS_PY:-}" ]]; then
-  RLDS_CMD=("${RLDS_PY}")
-else
-  RLDS_CMD=("${UV}" run --project "${MIKASA_ROOT}/utils/convert_npz_to_rlds/rlds_dataset_builder" --python 3.10 python)
-fi
 if [[ -n "${LEROBOT_PY:-}" ]]; then
   LEROBOT_CMD=("${LEROBOT_PY}")
 else
@@ -131,35 +125,19 @@ else
   printf '[package] Reusing collected episodes in %s/data_npz\n' "${DATA_ROOT}"
 fi
 
-git -C "${REPO_ROOT}" submodule update --init -- third_party/MIKASA-Robo/utils/convert_npz_to_rlds/rlds_dataset_builder
-
-"${RLDS_CMD[@]}" "${MIKASA_ROOT}/utils/convert_npz_to_rlds/convert_npz_task_to_rlds.py" \
-  --task InterceptGrabFast-VLA-v0 --repo-root "${MIKASA_ROOT}" \
-  --npz-root "${DATA_ROOT}/data_npz" --rlds-root "${DATA_ROOT}/data_rlds"
-
-"${LEROBOT_CMD[@]}" "${MIKASA_ROOT}/utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py" \
-  --task InterceptGrabFast-VLA-v0 --repo-root "${MIKASA_ROOT}" \
-  --rlds-root "${DATA_ROOT}/data_rlds" --lerobot-root "${DATA_ROOT}/data_lerobot" \
-  --repo-id-template 'local/{task}_h1_train' --fps 20 --split "train[:${TRAIN_EPISODES}]"
-"${LEROBOT_CMD[@]}" "${MIKASA_ROOT}/utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py" \
-  --task InterceptGrabFast-VLA-v0 --repo-root "${MIKASA_ROOT}" \
-  --rlds-root "${DATA_ROOT}/data_rlds" --lerobot-root "${DATA_ROOT}/data_lerobot" \
-  --repo-id-template 'local/{task}_h1_val' --fps 20 --split "train[${TRAIN_EPISODES}:${TOTAL_EPISODES}]"
+"${LEROBOT_CMD[@]}" -m scripts.tasks.mikasa_intercept_grab_fast.prepare_successful_h1_dataset \
+  --raw-root "${DATA_ROOT}/data_npz/intercept_grab_fast_vla_v0" \
+  --output-root "${DATA_ROOT}" \
+  --train-episodes "${TRAIN_EPISODES}" --val-episodes "${VAL_EPISODES}"
 
 "${LEROBOT_CMD[@]}" - "${DATA_ROOT}" "${CHECKPOINT}" "${LATENCY}" "${GPU_ID}" "${TRAIN_EPISODES}" "${VAL_EPISODES}" "${HF_REPO_ID}" "${HF_PATH_PREFIX}" "${HF_PRIVATE:-0}" <<'PY'
 import json
-import shutil
 import sys
 from pathlib import Path
 
 from huggingface_hub import HfApi
-from scripts.starvla.collect import _write_mikasa_contract
 
 data = Path(sys.argv[1])
-converted = data / 'data_lerobot/local'
-shutil.move(str(converted / 'intercept_grab_fast_vla_v0_h1_train'), str(data / 'lerobot'))
-shutil.move(str(converted / 'intercept_grab_fast_vla_v0_h1_val'), str(data / 'lerobot__val'))
-_write_mikasa_contract(data / 'lerobot', data / 'lerobot__val')
 metadata = json.loads((data / 'data_npz/intercept_grab_fast_vla_v0/metadata.json').read_text())
 provenance = {
     'task': 'InterceptGrabFast-VLA-v0', 'teacher_checkpoint': sys.argv[2],
@@ -168,13 +146,14 @@ provenance = {
     'train_episodes': int(sys.argv[5]), 'val_episodes': int(sys.argv[6]),
     'acceptance': 'success_once', 'return_threshold': None, 'minimum_length': None,
     'collector_metadata': metadata, 'action_labels': 'issued H1 commands',
+    'packaging': json.loads((data / 'packaging.json').read_text()),
 }
 (data / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
 api = HfApi()
 api.create_repo(repo_id=sys.argv[7], repo_type='dataset', private=sys.argv[9] == '1', exist_ok=True)
 commit = api.upload_folder(
     repo_id=sys.argv[7], repo_type='dataset', folder_path=str(data), path_in_repo=sys.argv[8],
-    allow_patterns=['lerobot/**', 'lerobot__val/**', 'provenance.json'],
+    allow_patterns=['lerobot/**', 'lerobot__val/**', 'packaging.json', 'provenance.json'],
     ignore_patterns=['**/.cache/**'], commit_message=f'Collect successful InterceptGrabFast L{sys.argv[3]} H1 data',
 )
 print(commit.commit_url)
