@@ -12,10 +12,8 @@ import latency_bench.envs.tasks.pendulum as gymnasium_pendulum
 import scripts.scaffold_gymnasium_pendulum as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from training.gymnasium_sf.integration import (
-    GymnasiumActionCatalogWrapper,
-    GymnasiumActionLatencyWrapper,
-)
+from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
 
 TORQUE_VALUES = [-2.0, -1.0, 0.0, 1.0, 2.0]
@@ -117,7 +115,7 @@ def test_l1_scheduler_applies_zero_torque_before_the_issued_torque(monkeypatch):
         base_make_kwargs={"g": 10.0},
     )
     env = GymnasiumActionCatalogWrapper(task_env, [0, 1, 2, 3, 4])
-    env = GymnasiumActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=1,
         env_fps=20,

@@ -19,8 +19,8 @@ from latency_bench.data.action_layouts import (
 )
 from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy._starvla_actions import action_from_starvla_payload
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 from training.gymnasium_sf.integration import (
-    GymnasiumActionLatencyWrapper,
     build_cli_args_from_config,
     build_train_cfg_from_config,
 )
@@ -97,7 +97,7 @@ def test_zero_latency_applies_issued_walker2d_action_immediately(monkeypatch):
         render_mode="rgb_array",
         base_make_kwargs={},
     )
-    env = GymnasiumActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         task_env,
         fixed_latency_raw_frames=0,
         env_fps=125,

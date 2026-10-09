@@ -15,12 +15,12 @@ from latency_bench.core.types import (
     StepRecord,
 )
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import (
-    LatencySample,
+from latency_bench.latency.sample import LatencySample
+from latency_bench.scheduler.simulated_timeline import (
     SimulatedResultTimeline,
     SimulatedWorkerCapacity,
-    build_simulated_action_event,
 )
+from latency_bench.executors._simulated_events import build_simulated_action_event
 from latency_bench.executors.base import EpisodeExecutor
 from latency_bench.executors.realtime.messages import RealtimeObservationTask
 from latency_bench.latency.samplers import LatencySampler

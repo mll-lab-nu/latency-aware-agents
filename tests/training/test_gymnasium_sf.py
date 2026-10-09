@@ -25,7 +25,6 @@ from training.gymnasium_sf.integration import (
     ChannelFirstFrameStackWrapper,
     G1RawRequestWrapper,
     GymnasiumActionCatalogWrapper,
-    GymnasiumActionLatencyWrapper,
     GymnasiumStateInfoWrapper,
     SAMPLE_FACTORY_CONFIG_PARSER,
     build_cli_args_from_config,
@@ -33,6 +32,7 @@ from training.gymnasium_sf.integration import (
     make_gymnasium_sf_env,
     make_reference_env,
 )
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
 
 class _NativeActionTraceEnv(gym.Env):
@@ -160,7 +160,7 @@ def test_walker2d_adaptation_declares_seventeen_state_values():
 def test_action_catalog_and_latency_decode_nonzero_noop_to_native_action():
     native_env = _NativeActionTraceEnv()
     env = GymnasiumActionCatalogWrapper(native_env, [10, 20, 30])
-    env = GymnasiumActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=2,
         env_fps=10,
@@ -182,7 +182,7 @@ def test_action_latency_latest_ready_drops_late_older_result():
     from latency_bench.latency.sample import LatencySample
 
     native_env = _NativeActionTraceEnv()
-    env = GymnasiumActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         native_env,
         fixed_latency_raw_frames=0,
         env_fps=10,
@@ -483,14 +483,14 @@ class _ChunkDelaySampler:
 def test_g1_action_chunks_follow_execution_sources_and_planned_windows(delays, expected, windows, terminal_frame):
     native = _VectorActionTraceEnv()
     native._raw_learn_hands = True
-    from latency_bench.envs.tasks.humanoidbench.sonic import MUJOCO_INDEX_FOR_POLICY
+    from latency_bench.envs.tasks.humanoidbench.contract import MUJOCO_INDEX_FOR_POLICY
 
     def absolute_action(action):
         joint = 1.0 + 3.0 * action
         return np.concatenate((joint[..., :29][..., MUJOCO_INDEX_FOR_POLICY], joint[..., 29:]), axis=-1)
 
     native.g1_absolute_request_from_raw_action = absolute_action
-    latency = GymnasiumActionLatencyWrapper(
+    latency = ActionLatencyWrapper(
         native,
         fixed_latency_raw_frames=2,
         env_fps=10,
@@ -535,7 +535,7 @@ def test_g1_action_chunks_follow_execution_sources_and_planned_windows(delays, e
 
 def test_h16_fixed5_capacity1_admits_at_five_frame_boundaries():
     native = _VectorActionTraceEnv()
-    latency = GymnasiumActionLatencyWrapper(
+    latency = ActionLatencyWrapper(
         native,
         fixed_latency_raw_frames=5,
         env_fps=50,
@@ -570,7 +570,7 @@ def test_h16_fixed5_capacity1_admits_at_five_frame_boundaries():
 def test_chunk_trace_keeps_raw_transitions_and_partial_terminal_through_autoreset(stride, truncated):
     """Long-lived Gymnasium/SF contract: raw credit survives transport grouping and reset."""
     from sample_factory.algo.utils.make_env import NonBatchedVecEnv
-    from training.common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper
 
     class Native(gym.Env):
         observation_space = gym.spaces.Box(-np.inf, np.inf, (3,), dtype=np.float32)
@@ -595,7 +595,7 @@ def test_chunk_trace_keeps_raw_transitions_and_partial_terminal_through_autorese
             return self.state, action[0], done and not truncated, done and truncated, {}
 
     native = Native()
-    latency = GymnasiumActionLatencyWrapper(
+    latency = ActionLatencyWrapper(
         native, env_fps=30, obs_fps=30 / stride, hold_policy="hold",
         ordering_policy="latest_ready", simulated_worker_capacity=1,
         hold_last_chunk_action=True, add_latency_info=False, noop_action=np.zeros(1, dtype=np.float32),
@@ -722,7 +722,7 @@ def test_g1_noop_conversion_preserves_raw_control_trajectory():
 
 
 def _fixed40_wrapper(obs_fps):
-    return GymnasiumActionLatencyWrapper(
+    return ActionLatencyWrapper(
         _TerminalTrajectoryEnv(),
         fixed_latency_raw_frames=2,
         env_fps=50,
@@ -737,7 +737,7 @@ def _fixed40_wrapper(obs_fps):
 
 
 def test_25hz_zero_executes_one_command_for_two_raw_frames():
-    env = GymnasiumActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         _VectorActionRewardEnv(),
         fixed_latency_raw_frames=0,
         env_fps=50,

@@ -7,7 +7,7 @@ from pathlib import Path
 from statistics import NormalDist
 from typing import Any, Callable
 
-from latency_bench.core.clock import EnvClock
+from latency_bench.core.clock import EnvClock, ms_to_raw_frames
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.config import (
     SEEDED_STOCHASTIC_METHODS,
@@ -684,3 +684,74 @@ def _profile_relative_path(profile_path: Path, artifact_path: str) -> Path:
     if not resolved.is_relative_to(profile_root):
         raise ValueError(f"Profile companion path escapes profile directory: {artifact_path}")
     return resolved
+
+
+def build_profile_sampler(
+    profile_path: str,
+    *,
+    method: str,
+    seed: int,
+    env_fps: float,
+    obs_fps: float,
+):
+    return build_sampler(
+        {"method": method, "profile_path": profile_path, "seed": int(seed)},
+        clock=EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps)),
+    )
+
+
+def temporal_profile_sampler_for_reset(
+    sampler: HiddenRegimeSampler | JointBurstSampler, seed: int,
+) -> HiddenRegimeSampler | JointBurstSampler:
+    """Start an independent temporal stream for one explicitly seeded rollout."""
+    return type(sampler)(
+        sampler.model,
+        {"worker_slots": sampler.distributions},
+        clock=sampler.clock,
+        seed=seed,
+    )
+
+
+def profile_sampler_max_latency_raw_frames(sampler: Any, *, worker_slot: int, env_fps: float) -> int:
+    """Maximum ready delay over the sampler's generated support."""
+    slot = str(worker_slot)
+    distribution = sampler.distributions[slot]["steady" if isinstance(sampler, (HiddenRegimeSampler, JointBurstSampler)) else "all"]
+    max_latency_ms = max(distribution["observation_to_action_latency_ms"]["latency_ms"])
+    if isinstance(sampler, HiddenRegimeSampler):
+        for rank in sampler.rank_processes:
+            residual = rank["level_residual_ms"]
+            spike_ms = max(
+                max(rank["level_ms"]["latency_ms"]) + (max(residual["latency_ms"]) if residual is not None else 0.0),
+                math.nextafter(sampler.model["spike_threshold_ms_by_worker_slot"][slot], math.inf),
+            )
+            max_latency_ms = max(max_latency_ms, spike_ms + max(sampler.pre_worker_time["latency_ms"]))
+    elif isinstance(sampler, JointBurstSampler):
+        for event in [*sampler.model["initial_events"], *sampler.model["burst_events"]]:
+            if event is not None and slot in event["worker_slots"]:
+                worker = event["worker_slots"][slot]
+                for name in ("spike", "steady"):
+                    if worker[name] is not None:
+                        max_latency_ms = max(max_latency_ms, max(worker[name]["observation_to_action_latency_ms"]["latency_ms"]))
+    return ms_to_raw_frames(float(max_latency_ms), float(env_fps))
+
+
+def profile_sampler_max_latency_raw_frames_for_workers(
+    sampler: Any,
+    *,
+    profile_worker_slot: int,
+    simulated_worker_capacity: int | None,
+    env_fps: float,
+) -> int:
+    worker_slots = (
+        [profile_worker_slot]
+        if simulated_worker_capacity is None
+        else range(simulated_worker_capacity)
+    )
+    return max(
+        profile_sampler_max_latency_raw_frames(
+            sampler,
+            worker_slot=worker_slot,
+            env_fps=env_fps,
+        )
+        for worker_slot in worker_slots
+    )

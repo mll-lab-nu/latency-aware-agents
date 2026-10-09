@@ -53,6 +53,55 @@ Native tasks keep the Gymnasium interface; the benchmark adapters implement
 `EnvAdapter`. The Swimmer MuJoCo 3 XML lives in `tasks/assets/` and is included in
 the Python package.
 
+### Public training wrapper
+
+`envs/latency_wrapper.py` exposes `ActionLatencyWrapper` for user-owned
+Gymnasium training loops. It imports neither `training` nor the reference
+training frameworks. The caller supplies the native action used while no
+prediction is ready; the wrapper does not infer that action from the space.
+
+```python
+import gymnasium as gym
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
+
+env = ActionLatencyWrapper(
+    gym.make("MountainCar-v0"),
+    noop_action=1,  # MountainCar's coast action.
+    env_fps=50,
+    obs_fps=10,
+    fixed_latency_raw_frames=2,
+    hold_policy="one_frame_then_noop",
+    ordering_policy="latest_ready",
+)
+try:
+    observation, info = env.reset(seed=7)
+    observation, reward, terminated, truncated, info = env.step(2)
+finally:
+    env.close()
+```
+
+Here one wrapper step advances up to five native steps. The submitted action
+becomes ready after two native steps. Rewards are summed over the steps that
+actually run; termination or truncation stops advancement immediately. The
+declared `env_fps` defines the benchmark clock, not measured simulator speed.
+Changing `obs_fps` changes observation cadence, not action readiness granularity.
+Simulator and policy wall time do not advance this simulated clock.
+
+Profile replay uses the existing `profile_path`, `profile_method` (`iid` or
+`temporal`), and `profile_worker_slot` arguments. Waiting, result ordering,
+worker capacity, chunk timing, and reset seed behavior retain the existing
+execution contracts. A two-dimensional action array represents a chunk whose
+rows follow the raw-frame timeline from the source observation. Execution
+skips rows whose intended frames have already passed.
+
+`envs/latency_info.py` constructs shared scalar/GPU decision metadata.
+`scheduler/simulated_timeline.py` owns simulated result delivery and worker
+capacity for both wrappers and executors. Executor event construction stays in
+`executors/_simulated_events.py`. Reward transforms and training episode
+statistics live in `training/common/metrics_wrappers.py`; Sample Factory
+argument conversion stays in `training/common/latency_config.py`. Generic
+profile sampler operations live in `latency/samplers.py`.
+
 MIKASA environment construction lives in `tasks/mikasa.py`; its native batched
 `MikasaEnvStepBackend` lives in `adapters/mikasa.py`. The task module exposes the
 pinned MIKASA source checkout to the simulator interpreter, while native imports

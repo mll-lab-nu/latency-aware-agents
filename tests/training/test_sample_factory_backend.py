@@ -330,36 +330,6 @@ def test_flappy_linear_lr_floor_preserves_early_schedule():
     assert get_lr_scheduler(cfg, updates - 1).update(0, []) == cfg.lr_schedule_min_lr
 
 
-def test_deadly_tuple_action_history_uses_decision_boundary_action():
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    class Env(gym.Env):
-        action_space = gym.spaces.Tuple((gym.spaces.Discrete(3), gym.spaces.Discrete(3), gym.spaces.Discrete(3), gym.spaces.Discrete(2)))
-        observation_space = gym.spaces.Box(low=0, high=255, shape=(3, 4, 4), dtype=np.uint8)
-
-        def reset(self, *, seed=None, options=None):
-            return np.zeros((3, 4, 4), dtype=np.uint8), {}
-
-        def step(self, action):
-            return np.zeros((3, 4, 4), dtype=np.uint8), 0.0, False, False, {}
-
-    env = ActionLatencyWrapper(
-        Env(), fixed_latency_raw_frames=0, env_fps=35, obs_fps=8.75,
-        hold_policy="hold", ordering_policy="latest_ready",
-        simulated_worker_capacity=1, add_latency_info=False, action_history_decisions=8,
-    )
-    try:
-        obs, _ = env.reset(seed=42)
-        assert obs["transport"].shape == (120,)
-        np.testing.assert_array_equal(obs["transport"], 0)
-        obs, *_ = env.step((1, 0, 2, 1))
-        np.testing.assert_array_equal(
-            obs["transport"][-15:], [1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 1],
-        )
-    finally:
-        env.close()
-
-
 def test_flappy_sf_cli_maps_env_rates_and_scheduler_policies():
     from training.flappy_sf.integration import build_cli_args_from_config
 
@@ -690,105 +660,6 @@ def test_sample_factory_latency_distribution_preserves_fractional_bounds():
     assert sample_latency_frame(spec, 99.0) == 4
 
 
-def test_action_latency_wrapper_exposes_fixed_non_zero_latency():
-    import gymnasium as gym
-    from training.common import latency_wrapper
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    assert not hasattr(latency_wrapper, "QueueLatencyWrapper")
-    assert not hasattr(latency_wrapper, "RawFrameActionLatencyWrapper")
-    env = gym.make("CartPole-v1")
-    wrapped = ActionLatencyWrapper(
-        env,
-        fixed_latency_raw_frames=4,
-        env_fps=60,
-        obs_fps=60,
-    )
-    _, info = wrapped.reset(seed=123)
-    assert info["latency_raw_frames"] == 4
-    _, _, _, _, step_info = wrapped.step(0)
-    assert step_info["latency_raw_frames"] == 4
-    wrapped.close()
-
-
-def test_action_latency_wrapper_uses_iid_profile_action_latency(tmp_path):
-    import gymnasium as gym
-
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    (profile_dir / "profile.json").write_text(
-        json.dumps(
-            {
-                "model_id": "model",
-                "gpu_class": "gpu",
-                "workload_id": "workload",
-                "instance_id": "instance",
-                "source_run_id": "run",
-                "distribution_path": "latency_distribution.json",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (profile_dir / "latency_distribution.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 3,
-                "worker_slots": {
-                    "0": {
-                        "all": {
-                            "spearman_rho": 0.0,
-                            "observation_to_action_latency_ms": {
-                                "quantile_levels": [0.0, 1.0],
-                                "latency_ms": [20.0, 20.0],
-                            },
-                            "worker_service_time_ms": {
-                                "quantile_levels": [0.0, 1.0],
-                                "latency_ms": [10.0, 10.0],
-                            },
-                        }
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    env = gym.make("CartPole-v1")
-    wrapped = ActionLatencyWrapper(
-        env,
-        env_fps=30,
-        obs_fps=30,
-        profile_path=str(profile_dir),
-        profile_worker_slot=0,
-        seed=42,
-    )
-    try:
-        wrapped.reset(seed=123)
-        values = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(4)]
-    finally:
-        wrapped.close()
-
-    assert values == [1, 1, 1, 1]
-
-
-def test_profile_max_latency_includes_generated_burst_residual_and_pre_worker_time():
-    from latency_bench.latency.samplers import HiddenRegimeSampler
-    from training.common.latency_config import profile_sampler_max_latency_raw_frames
-
-    sampler = HiddenRegimeSampler.__new__(HiddenRegimeSampler)
-    sampler.distributions = {"0": {"steady": {
-        "observation_to_action_latency_ms": {"latency_ms": [20., 40.]},
-        "worker_service_time_ms": {"latency_ms": [20., 35.]},
-    }}}
-    sampler.rank_processes = [{"level_ms": {"latency_ms": [50.]}, "level_residual_ms": {"latency_ms": [5.]}}]
-    sampler.pre_worker_time = {"latency_ms": [8.]}
-    sampler.model = {"spike_threshold_ms_by_worker_slot": {"0": 45.}}
-    # A generated action-ready delay can exceed the measured burst level maximum.
-    assert profile_sampler_max_latency_raw_frames(sampler, worker_slot=0, env_fps=50) == 4
-
-
 def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp_path):
     from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
@@ -805,75 +676,6 @@ def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp
     assert params.profile_path == str(tmp_path / "profile.json")
     assert params.profile_worker_slot == 0
     assert params.simulated_worker_capacity == 1
-
-
-def test_temporal_action_latency_stream_continues_across_resets(monkeypatch):
-    """Native profile training retains machine state between episodes."""
-    from latency_bench.core.clock import EnvClock
-    from latency_bench.latency.sample import LatencySample
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    delays = iter([20.0, 40.0])
-    sampler = SimpleNamespace(
-        distributions={"0": {"all": {"observation_to_action_latency_ms": {"latency_ms": [20.0, 40.0]}, "worker_service_time_ms": {"latency_ms": [20.0, 40.0]}}}},
-        sample=lambda context: LatencySample.from_latency_ms(
-            next(delays), clock=EnvClock(env_fps=50, obs_fps=50)
-        ),
-    )
-    monkeypatch.setattr("training.common.latency_wrapper.build_profile_sampler", lambda *args, **kwargs: sampler)
-    wrapped = ActionLatencyWrapper(
-        _ActionTraceEnv(), env_fps=50, obs_fps=50,
-        profile_path="temporal-profile", profile_method="temporal", profile_worker_slot=0,
-    )
-    try:
-        wrapped.reset(seed=123)
-        first = wrapped.step(1)[4]["latency_raw_frames"]
-        wrapped.reset(seed=123)
-        second = wrapped.step(1)[4]["latency_raw_frames"]
-    finally:
-        wrapped.close()
-    assert (first, second) == (1, 2)
-
-
-def test_action_latency_wrapper_drops_busy_requests_and_reports_issued_applied():
-    from latency_bench.core.clock import EnvClock
-    from latency_bench.latency.sample import LatencySample
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    class ServiceTimeSampler:
-        def sample(self, context):
-            return LatencySample.from_action_ready(
-                action_ready_raw_frames=0,
-                worker_service_raw_frames=3,
-                worker_service_ms=100.0,
-                clock=EnvClock(env_fps=30, obs_fps=30),
-            )
-
-    base_env = _ActionTraceEnv()
-    wrapped = ActionLatencyWrapper(
-        base_env,
-        env_fps=30,
-        obs_fps=30,
-        simulated_worker_capacity=1,
-        add_latency_info=True,
-    )
-    wrapped.profile_sampler = ServiceTimeSampler()
-    try:
-        wrapped.reset(seed=123)
-        _, _, _, _, first_info = wrapped.step(1)
-        _, _, _, _, second_info = wrapped.step(0)
-    finally:
-        wrapped.close()
-
-    assert base_env.actions == [1, 0]
-    assert first_info["command_admitted"] is True
-    assert first_info["issued_action"] == 1
-    assert first_info["applied_action"] == 1
-    assert first_info["worker_service_raw_frames"] == 3
-    assert second_info["command_admitted"] is False
-    assert second_info["observation_dropped"] is True
-    assert second_info["issued_action"] == 0
-    assert second_info["applied_action"] == 0
 
 
 @pytest.mark.parametrize("env_name", ("doom_deadly_corridor", "doom_defend_the_line"))
@@ -924,7 +726,8 @@ def test_vizdoom_scalar_integrations_forward_worker_capacity(monkeypatch, env_na
 def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop():
     import gymnasium as gym
     from gymnasium.spaces import Box
-    from training.gymnasium_sf.integration import G1RawRequestWrapper, GymnasiumActionLatencyWrapper
+    from training.gymnasium_sf.integration import G1RawRequestWrapper
+    from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
     class ActionTargetEnv(gym.Env):
         observation_space = Box(low=-10, high=10, shape=(1,), dtype=np.float32)
@@ -947,7 +750,7 @@ def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop
             return np.zeros(1, dtype=np.float32), 0.0, False, False, {}
 
     base_env = ActionTargetEnv()
-    wrapped = GymnasiumActionLatencyWrapper(
+    wrapped = ActionLatencyWrapper(
         base_env,
         fixed_latency_raw_frames=2,
         env_fps=30,
@@ -968,206 +771,6 @@ def test_action_latency_wrapper_queues_absolute_g1_requests_with_configured_noop
         wrapped.close()
 
     np.testing.assert_allclose(base_env.actions, np.repeat([[2.0], [2.0], [4.0]], 43, axis=1))
-def test_action_latency_wrapper_replays_iid_profile_by_reset_seed(tmp_path):
-    import gymnasium as gym
-
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    (profile_dir / "profile.json").write_text(
-        json.dumps(
-            {
-                "model_id": "model",
-                "gpu_class": "gpu",
-                "workload_id": "workload",
-                "instance_id": "instance",
-                "source_run_id": "run",
-                "distribution_path": "latency_distribution.json",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (profile_dir / "latency_distribution.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 3,
-                "worker_slots": {
-                    "0": {
-                        "all": {
-                            "spearman_rho": 0.0,
-                            "observation_to_action_latency_ms": {
-                                "quantile_levels": [0.0, 1.0],
-                                "latency_ms": [1.0, 99.0],
-                            },
-                            "worker_service_time_ms": {
-                                "quantile_levels": [0.0, 1.0],
-                                "latency_ms": [1.0, 99.0],
-                            },
-                        }
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    wrapped = ActionLatencyWrapper(
-        gym.make("CartPole-v1"),
-        env_fps=30,
-        obs_fps=30,
-        profile_path=str(profile_dir),
-        profile_worker_slot=0,
-        seed=42,
-    )
-
-    try:
-        wrapped.reset(seed=123)
-        first = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(5)]
-        wrapped.reset(seed=456)
-        wrapped.step(0)
-        wrapped.reset(seed=123)
-        replay = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(5)]
-    finally:
-        wrapped.close()
-
-    assert replay == first
-
-
-def test_action_latency_wrapper_distribution_samples_deterministically():
-    import gymnasium as gym
-    import numpy as np
-    from gymnasium.spaces import Box, Discrete
-
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    class NeverDoneEnv(gym.Env):
-        observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
-        action_space = Discrete(2)
-
-        def reset(self, *, seed=None, options=None):
-            return np.zeros((1,), dtype=np.float32), {}
-
-        def step(self, action):
-            return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
-
-    spec = parse_latency_distribution({"type": "uniform", "min": 0, "max": 15})
-    first = ActionLatencyWrapper(
-        NeverDoneEnv(),
-        fixed_latency_raw_frames=0,
-        env_fps=30,
-        obs_fps=30,
-        latency_distribution_spec=spec,
-        seed=123,
-    )
-    second = ActionLatencyWrapper(
-        NeverDoneEnv(),
-        fixed_latency_raw_frames=0,
-        env_fps=30,
-        obs_fps=30,
-        latency_distribution_spec=spec,
-        seed=123,
-    )
-    other = ActionLatencyWrapper(
-        NeverDoneEnv(),
-        fixed_latency_raw_frames=0,
-        env_fps=30,
-        obs_fps=30,
-        latency_distribution_spec=spec,
-        seed=124,
-    )
-
-    try:
-        first.reset()
-        second.reset()
-        other.reset()
-        first_values = [first.step(0)[4]["latency_raw_frames"] for _ in range(20)]
-        second_values = [second.step(0)[4]["latency_raw_frames"] for _ in range(20)]
-        other_values = [other.step(0)[4]["latency_raw_frames"] for _ in range(20)]
-    finally:
-        first.close()
-        second.close()
-        other.close()
-
-    assert first_values == second_values
-    assert first_values != other_values
-    assert all(0 <= value <= 15 for value in first_values)
-
-
-def test_action_latency_wrapper_distribution_resets_episode_rng():
-    import gymnasium as gym
-    import numpy as np
-    from gymnasium.spaces import Box, Discrete
-
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    class NeverDoneEnv(gym.Env):
-        observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
-        action_space = Discrete(2)
-
-        def reset(self, *, seed=None, options=None):
-            return np.zeros((1,), dtype=np.float32), {}
-
-        def step(self, action):
-            return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
-
-    wrapped = ActionLatencyWrapper(
-        NeverDoneEnv(),
-        fixed_latency_raw_frames=0,
-        env_fps=30,
-        obs_fps=30,
-        latency_distribution_spec=parse_latency_distribution({"type": "uniform", "min": 0, "max": 15}),
-        seed=99,
-    )
-
-    try:
-        wrapped.reset()
-        first_episode = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(20)]
-        wrapped.reset()
-        second_episode = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(20)]
-    finally:
-        wrapped.close()
-
-    assert first_episode != second_episode
-
-
-def test_action_latency_wrapper_mixed_distribution_samples_once_per_episode():
-    import gymnasium as gym
-    import numpy as np
-    from gymnasium.spaces import Box, Discrete
-
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    class NeverDoneEnv(gym.Env):
-        observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
-        action_space = Discrete(2)
-
-        def reset(self, *, seed=None, options=None):
-            return np.zeros((1,), dtype=np.float32), {}
-
-        def step(self, action):
-            return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
-
-    wrapped = ActionLatencyWrapper(
-        NeverDoneEnv(),
-        fixed_latency_raw_frames=0,
-        env_fps=30,
-        obs_fps=30,
-        latency_distribution_spec=parse_latency_distribution({"type": "uniform", "min": 0, "max": 15}),
-        sample_distribution_per_episode=True,
-        seed=99,
-    )
-
-    try:
-        wrapped.reset()
-        first_episode = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(20)]
-        wrapped.reset()
-        second_episode = [wrapped.step(0)[4]["latency_raw_frames"] for _ in range(20)]
-    finally:
-        wrapped.close()
-
-    assert len(set(first_episode)) == 1
-    assert len(set(second_episode)) == 1
-    assert first_episode[0] != second_episode[0]
 
 
 def test_sample_factory_latency_params_support_mixed_distribution():
@@ -1188,92 +791,13 @@ def test_sample_factory_latency_params_support_mixed_distribution():
     assert params.sample_distribution_per_episode is True
 
 
-def test_action_latency_wrapper_distribution_rejects_too_small_pending_action_bound():
-    import gymnasium as gym
-    import pytest
-
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    env = gym.make("CartPole-v1")
-    with pytest.raises(ValueError, match="max_pending_actions"):
-        ActionLatencyWrapper(
-            env,
-            fixed_latency_raw_frames=0,
-            env_fps=30,
-            obs_fps=30,
-            latency_distribution_spec=parse_latency_distribution({"type": "uniform", "min": 0, "max": 5}),
-            max_pending_actions=5,
-        )
-    env.close()
-
-
-def test_action_latency_wrapper_advances_obs_stride_with_one_frame_noop():
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    base_env = _ActionTraceEnv()
-    wrapped = ActionLatencyWrapper(
-        base_env,
-        fixed_latency_raw_frames=3,
-        env_fps=60,
-        obs_fps=10,
-        hold_policy="one_frame_then_noop",
-        ordering_policy="latest_ready",
-        add_latency_info=True,
-    )
-
-    try:
-        wrapped.reset()
-        obs, reward, terminated, truncated, info = wrapped.step(1)
-    finally:
-        wrapped.close()
-
-    assert obs.tolist() == [6]
-    assert reward == pytest.approx(6.0)
-    assert not terminated
-    assert not truncated
-    assert base_env.actions == [0, 0, 0, 1, 0, 0]
-    assert info["applied_source_raw_frame"] == -1
-    assert info["applied_source_obs_id"] == -1
-    assert info["latency_raw_frames"] == 3
-    assert info["obs_stride_raw_frames"] == 6
-    assert info["raw_frames_advanced"] == 6
-    applied_events = wrapped.action_scheduler.get_applied_events()
-    assert len(applied_events) == 1
-    assert applied_events[0].obs_env_step == 0
-    assert applied_events[0].ready_raw_frame == 3
-    assert applied_events[0].apply_raw_frame == 3
-
-
-def test_action_latency_wrapper_holds_action_across_raw_steps():
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    base_env = _ActionTraceEnv()
-    wrapped = ActionLatencyWrapper(
-        base_env,
-        fixed_latency_raw_frames=0,
-        env_fps=30,
-        obs_fps=10,
-        hold_policy="hold",
-        ordering_policy="issue_order_fifo",
-        add_latency_info=True,
-    )
-
-    try:
-        wrapped.reset()
-        _, reward, _, _, info = wrapped.step(1)
-    finally:
-        wrapped.close()
-
-    assert reward == pytest.approx(3.0)
-    assert base_env.actions == [1, 1, 1]
-    assert info["obs_stride_raw_frames"] == 3
-
-
 def test_action_latency_wrapper_sums_raw_reward_across_observation_stride():
-    from training.common.latency_wrapper import ActionLatencyWrapper, RewardTraceWrapper
+    from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
+    from training.common.metrics_wrappers import RewardTraceWrapper
 
     wrapped = ActionLatencyWrapper(
         RewardTraceWrapper(_RawRewardTraceEnv([1.0, 2.0, 3.0])),
+        noop_action=0,
         fixed_latency_raw_frames=0,
         env_fps=30,
         obs_fps=10,
@@ -1292,44 +816,8 @@ def test_action_latency_wrapper_sums_raw_reward_across_observation_stride():
     assert info["raw_reward"] == pytest.approx(6.0)
 
 
-def test_action_latency_wrapper_auto_seeds_underlying_env_resets():
-    import gymnasium as gym
-    import numpy as np
-    from gymnasium.spaces import Box, Discrete
-
-    from training.common.latency_wrapper import ActionLatencyWrapper
-
-    class SeedEchoEnv(gym.Env):
-        observation_space = Box(low=0, high=1, shape=(1,), dtype=np.float32)
-        action_space = Discrete(2)
-
-        def __init__(self):
-            self.seeds: list[int | None] = []
-
-        def reset(self, *, seed=None, options=None):
-            self.seeds.append(seed)
-            return np.zeros((1,), dtype=np.float32), {}
-
-        def step(self, action):
-            return np.zeros((1,), dtype=np.float32), 0.0, False, False, {}
-
-    env = SeedEchoEnv()
-    wrapped = ActionLatencyWrapper(
-        env,
-        fixed_latency_raw_frames=0,
-        env_fps=30,
-        obs_fps=30,
-        seed=11,
-        env_reset_seed_base=500,
-    )
-    wrapped.reset()
-    wrapped.reset()
-    wrapped.reset(seed=999)
-    assert env.seeds == [500, 501, 999]
-
-
 def test_episode_metrics_wrapper_suppresses_life_loss_episode_event(tmp_path):
-    from training.common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1352,7 +840,7 @@ def test_episode_metrics_wrapper_suppresses_life_loss_episode_event(tmp_path):
 def test_episode_metrics_wrapper_reports_game_over_full_game_return(tmp_path):
     import json
 
-    from training.common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1386,10 +874,7 @@ def test_episode_metrics_wrapper_reports_game_over_full_game_return(tmp_path):
 def test_episode_metrics_wrapper_keeps_learner_reward_clipped_and_episode_return_raw(tmp_path):
     import json
 
-    from training.common.latency_wrapper import (
-        EpisodeMetricsWrapper,
-        RewardTraceWrapper,
-    )
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1419,10 +904,7 @@ def test_episode_metrics_wrapper_keeps_learner_reward_clipped_and_episode_return
 def test_episode_metrics_wrapper_accumulates_raw_return_across_steps(tmp_path):
     import json
 
-    from training.common.latency_wrapper import (
-        EpisodeMetricsWrapper,
-        RewardTraceWrapper,
-    )
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1454,10 +936,7 @@ def test_episode_metrics_wrapper_accumulates_raw_return_across_steps(tmp_path):
 
 
 def test_episode_metrics_wrapper_does_not_emit_raw_return_on_life_loss(tmp_path):
-    from training.common.latency_wrapper import (
-        EpisodeMetricsWrapper,
-        RewardTraceWrapper,
-    )
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1479,10 +958,7 @@ def test_episode_metrics_wrapper_does_not_emit_raw_return_on_life_loss(tmp_path)
 
 
 def test_episode_metrics_wrapper_emits_raw_full_game_return_on_game_over(tmp_path):
-    from training.common.latency_wrapper import (
-        EpisodeMetricsWrapper,
-        RewardTraceWrapper,
-    )
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1505,7 +981,7 @@ def test_episode_metrics_wrapper_emits_raw_full_game_return_on_game_over(tmp_pat
 def test_episode_metrics_wrapper_accumulates_return_across_life_losses(tmp_path):
     import json
 
-    from training.common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1537,7 +1013,7 @@ def test_episode_metrics_wrapper_accumulates_return_across_life_losses(tmp_path)
 
 
 def test_episode_metrics_wrapper_marks_truncation_as_true_episode_end(tmp_path):
-    from training.common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1559,7 +1035,7 @@ def test_episode_metrics_wrapper_marks_truncation_as_true_episode_end(tmp_path):
 def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_metrics(tmp_path):
     import json
 
-    from training.common.latency_wrapper import EpisodeMetricsWrapper
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -1609,7 +1085,7 @@ def test_episode_metrics_wrapper_emits_flappy_timeout_and_issued_action_debug_me
 def test_flappy_reward_trace_records_raw_return(tmp_path):
     import json
 
-    from training.common.latency_wrapper import EpisodeMetricsWrapper, RewardTraceWrapper
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 
     metrics_path = tmp_path / "flappy_rewards.jsonl"
     wrapped = EpisodeMetricsWrapper(

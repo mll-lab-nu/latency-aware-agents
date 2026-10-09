@@ -15,11 +15,11 @@ from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.types import Action, Observation, PolicyOutput
-from latency_bench.executors._simulated_timeline import (
+from latency_bench.scheduler.simulated_timeline import (
     SimulatedResultTimeline,
     SimulatedWorkerCapacity,
-    build_simulated_action_event,
 )
+from latency_bench.executors._simulated_events import build_simulated_action_event
 from latency_bench.latency.samplers import build_sampler
 from latency_bench.logging.metrics import latency_type_from_source, profile_metadata_from_source
 from latency_bench.policy.action_prefix import resolve_action_prefix, with_action_prefix

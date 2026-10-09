@@ -32,7 +32,7 @@ from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.envs.tasks.contracts import registration_module_name
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.policy.sample_factory import build_sample_factory_policy
-from training.gymnasium_sf.integration import GymnasiumActionLatencyWrapper
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -280,7 +280,7 @@ def make_collection_env(config: dict, *, seed: int, render: bool = True):
     kwargs = env_config["make_kwargs"] if render else env_config["make_kwargs"] | {"render_mode": None}
     env = gym.make(env_config["env_id"], **kwargs)
     profile = latency["method"] == "temporal"
-    return GymnasiumActionLatencyWrapper(
+    return ActionLatencyWrapper(
         env, fixed_latency_raw_frames=0, env_fps=env_config["env_fps"],
         obs_fps=env_config["obs_fps"], seed=seed,
         profile_path=latency["profile_path"] if profile else None,

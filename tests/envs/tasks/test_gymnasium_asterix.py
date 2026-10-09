@@ -12,7 +12,8 @@ import latency_bench.envs.tasks.asterix as gymnasium_asterix
 import scripts.scaffold_gymnasium_asterix as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper, GymnasiumActionLatencyWrapper
+from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
 
 ACTION_LABELS = ["noop", "up", "right", "left", "down", "upright", "upleft", "downright", "downleft"]
@@ -75,7 +76,7 @@ def test_l1_scheduler_advances_four_raw_frames(monkeypatch):
     monkeypatch.setattr(gymnasium_asterix.gym,"make",lambda *args,**kwargs:native)
     task=gymnasium_asterix.make_latency_sensitive_asterix_env(base_env_id="ALE/Asterix-v5",render_mode="rgb_array",screen_size=84,noop_max=0,base_make_kwargs={})
     env=GymnasiumActionCatalogWrapper(task,list(range(9)))
-    env=GymnasiumActionLatencyWrapper(env,fixed_latency_raw_frames=1,env_fps=60,obs_fps=15,hold_policy="hold",ordering_policy="issue_order_fifo",noop_action=0)
+    env=ActionLatencyWrapper(env,fixed_latency_raw_frames=1,env_fps=60,obs_fps=15,hold_policy="hold",ordering_policy="issue_order_fifo",noop_action=0)
     env.reset(seed=0); env.step(5); env.step(8)
     assert native.actions==[0,5,5,5,5,8,8,8]
 

@@ -12,7 +12,8 @@ import latency_bench.envs.tasks.air_raid as gymnasium_air_raid
 import scripts.scaffold_gymnasium_air_raid as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper, GymnasiumActionLatencyWrapper
+from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
 
 ACTION_LABELS = ["noop", "fire", "right", "left", "rightfire", "leftfire"]
@@ -102,7 +103,7 @@ def test_l1_scheduler_advances_four_raw_frames_and_delays_first_action(monkeypat
         base_env_id="ALE/AirRaid-v5", render_mode="rgb_array", screen_size=84, noop_max=0, base_make_kwargs={}
     )
     env = GymnasiumActionCatalogWrapper(task_env, list(range(6)))
-    env = GymnasiumActionLatencyWrapper(env, fixed_latency_raw_frames=1, env_fps=50, obs_fps=12.5, hold_policy="hold", ordering_policy="issue_order_fifo", noop_action=0)
+    env = ActionLatencyWrapper(env, fixed_latency_raw_frames=1, env_fps=50, obs_fps=12.5, hold_policy="hold", ordering_policy="issue_order_fifo", noop_action=0)
     env.reset(seed=0)
     env.step(4)
     env.step(5)

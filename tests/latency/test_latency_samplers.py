@@ -229,7 +229,7 @@ def test_temporal_method_builds_hidden_regime_sampler(tmp_path: Path):
 
 
 def test_temporal_rollout_reset_seed_reproduces_the_same_latency_trace(tmp_path: Path):
-    from training.common.latency_config import temporal_profile_sampler_for_reset
+    from latency_bench.latency.samplers import temporal_profile_sampler_for_reset
 
     profile = _write_latency_profile(tmp_path)
     sampler = _profile_sampler(profile, seed=3)
@@ -486,3 +486,19 @@ def test_profile_rejects_missing_burst_model_file(tmp_path: Path):
     (profile_dir / "latency_burst_model.json").unlink()
     with pytest.raises(FileNotFoundError):
         _profile_sampler(profile_dir)
+
+
+def test_profile_max_latency_includes_generated_burst_residual_and_pre_worker_time():
+    from latency_bench.latency.samplers import HiddenRegimeSampler
+    from latency_bench.latency.samplers import profile_sampler_max_latency_raw_frames
+
+    sampler = HiddenRegimeSampler.__new__(HiddenRegimeSampler)
+    sampler.distributions = {"0": {"steady": {
+        "observation_to_action_latency_ms": {"latency_ms": [20., 40.]},
+        "worker_service_time_ms": {"latency_ms": [20., 35.]},
+    }}}
+    sampler.rank_processes = [{"level_ms": {"latency_ms": [50.]}, "level_residual_ms": {"latency_ms": [5.]}}]
+    sampler.pre_worker_time = {"latency_ms": [8.]}
+    sampler.model = {"spike_threshold_ms_by_worker_slot": {"0": 45.}}
+    # A generated action-ready delay can exceed the measured burst level maximum.
+    assert profile_sampler_max_latency_raw_frames(sampler, worker_slot=0, env_fps=50) == 4

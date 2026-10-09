@@ -14,11 +14,11 @@ from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, Observation, StepRecord
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
 from latency_bench.envs.base import EnvAdapter
-from latency_bench.executors._simulated_timeline import (
+from latency_bench.scheduler.simulated_timeline import (
     SimulatedResultTimeline,
     SimulatedWorkerCapacity,
-    build_simulated_action_event,
 )
+from latency_bench.executors._simulated_events import build_simulated_action_event
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.env_step_backend import EnvStepBackend, env_action_space
 from latency_bench.latency.sample import LatencySample

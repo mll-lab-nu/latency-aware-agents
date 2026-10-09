@@ -32,11 +32,8 @@ from training.common.latency_config import (
     sample_factory_latency_seed_from_flat_config,
 )
 from training.common.latency_bench_periodic_eval import run_sample_factory_training
-from training.common.latency_wrapper import (
-    ActionLatencyWrapper,
-    EpisodeMetricsWrapper,
-    RewardTraceWrapper,
-)
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
+from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 from training.common.sample_factory_config import (
     SampleFactoryConfigParser,
     force_sample_factory_raw_frame_step_cfg,
@@ -400,6 +397,7 @@ def make_flappy_sf_env(
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)
     env = ActionLatencyWrapper(
         env,
+        noop_action=0,
         fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
         env_fps=clock.env_fps,
         obs_fps=clock.obs_fps,

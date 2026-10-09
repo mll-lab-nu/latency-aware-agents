@@ -12,10 +12,8 @@ import latency_bench.envs.tasks.inverted_pendulum as gymnasium_mujoco
 import scripts.scaffold_gymnasium_mujoco as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from training.gymnasium_sf.integration import (
-    GymnasiumActionCatalogWrapper,
-    GymnasiumActionLatencyWrapper,
-)
+from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
 
 FORCE_VALUES = [-3.0, -1.5, 0.0, 1.5, 3.0]
@@ -113,7 +111,7 @@ def test_l1_scheduler_applies_zero_force_before_the_issued_force(monkeypatch):
         base_make_kwargs={},
     )
     env = GymnasiumActionCatalogWrapper(task_env, [0, 1, 2, 3, 4])
-    env = GymnasiumActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=1,
         env_fps=25,

@@ -13,7 +13,7 @@ import torch
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.core.types import Action, ActionHoldPolicy, OrderingPolicy
+from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.tasks.contracts import (
     registration_module_name,
     gymnasium_action_space_contract,
@@ -22,9 +22,8 @@ from latency_bench.envs.tasks.contracts import (
     gymnasium_noop_action_id,
 )
 from latency_bench.integrations.sample_factory.actions import scale_box_action
-from latency_bench.scheduler.action_queue import ActionScheduler, chunk_context_window
+from latency_bench.scheduler.action_queue import chunk_context_window
 from latency_bench.envs.tasks.humanoidbench.contract import POLICY_INDEX_FOR_MUJOCO
-from latency_bench.scheduler.factory import build_persistence_policy
 from training.asterix_sf.batched_gpu_env import AsterixBatchedGpuEnv
 from training.atlantis_sf.batched_gpu_env import AtlantisBatchedGpuEnv
 from training.common.config_adapter import (
@@ -43,12 +42,8 @@ from training.common.latency_config import (
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )
-from training.common.latency_wrapper import (
-    ActionLatencyWrapper,
-    EpisodeMetricsWrapper,
-    RewardTraceWrapper,
-    clone_action,
-)
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
+from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
 from training.common.sample_factory_config import (
     SampleFactoryConfigParser,
@@ -160,24 +155,6 @@ class GymnasiumStateInfoWrapper(gym.Wrapper):
             **info,
             "gymnasium_state": self._state(observation),
         }
-
-
-class GymnasiumActionLatencyWrapper(ActionLatencyWrapper):
-    def __init__(self, *args, noop_action: Any, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.noop_action = noop_action
-        self.action_scheduler = ActionScheduler(
-            clock=self.clock,
-            noop_action=Action(
-                value=clone_action(self.noop_action),
-                name="noop",
-                is_noop=True,
-            ),
-            persistence_policy=build_persistence_policy(self.hold_policy),
-            ordering_policy=self.ordering_policy,
-            hold_last_chunk_action=self.action_scheduler.hold_last_chunk_action,
-        )
-        self.current_applied_action = clone_action(self.noop_action)
 
 
 class G1RawRequestWrapper(gym.ActionWrapper):
@@ -338,7 +315,7 @@ def make_gymnasium_sf_env(
         noop_action = env.unwrapped.g1_absolute_request_from_raw_action(
             np.asarray(noop_action, dtype=np.float32)
         )
-    env = GymnasiumActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
         env_fps=clock.env_fps,

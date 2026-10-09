@@ -15,7 +15,8 @@ from latency_bench.core.latency_distribution import (
     make_latency_distribution_sampler,
 )
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from training.common.latency_config import build_latency_info, temporal_profile_sampler_for_reset
+from latency_bench.envs.latency_info import build_latency_info
+from latency_bench.latency.samplers import temporal_profile_sampler_for_reset
 from training.common.utils import batch_indices, seed_values
 from training.flappy_sf.flappy_cuda_extension import load_flappy_cuda_extension
 

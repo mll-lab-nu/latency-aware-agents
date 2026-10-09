@@ -12,7 +12,8 @@ import latency_bench.envs.tasks.atlantis as gymnasium_atlantis
 import scripts.scaffold_gymnasium_atlantis as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper, GymnasiumActionLatencyWrapper
+from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
 
 ACTION_LABELS = ["noop", "fire", "rightfire", "leftfire"]
@@ -120,7 +121,7 @@ def test_l1_scheduler_advances_four_raw_frames(monkeypatch):
         base_make_kwargs={},
     )
     env = GymnasiumActionCatalogWrapper(task, list(range(4)))
-    env = GymnasiumActionLatencyWrapper(env, fixed_latency_raw_frames=1, env_fps=60, obs_fps=15, hold_policy="hold", ordering_policy="issue_order_fifo", noop_action=0)
+    env = ActionLatencyWrapper(env, fixed_latency_raw_frames=1, env_fps=60, obs_fps=15, hold_policy="hold", ordering_policy="issue_order_fifo", noop_action=0)
     env.reset(seed=0)
     env.step(2)
     env.step(3)

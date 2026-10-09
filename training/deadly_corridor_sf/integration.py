@@ -29,7 +29,8 @@ from training.common.latency_config import (
     sample_factory_latency_seed_from_flat_config,
 )
 from training.common.latency_bench_periodic_eval import run_sample_factory_training
-from training.common.latency_wrapper import ActionLatencyWrapper, EpisodeMetricsWrapper, RewardTraceWrapper
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
+from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 from training.common.raw_rgb_export import RawRgbFrameStackInfoWrapper
 from training.common.sample_factory_config import SampleFactoryConfigParser
 from training.common.vizdoom_init_guard import ensure_vizdoom_init_guard_installed
@@ -172,8 +173,15 @@ def make_latency_doom_env_from_spec(
         env_id=int(getattr(env_config, "env_id", 0) or 0),
     )
     latency_params = sample_factory_latency_params_from_flat_config(cfg, env_fps=clock.env_fps)
+    # Each component of the pinned ViZDoom action catalog uses zero for no input.
+    noop_action = (
+        tuple(0 for _ in env.action_space.spaces)
+        if isinstance(env.action_space, gym.spaces.Tuple)
+        else 0
+    )
     env = ActionLatencyWrapper(
         env,
+        noop_action=noop_action,
         fixed_latency_raw_frames=latency_params.fixed_latency_raw_frames,
         env_fps=clock.env_fps,
         obs_fps=clock.obs_fps,

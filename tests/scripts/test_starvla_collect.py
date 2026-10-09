@@ -556,7 +556,7 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     """Long-lived collector contract: future expert frames, inherited-request and tail masks."""
     import copy
     import gymnasium as gym
-    from training.gymnasium_sf.integration import GymnasiumActionLatencyWrapper
+    from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
     class Native(gym.Env):
         action_space = gym.spaces.Box(-10000, 10000, (43,), dtype=np.float32)
@@ -591,7 +591,7 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
                 for head in range(8)])) for obs in observations]
 
     def env():
-        return GymnasiumActionLatencyWrapper(
+        return ActionLatencyWrapper(
             Native(), fixed_latency_raw_frames=delay, env_fps=50, obs_fps=50, seed=0,
             simulated_worker_capacity=1, add_latency_info=True, noop_action=[0.0] * 43,
             hold_policy="hold", ordering_policy="latest_ready", hold_last_chunk_action=True)

@@ -30,10 +30,7 @@ class _ScriptedAtariInfoEnv(gym.Env):
 
 
 def test_learner_reward_stays_clipped_while_episode_return_is_raw(tmp_path):
-    from training.common.latency_wrapper import (
-        EpisodeMetricsWrapper,
-        RewardTraceWrapper,
-    )
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 
     wrapped = EpisodeMetricsWrapper(
         RewardTraceWrapper(
@@ -56,10 +53,7 @@ def test_learner_reward_stays_clipped_while_episode_return_is_raw(tmp_path):
 
 
 def test_true_game_over_emits_raw_full_game_return_after_life_loss(tmp_path):
-    from training.common.latency_wrapper import (
-        EpisodeMetricsWrapper,
-        RewardTraceWrapper,
-    )
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(
@@ -97,10 +91,7 @@ def test_true_game_over_emits_raw_full_game_return_after_life_loss(tmp_path):
 
 
 def test_episode_metrics_records_only_raw_return(tmp_path):
-    from training.common.latency_wrapper import (
-        EpisodeMetricsWrapper,
-        RewardTraceWrapper,
-    )
+    from training.common.metrics_wrappers import EpisodeMetricsWrapper, RewardTraceWrapper
 
     metrics_path = tmp_path / "episodes.jsonl"
     wrapped = EpisodeMetricsWrapper(

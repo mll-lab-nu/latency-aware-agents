@@ -10,9 +10,11 @@ from gymnasium.spaces import Box, Dict as GymDict, Discrete
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.decision_action_history import DecisionActionHistory
-from training.common.latency_config import (
+from latency_bench.latency.samplers import (
     build_profile_sampler,
     profile_sampler_max_latency_raw_frames_for_workers,
+)
+from training.common.latency_config import (
     sample_factory_latency_params_from_flat_config,
     sample_factory_latency_seed_from_flat_config,
 )

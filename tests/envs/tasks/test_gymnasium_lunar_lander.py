@@ -11,10 +11,8 @@ import yaml
 import scripts.scaffold_gymnasium_lunar_lander as scaffold
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
-from training.gymnasium_sf.integration import (
-    GymnasiumActionCatalogWrapper,
-    GymnasiumActionLatencyWrapper,
-)
+from training.gymnasium_sf.integration import GymnasiumActionCatalogWrapper
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
 
 ACTION_LABELS = [
@@ -115,7 +113,7 @@ def test_scaffold_reports_native_discrete_api_and_frozen_contract(monkeypatch, c
 def test_l1_scheduler_applies_do_nothing_before_issued_engine_action():
     native_env = _LunarLanderProbeEnv()
     env = GymnasiumActionCatalogWrapper(native_env, [0, 1, 2, 3])
-    env = GymnasiumActionLatencyWrapper(
+    env = ActionLatencyWrapper(
         env,
         fixed_latency_raw_frames=1,
         env_fps=50,
