@@ -80,7 +80,7 @@ Path(sys.argv[2]).write_text(
     'executor:\n  simulated_worker_capacity: 1\n'
     'scheduler:\n  ordering_policy: latest_ready\n  hold_policy: hold\n'
     '  hold_last_chunk_action: true\n'
-    f'latency:\n  method: fixed\n  fixed_latency_ms: {latency * 50.0}\n'
+    f'latency:\n  method: fixed\n  fixed_latency_ms: {latency * 50.0}\n  seed: 0\n'
 )
 PY
 
