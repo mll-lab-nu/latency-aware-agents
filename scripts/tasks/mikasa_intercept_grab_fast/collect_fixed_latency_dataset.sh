@@ -5,11 +5,17 @@ usage() {
   cat <<'EOF'
 Usage:
   bash scripts/tasks/mikasa_intercept_grab_fast/collect_fixed_latency_dataset.sh \
+    [--package-only] \
     <latency-frames> <physical-gpu-id> <ppo-checkpoint.pt> <output-root> <hf-dataset-repo>
 
 Example: collect at latency 2 (100 ms) on physical GPU 3:
   bash scripts/tasks/mikasa_intercept_grab_fast/collect_fixed_latency_dataset.sh \
     2 3 outputs/mikasa_fixed_latency_ppo/publish/fixed_l2/checkpoint.pt \
+    outputs/mikasa_successful_h1 your-org/mikasa-teacher-rollouts
+
+Resume after collection completed (reuse existing NPZ episodes):
+  bash scripts/tasks/mikasa_intercept_grab_fast/collect_fixed_latency_dataset.sh \
+    --package-only 1 3 outputs/mikasa_fixed_latency_ppo/publish/fixed_l1/checkpoint.pt \
     outputs/mikasa_successful_h1 your-org/mikasa-teacher-rollouts
 
 Collects 250 successful training episodes plus 25 successful validation episodes.
@@ -24,20 +30,28 @@ Optional environment variables:
   TRAIN_EPISODES       Default: 250.
   VAL_EPISODES         Default: 25.
   TASK_PY             Default: third_party/MIKASA-Robo/.venv/bin/python.
-  RLDS_PY             Default: MIKASA RLDS builder's .venv/bin/python.
-  LEROBOT_PY          Default: MIKASA LeRobot converter's .venv/bin/python.
+  UV                  uv executable; default: uv. Creates converter environments.
+  RLDS_PY             Optional existing RLDS interpreter instead of uv run.
+  LEROBOT_PY          Optional existing LeRobot interpreter instead of uv run.
   HF_PRIVATE          1 creates a private repo; default: 0.
   HF_PATH_PREFIX      Override the latency-specific upload directory.
   HF_TOKEN            HF authentication; an existing Hub login also works.
 
-Run from an installed latency-sensitive-bench environment with the MIKASA submodule
-and conversion environments installed. Use a fresh output root for new collection.
+Run with the MIKASA simulator environment installed. Packaging initializes the
+RLDS builder submodule and uses uv to install its isolated conversion dependencies.
+Use a fresh output root for new collection. --package-only skips collection and
+preserves the saved NPZ episodes and latency config.
 EOF
 }
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   usage
   exit 0
+fi
+PACKAGE_ONLY=0
+if [[ "${1:-}" == "--package-only" ]]; then
+  PACKAGE_ONLY=1
+  shift
 fi
 if [[ $# -ne 5 ]]; then
   usage >&2
@@ -53,8 +67,17 @@ OUTPUT_ROOT="$4"
 HF_REPO_ID="$5"
 TASK_PY="${TASK_PY:-${REPO_ROOT}/third_party/MIKASA-Robo/.venv/bin/python}"
 MIKASA_ROOT="${REPO_ROOT}/third_party/MIKASA-Robo"
-RLDS_PY="${RLDS_PY:-${MIKASA_ROOT}/utils/convert_npz_to_rlds/rlds_dataset_builder/.venv/bin/python}"
-LEROBOT_PY="${LEROBOT_PY:-${MIKASA_ROOT}/utils/convert_rlds_to_lerobot/.venv/bin/python}"
+UV="${UV:-uv}"
+if [[ -n "${RLDS_PY:-}" ]]; then
+  RLDS_CMD=("${RLDS_PY}")
+else
+  RLDS_CMD=("${UV}" run --project "${MIKASA_ROOT}/utils/convert_npz_to_rlds/rlds_dataset_builder" --python 3.10 python)
+fi
+if [[ -n "${LEROBOT_PY:-}" ]]; then
+  LEROBOT_CMD=("${LEROBOT_PY}")
+else
+  LEROBOT_CMD=("${UV}" run --project "${MIKASA_ROOT}/utils/convert_rlds_to_lerobot" --python 3.10 python)
+fi
 TRAIN_EPISODES="${TRAIN_EPISODES:-250}"
 VAL_EPISODES="${VAL_EPISODES:-25}"
 TOTAL_EPISODES="$((TRAIN_EPISODES + VAL_EPISODES))"
@@ -70,6 +93,7 @@ export PYTHONPATH="${REPO_ROOT}:${MIKASA_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 cd "${REPO_ROOT}"
 mkdir -p "${OUTPUT_DIR}"
 
+if [[ "${PACKAGE_ONLY}" == "0" ]]; then
 "${TASK_PY}" - "${LATENCY}" "${LATENCY_CONFIG}" <<'PY'
 import sys
 from pathlib import Path
@@ -103,21 +127,26 @@ collector.collect_for_env(
     latency_config=sys.argv[5], keep_failed=False, num_envs=1,
 )
 PY
+else
+  printf '[package] Reusing collected episodes in %s/data_npz\n' "${DATA_ROOT}"
+fi
 
-"${RLDS_PY}" "${MIKASA_ROOT}/utils/convert_npz_to_rlds/convert_npz_task_to_rlds.py" \
+git -C "${REPO_ROOT}" submodule update --init -- third_party/MIKASA-Robo/utils/convert_npz_to_rlds/rlds_dataset_builder
+
+"${RLDS_CMD[@]}" "${MIKASA_ROOT}/utils/convert_npz_to_rlds/convert_npz_task_to_rlds.py" \
   --task InterceptGrabFast-VLA-v0 --repo-root "${MIKASA_ROOT}" \
   --npz-root "${DATA_ROOT}/data_npz" --rlds-root "${DATA_ROOT}/data_rlds"
 
-"${LEROBOT_PY}" "${MIKASA_ROOT}/utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py" \
+"${LEROBOT_CMD[@]}" "${MIKASA_ROOT}/utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py" \
   --task InterceptGrabFast-VLA-v0 --repo-root "${MIKASA_ROOT}" \
   --rlds-root "${DATA_ROOT}/data_rlds" --lerobot-root "${DATA_ROOT}/data_lerobot" \
   --repo-id-template 'local/{task}_h1_train' --fps 20 --split "train[:${TRAIN_EPISODES}]"
-"${LEROBOT_PY}" "${MIKASA_ROOT}/utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py" \
+"${LEROBOT_CMD[@]}" "${MIKASA_ROOT}/utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py" \
   --task InterceptGrabFast-VLA-v0 --repo-root "${MIKASA_ROOT}" \
   --rlds-root "${DATA_ROOT}/data_rlds" --lerobot-root "${DATA_ROOT}/data_lerobot" \
   --repo-id-template 'local/{task}_h1_val' --fps 20 --split "train[${TRAIN_EPISODES}:${TOTAL_EPISODES}]"
 
-"${TASK_PY}" - "${DATA_ROOT}" "${CHECKPOINT}" "${LATENCY}" "${GPU_ID}" "${TRAIN_EPISODES}" "${VAL_EPISODES}" "${HF_REPO_ID}" "${HF_PATH_PREFIX}" "${HF_PRIVATE:-0}" <<'PY'
+"${LEROBOT_CMD[@]}" - "${DATA_ROOT}" "${CHECKPOINT}" "${LATENCY}" "${GPU_ID}" "${TRAIN_EPISODES}" "${VAL_EPISODES}" "${HF_REPO_ID}" "${HF_PATH_PREFIX}" "${HF_PRIVATE:-0}" <<'PY'
 import json
 import shutil
 import sys
