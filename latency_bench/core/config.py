@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 import yaml
+
+
+def load_factory(reference: str) -> Callable[..., Any]:
+    """Load a user factory named by a ``module:function`` configuration value."""
+    module_name, separator, function_name = reference.partition(":")
+    if not separator or not module_name or not function_name or ":" in function_name:
+        raise ValueError(f"Factory must use 'module:function', got {reference!r}")
+    factory = getattr(import_module(module_name), function_name)
+    if not callable(factory):
+        raise TypeError(f"Factory {reference!r} is not callable")
+    return factory
 
 
 def merge_dicts(base: dict, override: dict) -> dict:

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.core.config import load_factory
 from latency_bench.core.types import Action
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.adapters.dummy import DummyEnvAdapter
@@ -27,7 +28,15 @@ def register_env_adapter(name: str) -> Callable[[EnvAdapterBuilder], EnvAdapterB
     return decorator
 
 
-def build_env_adapter(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
+def build_env_adapter(
+    config: dict[str, Any],
+    noop_action: Action,
+    *,
+    factory: EnvAdapterBuilder | None = None,
+) -> EnvAdapter:
+    """Construct an adapter; an explicit Python factory overrides config selection."""
+    if factory is not None:
+        return factory(config, noop_action)
     env_cfg = config["env"]
     env_name = _normalize_env_name(env_cfg["name"])
     builder = _ENV_ADAPTER_BUILDERS.get(env_name)
@@ -72,6 +81,11 @@ def _uses_raw_rgb_vla_policy(config: dict[str, Any]) -> bool:
 
 def _exports_raw_rgb_frames(config: dict[str, Any]) -> bool:
     return bool(config["env"].get("export_env_raw_rgb_frames", False)) or _uses_raw_rgb_vla_policy(config)
+
+
+@register_env_adapter("custom")
+def _build_custom_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter:
+    return load_factory(config["env"]["factory"])(config, noop_action)
 
 
 @register_env_adapter("dummy")

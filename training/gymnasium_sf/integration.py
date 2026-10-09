@@ -58,7 +58,8 @@ from training.common.sf_gpu_sampling_compat import (
 from training.common.sf_raw_reward_stats_compat import (
     ensure_sample_factory_raw_reward_console_stats_installed,
 )
-from training.common.utils import env_instance_seed, seed_everything, str2bool
+from latency_bench.utils.seeding import seed_everything
+from training.common.utils import env_instance_seed, str2bool
 from training.common.wandb_compat import patch_sample_factory_wandb
 from sample_factory.algo.mc_ppo.env import EpisodeEnv
 

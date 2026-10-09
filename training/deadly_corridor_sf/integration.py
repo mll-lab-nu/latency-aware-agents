@@ -11,12 +11,8 @@ import numpy as np
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
-from training.common.utils import (
-    env_instance_seed,
-    maybe_set_cli_override,
-    seed_everything,
-    str2bool,
-)
+from latency_bench.utils.seeding import seed_everything
+from training.common.utils import env_instance_seed, maybe_set_cli_override, str2bool
 from training.common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,

@@ -15,7 +15,7 @@ from latency_bench.executors.realtime.shared_observation import (
 from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
-from training.common.utils import seed_everything
+from latency_bench.utils.seeding import seed_everything
 
 
 # --- inference worker ---------------------------------------------------------

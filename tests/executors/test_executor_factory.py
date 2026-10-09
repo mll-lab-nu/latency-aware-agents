@@ -297,6 +297,18 @@ def test_build_executor_uses_injected_policy_and_skips_build_policy(tmp_path, mo
         executor.close()
 
 
+@pytest.mark.parametrize("mode", ["paused", "simulated"])
+def test_build_executor_uses_injected_environment(tmp_path, mode):
+    env = DummyEnvAdapter(env_fps=30, max_steps=2)
+    executor = build_executor(_config(mode=mode, output_dir=str(tmp_path)), env=env)
+    try:
+        metrics = executor.run_episode(episode_id=0, seed=7, eval_max_steps=5)
+        assert metrics.survival_steps == 2
+    finally:
+        executor.close()
+    assert env.closed
+
+
 def test_build_executor_realtime_rejects_injected_policy(tmp_path):
     with pytest.raises(ValueError, match="cannot cross the process boundary"):
         build_executor(_config(mode="realtime", output_dir=str(tmp_path)), policy=object())

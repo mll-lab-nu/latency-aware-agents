@@ -6,6 +6,7 @@ from types import ModuleType
 import pytest
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.types import Observation
 from latency_bench.policy.base import ConstantPolicyRunner, RandomPolicyRunner
 from latency_bench.policy.factory import build_policy
 
@@ -53,6 +54,41 @@ def test_unknown_policy_type_is_rejected():
     config = _config({"type": "unknown"})
 
     with pytest.raises(ValueError, match="Unsupported policy.type: unknown"):
+        build_policy(config, ActionResolver(config["env"]))
+
+
+def test_build_policy_accepts_python_factory():
+    config = _config({"type": "user_policy", "action": "flap"})
+
+    def make_policy(config, action_resolver):
+        return ConstantPolicyRunner(action_resolver.resolve(config["policy"]["action"]))
+
+    policy = build_policy(config, ActionResolver(config["env"]), factory=make_policy)
+    result = policy.predict(Observation(data=None, env_step=0, sim_time_ms=0))
+    assert result.action.value == 1
+    assert result.action.is_oneshot
+
+
+@pytest.mark.parametrize("reference,error,match", [
+    ("outside_policy", ValueError, "module:function"),
+    ("outside_policy:", ValueError, "module:function"),
+    ("missing_policy_module:build", ModuleNotFoundError, "missing_policy_module"),
+    ("outside_policy:missing", AttributeError, "missing"),
+    ("outside_policy:not_callable", TypeError, "not callable"),
+    ("outside_policy:build", RuntimeError, "user constructor failed"),
+])
+def test_custom_policy_factory_reports_user_errors(monkeypatch, reference, error, match):
+    """Configuration and user constructor failures must reach the caller."""
+    module = ModuleType("outside_policy")
+    module.not_callable = 7
+
+    def build(config, action_resolver):
+        raise RuntimeError("user constructor failed")
+
+    module.build = build
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    config = _config({"type": "custom", "factory": reference})
+    with pytest.raises(error, match=match):
         build_policy(config, ActionResolver(config["env"]))
 
 

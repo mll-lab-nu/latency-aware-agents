@@ -353,7 +353,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
 def run_from_config(config: dict) -> int:
     from sample_factory.algo.utils.misc import ExperimentStatus
 
-    from training.common.utils import seed_everything
+    from latency_bench.utils.seeding import seed_everything
 
     register_demon_attack_envs()
     cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))

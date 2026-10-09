@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.config import load_factory
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner, RandomPolicyRunner
 
 _SAMPLE_FACTORY_POLICY_TYPES = {
@@ -13,9 +15,19 @@ _SAMPLE_FACTORY_POLICY_TYPES = {
 }
 
 
-def build_policy(config: dict[str, Any], action_resolver: ActionResolver) -> PolicyRunner:
+def build_policy(
+    config: dict[str, Any],
+    action_resolver: ActionResolver,
+    *,
+    factory: Callable[[dict[str, Any], ActionResolver], PolicyRunner] | None = None,
+) -> PolicyRunner:
+    """Construct a policy; an explicit Python factory overrides config selection."""
+    if factory is not None:
+        return factory(config, action_resolver)
     policy_cfg = config["policy"]
     policy_type = policy_cfg["type"]
+    if policy_type == "custom":
+        return load_factory(policy_cfg["factory"])(config, action_resolver)
     if policy_type == "random":
         return _build_random_policy(config, action_resolver)
     if policy_type == "constant":

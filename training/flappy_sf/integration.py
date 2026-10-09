@@ -14,11 +14,8 @@ from PIL import Image
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.adapters.flappy import resize_frame_pil
-from training.common.utils import (
-    env_instance_seed,
-    str2bool,
-    seed_everything,
-)
+from latency_bench.utils.seeding import seed_everything
+from training.common.utils import env_instance_seed, str2bool
 from training.common.config_adapter import (
     append_cli_arg,
     apply_runtime_logging_config,

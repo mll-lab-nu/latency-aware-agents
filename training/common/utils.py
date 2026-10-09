@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 import torch
 from typing import Any, Sequence
 
@@ -48,11 +47,3 @@ def env_instance_seed(
 ) -> int:
     # Preserve the historical one-env-per-worker stream while making it independent of worker layout.
     return base_seed + 1046 * env_id
-
-
-def seed_everything(seed: int) -> int:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    return seed

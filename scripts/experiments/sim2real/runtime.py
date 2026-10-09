@@ -63,7 +63,7 @@ def prepare_replay_runtime(config):
     # Real collection does not need to import the replay policy/model runtime.
     from latency_bench.eval.config import resolve_evaluation_config
     from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
-    from training.common.utils import seed_everything
+    from latency_bench.utils.seeding import seed_everything
 
     resolve_evaluation_config(config)
     prepare_starvla_checkpoint_input_config(config)

@@ -103,6 +103,27 @@ def test_build_env_adapter_rejects_unsupported_env_name():
         build_env_adapter(_config("unknown"), noop)
 
 
+def test_build_env_adapter_accepts_python_factory():
+    """A user factory can construct an adapter without global registration."""
+    config = _config("user_task")
+    config["env"]["env_fps"] = 50
+    noop = Action(value=7, is_noop=True)
+
+    def make_env(config, noop_action):
+        return DummyEnvAdapter(
+            env_fps=config["env"]["env_fps"], max_steps=2, noop_action=noop_action,
+        )
+
+    env = build_env_adapter(config, noop, factory=make_env)
+    try:
+        assert env.noop_action is noop
+        assert env.reset(seed=9).metadata["seed"] == 9
+        assert env.step(noop).observation.sim_time_ms == 20
+        assert env.step(noop).done
+    finally:
+        env.close()
+
+
 def test_demon_attack_base_config_uses_clock_for_action_hold():
     config = load_config("configs/base/demon_attack.yaml")
 

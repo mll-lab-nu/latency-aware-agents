@@ -40,6 +40,10 @@ Optional simulator/model imports remain lazy where they isolate environments.
 
 ## Environment layers
 
+External environments and policies can use importable factories without editing
+this repository. See [custom components](custom_components.md) for the factory
+contracts, Python construction, and a standalone evaluation example.
+
 `latency_bench/envs/base.py` defines `EnvAdapter`, the raw RGB metadata key and
 `RawRgbFrameStackBuffer`. The buffer copies frames and exposes an oldest-to-newest
 RGB stack for VLA inference and dataset export, separately from the teacher's

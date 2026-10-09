@@ -54,6 +54,7 @@ class PausedLatencyExecutor(EpisodeExecutor):
 
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
+        self.policy.reset_state(slot_id=0)
         if self.video_recorder is not None:
             self.video_recorder.start_episode(
                 episode_id=episode_id,

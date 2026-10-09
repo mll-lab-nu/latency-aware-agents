@@ -8,6 +8,8 @@ from latency_bench.core.types import Action, Observation, PolicyOutput
 
 
 class PolicyRunner(ABC):
+    """Predict actions from benchmark observations and own per-episode policy state."""
+
     @abstractmethod
     def predict(self, observation: Observation) -> PolicyOutput:
         ...

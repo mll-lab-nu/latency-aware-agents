@@ -6,6 +6,7 @@
 - 每项任务包含必要的调用方迁移、所属测试和文档更新。
 - 修改前后验证，检查完整 diff 后只暂存本任务的改动。
 - 提供建议 commit message，等待用户 review，不自动 commit 或 push。
+- Review 子代理使用 `gpt-6-astra`，reasoning effort 为 `high`。
 - 保留已有工作区改动。本文档与第一个正式任务一起交付，不单独作为任务。
 - 需要远端验证时使用 `ssh ubuntu@34.131.176.130`，先检查机器状态。
 - 原始日志和报告存入 `outputs/`，本文档只记录结论与证据位置。
@@ -64,8 +65,8 @@ Sample Factory 和 StarVLA 是论文参考实现，用户自行选择训练框�
 
 | 编号 | 任务 | 状态 |
 | --- | --- | --- |
-| 1 | 公共延迟 wrapper、共享模拟调度、训练统计分离，迁移调用和测试 | 已实现并验证可运行范围；等待 review，存在基线验证限制 |
-| 2 | 外部环境和策略构造；通用 seed 处理归到 `utils/seeding.py` | 待开始 |
+| 1 | 公共延迟 wrapper、共享模拟调度、训练统计分离，迁移调用和测试 | 用户已 review；已提交为 `8f41bc52`，验证限制见下文 |
+| 2 | 外部环境和策略构造；通用 seed 处理归到 `utils/seeding.py` | 已实现并通过 Astra high 审查；等待用户 review，存在基线验证限制 |
 | 3 | 通用采集入口，分离 SF 专用采集和导出 | 待开始 |
 | 4 | StarVLA 数据交接和 integration 目录收敛 | 待开始 |
 | 5 | Realtime 测量可信度及有证据的漂移修复 | 待开始 |
@@ -139,3 +140,34 @@ Realtime 专项保留现有 GC、绝对时刻调度、进程隔离与共享内�
 
 远端四张 GPU 在验证时均有训练负载。CUDA 用例、完整训练和性能比较未执行。
 Realtime 的 30 分钟漂移验收属于任务 5，本任务未执行。
+
+## 任务 2 实现与验证
+
+### 接口和职责
+
+- `env.name: custom` 和 `policy.type: custom` 分别使用对应的 `factory: module:function`。
+- 环境构造函数接收 `config, noop_action`，返回 `EnvAdapter`。
+- 策略构造函数接收 `config, action_resolver`，返回 `PolicyRunner`。
+- 两个现有 factory 同时接受 Python `factory=` 参数；显式参数优先于配置选择。
+- `core/config.py` 解析导入引用。没有新增插件注册框架；构造与导入错误直接传播。
+- Realtime 沿用现有 worker 构造路径，在各自进程中导入外部模块。未修改调度循环和计时逻辑。
+- `seed_everything` 移到 `utils/seeding.py`，迁移全部现有调用，不保留旧导出；随机数初始化算法不变。
+- 补齐 paused 模式的策略状态重置和已传入环境的使用，修复单环境 simulated/paused 策略构造失败时的环境清理。
+
+新增用户指南见 [custom components](docs/custom_components.md)。构造函数测试属于 env/policy suite；真实跨进程和 CLI 接入属于 integration suite；随机数契约属于 utils suite。
+`tests/integration/fixtures/external_components.py` 是长期跨进程测试输入，测试会将它复制到仓库外用户目录。
+
+### 当前验证结果
+
+- 基线 revision：`8f41bc52`；使用远端隔离目录和相同 latency Python 环境。
+- [基线测试](outputs/cleanup/task2/baseline-tests.log)：277 passed、4 failed。
+- [修改版测试](outputs/cleanup/task2/candidate-tests.log)：294 passed、4 failed、1 skipped；失败集合与基线相同。
+- 仓库外模块完成 paused、simulated、realtime CLI 评测；真实进程验证环境/策略构造、状态重置和构造失败清理。
+- 自定义模块加载时验证未导入 `training`、`sample_factory` 或 `starVLA`。
+- [文档中的 MountainCar 示例](outputs/cleanup/task2/doc-example.log)已在仓库外运行：2 个 episode，各 100 步，固定延迟 40 ms。
+- [随机数初始化](outputs/cleanup/task2/seeding-cuda-tests.log)在 CPU 和独立选择的空闲 GPU 0 上验证：2 passed，未进行性能测量。
+- `gpt-6-astra` / `high` 已完成只读审查；未发现生产代码阻塞问题。已按审查意见补充 GPU 测试标记、复用测试路径常量，并明确批量 slot 状态和进程说明。
+- 审查修正后，[外部接入与 CPU seed 复测](outputs/cleanup/task2/review-tests.log)：7 passed、1 deselected；[CUDA seed 复测](outputs/cleanup/task2/review-cuda-tests.log)：1 passed、1 deselected。
+- 剩余失败为缺少 `ffmpeg` 的 2 项视频测试，以及 Sample Factory 版本契约不匹配的 2 项参考集成测试。
+
+本任务不包含真实 VLA 训练、GPU 推理性能比较或 realtime 长时间漂移验收。

@@ -75,7 +75,7 @@ def build_executor(
             inference_devices=inference_devices,
         )
     if mode == ExecutorMode.PAUSED:
-        return _build_paused_executor(config, policy=policy)
+        return _build_paused_executor(config, policy=policy, env=env)
     return _build_realtime_executor(
         config,
         policy=policy,
@@ -202,28 +202,35 @@ def _build_single_simulated_executor(
     inference_devices: list[str] | None = None,
 ) -> SimulatedLatencyExecutor:
     c = _build_executor_runtime_components(config, env=env)
-    policy, inference_pool = _build_simulated_policy_and_pool(
-        config, c.action_resolver, policy, inference_devices
-    )
-    episode_latency_source_factory = build_episode_sampler_factory(config["latency"], c.clock)
-    latency_source = (
-        episode_latency_source_factory(0)
-        if episode_latency_source_factory is not None
-        else build_sampler(config["latency"], clock=c.clock)
-    )
-    return SimulatedLatencyExecutor(
-        env=c.env,
-        policy=policy,
-        decision_scheduler=c.decision_scheduler,
-        latency_source=latency_source,
-        action_scheduler=c.action_scheduler,
-        clock=c.clock,
-        logger=_build_trajectory_logger(config),
-        episode_latency_source_factory=episode_latency_source_factory,
-        simulated_worker_capacity=config["executor"]["simulated_worker_capacity"],
-        inference_pool=inference_pool,
-        action_prefix=config["policy"]["action_prefix"],
-    )
+    inference_pool = None
+    try:
+        policy, inference_pool = _build_simulated_policy_and_pool(
+            config, c.action_resolver, policy, inference_devices
+        )
+        episode_latency_source_factory = build_episode_sampler_factory(config["latency"], c.clock)
+        latency_source = (
+            episode_latency_source_factory(0)
+            if episode_latency_source_factory is not None
+            else build_sampler(config["latency"], clock=c.clock)
+        )
+        return SimulatedLatencyExecutor(
+            env=c.env,
+            policy=policy,
+            decision_scheduler=c.decision_scheduler,
+            latency_source=latency_source,
+            action_scheduler=c.action_scheduler,
+            clock=c.clock,
+            logger=_build_trajectory_logger(config),
+            episode_latency_source_factory=episode_latency_source_factory,
+            simulated_worker_capacity=config["executor"]["simulated_worker_capacity"],
+            inference_pool=inference_pool,
+            action_prefix=config["policy"]["action_prefix"],
+        )
+    except BaseException:
+        if inference_pool is not None:
+            inference_pool.close()
+        c.env.close()
+        raise
 
 
 def _build_batched_simulated_executor(
@@ -306,21 +313,26 @@ def _build_paused_executor(
     config: dict[str, Any],
     *,
     policy: PolicyRunner | None = None,
+    env: EnvAdapter | None = None,
 ) -> PausedLatencyExecutor:
     latency_cfg = config["latency"]
     if resolve_latency_method(latency_cfg) != "zero":
         raise ValueError("paused executor supports only latency.method=zero")
 
-    c = _build_executor_runtime_components(config)
-    return PausedLatencyExecutor(
-        env=c.env,
-        policy=_resolve_policy(config, c.action_resolver, policy),
-        decision_scheduler=c.decision_scheduler,
-        action_scheduler=c.action_scheduler,
-        clock=c.clock,
-        logger=_build_trajectory_logger(config),
-        action_prefix=config["policy"]["action_prefix"],
-    )
+    c = _build_executor_runtime_components(config, env=env)
+    try:
+        return PausedLatencyExecutor(
+            env=c.env,
+            policy=_resolve_policy(config, c.action_resolver, policy),
+            decision_scheduler=c.decision_scheduler,
+            action_scheduler=c.action_scheduler,
+            clock=c.clock,
+            logger=_build_trajectory_logger(config),
+            action_prefix=config["policy"]["action_prefix"],
+        )
+    except BaseException:
+        c.env.close()
+        raise
 
 
 def _build_realtime_executor(

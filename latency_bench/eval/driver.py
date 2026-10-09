@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from training.common.utils import seed_everything
+from latency_bench.utils.seeding import seed_everything
 from latency_bench.core.types import EpisodeMetrics, ExecutorMode
 from latency_bench.eval.config import (
     _episode_seed,
