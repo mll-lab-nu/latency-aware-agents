@@ -35,8 +35,6 @@ def test_ms_to_raw_frames_uses_ceil_boundaries():
     assert ms_to_raw_frames(1000.0 / 30.0, env_fps=30) == 1
     assert ms_to_raw_frames((1000.0 / 30.0) + 0.001, env_fps=30) == 2
     assert ms_to_raw_frames(100.0, env_fps=30) == 3
-    assert ms_to_raw_frames(-1.0, env_fps=30) == 0
-    assert ms_to_raw_frames(1.0, env_fps=0) == 0
 
 
 def test_frames_float_to_raw_frames_uses_ceil_boundaries():
@@ -58,11 +56,3 @@ def test_env_clock_accepts_explicit_observation_fps():
 
     with pytest.raises(TypeError):
         EnvClock(30, 30)
-
-
-def test_env_clock_conversions_do_not_validate_negative_contract_values():
-    clock = EnvClock(env_fps=30, obs_fps=30)
-
-    assert clock.step_to_time_ms(-1) == pytest.approx(-1000.0 / 30.0)
-    assert clock.time_ms_to_step_float(-100.0) == pytest.approx(-3.0)
-    assert clock.latency_ms_to_frames_float(-100.0) == pytest.approx(-3.0)

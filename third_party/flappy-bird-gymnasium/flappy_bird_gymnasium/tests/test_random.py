@@ -57,7 +57,3 @@ def play(audio_on=True, render_mode="human", use_lidar=False):
 def test_play():
     play(audio_on=False, render_mode=None, use_lidar=False)
     play(audio_on=False, render_mode=None, use_lidar=True)
-
-
-if __name__ == "__main__":
-    play()

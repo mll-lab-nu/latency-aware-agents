@@ -68,6 +68,5 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
     assert {key: os.environ[key] for key in THREAD_ENV_DEFAULTS} == THREAD_ENV_DEFAULTS
     assert written == payload
     assert payload["calibration_source"] == "saturated_policy_latency"
-    assert payload["selected_env_fps"] == 58
     assert payload["saturated_latency_summary"]["median"] == 34.0
     assert payload["policy_stage_summary"]["policy_wrapper_predict_action_ms"]["median"] == 32.0

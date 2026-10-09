@@ -105,9 +105,4 @@ setuptools.setup(
             "Reinforcement-Learning-Environment",
         ]
     ),
-    entry_points={
-        "console_scripts": [
-            "flappy_bird_gymnasium = flappy_bird_gymnasium.cli:main",
-        ],
-    },
 )

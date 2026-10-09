@@ -220,7 +220,8 @@ def test_frozen_h8_teacher_cpu_and_cule_continue_beyond_first_life_loss(tmp_path
     assert results[0] == results[1]
 
 
-def test_cule_reset_matches_latency_cpu_ram_but_not_reset_frame_or_obs_yet():
+@pytest.mark.gpu
+def test_cule_reset_and_first_step_match_latency_cpu_ram_and_images():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
@@ -239,8 +240,8 @@ def test_cule_reset_matches_latency_cpu_ram_but_not_reset_frame_or_obs_yet():
         cule_obs84 = cule_obs[0, 0].detach().cpu().numpy().copy()
 
         assert np.array_equal(cpu.gym_env.unwrapped.ale.getRAM(), core.ram[0].detach().cpu().numpy())
-        assert _diff_stats(cpu_raw, cule_raw) == (30, 252)
-        assert _diff_stats(cpu_obs84, cule_obs84) == (6, 91)
+        np.testing.assert_array_equal(cpu_raw, cule_raw)
+        np.testing.assert_array_equal(cpu_obs84, cule_obs84)
 
         cpu.step(Action(value=0, name="0", is_noop=True))
         cule_step = core.step_batch([0])
@@ -255,7 +256,8 @@ def test_cule_reset_matches_latency_cpu_ram_but_not_reset_frame_or_obs_yet():
         cpu.close()
 
 
-def test_obs84_rounding_is_the_remaining_post_reset_cpu_vs_cule_obs_difference():
+@pytest.mark.gpu
+def test_cule_observation_matches_latency_cpu_after_action_trace():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
@@ -283,7 +285,7 @@ def test_obs84_rounding_is_the_remaining_post_reset_cpu_vs_cule_obs_difference()
 
         assert np.array_equal(cpu_raw, cule_raw)
         assert np.array_equal(cule_obs84, obs84_from_raw)
-        assert _diff_stats(cpu_obs84, cule_obs84) == (2, 1)
+        np.testing.assert_array_equal(cpu_obs84, cule_obs84)
     finally:
         cpu.close()
 
@@ -494,10 +496,3 @@ def _trace_point(
         "score": np.asarray([int(score)], dtype=np.int64),
         "lives": np.asarray([int(lives)], dtype=np.int64),
     }
-
-
-def _diff_stats(left, right) -> tuple[int, int]:
-    left_arr = np.asarray(left)
-    right_arr = np.asarray(right)
-    diff = np.abs(left_arr.astype(np.int16) - right_arr.astype(np.int16))
-    return int(np.count_nonzero(left_arr != right_arr)), int(diff.max())

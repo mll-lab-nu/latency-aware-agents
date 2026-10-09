@@ -26,16 +26,6 @@ When testing SimplerEnv on NVIDIA A100, you may encounter the following error:
 You can refer to this link to fix: [Installation Guide – Vulkan Section](https://maniskill.readthedocs.io/en/latest/user_guide/getting_started/installation.html#vulkan)
 
 
-## 🔧 Verification Your SimplerEnv
-We provide a minimal environment verification script:
-
-```bash
-python examples/SimplerEnv/test_your_simplerEnv.py
-```
-
-If you see the "✅ Env built successfully" message, it means SimplerEnv is installed correctly and ready to use.
-
-
 ---
 
 
@@ -154,5 +144,4 @@ bash ./examples/SimplerEnv/train_files/run_oxe_train.sh
 ```
 
 ⚠️ **Note:** Ensure that the script explicitly uses the validated config path in `run_lerobot_datasets.sh`. If not already passed, add the `--config_yaml` argument.
-
 

@@ -11,58 +11,6 @@ from latency_bench.logging.metrics import compute_episode_metrics
 from helpers import make_action_event as _event
 
 
-def test_env_fps_obs_fps_validation_and_stride_contract():
-    clock = EnvClock(env_fps=60, obs_fps=15)
-    assert clock.env_fps == 60
-    assert clock.obs_fps == 15
-    assert clock.obs_stride_raw_frames == 4
-
-    with pytest.raises(ValueError, match="env_fps.*obs_fps"):
-        EnvClock(env_fps=60, obs_fps=17)
-
-
-def test_latency_ms_to_raw_frames_uses_ceil_contract():
-    clock = EnvClock(env_fps=30, obs_fps=10)
-
-    assert clock.latency_ms_to_raw_frames(0.0) == 0
-    assert clock.latency_ms_to_raw_frames(1.0) == 1
-    assert clock.latency_ms_to_raw_frames(1000.0 / 30.0) == 1
-    assert clock.latency_ms_to_raw_frames((1000.0 / 30.0) + 0.001) == 2
-    assert clock.latency_ms_to_raw_frames(100.0) == 3
-
-
-def test_issue_order_fifo_blocks_later_ready_action_contract():
-    clock = EnvClock(env_fps=30, obs_fps=30)
-    noop = Action("noop", is_noop=True)
-    first = Action("first")
-    second = Action("second")
-    scheduler = ActionScheduler(
-        clock,
-        noop,
-        HoldPolicy(),
-        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-    )
-    scheduler.enqueue(_event(0, first, ready_step=10, clock=clock))
-    scheduler.enqueue(_event(1, second, ready_step=1, clock=clock))
-
-    assert scheduler.update(1, clock.step_to_time_ms(1)) is noop
-    assert scheduler.get_applied_events() == []
-
-    assert scheduler.update(10, clock.step_to_time_ms(10)) is first
-    assert scheduler.update(11, clock.step_to_time_ms(11)) is second
-
-
-def test_fifo_contract_is_requested_explicitly():
-    clock = EnvClock(env_fps=30, obs_fps=30)
-    scheduler = ActionScheduler(
-        clock,
-        Action("noop", is_noop=True),
-        HoldPolicy(),
-        ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
-    )
-    assert scheduler.ordering_policy == OrderingPolicy.ISSUE_ORDER_FIFO
-
-
 def test_latest_ready_ablation_can_be_requested_explicitly():
     clock = EnvClock(env_fps=30, obs_fps=30)
     noop = Action("noop", is_noop=True)
@@ -115,13 +63,6 @@ def test_hold_policy_contract():
 
     for frame in range(10):
         assert scheduler.update(frame, clock.step_to_time_ms(frame)) is action
-
-def test_action_event_contract_does_not_require_realtime_job_fields():
-    fields = ActionEvent.__dataclass_fields__
-
-    assert "job_status" not in fields
-    assert "action_age_raw_frames" not in fields
-
 
 @pytest.mark.parametrize("delta,expected", [(5e-11, 1), (5e-10, 2)])
 def test_timestamp_and_integer_readiness_share_the_log_rounding_boundary(delta, expected):

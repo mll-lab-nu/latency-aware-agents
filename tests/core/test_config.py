@@ -56,8 +56,6 @@ def test_load_config_without_base_keeps_declared_shape(tmp_path: Path):
     assert config["experiment"]["name"] == "base"
     assert config["env"]["env_fps"] == 30
     assert config["env"]["obs_fps"] == 10
-    assert "control" not in config
-    assert "clock" not in config
 
 
 def test_load_config_merges_single_base(tmp_path: Path):

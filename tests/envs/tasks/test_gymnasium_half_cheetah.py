@@ -109,9 +109,6 @@ def test_half_cheetah_probe_reports_native_contract(monkeypatch):
         "configs/examples/gymnasium/half_cheetah/latency_bench_eval.yaml",
         "configs/examples/gymnasium/half_cheetah/small_model_train.yaml",
         "configs/examples/gymnasium/half_cheetah/small_model_eval.yaml",
-        "configs/examples/gymnasium/half_cheetah/latency_bench_eval.yaml",
-        "configs/examples/gymnasium/half_cheetah/small_model_train.yaml",
-        "configs/examples/gymnasium/half_cheetah/small_model_eval.yaml",
         "configs/examples/gymnasium/half_cheetah/starvla_eval.yaml",
     ],
 )

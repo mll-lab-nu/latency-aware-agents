@@ -75,7 +75,11 @@ Recommended starting values:
 - DemonAttack CUDA env: `4-32`, backend `demon_attack_gpu_batched`.
 - Deadly Corridor: `8-32`, backend `auto` or `subproc`.
 
-Current Sample Factory policy batching supports Discrete, flat Tuple(Discrete, ...), and one-dimensional MultiDiscrete action spaces. Recurrent Sample Factory policies still fail fast for batched `latency_bench` eval; keep `eval_parallel_envs: 1` for those checkpoints until per-slot recurrent state batching is implemented.
+Current Sample Factory policy batching supports Discrete, flat Tuple(Discrete, ...), and one-dimensional MultiDiscrete action spaces.
+Recurrent Sample Factory policies support batched simulated evaluation with separate
+recurrent state for each environment slot. Observations identify their slot through
+`metadata["slot_id"]`, so batch positions can change. Episode and soft resets clear
+the affected slot's state before it receives new observations.
 
 ## Unsupported Paths
 

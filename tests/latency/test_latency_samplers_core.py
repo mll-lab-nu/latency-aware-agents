@@ -12,7 +12,6 @@ from latency_bench.latency.burst_profile import (
 )
 from latency_bench.latency.sample import LatencySample
 from latency_bench.latency.samplers import (
-    FixedSampler,
     HiddenRegimeSampler,
     IidInverseCdfSampler,
 )
@@ -265,12 +264,6 @@ def test_hidden_regime_quantizes_worker_service_ms_on_current_clock():
     assert sample.action_ready_raw_frames == 1
     assert sample.worker_service_raw_frames == 2
 
-
-def test_fixed_sampler_returns_constant():
-    clock = _clock()
-    sampler = FixedSampler(42.5, clock=clock)
-    assert sampler.sample().latency_ms == 42.5
-    assert sampler.latency_type == "fixed"
 
 def test_hidden_regime_burst_is_a_worker_state_not_a_merged_pattern():
     # Fit the A100 failure shape: worker 0 constantly slow inside the dwell

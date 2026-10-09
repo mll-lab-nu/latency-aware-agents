@@ -33,8 +33,9 @@ Tests mirror the source tree. A test lives in the subdirectory that matches the
 | `tests/scripts/` | `scripts/` (sweeps, manifest jobs, bash scripts, bench harnesses) |
 | `tests/integration/` | end-to-end runs (`latency_bench/run.py`) |
 
-When you add a new source module, put its tests in the matching directory (create
-it if needed). Don't add new files to the `tests/` root — the root holds only
+When a new test protects a distinct required behavior, put it in the matching
+directory. A new source module does not require a new test file. Don't add new
+files to the `tests/` root — the root holds only
 shared support (`conftest.py`, `helpers.py`, `executor_mode_helpers.py`).
 
 Test file basenames must be **globally unique** across the tree (pytest's default
@@ -44,9 +45,10 @@ import mode requires it). No `__init__.py` in test directories.
 
 ## 2. Test behavior, not implementation
 
-A test locks the **observable contract** of a unit: given input X, assert output Y,
-plus the corner cases (empty, boundary, error, concurrency). It must survive any
-internal rewrite that keeps that contract.
+A test locks the **observable contract** of a unit: given input X, assert output Y.
+Cover boundary, error, and concurrency cases only when they protect a distinct
+required behavior or plausible regression. Merge cases that cover the same risk.
+The test must survive any internal rewrite that keeps that contract.
 
 **The one rule that decides everything:**
 
@@ -89,6 +91,19 @@ internal rewrite that keeps that contract.
   (a true tautology — both can share the same bug).
 - `assert mock._internal_helper.call_count == 3` on a production-internal.
 - Exact float equality on computed values — use `pytest.approx`.
+- Tests that require invalid numeric inputs to be accepted merely because the
+  implementation does not validate them. Do not add the opposite rejection test
+  without a required input contract either.
+- Assertions that removed fields must remain absent solely because a refactor
+  removed them.
+- Tests that freeze the FPS calibration selection algorithm or the warmup
+  stability algorithm. Test required workflow behavior, such as propagating
+  calibration results and separating warmup from formal episodes.
+
+Demon Attack CPU ALE and CUDA CuLE comparisons use the same seed, reset settings,
+and action trace. Their RAM, raw RGB frames, and 84×84 observations must be equal
+element by element. Historical differences are not expected results or tolerances.
+Tests must not synchronize RAM or compensate images to make the paths agree.
 
 ---
 

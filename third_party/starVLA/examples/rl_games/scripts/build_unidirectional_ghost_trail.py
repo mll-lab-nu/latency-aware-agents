@@ -2,10 +2,9 @@
 """Build unidirectional ghost-trail composites from the existing bidirectional
 test outputs, for a side-by-side comparison.
 
-Reuses the exact same per-set candidate frames already saved by
-test_image_patching_demon_attack.py under
-ghost_trail_test_outputs_demon_attack_bidiirection/set_*/ (those are already
-the bidirectionally-selected ghosts + current frame). For each set, this
+Reads existing candidate frames from
+ghost_trail_test_outputs_demon_attack_bidiirection/set_*/frame_*.png (the
+bidirectionally-selected ghosts + current frame). For each set, this
 further prunes the ghost sequence so the trail only extends backward through
 frames that move in the same direction the ship is moving *right now* (sign
 of the most recent ghost -> current displacement, with "no movement" also

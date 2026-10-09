@@ -178,7 +178,7 @@ def test_gpu_simulator_requires_a_separate_inference_gpu(monkeypatch):
 @pytest.mark.parametrize(
     "model,workload,env_fps,obs_fps",
     [
-        ("qwenoft", "mikasa_intercept_grab_fast", 20, 20),
+        ("qwenoft", "mikasa_intercept_grab_fast", 37, 37),
     ],
 )
 def test_measure_config_resolves_task_contract_for_model_bundle(
@@ -203,6 +203,8 @@ def test_measure_config_resolves_task_contract_for_model_bundle(
         {"selected_env_fps": env_fps, "selected_obs_fps": obs_fps},
     )
 
+    assert config["env"]["env_fps"] == env_fps
+    assert config["env"]["obs_fps"] == obs_fps
     assert config["policy"]["model_config_path"] == str(model_config_path)
     assert config["policy"]["backbone_path"] == spec["backbone_path"]
     assert config["policy"]["task_contract_path"] == str(

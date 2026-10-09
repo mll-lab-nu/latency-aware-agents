@@ -77,13 +77,3 @@ while True:
 
 env.close()
 ```
-
-## Playing
-
-To play the game (human mode), run the following command:
-
-    $ flappy_bird_gymnasium
-    
-To see a random agent playing, add an argument to the command:
-
-    $ flappy_bird_gymnasium --mode random

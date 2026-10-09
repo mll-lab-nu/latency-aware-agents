@@ -180,6 +180,7 @@ def test_fixed_sampler_returns_constant():
     sampler = FixedSampler(42.5, clock=_clock())
     assert sampler.sample().latency_ms == 42.5
     assert sampler.sample().latency_ms == 42.5
+    assert sampler.latency_type == "fixed"
 
 
 def test_normal_sampler_is_deterministic_with_seed():

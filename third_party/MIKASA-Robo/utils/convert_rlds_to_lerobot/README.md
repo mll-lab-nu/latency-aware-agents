@@ -147,17 +147,6 @@ test -f "${out}/meta/stats.json"
 echo "OK: ${task}"
 ```
 
-To inspect sample frames, states, and actions with the included preview script:
-
-```bash
-uv run --project utils/convert_rlds_to_lerobot \
-  python utils/convert_rlds_to_lerobot/test.py
-```
-
-The preview script currently targets the example RememberColor LeRobot output
-path in `data_mikasa_robo/data_lerobot`; edit its `ROOT`, `REPO_ID`, or
-`EPISODE_ID` constants when inspecting another dataset.
-
 ## Notes
 
 - `--overwrite-dest` and `--skip-existing` are mutually exclusive.

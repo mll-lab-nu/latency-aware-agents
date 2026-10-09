@@ -2,9 +2,9 @@
 """Unidirectional ghost trails for *every* entity in Demon Attack (player
 ship, player bullets, enemy ships, enemy bullets) -- not just the ship.
 
-Reuses the exact same per-set candidate frames already saved by
-test_image_patching_demon_attack.py under
-ghost_trail_test_outputs_demon_attack_bidiirection/set_*/.
+Reads existing per-set candidate frames from the input directory, with
+each set stored as set_*/frame_*.png. The default input directory is
+ghost_trail_test_outputs_demon_attack_bidiirection/.
 
 Why this can't just reuse N more exact-color segmenters like the ship's:
 enemy color cycles per wave/episode (empirically: blue in one episode, olive

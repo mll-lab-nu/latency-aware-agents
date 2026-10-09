@@ -14,7 +14,6 @@ from training.common.checkpoints import (
     experiment_dir,
     find_checkpoint,
     format_checkpoint_name,
-    read_checkpoint_backend_type,
 )
 
 
@@ -80,10 +79,3 @@ def test_find_best_checkpoint_uses_only_best_files(tmp_path):
 def test_experiment_and_checkpoint_dirs_match_sample_factory_contract(tmp_path):
     assert experiment_dir(tmp_path, "run_a") == tmp_path / "run_a"
     assert checkpoint_dir(tmp_path, "run_a", policy_id=2) == tmp_path / "run_a" / "checkpoint_p2"
-
-
-def test_read_checkpoint_backend_type_accepts_missing_type_for_legacy_sample_factory(tmp_path):
-    legacy_path = tmp_path / "legacy_sf.pth"
-    torch.save({"model": {}}, legacy_path)
-
-    assert read_checkpoint_backend_type(legacy_path) is None

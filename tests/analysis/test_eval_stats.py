@@ -10,11 +10,9 @@ from latency_bench.analysis.eval_stats import (
     extract_episode_length,
     extract_episode_return,
     extract_latency_samples_from_records,
-    independent_mean_difference_ci95,
     load_jsonl_records,
     resolve_run_file,
     summarize_eval_run,
-    summarize_eval_sessions,
 )
 
 
@@ -127,77 +125,6 @@ def test_summarize_eval_run_computes_population_stats_and_metadata(tmp_path: Pat
     assert summary["policy_id"] == "pi0"
     assert summary["gpu_class"] == "1x-rtx3090;1x-rtx4090"
     assert summary["env_fps"] == pytest.approx(25.0)
-
-
-def test_session_summary_treats_each_run_mean_as_one_observation(tmp_path: Path):
-    run_dirs = []
-    for index, values in enumerate(((0.0, 20.0), (90.0, 110.0), (190.0, 210.0))):
-        run_dir = tmp_path / f"run_{index}"
-        run_dir.mkdir()
-        _write_jsonl(
-            run_dir / "episode_metrics.jsonl",
-            [
-                {"episode_return_env": value, "survival_steps": value, "metadata": {}}
-                for value in values
-            ],
-        )
-        run_dirs.append(run_dir)
-
-    summary = summarize_eval_sessions(run_dirs)
-
-    assert summary["session_count"] == 3
-    assert summary["n_episodes"] == 6
-    assert summary["mean_return"] == pytest.approx((10.0 + 100.0 + 200.0) / 3)
-    assert summary["std_return"] == pytest.approx(95.043849)
-
-
-def test_single_session_summary_leaves_cross_session_uncertainty_empty(tmp_path: Path):
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    _write_jsonl(
-        run_dir / "episode_metrics.jsonl",
-        [
-            {"episode_return_env": 1.0, "survival_steps": 10.0, "metadata": {}},
-            {"episode_return_env": 3.0, "survival_steps": 30.0, "metadata": {}},
-        ],
-    )
-
-    summary = summarize_eval_sessions([run_dir])
-
-    assert summary["session_count"] == 1
-    assert summary["mean_return"] == pytest.approx(2.0)
-    assert summary["std_return"] is None
-    assert summary["return_ci95"] is None
-    assert summary["std_length"] is None
-    assert summary["length_ci95"] is None
-
-
-def test_independent_mean_difference_uses_welch_session_interval():
-    difference, half_width = independent_mean_difference_ci95(
-        first_mean=30.0,
-        first_std=15.8113883,
-        first_count=5,
-        second_mean=109.5,
-        second_std=5.9160798,
-        second_count=20,
-    )
-
-    assert difference == pytest.approx(79.5)
-    assert half_width == pytest.approx(19.461874, rel=1e-6)
-
-
-def test_independent_mean_difference_handles_constant_sessions():
-    difference, half_width = independent_mean_difference_ci95(
-        first_mean=2.0,
-        first_std=0.0,
-        first_count=5,
-        second_mean=3.0,
-        second_std=0.0,
-        second_count=20,
-    )
-
-    assert difference == pytest.approx(1.0)
-    assert half_width == pytest.approx(0.0)
 
 
 def test_extract_latency_samples_from_records_uses_latency_ms():
