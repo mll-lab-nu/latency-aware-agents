@@ -40,13 +40,11 @@ class UserPolicy(PolicyRunner):
     """Count decisions within each episode to expose reset-state behavior."""
 
     def __init__(self, config):
-        self.config = config
         self.count = 0
         _record(config, "policy_created")
 
     def reset_state(self, slot_id=None):
         self.count = 0
-        _record(self.config, "policy_reset")
 
     def predict(self, observation):
         self.count += 1

@@ -50,6 +50,23 @@ def test_paused_slow_policy_does_not_change_trajectory():
     ]
 
 
+def test_paused_resets_policy_state_between_episodes():
+    """Regression: a new episode must not inherit the previous policy state."""
+    class EpisodePolicy(SequencePolicyRunner):
+        def reset_state(self, slot_id=None):
+            self.index = 0
+
+    actions = [Action("first"), Action("second")]
+    executor = _executor(actions, max_steps=2)
+    executor.policy = EpisodePolicy(actions)
+    try:
+        for episode_id in range(2):
+            executor.run_episode(episode_id=episode_id, eval_max_steps=2)
+            assert [action.value for action in executor.env.applied_actions] == ["first", "second"]
+    finally:
+        executor.close()
+
+
 def test_paused_logs_zero_latency(tmp_path: Path):
     _, _, _, jump_action, _ = make_dummy_parts()
     logger = TrajectoryLogger(

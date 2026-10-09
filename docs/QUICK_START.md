@@ -149,4 +149,4 @@ Balance 的输入要求见 [Balance cookbook](humanoidbench/cookbook.md)；不�
 
 Balance/MIKASA 的 `train_{qwenoft,qwenpi_v3,qwengr00t,wanoft}.sh` 都调用 `scripts/starvla/train_task.py`；通过 `--task-python` 显式指向对应模拟器环境。
 
-可选 MyoChallenge 任务，在实际执行该任务的 benchmark 环境安装 `python -m pip install -e '.[myochallenge]'`。原有 Atari / ViZDoom / Flappy 的依赖由根安装脚本处理；无需把 Isaac 或 ManiSkill 安装进去。
+Atari / ViZDoom / Flappy 的依赖由根安装脚本处理；无需把 Isaac 或 ManiSkill 安装进去。

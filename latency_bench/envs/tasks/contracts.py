@@ -22,8 +22,6 @@ _PRE_RELEASE_REGISTRATION_MODULES = {
     "latency_bench.envs.gymnasium_swimmer": "latency_bench.envs.tasks.swimmer",
     "latency_bench.envs.gymnasium_walker2d": "latency_bench.envs.tasks.walker2d",
     "latency_bench.envs.humanoidbench_sonic": "latency_bench.envs.tasks.humanoidbench.sonic",
-    "latency_bench.envs.myochallenge_table_tennis": "latency_bench.envs.tasks.myochallenge_table_tennis",
-    "latency_bench.envs.myosuite": "latency_bench.envs.tasks.myosuite",
 }
 
 

@@ -297,15 +297,27 @@ def test_build_executor_uses_injected_policy_and_skips_build_policy(tmp_path, mo
         executor.close()
 
 
-@pytest.mark.parametrize("mode", ["paused", "simulated"])
-def test_build_executor_uses_injected_environment(tmp_path, mode):
+def test_paused_executor_uses_injected_environment(tmp_path):
     env = DummyEnvAdapter(env_fps=30, max_steps=2)
-    executor = build_executor(_config(mode=mode, output_dir=str(tmp_path)), env=env)
+    executor = build_executor(_config(mode="paused", output_dir=str(tmp_path)), env=env)
     try:
         metrics = executor.run_episode(episode_id=0, seed=7, eval_max_steps=5)
         assert metrics.survival_steps == 2
     finally:
         executor.close()
+    assert env.closed
+
+
+@pytest.mark.parametrize("mode", ["paused", "simulated"])
+def test_policy_construction_failure_closes_environment(tmp_path, monkeypatch, mode):
+    """Regression: failed executor construction must release its environment."""
+    def fail_policy(config, action_resolver):
+        raise RuntimeError("user policy construction failed")
+
+    monkeypatch.setattr(executor_factory, "build_policy", fail_policy)
+    env = DummyEnvAdapter()
+    with pytest.raises(RuntimeError, match="user policy construction failed"):
+        build_executor(_config(mode=mode, output_dir=str(tmp_path)), env=env)
     assert env.closed
 
 

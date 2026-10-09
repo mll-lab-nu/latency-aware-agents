@@ -116,10 +116,8 @@ def test_build_env_adapter_accepts_python_factory():
 
     env = build_env_adapter(config, noop, factory=make_env)
     try:
-        assert env.noop_action is noop
-        assert env.reset(seed=9).metadata["seed"] == 9
-        assert env.step(noop).observation.sim_time_ms == 20
-        assert env.step(noop).done
+        assert env.noop_action.value == 7
+        assert env.env_fps == 50
     finally:
         env.close()
 

@@ -108,9 +108,6 @@ budgets listed in the next section.
   be described directly in the `env` config.
 - A native bounded `Box` action space can be described directly with its ordered
   dimension labels, per-dimension bounds, dtype, and pending no-op vector.
-- MyoSuite tasks can use the shared `LatencyBench/MyoSuite-v0` registration with
-  task-specific `base_env_id` and constructor kwargs; add a task wrapper only
-  when the task needs semantics beyond native state, action, reward, and RGB.
 - A structured or otherwise incompatible action space needs one registered
   task-owned wrapper that exposes the exact policy-facing representation.
 - An observation unsupported by the basic Sample Factory policy needs one
@@ -332,12 +329,6 @@ continuous action API:
 The Walker2d example shows the native Box case: its six-dimensional torque
 vector passes through the generic Gymnasium adapter without a finite action
 catalog wrapper.
-
-For MyoSuite variants, [`scripts/scaffold_myochallenge.py`](../scripts/scaffold_myochallenge.py)
-probes the registered task and writes the resolved Box bounds, labels, no-op,
-observation, render, timing, and native horizon. The Table Tennis script is a
-thin task-specific invocation; Baoding P1/P2 can use the shared probe and
-`LatencyBench/MyoSuite-v0` registration directly.
 
 The MuJoCo files are a worked task-owned implementation, not code that every
 Gymnasium task imports. A new task should reuse the generic interfaces and the

@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / 'docs/gym-adapt/gymnasium'
 ENVIRONMENTS = ('inverted_pendulum', 'air_raid', 'ant', 'half_cheetah', 'hopper', 'walker2d', 'humanoid')
-OTHER = (('pendulum', 'Pendulum'), ('lunar_lander', 'Lunar Lander'), ('swimmer', 'Swimmer'), ('asterix', 'Asterix'), ('myochallenge_table_tennis_p2', 'MyoChallenge Table Tennis P2'))
+OTHER = (('pendulum', 'Pendulum'), ('lunar_lander', 'Lunar Lander'), ('swimmer', 'Swimmer'), ('asterix', 'Asterix'))
 COLUMNS = (('profile', 'Profile mean / P95 (ms)'), ('l0_teacher', 'L0 teacher → L0'), ('l0_vla', 'L0 VLA → L0'), ('baseline', 'L0 VLA → real-time (B)'), ('profile_teacher', 'Profile teacher → profile (E10)'), ('final', 'Profile VLA → real-time (F)'))
 METHOD = ('Returns are mean ± population standard deviation across episodes. The profile column reports latency mean / P95 in milliseconds. '
           'L0 is simulated zero latency; B/F use measured real-time inference latency. E10 is the ten-episode simulated profile-teacher evaluation, '

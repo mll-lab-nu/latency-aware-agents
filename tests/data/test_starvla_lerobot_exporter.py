@@ -345,12 +345,12 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     rows = [
         {
             "image": str(image_path),
-            "env_name": "myochallenge_table_tennis_p2",
+            "env_name": "synthetic_continuous",
             "episode_idx": 0,
             "decision_step": step,
             "split": "train",
             "seed": 4,
-            "prompt": "Return the ball.",
+            "prompt": "Control the actuators.",
             "latency_raw_frames": 1,
             "latency_ms": 10.0,
             "raw_reward": 0.0,
@@ -370,16 +370,16 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     (raw_export / "metadata.json").write_text(
         json.dumps(
             {
-                "env_name": "myochallenge_table_tennis_p2",
+                "env_name": "synthetic_continuous",
                 "integration_name": "gymnasium",
                 "action_layout": "gymnasium_continuous_v1",
                 "reward_field": "raw_reward",
                 "action_labels": action_labels,
                 "gymnasium_task": {
-                    "task_name": "myochallenge_table_tennis_p2",
-                    "env_id": "myoChallengeTableTennisP2-v0",
+                    "task_name": "synthetic_continuous",
+                    "env_id": "SyntheticContinuous-v0",
                     "make_kwargs": {"render_mode": "rgb_array"},
-                    "registration_imports": ["myosuite"],
+                    "registration_imports": [],
                     "action_space": {
                         "type": "box",
                         "labels": action_labels,
@@ -388,7 +388,7 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
                         "dtype": "float32",
                     },
                     "noop_action": [0.0] * 275,
-                    "base_prompt": "Return the ball.",
+                    "base_prompt": "Control the actuators.",
                     "env_fps": 100.0,
                     "obs_fps": 100.0,
                     "frame_stack": 1,

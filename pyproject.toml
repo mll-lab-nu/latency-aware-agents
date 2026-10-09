@@ -31,9 +31,6 @@ dev = [
     "pyarrow==24.0.0",
     "pytest==9.0.3",
 ]
-myochallenge = [
-    "MyoSuite==2.11.6",
-]
 sonic = [
     "dm-control==1.0.28",
 ]

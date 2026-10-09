@@ -15,7 +15,6 @@ Tests mirror the source tree. A test lives in the subdirectory that matches the
 | Test directory | Source it mirrors |
 |---|---|
 | `tests/core/` | `latency_bench/core/` (config, clock, timing, actions, types) |
-| `tests/utils/` | `latency_bench/utils/` (shared runtime utilities) |
 | `tests/scheduler/` | `latency_bench/scheduler/` (action queue, decision, persistence) |
 | `tests/latency/` | `latency_bench/latency/` (samplers, profiles, bursts, calibration, hardware) |
 | `tests/executors/` | `latency_bench/executors/` (realtime, simulated, batched, paused, factory, warmup) |

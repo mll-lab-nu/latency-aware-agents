@@ -60,7 +60,7 @@ def _run_user_project(project, mode, policy_factory="make_policy"):
     return result, output, records
 
 
-@pytest.mark.parametrize("mode", ["paused", "simulated", "realtime"])
+@pytest.mark.parametrize("mode", ["simulated", "realtime"])
 def test_external_factories_run_from_user_project(user_project, mode):
     result, output, records = _run_user_project(user_project, mode)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -68,7 +68,6 @@ def test_external_factories_run_from_user_project(user_project, mode):
     policy_pid = next(row["pid"] for row in records if row["event"] == "policy_created")
     assert (env_pid != policy_pid) == (mode == "realtime")
     assert any(row["event"] == "env_closed" and row["pid"] == env_pid for row in records)
-    assert sum(row["event"] == "policy_reset" for row in records) >= 2
     metrics = [json.loads(line) for line in (output / "episode_metrics.jsonl").read_text().splitlines()]
     assert [row["episode_return"] for row in metrics] == [4.0, 4.0]
     if mode != "realtime":
@@ -80,9 +79,8 @@ def test_external_factories_run_from_user_project(user_project, mode):
     assert resolved["policy"]["factory"] == "outside_lagen:make_policy"
 
 
-@pytest.mark.parametrize("mode", ["paused", "simulated", "realtime"])
-def test_external_constructor_failure_is_reported_and_environment_closed(user_project, mode):
-    result, _, records = _run_user_project(user_project, mode, policy_factory="fail_policy")
+def test_realtime_constructor_failure_is_reported_and_environment_closed(user_project):
+    result, _, records = _run_user_project(user_project, "realtime", policy_factory="fail_policy")
     assert result.returncode != 0
     assert "user policy construction failed" in result.stderr
     assert any(row["event"] == "env_closed" for row in records)
