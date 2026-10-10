@@ -50,6 +50,34 @@ __device__ __forceinline__ float demon_cv2_gray_from_palette(uint8_t color)
     return static_cast<float>(y);
 }
 
+// Match OpenCV INTER_AREA's coefficient construction, including its edge cutoff.
+__device__ __forceinline__ int cv2_area_weights(int input_size, int output_index,
+                                              int& first, float* weights)
+{
+    const double scale = __ddiv_rn(static_cast<double>(input_size), OBS84_SIZE);
+    const double begin = __dmul_rn(static_cast<double>(output_index), scale);
+    const double end = __dadd_rn(begin, scale);
+    const double width = fmin(scale, static_cast<double>(input_size) - begin);
+    const int last = min(static_cast<int>(floor(end)), input_size - 1);
+    const int inner_first = min(static_cast<int>(ceil(begin)), last);
+    first = inner_first;
+    int count = 0;
+    if (inner_first - begin > 1e-3)
+    {
+        first = inner_first - 1;
+        weights[count++] = static_cast<float>(__ddiv_rn(inner_first - begin, width));
+    }
+    for (int i = inner_first; i < last; ++i)
+    {
+        weights[count++] = static_cast<float>(__ddiv_rn(1.0, width));
+    }
+    if (end - last > 1e-3)
+    {
+        weights[count++] = static_cast<float>(__ddiv_rn(fmin(fmin(end - last, 1.0), width), width));
+    }
+    return count;
+}
+
 __global__ void demon_generate_obs84_kernel(
     int batch_size,
     int screen_height,
@@ -68,34 +96,27 @@ __global__ void demon_generate_obs84_kernel(
     const int env = idx / (OBS84_SIZE * OBS84_SIZE);
     const int out_y = pixel / OBS84_SIZE;
     const int out_x = pixel % OBS84_SIZE;
-
-    const double y_scale = static_cast<double>(screen_height) / static_cast<double>(OBS84_SIZE);
-    const double x_scale = static_cast<double>(screen_width) / static_cast<double>(OBS84_SIZE);
-    const double y0 = static_cast<double>(out_y) * y_scale;
-    const double y1 = static_cast<double>(out_y + 1) * y_scale;
-    const double x0 = static_cast<double>(out_x) * x_scale;
-    const double x1 = static_cast<double>(out_x + 1) * x_scale;
-    const int in_y0 = static_cast<int>(floor(y0));
-    const int in_y1 = min(static_cast<int>(ceil(y1)), screen_height);
-    const int in_x0 = static_cast<int>(floor(x0));
-    const int in_x1 = min(static_cast<int>(ceil(x1)), screen_width);
-
+    int first_y, first_x;
+    float wy[4], wx[4];
+    const int ny = cv2_area_weights(screen_height, out_y, first_y, wy);
+    const int nx = cv2_area_weights(screen_width, out_x, first_x, wx);
     const uint8_t* env_frame = frame_buffer + env * TIA_FRAME_HEIGHT * screen_width;
+
+    // Keep horizontal and vertical float32 sums separate. FMA contraction changes
+    // half-integer results and therefore changes OpenCV's final nearest-even rounding.
     float value = 0.0f;
-    for (int y = in_y0; y < in_y1; ++y)
+    for (int y = 0; y < ny; ++y)
     {
-        const float wy = static_cast<float>(
-            (fmin(y1, static_cast<double>(y + 1)) - fmax(y0, static_cast<double>(y))) / y_scale);
-        for (int x = in_x0; x < in_x1; ++x)
+        float row = 0.0f;
+        for (int x = 0; x < nx; ++x)
         {
-            const float wx = static_cast<float>(
-                (fmin(x1, static_cast<double>(x + 1)) - fmax(x0, static_cast<double>(x))) / x_scale);
-            value += demon_cv2_gray_from_palette(env_frame[y * screen_width + x]) * wy * wx;
+            const float gray = demon_cv2_gray_from_palette(
+                env_frame[(first_y + y) * screen_width + first_x + x]);
+            row = __fadd_rn(row, __fmul_rn(gray, wx[x]));
         }
+        value = __fadd_rn(value, __fmul_rn(row, wy[y]));
     }
-    const float rounded = nearbyintf(value);
-    const float clamped = fminf(255.0f, fmaxf(0.0f, rounded));
-    obs_buffer[idx] = static_cast<uint8_t>(clamped);
+    obs_buffer[idx] = static_cast<uint8_t>(min(255, max(0, __float2int_rn(value))));
 }
 
 enum DemonDecisionPackedColumn : int
@@ -495,20 +516,6 @@ reset(uint32_t* seedBuffer)
 
 void
 AtariEnv::
-reset_states()
-{
-    if(use_cuda)
-    {
-        super_t::reset_states(get_policy<cule_policy>());
-    }
-    else
-    {
-        super_t::reset_states(get_policy<agency::parallel_execution_policy>());
-    }
-}
-
-void
-AtariEnv::
 step(const bool fire_reset,
      const cule::atari::Action* playerABuffer,
      const cule::atari::Action* playerBBuffer,
@@ -516,11 +523,13 @@ step(const bool fire_reset,
 {
     if(use_cuda)
     {
-        super_t::step(get_policy<cule_policy>(), fire_reset, playerABuffer, playerBBuffer, doneBuffer);
+        super_t::step_render(get_policy<cule_policy>(), fire_reset, playerABuffer, playerBBuffer, doneBuffer, frame_ptr);
     }
     else
     {
-        super_t::step(get_policy<agency::parallel_execution_policy>(), fire_reset, playerABuffer, playerBBuffer, doneBuffer);
+        auto& policy = get_policy<agency::parallel_execution_policy>();
+        super_t::step(policy, fire_reset, playerABuffer, playerBBuffer, doneBuffer);
+        super_t::preprocess(policy, tia_update_ptr, frame_ptr);
     }
 }
 
@@ -544,29 +553,26 @@ get_data(const bool episodic_life,
 void
 AtariEnv::
 generate_frames(const bool rescale,
-                const bool last_frame,
                 const size_t num_channels,
                 uint8_t* imageBuffer)
 {
     if(use_cuda)
     {
-        super_t::generate_frames(get_policy<cule_policy>(), rescale, last_frame, num_channels, imageBuffer);
+        super_t::generate_frames(get_policy<cule_policy>(), rescale, num_channels, imageBuffer);
     }
     else
     {
-        super_t::generate_frames(get_policy<agency::parallel_execution_policy>(), rescale, last_frame, num_channels, imageBuffer);
+        super_t::generate_frames(get_policy<agency::parallel_execution_policy>(), rescale, num_channels, imageBuffer);
     }
 }
 
 void
 AtariEnv::
-generate_obs84(const bool last_frame,
-               uint8_t* imageBuffer)
+generate_obs84(uint8_t* imageBuffer)
 {
     if(use_cuda)
     {
         auto& policy = get_policy<cule_policy>();
-        super_t::preprocess(policy, last_frame, tia_update_ptr, frame_ptr);
         const int threads = 256;
         const int total = static_cast<int>(num_envs * OBS84_SIZE * OBS84_SIZE);
         const int blocks = (total + threads - 1) / threads;
@@ -579,7 +585,7 @@ generate_obs84(const bool last_frame,
     }
     else
     {
-        super_t::generate_frames(get_policy<agency::parallel_execution_policy>(), true, last_frame, 1, imageBuffer);
+        super_t::generate_frames(get_policy<agency::parallel_execution_policy>(), true, 1, imageBuffer);
     }
 }
 
@@ -743,7 +749,6 @@ step_decision(const bool episodic_life,
             decision_raw_frames_advanced,
             max_episode_steps,
             static_cast<int>(batch_size));
-        super_t::preprocess_terminal(get_policy<cule_policy>(), /*last_frame=*/true, frame_ptr);
         if (raw_step >= first_obs_raw_step)
         {
             const int obs_slot = static_cast<int>(raw_step - first_obs_raw_step);
@@ -757,7 +762,6 @@ step_decision(const bool episodic_life,
                 frame_ptr,
                 imageBuffer + obs_slot * batch_size * OBS84_SIZE * OBS84_SIZE);
         }
-        super_t::reset_states(get_policy<cule_policy>());
     }
 
     demon_decision_finish_kernel<<<blocks, threads, 0, stream>>>(

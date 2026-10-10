@@ -1,6 +1,6 @@
 """CULE GPU obs must match ALE obs after the native-RGB + cv2 alignment fix.
-RAM-syncs CULE core and ALE (emulator is bit-faithful), steps identical actions, and
-compares CULE's obs to ALE's. Requires CUDA + cule + ale_py."""
+Resets CULE and ALE with the same seed and reset actions, then compares their
+observations with OpenCV preprocessing. Requires CUDA + cule + ale_py."""
 import numpy as np
 import pytest
 import torch
@@ -14,7 +14,6 @@ from ale_py import ALEInterface
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from training.common.gpu_latency import CudaLatencyScheduler
 from training.demon_attack_sf.gpu_core import CudaDemonAttackCore, demon_attack_rom_path
-from training.common.atari_cv2_obs import native_rgb_to_obs84
 
 
 def test_cule_obs_matches_ale():
@@ -27,18 +26,17 @@ def test_cule_obs_matches_ale():
     ale.setBool("color_averaging", False); ale.loadROM(demon_attack_rom_path())
     aset = [int(a) for a in ale.getMinimalActionSet()]
     ale.reset_game()
+    ale.act(aset[0])
     for idx in (1, 2):
         ale.act(aset[idx])
-    for a in range(128):
-        ale.setRAM(a, int(core.ram[0, a].item()))
     d_op = 0
     for t in range(N):
         ale.act(aset[acts[t]]); rgb = ale.getScreenRGB()
         cule = core.step_batch([acts[t]]).observations[0, 0].cpu().numpy().astype(int)
-        ale_op = native_rgb_to_obs84(torch.from_numpy(rgb)).numpy().astype(int)
+        ale_op = cv2.resize(cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY), (84, 84), interpolation=cv2.INTER_AREA).astype(int)
         d_op = max(d_op, int(np.abs(cule - ale_op).max()))
-    # Same preprocessing op + bit-faithful emulator -> identical observations.
-    assert d_op == 0, f"CULE obs vs ALE(native+op) max diff {d_op} (expected 0)"
+    # Exact OpenCV preprocessing + matching initialization -> identical observations.
+    assert d_op == 0, f"CULE obs vs ALE(cv2) max diff {d_op} (expected 0)"
 
 
 def test_cule_native_rgb_frame_matches_ale_screen():
@@ -49,10 +47,9 @@ def test_cule_native_rgb_frame_matches_ale_screen():
     ale.setBool("color_averaging", False); ale.loadROM(demon_attack_rom_path())
     aset = [int(a) for a in ale.getMinimalActionSet()]
     ale.reset_game()
+    ale.act(aset[0])
     for idx in (1, 2):
         ale.act(aset[idx])
-    for address in range(128):
-        ale.setRAM(address, int(core.ram[0, address].item()))
 
     ale.act(aset[0])
     core.step_batch([0])
@@ -63,6 +60,26 @@ def test_cule_native_rgb_frame_matches_ale_screen():
     assert got.dtype == expected.dtype == np.uint8
     assert np.array_equal(got, expected)
 
+
+
+def test_cule_preprocessing_matches_opencv_for_palette_frames():
+    """Long-lived GPU preprocessing contract for native Atari palette frames."""
+    rng = np.random.default_rng(7)
+    frames = rng.integers(0, 256, size=(5, 300, 160), dtype=np.uint8)
+    frames[0] = 0
+    frames[1] = 14
+    frames[2, :, ::2] = 0
+    frames[2, :, 1::2] = 14
+    core = CudaDemonAttackCore(batch_size=len(frames), device="cuda", noop_max=1)
+    core.reset_batch(seeds=list(range(len(frames))))
+    core.frame_buffer.copy_(torch.from_numpy(frames.reshape(len(frames), -1)))
+    rgb = core.native_rgb_frames().cpu().numpy()
+    core.env.generate_obs84(core._obs84_single.data_ptr())
+    expected = np.stack([
+        cv2.resize(cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY), (84, 84), interpolation=cv2.INTER_AREA)
+        for frame in rgb
+    ])
+    np.testing.assert_array_equal(core.observations()[:, 0].cpu().numpy(), expected)
 
 def _latency_scheduler(batch_size: int, *, obs_fps: float = 15.0) -> CudaLatencyScheduler:
     return CudaLatencyScheduler(

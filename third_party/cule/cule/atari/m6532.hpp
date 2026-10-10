@@ -52,7 +52,8 @@ void reset(State_t& s)
     UPDATE_FIELD(s.riotData, FIELD_RIOT_DDRA, 0);
     UPDATE_FIELD(s.riotData, FIELD_RIOT_SHIFT, 6);
 
-    UPDATE_FIELD(s.riotData, FIELD_RIOT_TIMER, uint8_t(s.rand & 0xFF));
+    // ALE initializes the RIOT timer in the inclusive range 25..99.
+    UPDATE_FIELD(s.riotData, FIELD_RIOT_TIMER, uint8_t(25 + (s.rand % 75)));
     s.rand = hash(s.rand);
 
     s.tiaFlags.clear(FLAG_RIOT_READ_INT);

@@ -96,6 +96,18 @@ Action getStartAction(State_t& s)
     return Action(SELECT_FIELD(s.frameData, FIELD_START_ACTION));
 }
 
+// ALE performs two four-frame soft resets. Demon Attack and Atlantis also
+// reset when applying their default game mode.
+template<typename State_t>
+static
+CULE_ANNOTATION
+int getBaseFrames(State_t& s)
+{
+    const auto game = ALE_t::get_id(s);
+    const int mode_reset = game == games::GAME_DEMON_ATTACK || game == games::GAME_ATLANTIS;
+    return ENV_NOOP_FRAMES + (2 + mode_reset) * ENV_RESET_FRAMES;
+}
+
 /** Resets the system to its start state. */
 template<typename State_t>
 static
@@ -110,6 +122,9 @@ void reset(State_t& s)
 
     // Reset timers
     M6532_t::reset(s);
+
+    // A system reset restores the cartridge bank before reading the reset vector.
+    Accessor_t::initialize(s);
 
     // Reset the processor
     M6502_t::reset(s);
@@ -157,7 +172,7 @@ void act(State_t& s, const Action& player_a_action, const Action& player_b_actio
 {
     if (ALE_t::isTerminal(s) && ALE_t::isStarted(s))
     {
-        reset(s);
+        return;
     }
 
     // Convert illegal actions into NOOPs; actions such as reset are always illegal
@@ -165,16 +180,17 @@ void act(State_t& s, const Action& player_a_action, const Action& player_b_actio
 
     const int32_t frame_number = getFrameNumber(s);
     const int32_t start_number = getStartNumber(s);
+    const int32_t base_frames = getBaseFrames(s);
 
     if(frame_number < ENV_NOOP_FRAMES)
     {
         Controller_t::set_action(s, ACTION_NOOP);
     }
-    else if(frame_number < ENV_BASE_FRAMES)
+    else if(frame_number < base_frames)
     {
         Controller_t::set_action(s, ACTION_RESET);
     }
-    else if(frame_number < (ENV_BASE_FRAMES + start_number))
+    else if(frame_number < (base_frames + start_number))
     {
         Controller_t::set_action(s, getStartAction(s));
     }
@@ -183,7 +199,7 @@ void act(State_t& s, const Action& player_a_action, const Action& player_b_actio
         Controller_t::set_actions(s, player_a_action, player_b_action);
     }
 
-    s.tiaFlags.template change<FLAG_ALE_STARTED>(frame_number >= (ENV_BASE_FRAMES + start_number));
+    s.tiaFlags.template change<FLAG_ALE_STARTED>(frame_number >= (base_frames + start_number));
 
     emulate(s);
 }

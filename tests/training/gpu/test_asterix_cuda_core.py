@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 
+import numpy as np
 import pytest
 
 
@@ -28,6 +29,40 @@ def test_asterix_cuda_core_runs_full_gpu_batch():
     assert core.reset_raw_frame_counts.cpu().tolist() == [22, 5]
     assert [info["ale.lives"] for info in infos] == [3, 3]
 
+
+
+@pytest.mark.parametrize("seed", [4, 29, 38, 28, 1, 30, 13, 27, 22, 32, 11, 25, 106, 7, 12,
+                                  23, 16, 57, 2, 67, 6, 0, 130, 21, 3, 73, 10, 14, 5, 19])
+def test_asterix_reset_and_first_step_match_ale(seed):
+    """Long-lived Asterix reset, image-read and first-transition contract."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("ale_py")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available")
+    from latency_bench.envs.tasks.asterix import make_latency_sensitive_asterix_env
+    from training.asterix_sf.gpu_core import CudaAsterixCore
+
+    cpu = make_latency_sensitive_asterix_env(
+        base_env_id="ALE/Asterix-v5", render_mode="rgb_array", screen_size=84, noop_max=30,
+        base_make_kwargs={"obs_type": "rgb", "frameskip": 1, "repeat_action_probability": 0.0,
+                          "full_action_space": False, "mode": 0, "difficulty": 0},
+    )
+    gpu = CudaAsterixCore(batch_size=1, device="cuda", noop_max=30)
+    try:
+        cpu_obs, _ = cpu.reset(seed=seed)
+        gpu_obs, _ = gpu.reset_batch(seeds=[seed])
+        np.testing.assert_array_equal(cpu_obs, gpu_obs[0].cpu().numpy())
+        np.testing.assert_array_equal(cpu.unwrapped.ale.getRAM(), gpu.ram[0].cpu().numpy())
+        for _ in range(2):
+            np.testing.assert_array_equal(cpu.unwrapped.ale.getScreenRGB(), gpu.native_rgb_frames()[0].cpu().numpy())
+        cpu_obs, _, _, _, _ = cpu.step(0)
+        result = gpu.step_batch([0])
+        np.testing.assert_array_equal(cpu_obs, result.observations[0].cpu().numpy())
+        np.testing.assert_array_equal(cpu.unwrapped.ale.getRAM(), gpu.ram[0].cpu().numpy())
+        for _ in range(2):
+            np.testing.assert_array_equal(cpu.unwrapped.ale.getScreenRGB(), gpu.native_rgb_frames()[0].cpu().numpy())
+    finally:
+        cpu.close()
 
 def test_asterix_cule_gpu_matches_ale_fixed_trace():
     torch = pytest.importorskip("torch")
@@ -78,9 +113,10 @@ def test_asterix_cule_gpu_matches_ale_fixed_trace():
     )
 
     try:
-        _, cpu_info = cpu.reset(seed=seed)
+        cpu_obs, cpu_info = cpu.reset(seed=seed)
         latency.reset(seeds=[seed])
-        gpu.reset_batch(seeds=[seed])
+        gpu_obs, _ = gpu.reset_batch(seeds=[seed])
+        np.testing.assert_array_equal(cpu_obs, gpu_obs[0].cpu().numpy())
         assert int(gpu.reset_raw_frame_counts[0]) == cpu_info["episode_frame_number"]
 
         raw_steps = torch.zeros(1, dtype=torch.int64, device="cuda")
@@ -91,8 +127,10 @@ def test_asterix_cule_gpu_matches_ale_fixed_trace():
             action = (decision * 7 + 3) % 9
             cpu_raw_frames = 0
             cpu_reward = 0.0
+            frames = []
             for _ in range(4):
-                _obs, reward, terminated, truncated, cpu_info = cpu.step(action)
+                obs, reward, terminated, truncated, cpu_info = cpu.step(action)
+                frames.append(obs[0].copy())
                 cpu_raw_frames += 1
                 cpu_reward += float(reward)
                 if terminated or truncated:
@@ -105,6 +143,12 @@ def test_asterix_cule_gpu_matches_ale_fixed_trace():
                 episode_step_idx=raw_steps,
                 max_episode_steps=108_000,
             )
+            np.testing.assert_array_equal(
+                result.observations[0].cpu().numpy(),
+                np.stack(frames + [frames[-1]] * (4 - len(frames))),
+            )
+            np.testing.assert_array_equal(cpu.unwrapped.ale.getScreenRGB(), gpu.native_rgb_frames()[0].cpu().numpy())
+            np.testing.assert_array_equal(cpu.unwrapped.ale.getRAM(), gpu.ram[0].cpu().numpy())
             raw_frames_advanced = int(result.raw_frames_advanced[0])
             cpu_score += cpu_reward
 

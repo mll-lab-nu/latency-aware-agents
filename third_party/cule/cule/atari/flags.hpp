@@ -103,7 +103,6 @@ enum
     ENV_UPDATE_SIZE  = 5000,
     ENV_NOOP_FRAMES  = 60,
     ENV_RESET_FRAMES = 4,
-    ENV_BASE_FRAMES  = ENV_NOOP_FRAMES + ENV_RESET_FRAMES,
 };
 
 // status flags
