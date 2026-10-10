@@ -59,8 +59,8 @@ def _gc_paused_until_episode_end():
     Gen-2 collections pause the whole process for a time proportional to the
     live-object count, which is long enough to delay action delivery by whole
     frames. Collection instead happens here, at the episode boundary, where
-    there is no wall-clock constraint; freezing the survivors keeps them out
-    of future scans.
+    there is no wall-clock constraint. Keep surviving objects collectable so
+    caller-owned cycles can be reclaimed after the executor closes.
     """
     was_enabled = gc.isenabled()
     gc.disable()
@@ -68,7 +68,6 @@ def _gc_paused_until_episode_end():
         yield
     finally:
         gc.collect()
-        gc.freeze()
         if was_enabled:
             gc.enable()
 

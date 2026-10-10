@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import json
+import weakref
 from types import SimpleNamespace
 from dataclasses import dataclass
 
@@ -1824,10 +1825,19 @@ def test_realtime_pipeline_warmup_keeps_steps_out_of_formal_episodes(monkeypatch
 def test_gc_paused_until_episode_end_restores_state_and_collects():
     from latency_bench.executors.realtime.executor import _gc_paused_until_episode_end
 
+    class CallerOwnedCycle:
+        pass
+
+    value = CallerOwnedCycle()
+    value.self_reference = value
+    reference = weakref.ref(value)
     assert gc.isenabled()
     with _gc_paused_until_episode_end():
         assert not gc.isenabled()
     assert gc.isenabled()
+    del value
+    gc.collect()
+    assert reference() is None
 
 
 def test_run_episode_leaves_gc_enabled():

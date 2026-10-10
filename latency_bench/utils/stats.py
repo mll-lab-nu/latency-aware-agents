@@ -15,18 +15,12 @@ def percentile_linear(values: Sequence[float], percentile: float) -> float:
     return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
 
 
-def percentile_nearest_rank(values: Sequence[float], percentile: float) -> float:
-    ordered = sorted(values)
-    index = math.ceil(percentile / 100.0 * len(ordered)) - 1
-    return float(ordered[index])
-
-
 def series_stats(values: Sequence[float]) -> dict[str, float | int]:
     return {
         "count": len(values),
         "mean": float(mean(values)),
-        "p50": percentile_nearest_rank(values, 50.0),
-        "p90": percentile_nearest_rank(values, 90.0),
+        "p50": percentile_linear(values, 50.0),
+        "p90": percentile_linear(values, 90.0),
         "max": float(max(values)),
     }
 

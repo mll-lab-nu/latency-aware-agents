@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from latency_bench.core.types import Action, ActionEvent, LatencyRecord
 from latency_bench.logging.realtime_pipeline import realtime_pipeline_profile_rows, realtime_pipeline_summary
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
@@ -74,6 +76,19 @@ def test_realtime_pipeline_summary_reports_stage_breakdown() -> None:
     assert summary["stages"]["worker_observation_localize_ms"]["mean"] == 0.6
     assert summary["stages"]["policy_wrapper_predict_action_ms"]["mean"] == 37.0
     assert summary["stages"]["env_step_ms"]["mean"] == 11.0
+
+
+def test_realtime_pipeline_summary_uses_linear_percentiles() -> None:
+    rows = realtime_pipeline_profile_rows([_profiled_event() for _ in range(4)])
+    for row, value in zip(rows, (10.0, 20.0, 30.0, 40.0)):
+        row["inference_latency_ms"] = value
+        row["env_observe_ms"] = value
+    summary = realtime_pipeline_summary(rows)
+
+    for stats in (summary["inference_latency_ms"], summary["stages"]["env_observe_ms"]):
+        assert stats["count"] == 4
+        assert stats["p50"] == pytest.approx(25.0)
+        assert stats["p90"] == pytest.approx(37.0)
 
 
 def test_trajectory_logger_writes_realtime_pipeline_profile(tmp_path) -> None:

@@ -15,6 +15,7 @@ from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.executors.thread_env import set_thread_env_defaults
 from latency_bench.latency.env_fps_calibration import select_env_fps_from_latency_samples
 from latency_bench.latency.hardware_info import visible_cuda_device_count
+from latency_bench.utils.stats import percentile_linear
 
 
 DEFAULT_SAMPLES = 120
@@ -220,8 +221,8 @@ def _summary(values: list[float]) -> dict[str, float | int]:
         "n": len(ordered),
         "mean": statistics.mean(ordered),
         "median": statistics.median(ordered),
-        "p90": ordered[int(0.90 * (len(ordered) - 1))],
-        "p95": ordered[int(0.95 * (len(ordered) - 1))],
+        "p90": percentile_linear(ordered, 90.0),
+        "p95": percentile_linear(ordered, 95.0),
         "min": ordered[0],
         "max": ordered[-1],
     }

@@ -5,8 +5,16 @@ import os
 from pathlib import Path
 
 import yaml
+import pytest
 
 from latency_bench.executors.thread_env import THREAD_ENV_DEFAULTS
+from latency_bench.profiling.calibration import _summary
+
+
+def test_calibration_summary_uses_linear_percentiles():
+    summary = _summary([10.0, 20.0, 30.0, 40.0])
+    assert summary["p90"] == pytest.approx(37.0)
+    assert summary["p95"] == pytest.approx(38.5)
 
 
 def _write_config(path: Path) -> None:
