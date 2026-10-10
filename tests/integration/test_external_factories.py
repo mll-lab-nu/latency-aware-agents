@@ -25,7 +25,7 @@ def user_project(tmp_path):
 
 
 def _run_user_project(project, mode, policy_factory="make_policy", *, collection=False,
-                      parallel_envs=1, inference_pool=False):
+                      parallel_envs=1, inference_pool=False, continuous=False, include_state=False):
     output = project / "output"
     config = {
         "experiment": {"name": "outside_project", "seed": 7},
@@ -54,6 +54,19 @@ def _run_user_project(project, mode, policy_factory="make_policy", *, collection
                              action_map={"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4},
                              noop_action="zero")
         config["collection"] = {"student_observation": {"image_key": None if parallel_envs > 1 else "rgb"}, "val_fraction": 0.5}
+        if continuous:
+            for key in ("action_order", "action_map"):
+                del config["env"][key]
+            config["env"].update(
+                noop_action=[0.0],
+                action_space={"type": "box", "shape": [1], "dtype": "float32",
+                              "low": [-5.0], "high": [5.0], "labels": ["command"]},
+            )
+        if include_state:
+            config["env"]["state_space"] = {"labels": ["count"]}
+            config["collection"]["student_observation"].update(
+                state_key="student_state", state_source="data",
+            )
         config["latency"] = {"method": "fixed", "fixed_latency_ms": 100} if mode == "simulated" else {"method": "zero"}
         config["evaluation"]["eval_parallel_envs"] = parallel_envs
         config["executor"]["simulated_inference_pool"] = inference_pool
@@ -92,7 +105,7 @@ def test_external_collection_preserves_inputs_across_execution_modes(
     import numpy as np
     import pyarrow.parquet as pq
     from PIL import Image
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 
     result, output, records = _run_user_project(
         user_project, mode, collection=True, parallel_envs=parallel_envs, inference_pool=inference_pool,
@@ -137,3 +150,57 @@ def test_realtime_constructor_failure_is_reported_and_environment_closed(user_pr
     assert result.returncode != 0
     assert "user policy construction failed" in result.stderr
     assert any(row["event"] == "env_closed" for row in records)
+
+
+@pytest.mark.parametrize("mode,continuous,include_state", [
+    ("paused", False, False), ("simulated", False, True),
+    ("simulated", True, False), ("paused", True, True),
+])
+def test_collected_dataset_loads_starvla_training_batch(
+    user_project, monkeypatch, mode, continuous, include_state,
+):
+    """Long-lived collection/conversion/loader contract for external task authors."""
+    pytest.importorskip("accelerate")
+    import numpy as np
+    import pyarrow.parquet as pq
+    from accelerate import Accelerator
+    from omegaconf import OmegaConf
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "third_party/starVLA"))
+    from starVLA.dataloader import build_dataloader
+
+    result, raw, _ = _run_user_project(
+        user_project, mode, collection=True, continuous=continuous, include_state=include_state,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    manifest = convert_canonical_rollout_to_lerobot(raw, user_project / "lerobot")
+    # Use the training entrypoint, including generated mixtures and its collator.
+    Accelerator(cpu=True)
+    cfg = OmegaConf.create({"datasets": {"vla_data": {
+        "data_root_dir": str(user_project), "data_mix": "lerobot",
+        "custom_mixtures_path": manifest["custom_mixtures_path"],
+        "gymnasium_task_contract": manifest["gymnasium_task"],
+        "active_action_dim": manifest["active_action_dim"], "include_state": include_state,
+        "video_backend": "pyav", "per_device_batch_size": 2,
+        "num_workers": 0, "pin_memory": False, "persistent_workers": False,
+    }}})
+    episode_ids = []
+    for split, data_mix in (("train", "lerobot"), ("val", "lerobot__val")):
+        rows = pq.read_table(raw / f"{split}.parquet").to_pylist()
+        episode_ids.append({row["episode_idx"] for row in rows})
+        loader = build_dataloader(cfg, dataset_py="lerobot_datasets", data_mix=data_mix,
+                                  mode="train" if split == "train" else "eval",
+                                  save_statistics_filename=None)
+        batch = next(iter(loader))
+        assert len(batch) == 2
+        for sample in batch:
+            pixel = int(np.asarray(sample["image"][0])[0, 0, 0])
+            row = next(row for row in rows if row["decision_step"] == pixel)
+            np.testing.assert_array_equal(sample["action"], [row["action"]])
+            assert sample["lang"] == row["prompt"]
+            assert sample["action_env_dim"] == (1 if continuous else 5)
+            assert ("state" in sample) == include_state
+            if include_state:
+                np.testing.assert_allclose(sample["state"], [[pixel * 2 / 3 - 1]], atol=1e-6)
+    assert episode_ids[0].isdisjoint(episode_ids[1])

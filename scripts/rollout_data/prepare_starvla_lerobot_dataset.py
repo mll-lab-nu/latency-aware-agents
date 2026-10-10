@@ -9,7 +9,7 @@ from typing import Sequence
 
 from huggingface_hub import HfApi
 
-from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 
 
 def resolve_token() -> str | None:

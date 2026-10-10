@@ -8,7 +8,7 @@ contracts as [external components](custom_components.md).
 ```python
 from latency_bench.core.config import load_config
 from latency_bench.data.rollout import collect_rollouts
-from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 
 result = collect_rollouts(load_config("collect.yaml"))
 manifest = convert_canonical_rollout_to_lerobot(
@@ -118,3 +118,52 @@ New datasets record `label_provenance.semantics: teacher_issued_command`.
 The previous ordinary continuous-action SF path could replace the teacher command
 with `applied_action`. This path now records the issued command. Published older
 data remains readable, and is not relabeled or rewritten by collection.
+
+
+## StarVLA training handoff
+
+Convert the completed canonical directory directly:
+
+```python
+from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+
+manifest = convert_canonical_rollout_to_lerobot("dataset", "lerobot/train")
+```
+
+The converter writes the training dataset, its `train__val` companion, and
+`manifest.json` in each directory. It also writes `latency_prompt_map.json` and
+`_generated_mixtures/train.json`. The returned manifest identifies these files,
+the task contract, active action dimensions, carrier padding and state statistics.
+An empty validation split stays empty.
+
+Use `datasets.vla_data.dataset_py: lerobot_datasets` with the StarVLA reference
+loader. Set `data_root_dir` to `lerobot`, `data_mix` to `train`, and
+`custom_mixtures_path` to the path returned in the manifest. Copy
+`gymnasium_task` to `gymnasium_task_contract`, `active_action_dim` unchanged, and
+`uses_state` to `include_state`. These fields describe the collected student
+inputs. Privileged teacher state is not an additional student input.
+
+The converter writes raw state values and records training min/max in the
+Gymnasium handoff manifest for inference. The Gymnasium training loader applies
+its existing min/max transform using dataset statistics. Its language field is
+`annotation.human.action.task_description`, mapped to `task_index` in the metadata.
+
+The generic training mixture merges its source statistics. The validation loader
+currently computes its own statistics, while inference reads the manifest.
+These existing parameter sources can differ; this refactor does not establish
+training/validation/inference equivalence. Changing those sources requires a
+separate behavior review.
+
+The converter preserves source image resolution and records image geometry in
+`meta/info.json`. The reference loader resizes model images to 224 × 224. `action_carrier="native"`
+retains the action width. `"bridge"` pads to seven dimensions and rejects wider
+actions; `active_action_dim` identifies the unpadded dimensions.
+
+Balance and MIKASA reference recipes use
+`latency_bench.integrations.starvla.task_contracts.prepare_lerobot` to prepare
+existing LeRobot data. They write `task_contract.json` and training-derived
+statistics for the `latency_bench_tasks` loader. Validation and DAgger datasets
+reuse the specified training contract. Their existing multi-view, chunk and mask
+recipes still define the labels. Generic conversion does not generate those labels.
+
+Canonical data remains usable by external training code without StarVLA.

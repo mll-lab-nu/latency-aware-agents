@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("omegaconf", exc_type=ImportError)
 
 from latency_bench.core.actions import ActionResolver
-from latency_bench.integrations import starvla_runtime
+from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
 from latency_bench.policy.factory import build_policy

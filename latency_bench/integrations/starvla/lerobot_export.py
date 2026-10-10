@@ -22,7 +22,6 @@ from latency_bench.data.action_layouts import (
     action_spec_for_env,
 )
 from latency_bench.data.filters import density_weights_clean_v1
-from latency_bench.data.state_normalization import min_max_normalize_state
 
 STATE_DIM = 1
 BRIDGE_ACTION_DIM = 7
@@ -201,7 +200,7 @@ def _convert_legacy_export(
         env_name=env_name, integration_name=env_name, action_labels=action_labels,
         active_action_dim=len(action_labels), state_dim=STATE_DIM, state_labels=["state"],
         context_image_count=None, image_shape=None, fps=fps, reward_field=reward_field,
-        state_normalization=None, include_state=False,
+        include_state=False,
     )
     train_manifest = _convert_split(
         _load_rows(raw_export_dir, "train"), output_dir, density_weighting=True, **common,
@@ -280,19 +279,11 @@ def _convert_history_game_export(
         "image_shape": image_shape,
         "fps": metadata["obs_fps"],
         "reward_field": metadata["reward_field"],
-        "state_normalization": None,
         "include_state": True,
         "density_weighting": False,
     }
     train_manifest = _convert_split(train_rows, output_dir, **common)
     val_manifest = _convert_split(val_rows, val_output_dir, **common)
-    for directory in (output_dir, val_output_dir):
-        modality_path = directory / "meta/modality.json"
-        modality = json.loads(modality_path.read_text())
-        modality["annotation"] = {
-            "human.action.task_description": {"original_key": "task_index"}
-        }
-        modality_path.write_text(json.dumps(modality, indent=2) + "\n")
     prompt_map_path, mixture_path = _write_starvla_handoff_files(
         output_dir, val_output_dir, env_name=env_name,
         integration_name=env_name, rows=[*train_rows, *val_rows],
@@ -516,7 +507,7 @@ def _write_metadata(
                     },
                     "video": {"image": {"original_key": "observation.image"}},
                     "annotation": {
-                        "human.task_description": {"original_key": "task_index"}
+                        "human.action.task_description": {"original_key": "task_index"}
                     },
                 },
                 indent=2,
@@ -553,7 +544,6 @@ def _convert_split(
     image_shape: tuple[int, int, int] | None,
     fps: float,
     reward_field: str,
-    state_normalization: dict[str, Any] | None,
     include_state: bool,
     density_weighting: bool = False,
 ) -> dict[str, Any]:
@@ -615,12 +605,7 @@ def _convert_split(
                 "density_weight": float(density_weights[frame_idx]),
             }
             if include_state:
-                state = np.asarray(row["state"], dtype=np.float32)
-                if state_normalization is not None:
-                    state_min = np.asarray(state_normalization["min"], dtype=np.float32)
-                    state_max = np.asarray(state_normalization["max"], dtype=np.float32)
-                    state = min_max_normalize_state(state, state_min, state_max)
-                out_row["state"] = state.tolist()
+                out_row["state"] = row["state"]
             if image_shape is not None and "issued_command_chunk" in row:
                 out_row["issued_command_chunk"] = row["issued_command_chunk"]
             for mask_key in ("action_prefix_mask", "action_loss_mask"):
@@ -683,18 +668,17 @@ def convert_canonical_rollout_to_lerobot(
     *,
     force: bool = False,
     action_carrier: str = "native",
-    normalize_state: bool = True,
     write_starvla_handoff: bool = True,
 ) -> dict[str, Any]:
-    """Convert a canonical rollout export into train/val LeRobot datasets.
+    """Convert canonical rollouts to LeRobot, preserving raw state and action units.
+
+    Gymnasium handoff metadata records training min/max for inference. The
+    registered training loader owns the state transform, using dataset statistics.
 
     Args:
         raw_export_dir: Directory with canonical rollout parquet files and metadata.
         output_dir: Destination LeRobot train dataset directory.
         force: Remove existing train/val output directories before writing.
-        normalize_state: Apply the existing min-max state transform when the
-            canonical export includes a state vector. When disabled, an
-            explicit ``state`` field in canonical rows is copied as-is.
         write_starvla_handoff: Write the existing StarVLA prompt/mixture handoff
             files and manifest fields.
 
@@ -771,9 +755,9 @@ def convert_canonical_rollout_to_lerobot(
     if admission_filtered:
         train_rows = [row for row in train_rows if row["command_admitted"]]
         val_rows = [row for row in val_rows if row["command_admitted"]]
-    uses_state = "state_space" in gymnasium_task
-    if not normalize_state:
-        uses_state = any("state" in row for row in [*train_rows, *val_rows])
+    uses_state = "state_space" in gymnasium_task or any(
+        "state" in row for row in [*train_rows, *val_rows]
+    )
     if uses_state:
         if "state_space" in gymnasium_task:
             state_labels = list(gymnasium_task["state_space"]["labels"])
@@ -794,7 +778,7 @@ def convert_canonical_rollout_to_lerobot(
     if val_output_dir.exists() and force:
         shutil.rmtree(val_output_dir)
     state_normalization = None
-    if uses_state and normalize_state:
+    if uses_state and write_starvla_handoff:
         train_states = np.asarray([row["state"] for row in train_rows], dtype=np.float32)
         state_normalization = {
             "type": "min_max",
@@ -824,7 +808,6 @@ def convert_canonical_rollout_to_lerobot(
         image_shape=image_shape,
         fps=fps,
         reward_field=reward_field,
-        state_normalization=state_normalization,
         include_state=uses_state,
         density_weighting=True,
     )
@@ -841,7 +824,6 @@ def convert_canonical_rollout_to_lerobot(
         image_shape=image_shape,
         fps=fps,
         reward_field=reward_field,
-        state_normalization=state_normalization,
         include_state=uses_state,
         density_weighting=False,
     )

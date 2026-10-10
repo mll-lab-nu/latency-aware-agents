@@ -10,7 +10,7 @@ import numpy as np
 import numpy.typing as npt
 
 from latency_bench.core.clock import EnvClock
-from latency_bench.integrations import starvla_runtime
+from latency_bench.integrations.starvla import runtime as starvla_runtime
 
 
 def _observation_stride_raw_frames(config: Mapping[str, Any]) -> int:

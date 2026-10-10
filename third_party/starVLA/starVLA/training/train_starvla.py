@@ -1141,7 +1141,7 @@ class VLATrainer(TrainerUtils):
             command = json.loads(continue_path.read_text(encoding="utf-8"))
         else:
             # latency_bench is an optional integration for upstream StarVLA training.
-            from latency_bench.integrations.starvla_resident_dagger import serve_resident_inference
+            from latency_bench.integrations.starvla.resident_dagger import serve_resident_inference
             from latency_bench.policy.starvla import build_live_starvla_policy
 
             resident_config = json.loads(

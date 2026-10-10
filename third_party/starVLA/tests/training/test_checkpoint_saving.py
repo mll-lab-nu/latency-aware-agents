@@ -179,7 +179,7 @@ def test_completed_dagger_boundary_refreshes_dataset_without_reopening_service(t
 
 
 def test_dagger_boundary_serves_eval_model_then_restores_training(tmp_path, monkeypatch) -> None:
-    from latency_bench.integrations import starvla_resident_dagger
+    from latency_bench.integrations.starvla import resident_dagger as starvla_resident_dagger
     from latency_bench.policy import starvla
 
     class Model(torch.nn.Linear):

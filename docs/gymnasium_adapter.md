@@ -357,7 +357,7 @@ pytest -q \
   tests/envs/adapters/test_gymnasium_env_adapter.py \
   tests/training/test_gymnasium_sf.py \
   tests/integration/sample_factory/test_gymnasium_teacher_export.py \
-  tests/data/test_starvla_lerobot_exporter.py \
+  tests/integrations/starvla/test_starvla_lerobot_exporter.py \
   tests/policies/test_generic_gymnasium_starvla_policy.py
 ```
 

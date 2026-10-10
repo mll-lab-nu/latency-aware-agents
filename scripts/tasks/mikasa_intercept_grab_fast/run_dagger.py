@@ -14,7 +14,7 @@ import uuid
 
 import yaml
 
-from latency_bench.data.starvla_tasks import read_task_contract
+from latency_bench.integrations.starvla.task_contracts import read_task_contract
 from scripts.starvla.dagger_mixture import write_dagger_mixture
 from scripts.starvla.train_task import inference_bundle
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES

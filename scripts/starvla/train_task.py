@@ -19,7 +19,7 @@ import yaml
 from latency_bench.core.config import load_config
 from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.analysis.eval_stats import summarize_eval_run
-from latency_bench.data.starvla_tasks import TASK_SPECS, read_task_contract, task_spec
+from latency_bench.integrations.starvla.task_contracts import TASK_SPECS, read_task_contract, task_spec
 from latency_bench.eval.reporting import _log_corrected_eval_summaries_to_wandb, _summary_latency_label
 from latency_bench.utils.hf import resolve_token
 from scripts.starvla import artifacts, runtime
@@ -194,7 +194,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                 shutil.copytree(snapshot / ref['path'], shared)
                 ref['revision'] = revision
             else:
-                from scripts.starvla.prepare_dataset import prepare_lerobot
+                from latency_bench.integrations.starvla.task_contracts import prepare_lerobot
 
                 provenance = {'task': task_spec(args.task).name, 'kind': 'bootstrap',
                               'code_revisions': code_revisions(args.task)}
@@ -600,8 +600,8 @@ def _balance_dagger_collection(args, teacher, policy_path, directory, round_numb
 
 def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict,
                    round_number: int, bootstrap: Path, bootstrap_reference: dict) -> Path:
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
-    from scripts.starvla.prepare_dataset import prepare_lerobot
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+    from latency_bench.integrations.starvla.task_contracts import prepare_lerobot
 
     directory = args.output_dir / 'dagger' / f'round-{round_number:02d}'
     directory.mkdir(parents=True, exist_ok=True)
@@ -616,7 +616,7 @@ def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict
     converted = directory / '_converted'
     convert_canonical_rollout_to_lerobot(
         directory / 'raw', converted, force=True, action_carrier='native',
-        normalize_state=False, write_starvla_handoff=False,
+        write_starvla_handoff=False,
     )
 
     converted_val = converted.with_name(f'{converted.name}__val')

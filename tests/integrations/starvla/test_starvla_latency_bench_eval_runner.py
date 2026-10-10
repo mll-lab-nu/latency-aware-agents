@@ -9,8 +9,8 @@ pytest.importorskip("starVLA.training.rl_games", exc_type=ImportError)
 OmegaConf = pytest.importorskip("omegaconf", exc_type=ImportError).OmegaConf
 
 from latency_bench.core.types import EpisodeMetrics
-from latency_bench.integrations import starvla_rl_games_eval_runner as runner_mod
-from latency_bench.integrations.starvla_rl_games_eval_runner import (
+from latency_bench.integrations.starvla import rl_games_eval_runner as runner_mod
+from latency_bench.integrations.starvla.rl_games_eval_runner import (
     LatencyBenchRlGamesEvalRunner,
     build_latency_bench_config_for_rl_games,
 )

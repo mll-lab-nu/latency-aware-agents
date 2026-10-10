@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from latency_bench.core.types import Observation
-from latency_bench.data.starvla_tasks import TASK_SPECS
+from latency_bench.integrations.starvla.task_contracts import TASK_SPECS
 from latency_bench.policy.action_prefix import encode_prefix_state
 from latency_bench.policy.starvla_tasks import TaskStarVlaPolicyRunner
 

@@ -10,7 +10,7 @@ from PIL import Image
 
 from latency_bench.core.types import Action, PolicyOutput
 from latency_bench.data.rollout import collect_rollouts
-from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
 from latency_bench.policy.base import PolicyRunner
 
@@ -117,7 +117,7 @@ def test_continuous_source_snapshots_and_labels_survive_conversion(config, tmp_p
     if latency_ms:
         assert all(env.applied[:4] == [0.0, 0.0, 0.0, 1.0] for env in CounterEnv.instances)
     assert all(env.closed for env in CounterEnv.instances)
-    manifest = convert_canonical_rollout_to_lerobot(output, tmp_path / "lerobot", normalize_state=False)
+    manifest = convert_canonical_rollout_to_lerobot(output, tmp_path / "lerobot")
     assert manifest["frames"] == 2
     converted = pq.read_table(next((tmp_path / "lerobot/data").rglob("*.parquet"))).to_pylist()
     assert [row["action"] for row in converted] == [[1.0], [3.0]]

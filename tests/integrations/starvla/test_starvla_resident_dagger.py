@@ -5,7 +5,7 @@ import threading
 import time
 
 from latency_bench.core.types import Action, Observation, PolicyOutput
-from latency_bench.integrations.starvla_resident_dagger import (
+from latency_bench.integrations.starvla.resident_dagger import (
     ResidentInferencePool,
     serve_resident_inference,
 )

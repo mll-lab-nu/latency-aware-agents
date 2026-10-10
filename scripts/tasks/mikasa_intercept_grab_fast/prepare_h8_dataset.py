@@ -12,8 +12,8 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from latency_bench.data.starvla_tasks import read_task_contract, task_spec, write_task_contract
-from scripts.starvla.prepare_dataset import _rewrite_dataset, _write_manifest
+from latency_bench.integrations.starvla.task_contracts import read_task_contract, task_spec, write_task_contract
+from latency_bench.integrations.starvla.task_contracts import _rewrite_dataset, _write_manifest
 
 
 SOURCE_REPO_ID = "MLL-Lab/LAGEN-datasets"

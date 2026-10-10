@@ -9,19 +9,7 @@ import pyarrow.parquet as pq
 from latency_bench.data.hf_parquet import (
     write_episode_row_shard, write_parquet_splits_from_shards, load_parquet_splits,
 )
-from helpers import save_test_image
-
-
-def write_rollout_fixture(output_dir, train_rows, val_rows, *, action_spec):
-    """Build converter fixtures through the maintained canonical storage boundary."""
-    for rows in (train_rows, val_rows):
-        for _, episode in groupby(sorted(rows, key=lambda row: row["episode_idx"]),
-                                  key=lambda row: row["episode_idx"]):
-            write_episode_row_shard(output_dir, list(episode))
-    write_parquet_splits_from_shards(output_dir, action_spec=action_spec)
-    for shard in output_dir.glob("episode_rows/*/*.jsonl"):
-        shard.unlink()
-    return load_parquet_splits(output_dir)
+from helpers import save_test_image, write_rollout_fixture
 
 
 def test_hf_parquet_embeds_images_and_writes_empty_validation_split(tmp_path):

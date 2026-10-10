@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from latency_bench.core.actions import ActionResolver
-from latency_bench.integrations import starvla_runtime
+from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.core.types import Observation
 from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy.factory import build_policy

@@ -10,11 +10,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from helpers import save_test_image
+from helpers import REPO_ROOT, save_test_image
 
 
 def test_load_rows_preserves_nested_values_and_order_across_batches(tmp_path):
-    from latency_bench.data.lerobot_export import _load_rows
+    from latency_bench.integrations.starvla.lerobot_export import _load_rows
 
     rows = [
         {
@@ -33,45 +33,66 @@ def test_load_rows_preserves_nested_values_and_order_across_batches(tmp_path):
     assert _load_rows(tmp_path, "train") == rows
 
 
-def test_write_episode_preserves_prefix_and_loss_masks(tmp_path):
-    from latency_bench.data.lerobot_export import _write_episode
+def test_balance_preparation_preserves_raw_state_masks_and_training_statistics(tmp_path):
+    """Long-lived task handoff: Balance owns its annotation, masks and frozen statistics."""
+    from latency_bench.data.hf_parquet import embed_image_rows
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+    from latency_bench.integrations.starvla.task_contracts import prepare_lerobot, task_spec
 
-    row = {
-        "image_bytes": b"png",
-        "state": [0.0, 1.0],
-        "action": [0.0, 1.0],
-        "timestamp": 0.0,
-        "episode_index": 0,
-        "frame_index": 0,
-        "task_index": 0,
-        "latency_raw_frames": 2,
-        "done": True,
-        "reward": 0.0,
-        "density_weight": 1.0,
-        "issued_command_chunk": [[0.0, 1.0]] * 4,
-        "action_prefix_mask": [True, True, False, False],
-        "action_loss_mask": [False, False, True, False],
-    }
-    path = tmp_path / "episode.parquet"
+    spec = task_spec("balance_profile_h8")
+    labels = [f"joint_{index}" for index in range(spec.action_dim)]
+    image = tmp_path / "image.png"
+    save_test_image(image, 7)
+    raw = tmp_path / "raw"
+    rows = [{
+        "image": str(image), "env_name": spec.name, "episode_idx": episode,
+        "decision_step": 0, "split": "train" if episode < 2 else "val", "seed": episode,
+        "prompt": "Keep balance.", "latency_raw_frames": 2, "latency_ms": 40.0,
+        "raw_reward": 1.0, "state": [value] * spec.state_dim,
+        "action": [value / 10] * spec.action_dim, "action_text": "balance",
+        "issued_command_chunk": [[value / 10] * spec.action_dim] * spec.action_horizon,
+        "action_prefix_mask": [True, True] + [False] * 6,
+        "action_loss_mask": [False, False] + [True] * 6,
+    } for episode, value in enumerate([2.0, 4.0, 6.0])]
+    # Balance's recipe writes chunk/mask columns outside the single-action schema.
+    raw.mkdir()
+    train = pa.Table.from_pylist(embed_image_rows(rows[:2]))
+    pq.write_table(train, raw / "train.parquet")
+    pq.write_table(pa.Table.from_pylist(embed_image_rows(rows[2:]), schema=train.schema), raw / "val.parquet")
+    (raw / "metadata.json").write_text(json.dumps({
+        "env_name": spec.name, "integration_name": "gymnasium", "action_layout": "gymnasium_continuous_v1",
+        "action_labels": labels, "reward_field": "raw_reward", "rows_unit": "decision_step",
+        "obs_fps": spec.fps, "obs_stride_raw_frames": 1,
+        "gymnasium_task": {"task_name": spec.name, "action_space": {"type": "box", "labels": labels}},
+        "label_provenance": {"semantics": "teacher_issued_command"},
+    }))
+    converted = tmp_path / "converted"
+    convert_canonical_rollout_to_lerobot(raw, converted, write_starvla_handoff=False)
+    output = tmp_path / "prepared"
+    prepare_lerobot("balance_profile_h8", converted, tmp_path / "converted__val", output)
+    train_contract = json.loads((output / "task_contract.json").read_text())
+    for name, expected_rows in (("prepared", rows[:2]), ("prepared__val", rows[2:])):
+        directory = tmp_path / name
+        actual = [row for path in sorted((directory / "data").rglob("*.parquet"))
+                  for row in pq.read_table(path).to_pylist()]
+        for source, target in zip(expected_rows, actual, strict=True):
+            assert target["observation.state"] == source["state"]
+            for key in ("action_prefix_mask", "action_loss_mask"):
+                assert target[key] == source[key]
+            np.testing.assert_allclose(target["issued_command_chunk"], source["issued_command_chunk"])
+        modality = json.loads((directory / "meta/modality.json").read_text())
+        assert modality["annotation"] == {"human.task_description": {"original_key": "task_index"}}
+        contract = json.loads((directory / "task_contract.json").read_text())
+        assert contract["normalization"] == train_contract["normalization"]
+        assert contract["normalization"]["state"]["min"] == [2.0] * spec.state_dim
+        assert contract["normalization"]["state"]["max"] == [4.0] * spec.state_dim
 
-    _write_episode(
-        path,
-        [row],
-        action_dim=2,
-        state_dim=2,
-        include_state=True,
-        include_latency=True,
-    )
-
-    written = pq.read_table(path).to_pylist()[0]
-    assert written["action_prefix_mask"] == row["action_prefix_mask"]
-    assert written["action_loss_mask"] == row["action_loss_mask"]
 
 
 def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
-    from test_rollout_hf_parquet import write_rollout_fixture
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+    from helpers import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 9)
@@ -136,8 +157,8 @@ def test_starvla_lerobot_exporter_reads_canonical_rollout_schema(tmp_path):
 @pytest.mark.parametrize("task,state_dim", [("deadly_corridor", 120), ("atlantis", 56), ("asterix", 136)])
 def test_history_export_preserves_state_and_task_action_contract(tmp_path, task, state_dim):
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
-    from test_rollout_hf_parquet import write_rollout_fixture
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+    from helpers import write_rollout_fixture
     from latency_bench.core.config import load_config
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
     from latency_bench.envs.tasks.contracts import gymnasium_task_contract
@@ -197,8 +218,8 @@ def test_history_export_preserves_state_and_task_action_contract(tmp_path, task,
 @pytest.mark.parametrize("obs_fps", [15.0, 8.75])
 def test_starvla_lerobot_exporter_preserves_decision_rows_at_obs_cadence(tmp_path, obs_fps):
     from latency_bench.data.action_layouts import action_spec_for_env
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
-    from test_rollout_hf_parquet import write_rollout_fixture
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+    from helpers import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 9)
@@ -254,7 +275,7 @@ def test_starvla_lerobot_exporter_preserves_decision_rows_at_obs_cadence(tmp_pat
 
 
 def test_starvla_lerobot_exporter_requires_rows_unit_metadata(tmp_path):
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 
     raw_export = tmp_path / "raw"
     raw_export.mkdir()
@@ -277,7 +298,7 @@ def test_starvla_lerobot_exporter_requires_rows_unit_metadata(tmp_path):
 
 
 def test_starvla_lerobot_exporter_rejects_non_decision_rows(tmp_path):
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 
     raw_export = tmp_path / "raw"
     raw_export.mkdir()
@@ -303,7 +324,7 @@ def test_starvla_lerobot_exporter_rejects_non_decision_rows(tmp_path):
 @pytest.mark.parametrize("required_field", ["latency_raw_frames", "action"])
 def test_starvla_lerobot_exporter_requires_canonical_row_fields(tmp_path, required_field):
     """Long-lived conversion boundary: aliases and action IDs do not replace required fields."""
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 
     raw_export = tmp_path / "raw"
     raw_export.mkdir()
@@ -332,10 +353,10 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     tmp_path,
 ):
     from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
-    from latency_bench.data.lerobot_export import (
+    from latency_bench.integrations.starvla.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
-    from test_rollout_hf_parquet import write_rollout_fixture
+    from helpers import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 7)
@@ -438,8 +459,8 @@ def test_starvla_lerobot_exporter_preserves_high_dimensional_continuous_actions(
     assert manifest["robot_type"] == "rl_games_gymnasium"
     assert rows_out[0]["action"] == [0.0] * 275
     assert rows_out[1]["action"] == pytest.approx(actions[1])
-    assert rows_out[0]["observation.state"] == [-1.0] * 177
-    assert rows_out[1]["observation.state"] == [1.0] * 177
+    assert rows_out[0]["observation.state"] == state
+    assert rows_out[1]["observation.state"] == [value + 1 for value in state]
     assert info["features"]["action"]["shape"] == [275]
     assert info["features"]["action"]["names"] == action_labels
     assert info["features"]["observation.state"]["shape"] == [177]
@@ -466,10 +487,10 @@ def test_starvla_lerobot_exporter_writes_handoff_for_generic_continuous_state(
     action_dim,
 ):
     from latency_bench.data.action_layouts import gymnasium_continuous_action_spec
-    from latency_bench.data.lerobot_export import (
+    from latency_bench.integrations.starvla.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
-    from test_rollout_hf_parquet import write_rollout_fixture
+    from helpers import write_rollout_fixture
 
     image_path = tmp_path / "image.png"
     save_test_image(image_path, 7)
@@ -570,8 +591,8 @@ def test_starvla_lerobot_exporter_writes_handoff_for_generic_continuous_state(
     assert table.to_pylist()[0]["action"] == pytest.approx(
         [0.1] * 6 + ([0.0] if action_carrier == "bridge" else [])
     )
-    assert table.to_pylist()[0]["observation.state"] == pytest.approx([-1.0] * 17)
-    assert table.to_pylist()[1]["observation.state"] == pytest.approx([1.0] * 17)
+    assert table.to_pylist()[0]["observation.state"] == pytest.approx(list(range(17)))
+    assert table.to_pylist()[1]["observation.state"] == pytest.approx(list(range(1, 18)))
     assert modality["state"]["game_state"]["end"] == 17
     assert (output_dir / "latency_prompt_map.json").exists()
     assert (
@@ -584,19 +605,10 @@ def test_starvla_lerobot_exporter_writes_handoff_for_generic_continuous_state(
     }
     info = json.loads((output_dir / "meta/info.json").read_text())
     assert info["features"]["observation.state"]["names"] == state_labels
-    if action_carrier == "native":
-        raw_output = tmp_path / "raw_state"
-        raw_manifest = convert_canonical_rollout_to_lerobot(raw_export, raw_output, normalize_state=False)
-        raw_rows = pq.read_table(raw_output / "data/chunk-000/episode_000000.parquet").to_pylist()
-        assert [row["observation.state"] for row in raw_rows] == [
-            [float(index) for index in range(17)],
-            [float(index + 1) for index in range(17)],
-        ]
-        assert raw_manifest["state_normalization"] is None
 
 
 def test_starvla_lerobot_exporter_rejects_unknown_gymnasium_action_layout(tmp_path):
-    from latency_bench.data.lerobot_export import (
+    from latency_bench.integrations.starvla.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -664,7 +676,7 @@ def _write_generic_export(
     state_labels: list[str] | None = None,
 ) -> None:
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
-    from test_rollout_hf_parquet import write_rollout_fixture
+    from helpers import write_rollout_fixture
 
     action_spec = gymnasium_discrete_action_spec(ACTION_LABELS)
     write_rollout_fixture(
@@ -708,7 +720,7 @@ def _write_generic_export(
 
 
 def test_starvla_lerobot_converter_writes_handoff_contract(tmp_path):
-    from latency_bench.data.lerobot_export import (
+    from latency_bench.integrations.starvla.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -798,7 +810,7 @@ def test_starvla_lerobot_converter_writes_handoff_contract(tmp_path):
             }
         },
         "video": {"image": {"original_key": "observation.image"}},
-        "annotation": {"human.task_description": {"original_key": "task_index"}},
+        "annotation": {"human.action.task_description": {"original_key": "task_index"}},
     }
     assert prompt_map == {
         "1": {
@@ -813,25 +825,59 @@ def test_starvla_lerobot_converter_writes_handoff_contract(tmp_path):
     }
 
 
-def test_generic_dataset_language_matches_registered_loader(tmp_path, monkeypatch):
+def test_generic_loader_normalizes_raw_state_across_training_sources(tmp_path, monkeypatch):
+    """Long-lived converter/mixture contract: preserve raw units and the Gymnasium loader transform."""
     pytest.importorskip("accelerate")
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "third_party/starVLA"))
-    from examples.rl_games.train_files.data_registry.data_config import GymnasiumDataConfig
-    from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "third_party/starVLA"))
+    from omegaconf import OmegaConf
+    from starVLA.dataloader.lerobot_datasets import get_vla_dataset
+    from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+    from helpers import write_rollout_fixture
 
-    image = tmp_path / "image.png"
-    save_test_image(image, 7)
-    raw = tmp_path / "raw"
-    _write_generic_export(raw, [_canonical_row(image)])
-    converted = tmp_path / "lerobot"
-    convert_canonical_rollout_to_lerobot(raw, converted)
-    modality = json.loads((converted / "meta/modality.json").read_text())
-    language_key = GymnasiumDataConfig.language_keys[0].removeprefix("annotation.")
-    assert modality["annotation"][language_key]["original_key"] == "task_index"
+    manifest = None
+    for name, train_values in (("first", [2.0, 4.0]), ("second", [6.0, 8.0])):
+        image = tmp_path / f"{name}.png"
+        save_test_image(image, 7)
+        raw = tmp_path / f"raw_{name}"
+        train_rows = [_canonical_row(image, decision_step=step, state=[value])
+                      for step, value in enumerate(train_values)]
+        val_rows = [{**_canonical_row(image, decision_step=step, state=[value]),
+                     "episode_idx": 1, "split": "val"}
+                    for step, value in enumerate([3.0, 10.0])]
+        _write_generic_export(raw, train_rows, include_state=True)
+        write_rollout_fixture(raw, train_rows, val_rows,
+                              action_spec=gymnasium_discrete_action_spec(ACTION_LABELS))
+        manifest = convert_canonical_rollout_to_lerobot(raw, tmp_path / name)
+        for dataset_name, expected in ((name, train_values), (f"{name}__val", [3.0, 10.0])):
+            rows = pq.read_table(tmp_path / dataset_name / "data/chunk-000/episode_000000.parquet").to_pylist()
+            assert [row["observation.state"] for row in rows] == [[value] for value in expected]
+        assert manifest["state_normalization"] == {
+            "type": "min_max", "min": [train_values[0]], "max": [train_values[1]],
+        }
+
+    mixtures = tmp_path / "mixtures.json"
+    mixtures.write_text(json.dumps({
+        "train": [["first", 1.0, "rl_games_gymnasium"], ["second", 1.0, "rl_games_gymnasium"]],
+        "validation": [["first__val", 1.0, "rl_games_gymnasium"]],
+    }))
+    cfg = OmegaConf.create({
+        "data_root_dir": str(tmp_path), "data_mix": "train", "custom_mixtures_path": str(mixtures),
+        "video_backend": "pyav", "include_state": True, "shuffle": False,
+        "gymnasium_task_contract": manifest["gymnasium_task"], "active_action_dim": 3,
+    })
+    for mix, expected in (("train", [-1.0, -1 / 3, 1 / 3, 1.0]), ("validation", [-1.0, 1.0])):
+        cfg.data_mix = mix
+        dataset = get_vla_dataset(cfg, mode="eval")
+        samples = [dataset[index] for index in range(len(dataset))]
+        np.testing.assert_allclose(sorted(float(sample["state"][0, 0]) for sample in samples),
+                                   expected, atol=1e-6)
+        assert all(sample["lang"] == "Drive the car up the hill." for sample in samples)
+
 
 
 def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_state(tmp_path):
-    from latency_bench.data.lerobot_export import (
+    from latency_bench.integrations.starvla.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -877,7 +923,7 @@ def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_state(tmp_path
         "BRIDGE_PAD_6",
     ]
     assert row["action"] == [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
-    assert row["observation.state"] == [-1.0] * 17
+    assert row["observation.state"] == state
     assert info["features"]["action"]["shape"] == [7]
     assert info["features"]["observation.state"] == {
         "dtype": "float32",
@@ -887,7 +933,7 @@ def test_starvla_lerobot_bridge_carrier_pads_action_and_preserves_state(tmp_path
 
 
 def test_starvla_lerobot_bridge_carrier_rejects_more_than_seven_actions(tmp_path):
-    from latency_bench.data.lerobot_export import (
+    from latency_bench.integrations.starvla.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 
@@ -929,7 +975,7 @@ def test_starvla_lerobot_bridge_carrier_rejects_more_than_seven_actions(tmp_path
 
 
 def test_starvla_lerobot_preserves_context_images_oldest_to_newest(tmp_path):
-    from latency_bench.data.lerobot_export import (
+    from latency_bench.integrations.starvla.lerobot_export import (
         convert_canonical_rollout_to_lerobot,
     )
 

@@ -10,9 +10,9 @@ import shutil
 
 import numpy as np
 
-from latency_bench.data.starvla_tasks import read_task_contract, task_spec, write_task_contract
+from latency_bench.integrations.starvla.task_contracts import read_task_contract, task_spec, write_task_contract
 from latency_bench.policy.action_prefix import encode_prefix_state
-from scripts.starvla.prepare_dataset import _rewrite_dataset, _write_manifest
+from latency_bench.integrations.starvla.task_contracts import _rewrite_dataset, _write_manifest
 
 
 INSTRUCTION = "Intercept the rolling ball and grasp it to stop it."

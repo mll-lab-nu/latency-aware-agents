@@ -13,7 +13,7 @@ import yaml
 from latency_bench.core.types import Observation, PolicyOutput
 from latency_bench.eval.driver import run_from_config
 from latency_bench.executors.realtime.pool import ProcessInferencePool
-from latency_bench.integrations.starvla_resident_dagger import ResidentInferencePool
+from latency_bench.integrations.starvla.resident_dagger import ResidentInferencePool
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
 from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import collect

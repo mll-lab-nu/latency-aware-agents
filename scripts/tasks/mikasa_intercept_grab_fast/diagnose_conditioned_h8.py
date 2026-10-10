@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_bench.data.starvla_tasks import denormalize, normalize
+from latency_bench.integrations.starvla.task_contracts import denormalize, normalize
 
 
 def suffix_errors(prediction: np.ndarray, target: np.ndarray, mask: np.ndarray) -> dict:

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from latency_bench.data.starvla_tasks import read_task_contract, task_spec, write_task_contract
-from scripts.starvla.prepare_dataset import _rewrite_dataset, _write_manifest
+from latency_bench.integrations.starvla.task_contracts import read_task_contract, task_spec, write_task_contract
+from latency_bench.integrations.starvla.task_contracts import _rewrite_dataset, _write_manifest
 
 
 def _write_split(raw_root: Path, output: Path, episode_indices: list[int]) -> dict[str, int]:

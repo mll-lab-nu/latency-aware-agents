@@ -11,7 +11,7 @@ import numpy as np
 import yaml
 
 from latency_bench.core.config import load_config
-from latency_bench.data.starvla_tasks import task_spec
+from latency_bench.integrations.starvla.task_contracts import task_spec
 from latency_bench.policy.action_prefix import resolve_action_prefix
 from scripts.starvla import runtime
 

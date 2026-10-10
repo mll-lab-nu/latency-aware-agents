@@ -11,7 +11,7 @@ import pytest
 import torch
 import yaml
 
-from latency_bench.data.starvla_tasks import normalize, task_spec, write_task_contract
+from latency_bench.integrations.starvla.task_contracts import normalize, task_spec, write_task_contract
 from latency_bench.core.types import Action, Observation
 from latency_bench.policy.action_prefix import encode_prefix_state, resolve_action_prefix, with_action_prefix
 from scripts.starvla import runtime, train_task

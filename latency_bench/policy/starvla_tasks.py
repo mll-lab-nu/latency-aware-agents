@@ -9,8 +9,8 @@ import numpy as np
 from PIL import Image
 
 from latency_bench.core.types import Action, Observation, PolicyOutput
-from latency_bench.data.starvla_tasks import denormalize, normalize
-from latency_bench.integrations import starvla_runtime
+from latency_bench.integrations.starvla.task_contracts import denormalize, normalize
+from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 

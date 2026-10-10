@@ -9,7 +9,7 @@ def build_rl_games_eval_runner(cfg, output_dir: str):
 
         return RlGamesEvalRunner(cfg=cfg, output_dir=output_dir)
     if backend == "latency_bench":
-        from latency_bench.integrations.starvla_rl_games_eval_runner import (
+        from latency_bench.integrations.starvla.rl_games_eval_runner import (
             LatencyBenchRlGamesEvalRunner,
         )
 

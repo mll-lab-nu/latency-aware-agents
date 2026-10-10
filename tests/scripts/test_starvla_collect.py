@@ -14,7 +14,7 @@ from scripts.starvla import balance_dagger
 
 def test_balance_dagger_model_geometry_and_latency_recipes(tmp_path):
     """Long-lived experiment contract: QwenPI is H16/profile; QwenOFT baseline is H8/zero."""
-    from latency_bench.data.starvla_tasks import task_spec
+    from latency_bench.integrations.starvla.task_contracts import task_spec
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
     profile_path = tmp_path / "profile.json"

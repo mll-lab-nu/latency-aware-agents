@@ -31,9 +31,9 @@ import yaml
 
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.config import load_config
-from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 from latency_bench.executors.realtime.pool import ProcessInferencePool
-from latency_bench.integrations.starvla_resident_dagger import ResidentInferencePool
+from latency_bench.integrations.starvla.resident_dagger import ResidentInferencePool
 from scripts.starvla.balance_dagger import (
     _balance_row_for_image_path,
     _student_observation,
@@ -42,8 +42,8 @@ from scripts.starvla.balance_dagger import (
 from scripts.starvla import artifacts, runtime
 from scripts.starvla.dagger_mixture import write_dagger_mixture
 from latency_bench.policy.action_prefix import action_prefix_arrays, resolve_action_prefix
-from latency_bench.data.starvla_tasks import task_spec
-from scripts.starvla.prepare_dataset import prepare_lerobot
+from latency_bench.integrations.starvla.task_contracts import task_spec
+from latency_bench.integrations.starvla.task_contracts import prepare_lerobot
 from scripts.starvla.train_task import BACKBONES, inference_bundle, training_config
 from latency_bench.data.rollout_image_io import RolloutImageWriter
 from latency_bench.integrations.sample_factory.actions import scale_box_action
@@ -623,7 +623,7 @@ def rollout_batch(
         if not args.collect_bootstrap_only:
             converted = directory / "converted"
             convert_canonical_rollout_to_lerobot(directory, converted, action_carrier="native",
-                                                normalize_state=False, write_starvla_handoff=False)
+                                                write_starvla_handoff=False)
             prepare_lerobot(f"balance_profile_h{args.horizon}", converted, directory / "converted__val",
                             directory / "lerobot", normalization_source=args.normalization_source)
             contract_path = directory / "lerobot/task_contract.json"

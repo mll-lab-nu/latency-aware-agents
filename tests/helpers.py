@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import groupby
 from pathlib import Path
 
 import numpy as np
@@ -58,3 +59,19 @@ def save_test_image(path: Path, fill: int) -> None:
     from PIL import Image
 
     Image.fromarray(np.full((2, 2, 3), fill, dtype=np.uint8)).save(path)
+
+
+def write_rollout_fixture(output_dir, train_rows, val_rows, *, action_spec):
+    """Build converter fixtures through the maintained canonical storage boundary."""
+    from latency_bench.data.hf_parquet import (
+        write_episode_row_shard, write_parquet_splits_from_shards, load_parquet_splits,
+    )
+
+    for rows in (train_rows, val_rows):
+        for _, episode in groupby(sorted(rows, key=lambda row: row["episode_idx"]),
+                                  key=lambda row: row["episode_idx"]):
+            write_episode_row_shard(output_dir, list(episode))
+    write_parquet_splits_from_shards(output_dir, action_spec=action_spec)
+    for shard in output_dir.glob("episode_rows/*/*.jsonl"):
+        shard.unlink()
+    return load_parquet_splits(output_dir)

@@ -25,7 +25,7 @@ from latency_bench.envs.tasks.contracts import (
     gymnasium_action_space_contract,
     gymnasium_task_contract,
 )
-from latency_bench.integrations import starvla_runtime
+from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy._starvla_input import observation_data_to_hwc_uint8_frames
 from latency_bench.policy import _starvla_input as model_input, _starvla_actions as action_decode
