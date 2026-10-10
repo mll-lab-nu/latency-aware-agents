@@ -11,6 +11,7 @@ from PIL import Image
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.data.starvla_tasks import denormalize, normalize
 from latency_bench.policy.base import PolicyRunner
+from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 
 
 class TaskStarVlaPolicyRunner(PolicyRunner):
@@ -21,6 +22,11 @@ class TaskStarVlaPolicyRunner(PolicyRunner):
         self.policy_config = policy_config
         self.model_config = model_config
         self.contract = contract
+        self.latency_prompt_map = (
+            load_latency_prompt_map(policy_config["latency_prompt_map_path"])
+            if "latency_prompt_map_path" in policy_config
+            else None
+        )
 
     def _example(self, observation: Observation) -> dict:
         cfg = self.policy_config
@@ -39,7 +45,16 @@ class TaskStarVlaPolicyRunner(PolicyRunner):
 
             # MIKASA's two simultaneous views form one Wan observation, not a video.
             images = [stitch_frames(images, grid=data_cfg["stitch_grid"], size=(width, height))]
-        example = {"image": images, "state": state, "lang": self.contract["prompt"]}
+        language = self.contract["prompt"]
+        if self.latency_prompt_map is not None:
+            language = resolve_starvla_prompt(
+                env_name=self.contract["task"],
+                observation_metadata=observation.metadata,
+                latency_prompt_map=self.latency_prompt_map,
+                prompt_mode=cfg.get("prompt_mode"),
+                latency_prompt_key=cfg.get("latency_prompt_key"),
+            )
+        example = {"image": images, "state": state, "lang": language}
         if "action_prefix" in observation.metadata:
             example["action_prefix"] = normalize(
                 observation.metadata["action_prefix"],
@@ -81,7 +96,12 @@ def build_task_starvla_policy(config: dict) -> TaskStarVlaPolicyRunner:
     from starVLA.model.framework.share_tools import read_mode_config
 
     cfg = config["policy"]
-    model_config, _ = read_mode_config(cfg["checkpoint_path"])
+    if "model_config_path" in cfg:
+        from latency_bench.policy._starvla_input import _load_starvla_model_config
+
+        model_config = _load_starvla_model_config(cfg["model_config_path"])
+    else:
+        model_config, _ = read_mode_config(cfg["checkpoint_path"])
     framework = baseframework.from_pretrained(
         cfg["checkpoint_path"], backbone_path=cfg["backbone_path"]
     )

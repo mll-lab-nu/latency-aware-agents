@@ -6,11 +6,60 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import yaml
 
 from latency_bench.core.types import Observation
 from latency_bench.data.starvla_tasks import TASK_SPECS
 from latency_bench.policy.action_prefix import encode_prefix_state
 from latency_bench.policy.starvla_tasks import TaskStarVlaPolicyRunner
+
+
+@pytest.mark.parametrize("prompt_mode", ["raw", "latency_neutral"])
+def test_task_checkpoint_uses_full_input_config_and_latency_prompt(tmp_path, monkeypatch, prompt_mode):
+    from latency_bench.policy.starvla_tasks import build_task_starvla_policy
+
+    base_prompt = "Intercept the rolling ball and grasp it to stop it."
+    latency_prompt = base_prompt + " Current action latency is 2 raw frames (100.00 ms)."
+    full_config = tmp_path / "config.full.yaml"
+    full_config.write_text(yaml.safe_dump({
+        "framework": {"name": "QwenOFT"},
+        "datasets": {"vla_data": {"obs_image_size": [160, 192], "image_mode": "single", "include_state": True}},
+    }))
+    contract_path = tmp_path / "task_contract.json"
+    contract_path.write_text(json.dumps({
+        "task": "mikasa_intercept_grab_fast", "state_dim": 7, "prompt": base_prompt,
+        "normalization": {"state": {"min": [0] * 7, "max": [2] * 7},
+                          "action": {"min": [-1] * 7, "max": [1] * 7}},
+    }))
+    prompt_map = tmp_path / "prompts.json"
+    prompt_map.write_text(json.dumps({"2": {"prompt": latency_prompt}}))
+    captured = []
+    framework = SimpleNamespace(predict_action=lambda *, examples: (
+        captured.extend(examples) or {"normalized_actions": np.zeros((len(examples), 1, 7))}
+    ))
+    framework.to = lambda **kwargs: framework
+    framework.eval = lambda: framework
+
+    def unused_partial_config(path):
+        raise AssertionError("Explicit input config must take precedence over the accessed-only checkpoint config")
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(bfloat16=object()))
+    monkeypatch.setitem(sys.modules, "starVLA.model.framework.base_framework", SimpleNamespace(
+        baseframework=SimpleNamespace(from_pretrained=lambda path, **kwargs: framework)))
+    monkeypatch.setitem(sys.modules, "starVLA.model.framework.share_tools", SimpleNamespace(
+        read_mode_config=unused_partial_config, apply_config_compat=lambda cfg: cfg))
+    policy = build_task_starvla_policy({"policy": {
+        "checkpoint_path": str(tmp_path / "steps_5000_pytorch_model.pt"), "model_config_path": str(full_config),
+        "backbone_path": str(tmp_path / "backbone"), "device": "cpu", "task_contract_path": str(contract_path),
+        "state_info_key": "state", "image_views_info_key": "views",
+        "latency_prompt_map_path": str(prompt_map), "prompt_mode": prompt_mode,
+    }})
+    output = policy.predict(Observation(None, 0, 0, {
+        "state": np.zeros(7), "views": [np.zeros((8, 8, 3), dtype=np.uint8)] * 2, "latency_raw_frames": 2,
+    }))
+    assert [image.size for image in captured[0]["image"]] == [(192, 160), (192, 160)]
+    assert captured[0]["lang"] == (latency_prompt if prompt_mode == "raw" else base_prompt)
+    assert output.action_chunk.shape == (1, 7)
 
 
 @pytest.mark.parametrize('spec', TASK_SPECS.values(), ids=TASK_SPECS)
