@@ -22,6 +22,27 @@ The full recipe uses 5,000 SFT updates, global batch 128, and 100 zero-latency
 evaluation episodes. These launchers reuse the installed simulator interpreter.
 They do not run `uv sync`. Omitting `--no-publish` enables artifact publication.
 
+## Fixed-latency successful H1 collection
+
+Use a native fixed-latency PPO checkpoint to collect H1 issued-command labels.
+The collector selects 250 successful training episodes and 25 successful
+validation episodes at 20 Hz. It keeps short successes, uses latency seed 0,
+and applies the task's 60-transition horizon. Packaging converts NPZ directly
+to LeRobot and computes normalization from the training split for both splits.
+
+```bash
+bash scripts/tasks/mikasa_intercept_grab_fast/collect_fixed_latency_dataset.sh \
+  2 3 /ABSOLUTE/PATH/checkpoint.pt outputs/mikasa_successful_h1 your-org/teacher-rollouts
+```
+
+Here `2` selects 100 ms latency and `3` selects the physical GPU.
+The script uploads the prepared splits and provenance to the supplied HF dataset.
+Set `TASK_PY` to the simulator interpreter and `LEROBOT_PY` to an installed
+packaging interpreter, or use `UV` with the packaging project from QUICK_START.
+`TRAIN_EPISODES` and `VAL_EPISODES` override the split sizes.
+Add `--package-only` before the positional arguments to reuse saved NPZ episodes
+and the saved latency configuration after collection completes.
+
 ## H8 input contracts
 
 H8 models predict eight 7D actions per request. They use 20/20 Hz and a
