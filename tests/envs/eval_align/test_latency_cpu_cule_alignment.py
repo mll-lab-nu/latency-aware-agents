@@ -10,6 +10,9 @@ from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 FRAME_STACK = 4
 SEED = 12345
 ACTIONS = [0, 1, 2, 3, 4, 5, 0, 2]
+# These seeds select each of the 30 supported NOOP counts in the ALE reset wrapper.
+ALL_NOOP_SEEDS = (4, 29, 38, 28, 1, 30, 13, 27, 22, 32, 11, 25, 106, 7, 12,
+                  23, 16, 57, 2, 67, 6, 0, 130, 21, 3, 73, 10, 14, 5, 19)
 
 
 def test_cule_core_and_latency_backend_are_byte_identical():
@@ -221,7 +224,8 @@ def test_frozen_h8_teacher_cpu_and_cule_continue_beyond_first_life_loss(tmp_path
 
 
 @pytest.mark.gpu
-def test_cule_reset_and_first_step_match_latency_cpu_ram_and_images():
+@pytest.mark.parametrize("seed", [SEED, *ALL_NOOP_SEEDS])
+def test_cule_reset_and_first_step_match_latency_cpu_ram_and_images(seed):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
@@ -230,8 +234,8 @@ def test_cule_reset_and_first_step_match_latency_cpu_ram_and_images():
     cpu = _make_latency_cpu_env()
     core = _make_cule_core()
     try:
-        cpu.reset(seed=SEED)
-        cule_obs, _infos = core.reset_batch(seeds=[SEED])
+        cpu.reset(seed=seed)
+        cule_obs, _infos = core.reset_batch(seeds=[seed])
         torch.cuda.synchronize()
 
         cpu_raw = cpu.render_game_frame().copy()
@@ -242,6 +246,13 @@ def test_cule_reset_and_first_step_match_latency_cpu_ram_and_images():
         assert np.array_equal(cpu.gym_env.unwrapped.ale.getRAM(), core.ram[0].detach().cpu().numpy())
         np.testing.assert_array_equal(cpu_raw, cule_raw)
         np.testing.assert_array_equal(cpu_obs84, cule_obs84)
+        # A seeded reset must reproduce the same hardware state and observation.
+        repeated_obs, _ = core.reset_batch(seeds=[seed])
+        np.testing.assert_array_equal(cpu.gym_env.unwrapped.ale.getRAM(), core.ram[0].cpu().numpy())
+        np.testing.assert_array_equal(cpu_obs84, repeated_obs[0, 0].cpu().numpy())
+        # Reading the current frame must preserve it and the next transition.
+        np.testing.assert_array_equal(cule_raw, core.native_rgb_frames()[0].cpu().numpy())
+        np.testing.assert_array_equal(cule_raw, core.native_rgb_frames()[0].cpu().numpy())
 
         cpu.step(Action(value=0, name="0", is_noop=True))
         cule_step = core.step_batch([0])
@@ -261,9 +272,7 @@ def test_cule_observation_matches_latency_cpu_after_action_trace():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is not available")
-    pytest.importorskip("cv2")
-
-    from training.common.atari_cv2_obs import native_rgb_to_obs84
+    cv2 = pytest.importorskip("cv2")
 
     cpu = _make_latency_cpu_env()
     core = _make_cule_core()
@@ -281,7 +290,9 @@ def test_cule_observation_matches_latency_cpu_after_action_trace():
         cule_raw = core.native_rgb_frames()[0].detach().cpu().numpy().copy()
         cpu_obs84 = _latest_latency_cpu_frame(cpu.observe().data)
         cule_obs84 = cule_step.observations[0, 0].detach().cpu().numpy().copy()
-        obs84_from_raw = native_rgb_to_obs84(torch.from_numpy(cule_raw)).cpu().numpy()
+        obs84_from_raw = cv2.resize(
+            cv2.cvtColor(cule_raw, cv2.COLOR_RGB2GRAY), (84, 84), interpolation=cv2.INTER_AREA,
+        )
 
         assert np.array_equal(cpu_raw, cule_raw)
         assert np.array_equal(cule_obs84, obs84_from_raw)

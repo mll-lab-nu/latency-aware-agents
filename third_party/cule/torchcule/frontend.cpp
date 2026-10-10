@@ -53,13 +53,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                           uint64_t ramBuffer,
                           uint64_t tiaUpdateBuffer,
                           uint64_t frameBuffer,
-                          uint64_t romIndicesBuffer,
                           uint64_t minimalActionsBuffer,
                           uint64_t randStatesBuffer,
                           uint64_t cachedStatesBuffer,
                           uint64_t cachedRamBuffer,
                           uint64_t cachedFrameStatesBuffer,
-                          uint64_t cachedTiaUpdateBuffer,
+                          uint64_t cachedFrameBuffer,
                           uint64_t cacheIndexBuffer)
         {
             env.initialize_ptrs(reinterpret_cast<cule::atari::state*>(statesBuffer),
@@ -67,24 +66,18 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                                 reinterpret_cast<uint8_t*>(ramBuffer),
                                 reinterpret_cast<uint32_t*>(tiaUpdateBuffer),
                                 reinterpret_cast<uint8_t*>(frameBuffer),
-                                reinterpret_cast<uint32_t*>(romIndicesBuffer),
                                 reinterpret_cast<AtariAction*>(minimalActionsBuffer),
                                 reinterpret_cast<uint32_t*>(randStatesBuffer),
                                 reinterpret_cast<cule::atari::state*>(cachedStatesBuffer),
                                 reinterpret_cast<uint8_t*>(cachedRamBuffer),
                                 reinterpret_cast<cule::atari::frame_state*>(cachedFrameStatesBuffer),
-                                reinterpret_cast<uint32_t*>(cachedTiaUpdateBuffer),
+                                reinterpret_cast<uint8_t*>(cachedFrameBuffer),
                                 reinterpret_cast<uint32_t*>(cacheIndexBuffer));
         }
     )
     .def("reset", [](AtariEnv &env, uint64_t seedBuffer)
         {
             env.reset((uint32_t*) seedBuffer);
-        }
-    )
-    .def("reset_states", [](AtariEnv &env)
-        {
-            env.reset_states();
         }
     )
     .def("step", [](AtariEnv &env, const bool fire_reset, uint64_t playerABuffer, uint64_t playerBBuffer, uint64_t doneBuffer)
@@ -103,18 +96,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
                          reinterpret_cast<int32_t*>(livesBuffer));
         }
     )
-    .def("generate_frames", [](AtariEnv& env, const bool rescale, const bool last_frame, const size_t num_channels, uint64_t imageBuffer)
+    .def("generate_frames", [](AtariEnv& env, const bool rescale, const size_t num_channels, uint64_t imageBuffer)
         {
             env.generate_frames(rescale,
-                                last_frame,
                                 num_channels,
                                 reinterpret_cast<uint8_t*>(imageBuffer));
         }
     )
-    .def("generate_obs84", [](AtariEnv& env, const bool last_frame, uint64_t imageBuffer)
+    .def("generate_obs84", [](AtariEnv& env, uint64_t imageBuffer)
         {
-            env.generate_obs84(last_frame,
-                               reinterpret_cast<uint8_t*>(imageBuffer));
+            env.generate_obs84(reinterpret_cast<uint8_t*>(imageBuffer));
         }
     )
     .def("step_decision", [](AtariEnv& env,

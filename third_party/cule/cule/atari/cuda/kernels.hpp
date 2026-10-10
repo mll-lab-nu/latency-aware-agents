@@ -66,7 +66,9 @@ void initialize_states_kernel(const uint32_t num_envs,
                               const uint8_t* cached_ram_buffer,
                               uint32_t* rand_states_buffer,
                               frame_state* frame_states_buffer,
-                              frame_state* cached_frame_states_buffer)
+                              frame_state* cached_frame_states_buffer,
+                              uint8_t* frame_buffer,
+                              const uint8_t* cached_frame_buffer)
 {
     enum
     {
@@ -103,60 +105,10 @@ void initialize_states_kernel(const uint32_t num_envs,
     {
         ram_int[i * NT] = ram[i];
     }
-}
-
-template<typename State_t, size_t NT>
-__launch_bounds__(NT) __global__
-void reset_kernel(const uint32_t num_envs,
-                  const size_t noop_reset_steps,
-                  State_t* states_buffer,
-                  uint8_t* ram_buffer,
-                  const State_t* cached_states_buffer,
-                  const uint8_t* cached_ram_buffer,
-                  frame_state* frame_states_buffer,
-                  frame_state* cached_frame_states_buffer,
-                  uint32_t* cache_index_buffer,
-                  uint32_t* rand_states_buffer)
-{
-    enum
+    for(size_t i = 0; i < 300 * SCREEN_WIDTH; ++i)
     {
-        NUM_INT_REGS = 128 / sizeof(uint32_t),
-    };
-
-    const uint32_t global_index = (NT * blockIdx.x) + threadIdx.x;
-
-    if(global_index >= num_envs)
-    {
-        return;
-    }
-
-    if(states_buffer[global_index].tiaFlags[FLAG_ALE_TERMINAL])
-    {
-        prng gen(rand_states_buffer[global_index]);
-        const size_t sample = gen.sample();
-        const size_t cache_index = sample % noop_reset_steps;
-
-        states_buffer[global_index] = cached_states_buffer[cache_index];
-        states_buffer[global_index].tiaFlags.set(FLAG_ALE_TERMINAL);
-        cache_index_buffer[global_index] = cache_index;
-        frame_states_buffer[global_index] = cached_frame_states_buffer[cache_index];
-
-        uint32_t ram[NUM_INT_REGS];
-        uint32_t * ram_int = ((uint32_t*) cached_ram_buffer) + (NUM_INT_REGS * cache_index);
-
-        #pragma loop unroll
-        for(int32_t i = 0; i < NUM_INT_REGS; i++)
-        {
-            ram[i] = ram_int[i];
-        }
-
-        ram_int = ((uint32_t*) ram_buffer) + (NUM_INT_REGS * NT * blockIdx.x) + threadIdx.x;
-
-        #pragma loop unroll
-        for(int32_t i = 0; i < NUM_INT_REGS; i++)
-        {
-            ram_int[i * NT] = ram[i];
-        }
+        frame_buffer[global_index * 300 * SCREEN_WIDTH + i] =
+            cached_frame_buffer[cache_index * 300 * SCREEN_WIDTH + i];
     }
 }
 
@@ -380,83 +332,25 @@ void get_data_kernel(const int32_t num_envs,
     s.score = ALE_t::getScore(s);
 }
 
-template<typename State_t, size_t NT>
+template<size_t NT>
 __launch_bounds__(NT) __global__
 void process_kernel(const uint32_t num_envs,
-                    const bool last_frame,
                     const uint32_t* tia_update_buffer,
-                    const uint32_t* cached_tia_update_buffer,
-                    const uint32_t* cache_index_buffer,
-                    State_t* states_buffer,
                     frame_state* frame_states_buffer,
                     uint8_t* frame_buffer)
 {
     const uint32_t global_index = (NT * blockIdx.x) + threadIdx.x;
-
     if(global_index >= num_envs)
     {
         return;
     }
 
-    frame_states_buffer += global_index;
-
     frame_state fs;
-    state_store_load_helper(fs, *frame_states_buffer);
-    fs.srcBuffer = tia_update_buffer + (global_index * ENV_UPDATE_SIZE);
-
-    const State_t& s = states_buffer[global_index];
-    const bool is_terminal = s.tiaFlags[FLAG_ALE_TERMINAL];
-    const bool is_started  = s.tiaFlags[FLAG_ALE_STARTED];
-
-    if(last_frame && is_started && is_terminal)
-    {
-        states_buffer[global_index].tiaFlags.clear(FLAG_ALE_TERMINAL);
-        fs.srcBuffer = cached_tia_update_buffer + (cache_index_buffer[global_index] * ENV_UPDATE_SIZE);
-    }
-    fs.framePointer = frame_buffer == nullptr ? nullptr : &frame_buffer[global_index * 300 * SCREEN_WIDTH];
-
+    state_store_load_helper(fs, frame_states_buffer[global_index]);
+    fs.srcBuffer = tia_update_buffer + global_index * ENV_UPDATE_SIZE;
+    fs.framePointer = frame_buffer + global_index * 300 * SCREEN_WIDTH;
     preprocess::state_to_buffer(fs);
-
-    state_store_load_helper(*frame_states_buffer, fs);
-}
-
-template<typename State_t, size_t NT>
-__launch_bounds__(NT) __global__
-void process_terminal_kernel(const uint32_t num_envs,
-                             const bool last_frame,
-                             const uint32_t* cached_tia_update_buffer,
-                             const uint32_t* cache_index_buffer,
-                             State_t* states_buffer,
-                             frame_state* frame_states_buffer,
-                             uint8_t* frame_buffer)
-{
-    const uint32_t global_index = (NT * blockIdx.x) + threadIdx.x;
-
-    if(global_index >= num_envs)
-    {
-        return;
-    }
-
-    const State_t& s = states_buffer[global_index];
-    const bool is_terminal = s.tiaFlags[FLAG_ALE_TERMINAL];
-    const bool is_started  = s.tiaFlags[FLAG_ALE_STARTED];
-
-    if(!(last_frame && is_started && is_terminal))
-    {
-        return;
-    }
-
-    frame_states_buffer += global_index;
-
-    frame_state fs;
-    state_store_load_helper(fs, *frame_states_buffer);
-    states_buffer[global_index].tiaFlags.clear(FLAG_ALE_TERMINAL);
-    fs.srcBuffer = cached_tia_update_buffer + (cache_index_buffer[global_index] * ENV_UPDATE_SIZE);
-    fs.framePointer = &frame_buffer[global_index * 300 * SCREEN_WIDTH];
-
-    preprocess::state_to_buffer(fs);
-
-    state_store_load_helper(*frame_states_buffer, fs);
+    state_store_load_helper(frame_states_buffer[global_index], fs);
 }
 
 template<size_t NT>

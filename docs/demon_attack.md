@@ -35,6 +35,32 @@ therefore replay the same actions and latency draws when isolating simulator
 behavior. Report full-evaluation differences separately from these controlled
 trajectory comparisons.
 
+## ALE/CuLE observations
+
+The CUDA core follows the installed ALE 0.8.1 initialization before applying
+seeded NOOPs and the benchmark's FIRE/RIGHT reset actions. Demon Attack uses
+60 NOOP frames and three four-frame console resets. Atlantis uses the same
+console reset sequence. Asterix uses two console resets and one startup FIRE.
+The hardware RNG uses ALE's fixed system seed 4753849, independently of the
+episode seed. Cache construction reproduces power-on RAM, the 60-frame display
+format detection, the ROM-loading initialization and the subsequent reset_game
+initialization. These internal
+frames do not count toward episode action frames.
+
+The reset cache contains emulator state, RAM, render state and the generated
+native frame. Restoring a cache entry restores all four. Cache entry zero is
+one seeded NOOP after initialization. The core preserves terminal state until
+its owner explicitly resets the episode or continues after life loss.
+
+Advancing the environment generates the native frame. Reading that frame and
+producing an 84×84 observation only convert the current frame buffer. Repeated
+reads cannot change the current frame or the next transition.
+
+CUDA grayscale conversion and area scaling match the CPU OpenCV 4.10.0 path
+byte for byte. Area scaling accumulates horizontal float32 sums before vertical
+sums, with explicit multiplication, addition and nearest-even rounding. The
+same CUDA kernel serves ordinary steps and batched decisions.
+
 ## Runtime acceptance
 
 Run the environment regression on the actual evaluation host and checkout:
@@ -42,11 +68,14 @@ Run the environment regression on the actual evaluation host and checkout:
 ```bash
 python -m pytest -q -o addopts= \
   tests/envs/eval_align/test_latency_cpu_cule_alignment.py \
-  tests/training/gpu/test_demon_cule_obs_matches_ale.py
+  tests/training/gpu/test_demon_cule_obs_matches_ale.py \
+  tests/training/gpu/test_atlantis_cuda_core.py \
+  tests/training/gpu/test_asterix_cuda_core.py
 ```
 
-The first suite covers raw scoring, life-loss continuation, and staggered resets
-in a 16-slot batch. Missing optional runtime dependencies can cause skips.
+These suites cover all 30 NOOP reset counts, RAM and image equality, raw scoring,
+life-loss continuation, repeated image reads and staggered resets in a 16-slot
+batch. Missing optional runtime dependencies can cause skips.
 A skipped check does not establish acceptance.
 
 For the full executor regression, point the environment variable below at a

@@ -17,7 +17,7 @@ SEED = 12345
 # fire = SB3 NoopResetEnv followed by FireResetEnv, matching the current CULE reset contract.
 def test_latency_bench_raw_reset_matches_plain_ale_reset_with_warp_frame():
     pytest.importorskip("ale_py")
-    pytest.importorskip("cv2")
+    cv2 = pytest.importorskip("cv2")
 
     import gymnasium as gym
     from stable_baselines3.common.atari_wrappers import WarpFrame
@@ -42,12 +42,10 @@ def test_latency_bench_raw_reset_matches_plain_ale_reset_with_warp_frame():
 
 def test_latency_bench_noop_reset_matches_eval_core_and_sb3_noop_reset(monkeypatch):
     pytest.importorskip("ale_py")
-    pytest.importorskip("cv2")
+    cv2 = pytest.importorskip("cv2")
 
     import gymnasium as gym
-    import torch
     from stable_baselines3.common.atari_wrappers import NoopResetEnv, WarpFrame
-    from training.common.atari_cv2_obs import native_rgb_to_obs84
 
     monkeypatch.syspath_prepend(REPO_ROOT / "third_party" / "starVLA")
     eval_core = pytest.importorskip("starVLA.training.rl_games.eval_core", exc_type=ImportError)
@@ -62,7 +60,7 @@ def test_latency_bench_noop_reset_matches_eval_core_and_sb3_noop_reset(monkeypat
         latency_env.reset(seed=SEED)
         sb3_obs, _info = sb3_noop_env.reset(seed=SEED)
         eval_core_obs, _info = eval_core_env.reset(seed=SEED)
-        eval_core_obs84 = native_rgb_to_obs84(torch.from_numpy(np.asarray(eval_core_obs, dtype=np.uint8))).cpu().numpy()
+        eval_core_obs84 = cv2.resize(cv2.cvtColor(np.asarray(eval_core_obs, dtype=np.uint8), cv2.COLOR_RGB2GRAY), (84, 84), interpolation=cv2.INTER_AREA)
 
         _assert_latency_env_matches_reference(
             latency_env=latency_env,
@@ -80,7 +78,7 @@ def test_latency_bench_noop_reset_matches_eval_core_and_sb3_noop_reset(monkeypat
 
 def test_latency_bench_fire_reset_matches_sb3_noop_plus_fire_reset():
     pytest.importorskip("ale_py")
-    pytest.importorskip("cv2")
+    cv2 = pytest.importorskip("cv2")
 
     import gymnasium as gym
     from stable_baselines3.common.atari_wrappers import FireResetEnv, NoopResetEnv, WarpFrame
@@ -109,7 +107,7 @@ def test_latency_bench_fire_reset_matches_sb3_noop_plus_fire_reset():
 
 def test_latency_bench_reset_mode_frame_stack_advances_oldest_to_newest():
     pytest.importorskip("ale_py")
-    pytest.importorskip("cv2")
+    cv2 = pytest.importorskip("cv2")
 
     env = _make_latency_env(reset_mode="noop")
     try:

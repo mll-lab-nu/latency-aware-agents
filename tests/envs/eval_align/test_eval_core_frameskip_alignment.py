@@ -57,12 +57,10 @@ def test_eval_core_frameskip_4_matches_four_frameskip_1_steps_from_same_ale_stat
 
 def test_eval_core_noop_reset_fs1_matches_sb3_noop_reset_without_fire_reset(monkeypatch):
     pytest.importorskip("ale_py")
-    pytest.importorskip("cv2")
+    cv2 = pytest.importorskip("cv2")
 
     import gymnasium as gym
-    import torch
     from stable_baselines3.common.atari_wrappers import NoopResetEnv
-    from training.common.atari_cv2_obs import native_rgb_to_obs84
 
     monkeypatch.syspath_prepend(REPO_ROOT / "third_party" / "starVLA")
     eval_core = pytest.importorskip("starVLA.training.rl_games.eval_core", exc_type=ImportError)
@@ -79,8 +77,8 @@ def test_eval_core_noop_reset_fs1_matches_sb3_noop_reset_without_fire_reset(monk
         assert np.array_equal(eval_core_env.unwrapped.ale.getRAM(), sb3_noop_env.unwrapped.ale.getRAM())
         assert np.array_equal(eval_core_env.unwrapped.ale.getScreenRGB(), sb3_noop_env.unwrapped.ale.getScreenRGB())
         assert np.array_equal(
-            native_rgb_to_obs84(torch.from_numpy(np.asarray(eval_core_obs, dtype=np.uint8))).cpu().numpy(),
-            native_rgb_to_obs84(torch.from_numpy(np.asarray(sb3_noop_obs, dtype=np.uint8))).cpu().numpy(),
+            cv2.resize(cv2.cvtColor(np.asarray(eval_core_obs, dtype=np.uint8), cv2.COLOR_RGB2GRAY), (84, 84), interpolation=cv2.INTER_AREA),
+            cv2.resize(cv2.cvtColor(np.asarray(sb3_noop_obs, dtype=np.uint8), cv2.COLOR_RGB2GRAY), (84, 84), interpolation=cv2.INTER_AREA),
         )
     finally:
         eval_core_env.close()
@@ -89,12 +87,10 @@ def test_eval_core_noop_reset_fs1_matches_sb3_noop_reset_without_fire_reset(monk
 
 def test_sb3_fire_reset_is_the_first_reset_difference_after_noop_reset():
     pytest.importorskip("ale_py")
-    pytest.importorskip("cv2")
+    cv2 = pytest.importorskip("cv2")
 
     import gymnasium as gym
-    import torch
     from stable_baselines3.common.atari_wrappers import FireResetEnv, NoopResetEnv
-    from training.common.atari_cv2_obs import native_rgb_to_obs84
 
     _register_ale(gym)
 
@@ -106,8 +102,8 @@ def test_sb3_fire_reset_is_the_first_reset_difference_after_noop_reset():
 
         noop_raw = noop_env.unwrapped.ale.getScreenRGB()
         fire_raw = fire_env.unwrapped.ale.getScreenRGB()
-        noop_obs84 = native_rgb_to_obs84(torch.from_numpy(np.asarray(noop_obs, dtype=np.uint8))).cpu().numpy()
-        fire_obs84 = native_rgb_to_obs84(torch.from_numpy(np.asarray(fire_obs, dtype=np.uint8))).cpu().numpy()
+        noop_obs84 = cv2.resize(cv2.cvtColor(np.asarray(noop_obs, dtype=np.uint8), cv2.COLOR_RGB2GRAY), (84, 84), interpolation=cv2.INTER_AREA)
+        fire_obs84 = cv2.resize(cv2.cvtColor(np.asarray(fire_obs, dtype=np.uint8), cv2.COLOR_RGB2GRAY), (84, 84), interpolation=cv2.INTER_AREA)
 
         assert _diff_count(noop_raw, fire_raw) == 153
         assert _diff_count(noop_env.unwrapped.ale.getRAM(), fire_env.unwrapped.ale.getRAM()) == 12

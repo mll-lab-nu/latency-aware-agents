@@ -23,8 +23,6 @@ class AtariEnv : public cule::atari::wrapper
 
       void reset(uint32_t* seedBuffer);
 
-      void reset_states();
-
       void step(const bool fire_reset,
                 const cule::atari::Action* playerABuffer,
                 const cule::atari::Action* playerBBuffer,
@@ -36,12 +34,10 @@ class AtariEnv : public cule::atari::wrapper
                     int32_t* livesBuffer);
 
       void generate_frames(const bool rescale,
-                           const bool last_frame,
                            const size_t num_channels,
                            uint8_t* imageBuffer);
 
-      void generate_obs84(const bool last_frame,
-                          uint8_t* imageBuffer);
+      void generate_obs84(uint8_t* imageBuffer);
 
       void insert_other_stream(uint64_t stream);
 
