@@ -20,7 +20,7 @@ def test_calibration_summary_uses_linear_percentiles():
 def _write_config(path: Path) -> None:
     payload = {
         "experiment": {"name": "calibration-test", "seed": 0},
-        "executor": {"mode": "realtime"},
+        "executor": {"mode": "realtime", "inference_devices": ["cpu", "cuda:2"]},
         "env": {"name": "dummy", "env_fps": 16, "obs_fps": 16, "noop_action": "noop"},
         "latency": {"device": "cpu", "sync_cuda": False},
         "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
@@ -41,7 +41,7 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
         monkeypatch.delenv(key, raising=False)
 
     def fake_probe(*, config_path, samples, skip, period_ms, devices):
-        assert devices == ["cuda:0", "cuda:1"]
+        assert devices == ["cpu", "cuda:2"]
         return {
             "period_ms": period_ms,
             "sample_count": samples,
@@ -61,7 +61,6 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
         }
 
     monkeypatch.setattr(module, "_run_spawned_latency_probe", fake_probe)
-    monkeypatch.setattr(module, "visible_cuda_device_count", lambda: 2)
 
     payload = module.calibrate_env_fps_from_saturated_latency(
         config_path=config_path,

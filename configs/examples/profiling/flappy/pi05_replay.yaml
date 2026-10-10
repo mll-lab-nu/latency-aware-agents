@@ -1,0 +1,4 @@
+__base__: pi05.yaml
+env:
+  simulator: cpu
+  use_gpu_render: false

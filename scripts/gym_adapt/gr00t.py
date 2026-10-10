@@ -193,27 +193,21 @@ def evaluation_config(task: str, bundle: Path, backbone: Path, output: Path, *, 
     return cfg
 
 
-def profile_spec(task: str, config_path: Path, bundle: Path, output: Path) -> dict:
-    from latency_bench.profiling.spec import load_profile_spec
-
-    spec = load_profile_spec(ROOT / "configs/profiles.yaml", "gr00t", "flappy")
-    spec.update(model_id="gr00t", workload_id=task, base_config=str(config_path), artifact_root=str(output),
-        checkpoint_path=str(bundle / "checkpoints/model.pt"), model_config_path=str(bundle / "config.yaml"),
-        checkpoint_kind="latest", session_count=5, eval_episodes=10, evaluation_seed=42,
-        calibrate_env_fps=False, simulation_parallel_envs=1, simulation_gpu=None, simulation_env={})
-    spec["model_artifact"] = {"local_root": str(bundle), "checkpoint": "checkpoints/model.pt",
-        "model_config": "config.yaml", "hf_repo": "MLL-Lab/LAGEN-models",
-        "revision": "e3fea81529fd98b5d5782db38803fe4062215dda",
-        "hf_path": {
-            'air_raid': 'zero-latency/air-raid/vla/starvla-qwengr00t-h1/air_raid_zero_latency_gr00t_h1',
-            'ant': 'zero-latency/ant/vla/starvla-qwengr00t-h1/ant_l0_gr00t_h1_5fps_2h100_20260917',
-            'half_cheetah': 'zero-latency/half-cheetah/vla/starvla-qwengr00t-h1/half_cheetah_l0_gr00t_h1_5fps_2h200_20260917',
-            'hopper': 'zero-latency/hopper/vla/starvla-qwengr00t-h1/hopper_l0_gr00t_h1_5fps_2h100_20260917',
-            'humanoid': 'zero-latency/humanoid/vla/starvla-qwengr00t-h1/humanoid_l0_gr00t_h1_5fps_1h200_20260917',
-            'inverted_pendulum': 'zero-latency/inverted-pendulum/vla/starvla-qwengr00t-h1/ip_l0_gr00t_h1_5fps_1h200_20260917',
-            'walker2d': 'zero-latency/walker2d/vla/starvla-qwengr00t-h1/walker2d_l0_gr00t_h1_5fps_2h200_20260917',
-        }[task]}
-    return spec
+def profiling_config(task: str, config_path: Path, bundle: Path, output: Path) -> dict:
+    config = load_config(config_path)
+    config["experiment"]["seed"] = 42
+    config["evaluation"].update(eval_episodes=10, eval_parallel_envs=1, eval_latency_values=None)
+    config["evaluation"].pop("eval_suites", None)
+    config["executor"].update(mode="realtime", inference_devices=["cuda:0"])
+    config["latency"] = {"method": "measured", "device": "cuda:0", "sync_cuda": True}
+    config["logging"]["output_dir"] = str(output)
+    config["profiling"] = {"model_id": "gr00t", "workload_id": task, "repeats": 5,
+                           "calibration": None}
+    config["profiling"]["model_artifact"] = {
+        "source": "local", "local_root": str(bundle),
+        "checkpoint": "checkpoints/model.pt", "model_config": "config.yaml",
+    }
+    return config
 
 
 def main():
@@ -286,11 +280,9 @@ def main():
         print(args.output / "eval.yaml")
     elif args.command == "profile":
         from latency_bench.profiling.runner import run_profile
-        from latency_bench.profiling.profile_resolver import resolve_model_artifacts
 
-        spec = profile_spec(args.task, args.config.resolve(), args.bundle.resolve(), args.output.resolve())
-        spec = resolve_model_artifacts(spec, model_path=args.bundle.resolve())
-        print(json.dumps(run_profile(spec, resume_run_id=args.resume, publish=False)))
+        config = profiling_config(args.task, args.config.resolve(), args.bundle.resolve(), args.output.resolve())
+        print(json.dumps(run_profile(config, resume_run_id=args.resume, publish=False)))
 
 
 if __name__ == "__main__":

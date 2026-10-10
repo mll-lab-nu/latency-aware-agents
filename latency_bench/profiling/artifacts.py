@@ -17,10 +17,6 @@ def run_dir(artifact_root: str | Path, run: str | Path) -> Path:
     return Path(artifact_root) / "runs" / run
 
 
-def run_session_dir(artifact_root: str | Path, run: str | Path, session_id: int) -> Path:
-    return run_dir(artifact_root, run) / "sessions" / str(session_id)
-
-
 def profile_dir(artifact_root: str | Path, profile: str | Path) -> Path:
     return Path(artifact_root) / "profiles" / profile
 

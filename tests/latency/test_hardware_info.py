@@ -75,7 +75,6 @@ def test_participating_gpu_descriptor_canonicalizes_order_and_topology(monkeypat
     descriptor = hardware_info.describe_participating_gpus(
         gpus=gpus,
         topology=topology,
-        gpu_name_registry={"NVIDIA L40S": "l40s"},
         cuda_visible_devices="2,0",
     )
 
@@ -94,7 +93,6 @@ def test_participating_gpu_descriptor_canonicalizes_order_and_topology(monkeypat
     current = hardware_info.describe_participating_gpus(
         gpus=gpus,
         topology=topology,
-        gpu_name_registry={"NVIDIA L40S": "l40s"},
     )
     assert [gpu["uuid"] for gpu in current["gpus"]] == ["GPU-a", "GPU-b"]
 
@@ -105,19 +103,19 @@ def test_public_projection_keeps_only_deployment_identity():
             "gpus": [
                 {
                     "uuid": "GPU-0",
-                    "name": "NVIDIA RTX 4090",
+                    "name": "NVIDIA GeForce RTX 4090",
                     "driver_version": "570.1",
                 },
             ],
             "gpu": {"topology": "GPU0 X\n", "driver_version": "570.1"},
             "torch": {"version": "2.6.0", "cuda_version": "12.6"},
         },
-        gpu_name_registry={"NVIDIA RTX 4090": "rtx4090"},
+        cuda_visible_devices="0",
     )
 
     assert projection == {
         "gpu_class": "1x-rtx4090",
-        "gpus": [{"slot": 0, "name": "NVIDIA RTX 4090"}],
+        "gpus": [{"slot": 0, "name": "NVIDIA GeForce RTX 4090"}],
         "topology_links": [],
         "driver_version": "570.1",
         "torch": {"version": "2.6.0", "cuda_version": "12.6"},
@@ -184,3 +182,33 @@ def _fake_read_text(path: str) -> str:
         "/sys/fs/cgroup/cpu.max": "200000 100000\n",
         "/sys/fs/cgroup/cpuset.cpus.effective": "0-3\n",
     }[path]
+
+
+def test_profile_workers_preserve_logical_devices_and_shared_gpu(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-c,GPU-b,GPU-a")
+    fingerprint = {
+        "gpus": [{"uuid": f"GPU-{name}", "name": "NVIDIA Future GPU"} for name in "abc"],
+        "gpu": {"driver_version": "1"}, "torch": {}, "cpu": {}, "memory": {},
+    }
+    deployment = hardware_info.describe_inference_deployment(fingerprint, ["cuda:2", "cuda:2"])
+    assert deployment["gpu_class"] == "1x-nvidia-future-gpu"
+    assert deployment["gpus"] == [{"uuid": "GPU-a", "name": "NVIDIA Future GPU", "cuda_index": 2}]
+    assert deployment["workers"] == [
+        {"slot": i, "device": "cuda:2"} for i in range(2)
+    ]
+    public = hardware_info.public_hardware_projection(fingerprint, deployment=deployment)
+    assert public["workers"] == [{"slot": i, "device": "cuda:2"} for i in range(2)]
+    assert "GPU-a" not in str(public)
+
+
+def test_cpu_profile_does_not_include_visible_gpus_or_transient_frequency(monkeypatch):
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    fingerprint = {"gpus": [{"uuid": "GPU-visible", "name": "unused"}], "gpu": {},
+                   "cpu": {"model_name": "cpu", "cpu_mhz": "1000"}, "system": {"hostname": "host"}}
+    first = hardware_info.describe_inference_deployment(fingerprint, ["cpu", "cpu"])
+    fingerprint["cpu"]["cpu_mhz"] = "2000"
+    second = hardware_info.describe_inference_deployment(fingerprint, ["cpu", "cpu"])
+    assert first == second
+    assert first["gpu_class"] == "cpu"
+    assert first["gpus"] == []
+    assert len(first["workers"]) == 2

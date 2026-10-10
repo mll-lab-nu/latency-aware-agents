@@ -1,269 +1,268 @@
-# Deployment profiling cookbook
+# Measure and reuse deployment latency
 
-Use this pipeline to measure one model/workload on the GPUs that will serve
-inference, then build a latency profile that can be replayed in simulation.
+Profiling accepts an ordinary realtime evaluation configuration. The same
+configuration describes the environment, policy, devices, clocks, episodes,
+and seed. The `profiling` section describes independent measurement repetitions
+and model artifact sources. Project examples use this same interface.
 
-For the published 30-case experiment with 25 fitting and 25 held-out runs,
-use the [single-experiment sim2real runner](../../scripts/experiments/sim2real/README.md).
-It calibrates clocks against each model's training profile and archived eval.
+A run produces ordered request traces and a fitted profile. The profile can
+supply latency to simulated evaluation or the public Gymnasium wrapper.
+Local measurement and fitting do not require Hugging Face write permission.
 
-## Quick start
+## Start with a CPU example
 
-Use the shared profiler with a registered model/workload pair and the final
-model directory:
-
-Use `--hf-repo-id`, `--hf-path`, `--hf-checkpoint`, and `--hf-model-config`
-to override the preset Hugging Face artifact coordinates when you want to profile
-a different published run without editing `configs/profiles.yaml`.
+From the checkout root, run:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh openvla [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh wanoft [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh pi05 [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/flappy/profile.sh gr00t [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh openvla [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh wanoft [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh pi05 [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/demon_attack/profile.sh gr00t [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh openvla [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh wanoft [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh pi05 [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/deadly_corridor/profile.sh gr00t [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh openvla [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh wanoft [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh pi05 [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0 bash scripts/tasks/defend_the_line/profile.sh gr00t [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh [MODEL_PATH]
-CUDA_VISIBLE_DEVICES=1 bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --model-path MODEL_PATH
+PYTHONPATH="$PWD/configs/examples/custom_env:$PYTHONPATH" \
+  python -m latency_bench.profiling.cli run \
+  --config configs/examples/custom_env/profile.yaml
 ```
 
-The Demon Attack launchers use the model-specific StarVLA environment active in
-the current shell; run them from the matching `starvla_rl_games_*` environment or
-pass `--hf-artifacts` to download the registered model artifact.
+The example uses user-owned factories in `configs/examples/custom_env/components.py`.
+It measures a constant policy in MountainCar. It validates the interface, not
+trained policy quality. Copy the files into your own project and update their
+paths to use the same workflow outside this checkout.
 
-StarVLA profiling also binds the backbone's model and processor files. Bundles
-with `backbone.repo_id` metadata in their actual `config.yaml` resolve that
-backbone to a concrete HF snapshot. For older bundles, supply its local directory
-explicitly (or set `policy.backbone_path` in the base evaluation config):
-
-```bash
-CUDA_VISIBLE_DEVICES=0 bash scripts/profile.sh run \
-  --model openvla --workload flappy --model-path MODEL_PATH \
-  --backbone-path /models/Qwen2.5-VL-3B-Instruct
-```
-
-Use the backbone matching the checkpoint and retain the model family in its path;
-the existing StarVLA loader uses that name to select its implementation. A legacy
-`framework.*.base_vlm`/`base_wm` value alone does not establish immutable identity.
-
-Balance and CPU-simulator workloads use all visible GPUs for inference.
-MIKASA uses logical `cuda:0` for simulation and `cuda:1..` for inference,
-so expose at least two GPUs. Select the workload's simulator and model
-interpreters as described in [installation](../QUICK_START.md).
-
-The registry specifies `session_count` and `eval_episodes` per workload.
-Current game presets use five sessions of 10 episodes. Balance and MIKASA
-presets use five sessions of 50 episodes. Runs write under
-`results/profiling/`. Results stay local unless `--publish` is added. Publishing
-starts only after the complete run and fitted profile exist:
-
-```bash
-bash scripts/profile.sh run --model MODEL --workload WORKLOAD --model-path MODEL_PATH --publish
-```
-
-To resume, rerun the same command with `--resume "$RUN_ID"`; completed
-sessions are skipped and the incomplete session is rerun. The local
-`run_contract.json` must exactly match the resolved artifacts, interpreter,
-entrypoint, deployment and generated config. Legacy runs without this contract,
-or runs created with another checkpoint/config, cannot be resumed. Content hashes
-cover the checkpoint, bundle configs/statistics/contracts, final evaluation input
-files, and backbone. Replacing a file at the same path also invalidates resume.
-Inputs are checked before and after calibration/measurement; these checks happen
-outside the measured inference interval.
-
-## Configure a profile
-
-Profiles are registered in `configs/profiles.yaml`. Its top-level
-`artifact_root` and `hf_repo` select local and published storage. Add unknown
-GPU names to `gpu_models`, then add a workload below its model:
+For a model you already evaluate, keep its environment and policy configuration.
+Set `executor.mode: realtime`, `latency.method: measured`, and explicit
+`executor.inference_devices`. Configure the repetitions and episodes:
 
 ```yaml
-gpu_models:
-  rtx4090:
-    aliases: [NVIDIA GeForce RTX 4090]
-
-models:
-  my_model:
-    workloads:
-      my_task:
-        base_config: configs/path/to/realtime_eval.yaml
-        model_artifact:
-          local_root: outputs/path/to/model-root
-          checkpoint: .
-          hf_repo: MLL-Lab/LAGEN-models
-          hf_path: zero-latency/my-task/vla/my-model-v1
-        checkpoint_kind: latest
-        session_count: 5
-        eval_episodes: 10
-        evaluation_seed: 0
-        calibrate_env_fps: false
-        simulation_parallel_envs: 1
-        simulation_gpu: null
-        simulation_env: {}
+profiling:
+  model_id: my_model
+  workload_id: my_task
+  repeats: 5
+evaluation:
+  eval_episodes: 20
 ```
 
-`base_config` defines the environment, policy, cadence, and evaluation limits.
-The profiler overrides the checkpoint, output directory, episode count, and
-realtime logging settings. Use `calibrate_env_fps: false` for workloads with a
-fixed native cadence; calibrated workloads also require their calibration
-settings in the preset.
+`model_id` and `workload_id` are artifact labels. Each must be one path segment.
+They do not select an implementation or require registration.
+The saved run configuration records policy paths and factory settings.
+HF artifact provenance records the downloaded snapshot revision.
 
-`model_artifact` is exact: an absent `local_root` downloads only `hf_path` from
-the current Hugging Face repository, while an existing root must contain
-`checkpoint`. Native simulator tasks set `eval_entrypoint` and run it with the
-Python interpreter active when the command is invoked. A second
-`runtime_artifact` may provide a frozen teacher/actor checkpoint. There is no
-alternate checkpoint fallback.
+`profiling.repeats` is the total number of independent measurements, including
+the first. Each repetition starts a new evaluation process, loads the policy,
+and performs warmup. `evaluation.eval_episodes` sets the measured episodes per
+repetition. The example measures 5 × 20 = 100 episodes. Warmup is separate.
 
-The four StarVLA H1 model IDs `qwenoft`, `qwenpi_v3`, `qwengr00t`, and `wanoft`
-are registered for both `mikasa_intercept_grab_fast` and
-`g1_sonic_balance_simple`. Fetch the latest registered bundle with
-`--hf-artifacts`. For Mikasa expose simulator GPU 0 and inference GPU 1; for
-Humanoid expose only physical GPU 1, which becomes logical `cuda:0`:
+Use `experiment.seed` for the evaluation seed. Each repetition uses the same
+seed protocol and is stored under its own `sessions/<session-id>/` directory.
+Profiling requires one environment and one workload, without evaluation sweeps.
+
+`logging.output_dir` is the artifact root. Filesystem values use the caller's
+working directory. `__base__` references use the containing YAML's directory,
+as in ordinary evaluation. The profiler starts environment workers with `spawn` by default. An explicit
+`LATENCY_BENCH_ENV_BACKEND_START_METHOD` overrides that default and is recorded
+in the resume contract. Factory modules must be importable in each worker's
+Python environment. See [custom components](../custom_components.md).
+
+## Select devices and measurement conditions
+
+Use `[cpu]` for one CPU worker or `[cuda:0, cuda:1]` for two GPU workers.
+Repeated device names create multiple workers on the same device.
+CUDA device numbers follow `CUDA_VISIBLE_DEVICES`. Only configured inference
+devices define the measured deployment. A simulator GPU is not automatically
+added to the inference pool. Unknown GPU names need no registration.
+
+The profiler retains the configured FPS, observation cadence, policy inputs,
+worker interpreter, and executor settings. It enables the required records
+and pipeline timing. Video is disabled when no video setting is supplied.
+Keep `logging.video.enabled: false` for formal measurements.
+Warmup uses the existing realtime evaluator's policy and remains outside the
+fitting trace. The profiler does not introduce a separate inference path.
+
+The local hardware record contains the full fingerprint and worker mapping.
+The public projection omits host names and GPU UUIDs. CPU-only profiles use
+`cpu` in the existing deployment coordinate field, named `gpu_class`.
+Known GPU names retain their published aliases. Other GPU names use a normalized
+form of the reported hardware name.
+
+Calibration is disabled unless `profiling.calibration` supplies its parameters:
+
+```yaml
+profiling:
+  calibration:
+    target_latency_frames: 2
+    worker_utilization_cap: 0.8
+```
+
+This explicit operation measures the configured inference devices and selects
+new environment and observation clocks. It saves the calibration input and
+result. Omit it, or set it to `null`, to retain the task's configured clocks.
+
+## Use a model example
+
+Model examples live under `configs/examples/profiling/<task>/<model>.yaml`.
+They inherit the task configuration and explicitly choose model artifacts,
+measurement counts, devices, and clocks. For example:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run --model qwenoft --workload mikasa_intercept_grab_fast --hf-artifacts
-CUDA_VISIBLE_DEVICES=1 bash scripts/profile.sh run --model qwenoft --workload g1_sonic_balance_simple --hf-artifacts
+CUDA_VISIBLE_DEVICES=0 python -m latency_bench.profiling.cli run \
+  --config configs/examples/profiling/flappy/openvla.yaml
+
+CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench.profiling.cli run \
+  --config configs/examples/profiling/mikasa_intercept_grab_fast/qwenoft.yaml
 ```
 
-Each profile has four coordinates:
+The Flappy example selects logical `cuda:0` for inference. The MIKASA example
+selects `cuda:0` for simulation and `cuda:1` for inference. Additional visible
+GPUs do not create additional workers. Edit `executor.inference_devices` when
+you intend to measure a different worker configuration.
 
-```text
-<model>/<gpu-deployment>/<workload>/<physical-instance>
+Examples explicitly select `source: hf`. The resolver records the downloaded
+snapshot revision. To use a local bundle, inherit an example and override:
+
+```yaml
+__base__: /path/to/checkout/configs/examples/profiling/flappy/openvla.yaml
+profiling:
+  model_artifact:
+    source: local
+    local_root: /models/my_bundle
+policy:
+  backbone_path: /models/my_backbone
 ```
 
-- `model` and `workload` come from the preset.
-- `gpu-deployment` is derived from the visible GPU count and registered GPU model.
-- `physical-instance` identifies the exact GPU set and its link topology.
+The inherited artifact specifies the checkpoint and model-config filenames
+relative to that bundle. Change them if your bundle uses different filenames.
+A missing local file fails. It does not trigger an HF download.
 
-Changing the checkpoint alone does not create another coordinate; it is stored
-as profile provenance. Use a distinct model ID when a runtime or precision
-variant should have its own latency profile.
+Custom policies can load models through their ordinary `policy` config, without
+an artifact declaration. The optional `model_artifact` and `runtime_artifact`
+settings provide the existing local/HF bundle resolver when needed.
+`runtime_artifact` supplies `env.runtime_checkpoint_path`.
+StarVLA can use its ordinary checkpoint and backbone configuration.
+An artifact declaration is optional. Bundles with explicit `backbone` metadata
+in `config.yaml` can resolve the backbone before workers start.
+The existing policy loader owns model configuration and normalization statistics.
 
-## How it works
-
-```text
-visible GPUs -> realtime sessions -> observation attempts -> fitted profile
-```
-
-Every observation opportunity is written to `observation_attempts.jsonl`.
-Admitted requests record their worker slot, observation-to-action latency, and
-worker service time. If all workers are busy, the row records a capacity drop
-instead of inventing a latency sample.
-
-Observation-to-action starts before `env.observe()` and ends when the inference
-parent receives the VLA policy action or action chunk. It includes observation
-extraction, IPC, model preprocessing/forward and model-side action decoding. A
-task-owned frozen actor, PD controller, actuator and simulator `env.step()` run
-after that boundary. Their `env_step_ms` is reported for diagnosis but is not a
-profile sample.
-
-The builder pools admitted samples for per-slot distributions and preserves
-session order for the temporal burst model. Pipeline-stage and episode metrics
-are useful diagnostics, but they are not profile inputs.
-
-Task adapters may publish cumulative episode values through
-`StepResult.info["task_metrics"]`. Session summaries report each metric's raw
-episode values, mean and standard deviation; these values measure task quality
-under latency but never alter the fitted latency distribution.
-
-## Artifacts and replay
-
-```text
-results/profiling/
-  runs/<model>/<gpu>/<workload>/<instance>/<run-id>/
-    run_contract.json                 # local only
-    sessions/<session-id>/observation_attempts.jsonl
-    profile/
-  profiles/<model>/<gpu>/<workload>/<instance>/
-    profile.json
-    latency_profile.png
-    latency_distribution.json
-    latency_burst_model.json
-    hardware.json
-    DONE
-  downloads/profiles/<model>/<gpu>/<workload>/<instance>/<hf-commit>/
-    profile.json                     # complete immutable downloaded bundle
-  simulations/<model>/<gpu>/<workload>/<instance>/<run-id>/<method>/<seed>/
-```
-
-`runs/` keeps raw measurements, generated configs, warmup diagnostics, pipeline
-summaries, and episode metrics. `profiles/` is the current completed profile
-for each coordinate. `profile.json` is the human-readable manifest,
-`latency_profile.png` visualizes the admitted observation-to-action latency density,
-`latency_distribution.json` contains per-slot latency/service-time samples, and
-`latency_burst_model.json` contains the temporal model.
-
-The run command prints `PROFILE_REF`, `PROFILE_PATH`, `RUN_ID`, `GPU_CLASS`, and
-`INSTANCE_ID`. Use those values for the remaining commands:
+## Resume or fit existing records
 
 ```bash
-bash scripts/profile.sh publish --model my_model --workload my_task
-bash scripts/profile.sh resolve --model my_model --workload my_task
+python -m latency_bench.profiling.cli run --config profile.yaml --resume RUN_ID
+python -m latency_bench.profiling.cli fit --run-dir /path/to/completed/measurement
+```
 
-bash scripts/profile.sh simulate \
-  --model my_model --workload my_task \
-  --gpu "$GPU_CLASS" --instance "$INSTANCE_ID" \
+Resume checks the saved configuration, deployment, environment start method,
+and evaluation Python path once before continuing. Changing `profiling.hf_repo`
+does not change the measurement protocol. Completed sessions remain unchanged.
+An incomplete session runs again from its beginning.
+Resume and `fit` require the current local run-contract structure.
+
+`fit` uses the saved run contract, hardware record, completed session traces,
+and calibration result when calibration was requested.
+It does not load the model or inspect the current machine. It returns the
+profile inside the source run. An existing completed fit is reused. An
+incomplete fit is rebuilt from the recorded sessions.
+
+For independently collected traces, use
+`latency_bench.latency.profile_builder.build_profile_from_traces` directly.
+Supply each session's `measure_session_id` and `observation_attempts` path,
+the measurement coordinates, FPS, and source metadata. The input must follow
+the existing `observation_attempts.jsonl` schema. This operation does not certify
+that independently supplied traces used LAGEN's measurement protocol.
+
+## Artifacts
+
+Under `logging.output_dir`, a run writes:
+
+```text
+runs/<model>/<deployment>/<task>/<instance>/<run-id>/
+  run_contract.json
+  hardware.json
+  calibration.json         # Only when calibration was requested.
+  sessions/<session-id>/
+    generated.yaml
+    resolved_config.yaml
+    observation_attempts.jsonl
+    episode_metrics.jsonl
+  profile/
+profiles/<model>/<deployment>/<task>/<instance>/
+  profile.json
+  latency_distribution.json
+  latency_burst_model.json
+  latency_profile.png
+  hardware.json
+```
+
+The run directory retains its own profile. `profiles/` holds the current
+completed profile at that coordinate. A profile contains action-return latency,
+worker service-time distributions, worker identities, and temporal burst data.
+Capacity drops remain in the ordered trace but do not become latency samples.
+
+Observation-to-action timing starts before `env.observe()` and ends when the
+inference parent receives the policy action or chunk. It includes observation
+extraction, IPC, preprocessing, inference, and model-side decoding. Subsequent
+task-owned controllers and simulator steps are outside that latency boundary.
+
+The Python `run_profile(config)` result and CLI output identify `PROFILE_PATH`,
+`RUN_DIR`, `RUN_ID`, measurement completion, fitting completion, and publication
+status. Successful fitting does not establish simulated agreement or publication.
+
+## Replay locally
+
+For a comparison using the measured model:
+
+```bash
+python -m latency_bench.profiling.cli simulate \
+  --config profile.yaml --profile-path /path/to/profile.json \
   --method temporal --seeds 0 1 2
 ```
 
-Replay methods are `zero`, `temporal`, `iid`, `fixed`, and `normal`. `zero`
-uses the same generated simulated-eval config as profile replay, but injects
-zero virtual latency. Base-config evaluation suites are removed so the requested
-method and latency seed govern replay.
+This command selects the artifact sources recorded by the profile.
+Recorded HF revisions remain fixed. To use a local copy, explicitly configure
+its artifact root and provide the matching model files. Methods are `zero`, `temporal`,
+`iid`, `fixed`, and `normal`. The target configuration supplies the task clocks.
+For a matched-cadence comparison after calibration, copy the selected FPS
+values from `calibration.json` into the replay config.
+Flappy examples with a separate simulation environment have a corresponding
+`<model>_replay.yaml` configuration.
 
-Each `resolve` checks the remote snapshot and returns `PROFILE_PATH` under its
-exact HF commit. The profile, distributions, burst model and optional plot all
-come from that revision. Existing returned paths stay unchanged when a new
-profile is published. Use the returned path in downstream configs; do not
-construct the old flat `downloads/profiles/.../<instance>/profile.json` path.
-In particular, Balance DAgger accepts this path through `--profile-path`; existing
-experiments with fixed paths keep their previously selected files.
+To transfer timing conditions to another model or task, use ordinary simulated
+evaluation with `latency.profile_path`, or the public wrapper:
 
-`simulate` uses the model snapshot recorded by the profile and verifies its
-contents. For a locally measured bundle, use `--model-path MODEL_PATH` when its
-location differs from the preset, and `--backbone-path BACKBONE_PATH` for a local
-backbone. A byte-identical local mirror of an HF model is also accepted. It never
-substitutes current HF model contents for an unverified local measurement.
-Inputs are checked before and after each seed, before writing `DONE`.
+```python
+import gymnasium as gym
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 
-Legacy profiles without full content identity are rejected by shared `simulate`,
-and old measurement contracts cannot resume. Establish the original measured
-inputs from archived evidence or measure a new run; assigning today's hashes to
-an old measurement does not establish provenance. Direct fixed-profile training
-and evaluation still accept their existing profile files, including experiments
-whose trained student intentionally differs from the model used for profiling.
-
-## Train a small model with IID profile latency
-
-Sample Factory training can use the same canonical profile manifest with IID sampling:
-
-```yaml
-latency:
-  method: iid
-  profile_path: results/profiling/profiles/<model>/<gpu>/<workload>/<instance>/profile.json
-  profile_worker_slot: 0
-  seed: 42
+wrapped = ActionLatencyWrapper(
+    gym.make("CartPole-v1"), noop_action=0,
+    env_fps=50, obs_fps=10,
+    profile_path="/path/to/profile.json",
+    profile_method="iid", profile_worker_slot=0,
+)
+try:
+    observation, info = wrapped.reset(seed=7)
+    observation, reward, terminated, truncated, info = wrapped.step(1)
+finally:
+    wrapped.close()
 ```
 
-`profile_worker_slot` selects one real worker slot from the profile. Every training
-environment samples that slot's `all` distribution with its own deterministic stream.
-The sampled `observation_to_action_latency_ms` is converted to the training environment's
-raw-frame clock and applied by the existing action queue.
+This uses the selected timing conditions. It does not claim that the target
+model or task was measured. Existing profile files remain usable through the
+sampler and wrapper. Sample Factory's existing IID profile training configuration remains
+supported by its reference integration.
 
-This training mode is intentionally action-only: it does not model worker service
-occupancy or capacity drops. Use `simulate --method iid` when those worker-pool effects
-are required. Sample Factory training currently supports `iid` only; temporal burst
-replay remains an executor-level feature. Profiles must use the canonical schema 3
-distribution generated from `observation_attempts.jsonl`; older single-array profile
-artifacts must be rebuilt before training.
+## Download and publish
+
+Remote operations use explicit artifact addresses and do not inspect local GPUs:
+
+```bash
+python -m latency_bench.profiling.cli list --repo MLL-Lab/LAGEN-profiles
+python -m latency_bench.profiling.cli resolve \
+  --repo MLL-Lab/LAGEN-profiles \
+  --ref MODEL/DEPLOYMENT/TASK/INSTANCE --output-dir outputs/profile_downloads
+python -m latency_bench.profiling.cli publish \
+  --run-dir /path/to/completed/run --repo MY_ORG/MY_PROFILES
+```
+
+Downloads contain a complete immutable snapshot, including distribution and
+burst-model files. Use the returned `PROFILE_PATH` in downstream configs.
+To publish at the end of measurement, set `profiling.hf_repo` and pass `--publish`.
+Model downloads and profile uploads are separate operations.
+Measurement and simulation uploads omit local run contracts, full hardware
+fingerprints, and generated or resolved configurations.
+
+The [sim2real study](../../scripts/experiments/sim2real/README.md) retains its
+independent experimental protocol and archived evidence.

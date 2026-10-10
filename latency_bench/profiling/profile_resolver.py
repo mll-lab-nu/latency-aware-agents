@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from pathlib import Path
+from copy import deepcopy
 from typing import Any, Iterable
 
 from latency_bench.core.config import load_config
@@ -19,187 +19,87 @@ PROFILE_DONE_RE = re.compile(
 )
 
 
-_MODEL_SIDECARS = (
-    "config.yaml", "config.full.yaml", "dataset_statistics.json",
-    "task_contract.json", "manifest.json", "latency_prompt_map.json",
-)
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _directory_files(root: Path) -> list[Path]:
-    files = []
-    for directory, children, names in os.walk(root, followlinks=True):
-        children[:] = [name for name in children if name not in {".cache", ".git", "__pycache__"}]
-        files.extend(Path(directory) / name for name in names)
-    return sorted(files)
-
-
-def _artifact_digests(root: Path, artifact: dict[str, Any], *, from_hf: bool) -> dict[str, str]:
-    checkpoint = root / artifact["checkpoint"]
-    files = _directory_files(checkpoint) if checkpoint.is_dir() else [checkpoint]
-    files.extend(root / name for name in _MODEL_SIDECARS if (root / name).is_file())
-    if "model_config" in artifact:
-        files.append(root / artifact["model_config"])
-    return {
-        path.relative_to(root).as_posix(): _file_sha256(_contained_path(
-            root, path.relative_to(root), allow_hf_cache_symlink=from_hf,
-        ))
-        for path in sorted(set(files))
-    }
-
-
-def profile_input_identity(spec: dict[str, Any]) -> dict[str, Any]:
-    """Fingerprint the actual model bundle and final evaluation input paths."""
-    from latency_bench.profiling.runtime_configs import _base_config
-
-    identity = {}
-    for role in ("model", "runtime"):
-        if role == "runtime" and "runtime_provenance" not in spec:
-            continue
-        provenance = spec[f"{role}_provenance"]
-        identity[role] = _artifact_digests(
-            Path(spec[f"{role}_artifact_root"]), provenance,
-            from_hf=provenance["source"] == "hf",
-        )
-    config = _base_config(spec, Path("__latency_bench_contract_output__"))
-    for key in ("model_config_path", "task_contract_path", "task_manifest_path", "latency_prompt_map_path"):
-        if key in config["policy"]:
-            identity[key] = _file_sha256(Path(config["policy"][key]))
-    if "backbone_path" in config["policy"]:
-        root = Path(config["policy"]["backbone_path"])
-        # Resolve a missing directory through the filesystem, not an empty identity.
-        root = root.resolve(strict=True)
-        identity["backbone"] = {
-            path.relative_to(root).as_posix(): _file_sha256(path)
-            for path in _directory_files(root)
-        }
-    return identity
-
-
 def resolve_model_artifacts(
-    spec: dict[str, Any],
-    *,
-    model_path: str | Path | None = None,
-    hf_artifacts: bool = False,
+    config: dict[str, Any], *, profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Resolve a preset's exact local or Hugging Face model artifacts.
+    """Resolve configured artifacts, selecting recorded revisions for profile replay.
 
-    A caller-provided path replaces only the preset's local model root.  The
-    checkpoint relative path and all remote coordinates remain fixed by the
-    preset, so a missing local artifact cannot silently select another model.
+    Ordinary policy paths need no artifact declaration. Resolved roots remain
+    local, while profile provenance records the selected artifact source.
     """
-    artifact = spec["model_artifact"]
-
-    resolved = dict(spec)
-    model = _resolve_artifact(
-        artifact,
-        local_root=Path(model_path) if model_path is not None else None,
-        force_hf=hf_artifacts,
-    )
-    resolved["checkpoint_path"] = str(model["path"])
-    resolved["model_artifact_root"] = str(model["root"])
-    resolved["model_provenance"] = model["provenance"]
-    if "model_config" in artifact:
-        resolved["model_config_path"] = str(
-            _contained_path(
-                model["root"],
-                artifact["model_config"],
-                allow_hf_cache_symlink=model["provenance"]["source"] == "hf",
-            )
-        )
-    if "runtime_artifact" in spec:
-        runtime = _resolve_artifact(
-            spec["runtime_artifact"], force_hf=hf_artifacts
-        )
-        resolved["runtime_checkpoint_path"] = str(runtime["path"])
-        resolved["runtime_artifact_root"] = str(runtime["root"])
-        resolved["runtime_provenance"] = runtime["provenance"]
-    _prepare_backbone(resolved)
-    return resolved
-
-
-def resolve_profile_artifacts(
-    spec: dict[str, Any],
-    profile: dict[str, Any],
-    *,
-    model_path: str | Path | None = None,
-    backbone_path: str | Path | None = None,
-) -> dict[str, Any]:
-    """Resolve the model/runtime artifacts recorded by a profile."""
-    resolved = dict(spec)
-    if "model_artifact" not in profile["provenance"]:
-        raise ValueError("Profile has no verified model identity; do not infer it from current HF contents")
-    model_provenance = profile["provenance"]["model_artifact"]
-    model = _resolve_recorded_artifact(
-        model_provenance,
-        local_root=Path(model_path) if model_path is not None else (
-            Path(spec["model_artifact"]["local_root"])
-            if model_provenance["source"] == "local" else None
-        ),
-    )
-    resolved["checkpoint_path"] = str(model["path"])
-    resolved["model_artifact_root"] = str(model["root"])
-    resolved["model_provenance"] = model_provenance
-    if "model_config" in model_provenance:
-        resolved["model_config_path"] = str(
-            _contained_path(
-                model["root"],
-                model_provenance["model_config"],
-                allow_hf_cache_symlink=model["from_hf"],
-            )
-        )
-    if "runtime_artifact" in profile["provenance"]:
-        runtime_provenance = profile["provenance"]["runtime_artifact"]
-        runtime = _resolve_recorded_artifact(
-            runtime_provenance,
-            local_root=Path(spec["runtime_artifact"]["local_root"])
-            if runtime_provenance["source"] == "local" else None,
-        )
-        resolved["runtime_checkpoint_path"] = str(runtime["path"])
-        resolved["runtime_artifact_root"] = str(runtime["root"])
-        resolved["runtime_provenance"] = runtime_provenance
-    if backbone_path is not None:
-        resolved["backbone_path"] = str(backbone_path)
-    _prepare_backbone(resolved, recorded=(
-        profile["provenance"]["backbone_artifact"]
-        if "backbone_artifact" in profile["provenance"] else None
-    ))
-    return resolved
+    config = deepcopy(config)
+    options = config["profiling"]
+    provenance = config.setdefault("provenance", {})
+    recorded = profile["provenance"] if profile is not None else None
+    for role in ("model", "runtime"):
+        key = f"{role}_artifact"
+        if recorded is None:
+            if key not in options:
+                continue
+            artifact = options[key]
+        else:
+            if key not in recorded:
+                continue
+            origin = recorded[key]
+            selected = options[key] if key in options else {"source": origin["source"]}
+            artifact = {"source": selected["source"], "checkpoint": origin["checkpoint"]}
+            if "model_config" in origin:
+                artifact["model_config"] = origin["model_config"]
+            if artifact["source"] == "local":
+                artifact["local_root"] = selected["local_root"]
+            elif artifact["source"] == "hf":
+                if origin["source"] != "hf":
+                    raise ValueError("A locally measured artifact requires an explicit local copy for replay")
+                artifact.update(hf_repo=origin["repo_id"], hf_path=origin["path_in_repo"],
+                                revision=origin["revision"])
+            options[key] = artifact
+        resolved = _resolve_artifact(artifact)
+        portable = resolved["provenance"] if recorded is None else {
+            name: value for name, value in recorded[key].items()
+            if name in {"source", "checkpoint", "model_config", "repo_id", "path_in_repo", "revision"}
+        }
+        provenance[key] = {**portable, "local_root": str(resolved["root"])}
+        if role == "runtime":
+            config["env"]["runtime_checkpoint_path"] = str(resolved["path"])
+            continue
+        policy = config["policy"]
+        policy["checkpoint_path"] = str(resolved["path"])
+        if "model_config" in artifact:
+            policy["model_config_path"] = str(_contained_path(
+                resolved["root"], artifact["model_config"],
+                allow_hf_cache_symlink=artifact["source"] == "hf",
+            ))
+            for field in ("task_contract_path", "task_manifest_path"):
+                if field in policy and not Path(policy[field]).is_absolute():
+                    policy[field] = str(_contained_path(
+                        Path(policy["model_config_path"]).parent, policy[field],
+                        allow_hf_cache_symlink=artifact["source"] == "hf",
+                    ))
+    _prepare_backbone(config, recorded=recorded.get("backbone_artifact") if recorded is not None else None)
+    return config
 
 
-def _prepare_backbone(spec: dict[str, Any], *, recorded: dict[str, Any] | None = None) -> None:
-    """Prepare explicit bundle backbone metadata before inference workers start."""
-    uses_starvla = False
-    if "base_config" in spec:
-        policy = load_config(spec["base_config"])["policy"]
-        uses_starvla = policy["type"] == "starvla"
-        if "backbone_path" not in spec and "backbone_path" in policy:
-            spec["backbone_path"] = policy["backbone_path"]
-    if "backbone_path" in spec:
-        spec["backbone_path"] = str(Path(spec["backbone_path"]).expanduser().resolve())
-        spec["backbone_provenance"] = {"source": "local"}
+def _prepare_backbone(config: dict[str, Any], *, recorded: dict[str, Any] | None = None) -> None:
+    """Bind the actual StarVLA model and processor inputs before workers start."""
+    policy = config["policy"]
+    provenance = config.setdefault("provenance", {})
+    if "backbone_path" in policy:
+        policy["backbone_path"] = os.path.abspath(Path(policy["backbone_path"]).expanduser())
+        provenance["backbone_artifact"] = {"source": "local"}
+        return
+    if policy["type"] != "starvla":
         return
     if recorded is not None:
         if recorded["source"] == "local":
-            raise ValueError("This profile used a local backbone; supply --backbone-path for replay")
+            raise ValueError("This profile used a local backbone; configure policy.backbone_path for replay")
         backbone = recorded
     else:
-        if "model_config_path" not in spec and not uses_starvla:
+        if "model_artifact" in provenance:
+            root = Path(provenance["model_artifact"]["local_root"])
+        else:
             return
-        # StarVLA constructs the model from config.yaml, even when benchmark
-        # preprocessing uses config.full.yaml.
-        config_path = Path(spec["model_artifact_root"]) / "config.yaml"
-        model_config = load_config(config_path)
+        model_config = load_config(root / "config.yaml")
         if "backbone" not in model_config:
-            if uses_starvla:
-                raise ValueError("StarVLA profiling requires --backbone-path or config.yaml backbone metadata to bind the actual model/processor files")
             return
         backbone = model_config["backbone"]
     from huggingface_hub import snapshot_download
@@ -209,55 +109,11 @@ def _prepare_backbone(spec: dict[str, Any], *, recorded: dict[str, Any] | None =
         if field in backbone:
             download_args[field] = backbone[field]
     snapshot = Path(snapshot_download(**download_args))
-    spec["backbone_path"] = str(snapshot)
-    spec["backbone_provenance"] = {
+    policy["backbone_path"] = str(snapshot)
+    provenance["backbone_artifact"] = {
         "source": "hf", "repo_id": backbone["repo_id"], "revision": snapshot.name,
         **({"allow_patterns": backbone["allow_patterns"]} if "allow_patterns" in backbone else {}),
     }
-
-
-def _resolve_recorded_artifact(provenance: dict[str, Any], *, local_root: Path | None) -> dict[str, Any]:
-    if "files_sha256" not in provenance:
-        raise ValueError("Profile has no verified model identity; do not infer it from current HF contents")
-    if local_root is not None:
-        root = local_root.expanduser().resolve(strict=True)
-        model = {"root": root, "path": _contained_path(root, provenance["checkpoint"])}
-    else:
-        model = _download_profile_artifact(provenance)
-    from_hf = local_root is None
-    actual = _artifact_digests(model["root"], provenance, from_hf=from_hf)
-    if actual != provenance["files_sha256"]:
-        raise ValueError("Model artifact identity does not match the checkpoint/config/sidecars measured by this profile")
-    return {**model, "from_hf": from_hf}
-
-
-def _download_profile_artifact(provenance: dict[str, Any]) -> dict[str, Path]:
-    from huggingface_hub import snapshot_download
-
-    path_in_repo = Path(provenance["path_in_repo"])
-    if Path(provenance["checkpoint"]).is_absolute():
-        raise ValueError(
-            f"Artifact path must be relative: {provenance['checkpoint']}"
-        )
-    download_kwargs = {
-        "repo_id": provenance["repo_id"],
-        "repo_type": "model",
-    }
-    download_kwargs["revision"] = provenance["revision"]
-    if path_in_repo != Path("."):
-        download_kwargs["allow_patterns"] = [f"{path_in_repo.as_posix()}/**"]
-    snapshot = Path(snapshot_download(**download_kwargs))
-    root = (
-        snapshot
-        if path_in_repo == Path(".")
-        else _contained_path(snapshot, path_in_repo)
-    )
-    path = _contained_path(
-        root,
-        provenance["checkpoint"],
-        allow_hf_cache_symlink=True,
-    )
-    return {"root": root, "path": path}
 
 
 def _contained_path(
@@ -296,62 +152,32 @@ def _is_hf_blob_path(root: Path, lexical: Path, resolved: Path) -> bool:
     )
 
 
-def _resolve_artifact(
-    artifact: dict[str, Any],
-    *,
-    local_root: Path | None = None,
-    force_hf: bool = False,
-) -> dict[str, Any]:
-    configured_root = Path(artifact["local_root"])
-    root = configured_root if local_root is None else local_root
+def _resolve_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+    source = artifact["source"]
     checkpoint = Path(artifact["checkpoint"])
-    if local_root is not None:
-        resolved_root = root.resolve(strict=True)
-        source = "local"
-    elif not force_hf and root.exists():
-        resolved_root = root.resolve(strict=True)
-        source = "local"
-    else:
+    if source == "local":
+        resolved_root = Path(artifact["local_root"]).expanduser().resolve(strict=True)
+    elif source == "hf":
         from huggingface_hub import snapshot_download
 
         hf_repo = artifact["hf_repo"]
         hf_path = Path(artifact["hf_path"])
-        download_kwargs = {
-            "repo_id": hf_repo,
-            "repo_type": "model",
-        }
+        download_kwargs = {"repo_id": hf_repo, "repo_type": "model"}
         if "revision" in artifact:
             download_kwargs["revision"] = artifact["revision"]
         if hf_path != Path("."):
             download_kwargs["allow_patterns"] = [f"{hf_path.as_posix()}/**"]
         snapshot = Path(snapshot_download(**download_kwargs))
-        resolved_root = (
-            snapshot
-            if hf_path == Path(".")
-            else _contained_path(snapshot, hf_path)
-        )
-        source = "hf"
-
-    resolved_path = _contained_path(
-        resolved_root,
-        checkpoint,
-        allow_hf_cache_symlink=source == "hf",
-    )
-    artifact_provenance = {
-        "source": source,
-        "checkpoint": checkpoint.as_posix(),
-        "files_sha256": _artifact_digests(resolved_root, artifact, from_hf=source == "hf"),
-    }
+        resolved_root = snapshot if hf_path == Path(".") else _contained_path(snapshot, hf_path)
+    else:
+        raise ValueError(f"Unknown artifact source: {source!r}; use local or hf")
+    resolved_path = _contained_path(resolved_root, checkpoint, allow_hf_cache_symlink=source == "hf")
+    provenance = {"source": source, "checkpoint": checkpoint.as_posix()}
     if "model_config" in artifact:
-        artifact_provenance["model_config"] = artifact["model_config"]
+        provenance["model_config"] = artifact["model_config"]
     if source == "hf":
-        artifact_provenance.update(repo_id=hf_repo, path_in_repo=hf_path.as_posix(), revision=snapshot.name)
-
-    return {
-        "path": resolved_path,
-        "root": resolved_root,
-        "provenance": artifact_provenance,
-    }
+        provenance.update(repo_id=hf_repo, path_in_repo=hf_path.as_posix(), revision=snapshot.name)
+    return {"path": resolved_path, "root": resolved_root, "provenance": provenance}
 
 
 def profile_refs_from_repo_files(files: Iterable[str]) -> list[Path]:
@@ -370,7 +196,7 @@ def profile_refs_from_repo_files(files: Iterable[str]) -> list[Path]:
 
 
 def list_remote_profiles(
-    registry: dict[str, Any],
+    repo_id: str,
     *,
     model_id: str | None = None,
     gpu_class: str | None = None,
@@ -379,7 +205,7 @@ def list_remote_profiles(
     from huggingface_hub import HfApi
 
     files = HfApi().list_repo_files(
-        repo_id=registry["hf_repo"],
+        repo_id=repo_id,
         repo_type="dataset",
     )
     refs = profile_refs_from_repo_files(files)
@@ -393,28 +219,17 @@ def list_remote_profiles(
 
 
 def resolve_remote_profile(
-    spec: dict[str, Any],
-    *,
-    gpu_class: str,
-    instance_id: str,
-) -> tuple[Path, Path]:
-    ref = Path(spec["model_id"]) / gpu_class / spec["workload_id"] / instance_id
-    local_dir = download_profile(
-        spec,
-        ref,
-        local_dir=Path(spec["artifact_root"]) / "downloads" / "profiles" / ref,
-    )
+    repo_id: str, ref: str | Path, *, output_dir: str | Path,
+) -> Path:
+    """Download a profile by its published address, without a model registry."""
+    ref = Path(ref)
+    if ref.is_absolute() or len(ref.parts) != 4 or ".." in ref.parts:
+        raise ValueError("Profile reference must be model/deployment/workload/instance")
+    local_dir = download_profile(repo_id, ref, local_dir=Path(output_dir) / ref)
     profile_path = local_dir / "profile.json"
     profile = read_json(profile_path)
-    expected = {
-        "model_id": spec["model_id"],
-        "gpu_class": gpu_class,
-        "workload_id": spec["workload_id"],
-        "instance_id": instance_id,
-    }
+    expected = dict(zip(("model_id", "gpu_class", "workload_id", "instance_id"), ref.parts))
     actual = {key: profile[key] for key in expected}
     if actual != expected:
-        raise ValueError(
-            f"Remote profile coordinates {actual!r} do not match requested {expected!r}"
-        )
-    return ref, profile_path
+        raise ValueError(f"Remote profile coordinates {actual!r} do not match requested {expected!r}")
+    return profile_path

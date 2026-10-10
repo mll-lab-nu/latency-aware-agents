@@ -1,0 +1,33 @@
+__base__: ../../gymnasium/air_raid/starvla_profile.yaml
+experiment:
+  seed: 42
+executor:
+  mode: realtime
+  inference_devices:
+  - cuda:0
+latency:
+  method: measured
+  device: cuda:0
+  sync_cuda: true
+policy:
+  checkpoint_kind: best
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_latency_values: null
+logging:
+  output_dir: outputs/profiling
+  video:
+    enabled: false
+profiling:
+  model_id: qwenoft
+  workload_id: air_raid
+  repeats: 5
+  calibration: null
+  hf_repo: MLL-Lab/LAGEN-profiles
+  model_artifact:
+    source: hf
+    checkpoint: checkpoints/steps_5000_pytorch_model.pt
+    model_config: config.full.yaml
+    hf_repo: latency-sensitive-bench/extra-envs-checkpoints
+    hf_path: OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k

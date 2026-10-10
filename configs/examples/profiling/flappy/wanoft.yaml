@@ -1,0 +1,34 @@
+__base__: ../../../experiments/flappy/starvla_wan_oft.yaml
+experiment:
+  seed: 42
+executor:
+  mode: realtime
+  inference_devices:
+  - cuda:0
+latency:
+  method: measured
+  device: cuda:0
+  sync_cuda: true
+policy:
+  checkpoint_kind: best
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_latency_values: null
+  eval_suites: null
+logging:
+  output_dir: outputs/profiling
+  video:
+    enabled: false
+profiling:
+  model_id: wanoft
+  workload_id: flappy
+  repeats: 5
+  calibration: null
+  hf_repo: MLL-Lab/LAGEN-profiles
+  model_artifact:
+    source: hf
+    checkpoint: checkpoints/steps_2000_pytorch_model.pt
+    model_config: config.full.yaml
+    hf_repo: latency-sensitive-bench/wan_oft_flappy_fix_latency_3_context5_standard_sft_2000_effbs128_224_currentce
+    hf_path: .

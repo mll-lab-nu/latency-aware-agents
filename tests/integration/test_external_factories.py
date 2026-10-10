@@ -204,3 +204,65 @@ def test_collected_dataset_loads_starvla_training_batch(
             if include_state:
                 np.testing.assert_allclose(sample["state"], [[pixel * 2 / 3 - 1]], atol=1e-6)
     assert episode_ids[0].isdisjoint(episode_ids[1])
+
+
+def test_external_profile_reaches_simulation_and_training_wrapper(user_project):
+    """Long-lived cross-module contract: real workers produce a reusable local profile."""
+    config = {
+        "experiment": {"name": "outside_profile", "seed": 7},
+        "env": {"name": "custom", "factory": "outside_lagen:make_env",
+                "env_fps": 50, "obs_fps": 50, "noop_action": 0},
+        "policy": {"type": "custom", "factory": "outside_lagen:make_profiling_policy"},
+        "executor": {"mode": "realtime", "inference_devices": ["cpu", "cpu"]},
+        "latency": {"method": "measured", "sync_cuda": False},
+        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
+        "evaluation": {"eval_episodes": 10, "eval_max_steps": 4},
+        "logging": {"output_dir": str(user_project / "profiling")},
+        "profiling": {"model_id": "outside", "workload_id": "counter", "repeats": 2},
+        "factory_audit_path": str(user_project / "profile_audit.jsonl"),
+    }
+    config_path = user_project / "profile.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(user_project), str(REPO_ROOT)]),
+           "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+           "MPLBACKEND": "Agg"}
+    env.pop("LATENCY_BENCH_ENV_BACKEND_START_METHOD", None)
+    command = [sys.executable, "-m", "latency_bench.profiling.cli"]
+    measured = subprocess.run(command + ["run", "--config", str(config_path)], cwd=user_project,
+                              env=env, capture_output=True, text=True, timeout=120)
+    assert measured.returncode == 0, measured.stdout + measured.stderr
+    profile_path = next((user_project / "profiling/profiles").rglob("profile.json"))
+    profile = json.loads(profile_path.read_text())
+    assert profile["provenance"]["session_ids"] == [0, 1]
+    assert len(profile["per_slot_summary"]) == 2
+    assert profile["n_capacity_drops"] > 0
+    source_dir = next((user_project / "profiling/runs").rglob("run_contract.json")).parent
+    for session in range(2):
+        attempts = [json.loads(line) for line in
+                    (source_dir / "sessions" / str(session) / "observation_attempts.jsonl").read_text().splitlines()]
+        admitted = [row for row in attempts if row["submitted"]]
+        assert {row["worker_id"] for row in admitted} == {0, 1}
+        assert all(row["worker_service_time_ms"] > 0 for row in admitted)
+        assert [row["obs_id"] for row in attempts] == sorted(row["obs_id"] for row in attempts)
+    replay = subprocess.run(command + ["simulate", "--config", str(config_path), "--profile-path", str(profile_path),
+                                       "--method", "iid", "--seeds", "11"], cwd=user_project,
+                            env=env, capture_output=True, text=True, timeout=60)
+    assert replay.returncode == 0, replay.stdout + replay.stderr
+    assert len(list((user_project / "profiling/simulations").rglob("DONE"))) == 1
+    wrapper = subprocess.run([sys.executable, "-c", """
+import sys
+import gymnasium as gym
+from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
+from latency_bench.latency.samplers import build_profile_sampler
+sampler = build_profile_sampler(sys.argv[1], method='temporal', seed=3, env_fps=50, obs_fps=10)
+assert sampler.sample({'worker_slot': 0, 'episode_id': 0}).latency_ms >= 0
+wrapped = ActionLatencyWrapper(gym.make('CartPole-v1'), noop_action=0, env_fps=50, obs_fps=10,
+                               profile_path=sys.argv[1], profile_method='iid', profile_worker_slot=0)
+try:
+    wrapped.reset(seed=7)
+    assert wrapped.step(1)[4]['raw_frames_advanced'] == 5
+finally:
+    wrapped.close()
+assert not {'training', 'sample_factory', 'starVLA'}.intersection(sys.modules)
+""", str(profile_path)], cwd=user_project, env=env, capture_output=True, text=True, timeout=30)
+    assert wrapper.returncode == 0, wrapper.stdout + wrapper.stderr

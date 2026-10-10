@@ -1,0 +1,4 @@
+__base__: openvla.yaml
+env:
+  simulator: cpu
+  use_gpu_render: false

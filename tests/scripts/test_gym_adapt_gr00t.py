@@ -5,7 +5,7 @@ import pytest
 
 
 def test_air_raid_gr00t_configs_keep_appo_h1_and_realtime_modes(tmp_path):
-    from scripts.gym_adapt.gr00t import ROOT, evaluation_config, teacher_config, vla_config
+    from scripts.gym_adapt.gr00t import ROOT, evaluation_config, profiling_config, teacher_config, vla_config
 
     source = ROOT / "configs/examples/gymnasium/air_raid/small_model_train.yaml"
     teacher = teacher_config("air_raid", tmp_path, None, source)
@@ -29,6 +29,15 @@ def test_air_raid_gr00t_configs_keep_appo_h1_and_realtime_modes(tmp_path):
         assert evaluation["executor"]["mode"] == ("realtime" if mode == "measured" else "simulated")
         assert evaluation["evaluation"]["eval_max_steps"] == 3600
         assert evaluation["policy"]["task_manifest_path"] == str(tmp_path / "manifest.json")
+
+    config_path = tmp_path / "evaluation.json"
+    config_path.write_text(json.dumps(evaluation))
+    profile = profiling_config("air_raid", config_path, tmp_path / "bundle", tmp_path / "profile")
+    assert profile["env"] == evaluation["env"]
+    assert profile["executor"]["mode"] == "realtime"
+    assert profile["latency"]["method"] == "measured"
+    assert profile["profiling"]["model_artifact"]["local_root"] == str(tmp_path / "bundle")
+    assert profile["profiling"]["repeats"] == 5
 
 
 @pytest.mark.parametrize("task,state_dim,action_dim", [

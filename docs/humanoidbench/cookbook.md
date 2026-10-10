@@ -47,18 +47,18 @@ an existing run with the same inputs. Model suffixes select the other three mode
 
 ## Profile a checkpoint
 
-Use the exact checkpoint path printed as `MODEL_PATH` by training:
+Inherit `configs/examples/profiling/g1_sonic_balance_simple/qwenoft.yaml` in
+`my_profile.yaml`. Select `profiling.model_artifact.source: local` and set
+`profiling.model_artifact.local_root` to the training run's inference bundle.
+The example uses `checkpoints/model.pt` inside that bundle. Configure the
+matching backbone through `policy.backbone_path` when needed.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/profile.sh run \
-  --model qwenoft --workload g1_sonic_balance_simple \
-  --model-path /ABSOLUTE/RUN/inference/checkpoints/model.pt \
-  --hf-artifacts
+CUDA_VISIBLE_DEVICES=0 python -m latency_bench.profiling.cli run --config my_profile.yaml
 ```
 
-`configs/profiles.yaml` defines the workload. The
-[profiling cookbook](../profiling/cookbook.md) describes device allocation,
-resume, and publication.
+The ordinary config defines the workload and inference device. The
+[profiling cookbook](../profiling/cookbook.md) describes resume and publication.
 
 ## Evaluate profile-conditioned bundles
 

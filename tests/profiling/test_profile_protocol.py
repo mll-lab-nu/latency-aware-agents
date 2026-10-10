@@ -1,8 +1,11 @@
+"""Long-lived profiling storage, config, and recovery contracts."""
+
 import json
 import os
 import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -10,28 +13,14 @@ from types import SimpleNamespace
 import pytest
 
 from latency_bench.core.config import load_config
-from latency_bench.eval.suites import parse_eval_suites
 from latency_bench.profiling import runner
-from latency_bench.profiling.artifacts import (
-    profile_dir,
-    profile_ref,
-    run_dir,
-    run_ref,
-    simulation_seed_dir,
-)
-from latency_bench.profiling.profile_resolver import (
-    profile_refs_from_repo_files,
-    resolve_model_artifacts,
-    resolve_remote_profile,
-)
+from latency_bench.profiling.artifacts import profile_dir, profile_ref, run_dir, run_ref, simulation_seed_dir
+from latency_bench.profiling.profile_resolver import profile_refs_from_repo_files, resolve_remote_profile
 from latency_bench.profiling.cli import main
 from latency_bench.profiling.runner import _profile_lock, _replace_current
-from latency_bench.profiling.runtime_configs import (
-    measure_config,
-    simulation_config,
-)
-from latency_bench.profiling.spec import load_profile_spec
-from latency_bench.profiling.sync import download_profile, publish_run_and_profile
+from latency_bench.profiling.runtime_configs import measure_config, simulation_config
+from latency_bench.profiling.spec import resolve_profile_config
+from latency_bench.profiling.sync import download_profile, publish_simulation_dirs
 
 
 def test_profile_coordinates_define_every_artifact_path(tmp_path):
@@ -50,234 +39,6 @@ def test_profile_coordinates_define_every_artifact_path(tmp_path):
             "profiles/too/short/DONE",
         ]
     ) == [profile]
-
-
-def test_registry_has_one_openvla_flappy_preset():
-    spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
-
-    assert spec["session_count"] == 5
-    assert spec["eval_episodes"] == 10
-    assert spec["calibrate_env_fps"] is False
-    assert spec["artifact_root"] == "results/profiling"
-
-
-@pytest.mark.parametrize("task", ["atlantis", "asterix"])
-@pytest.mark.parametrize("model", ["qwenoft", "qwengr00t", "qwenpi_v3"])
-def test_atari_profile_keeps_cpu_simulation_and_history_manifest(tmp_path, task, model):
-    spec = load_profile_spec("configs/profiles.yaml", model, task)
-    spec.update(checkpoint_path=str(tmp_path / "bundle/checkpoints/model.pt"),
-                model_config_path=str(tmp_path / "bundle/config.yaml"))
-    config = measure_config(spec, {"gpus": [{}], "gpu_class": "1x-rtx3090", "instance_id": "instance_test"},
-                            tmp_path / "profile", {"selected_env_fps": 60, "selected_obs_fps": 15})
-    assert spec["session_count"] == 5
-    assert config["env"]["simulator"] == "cpu"
-    assert config["env"]["action_history_decisions"] == 8
-    assert config["executor"]["mode"] == "realtime"
-    assert config["executor"]["inference_devices"] == ["cuda:0"]
-    assert config["evaluation"]["eval_parallel_envs"] == 1
-    assert config["evaluation"]["eval_max_steps"] == 7200
-    assert config["policy"]["task_manifest_path"] == str(tmp_path / "bundle/manifest.json")
-    assert config["policy"]["state_source"] == "transport"
-
-
-def test_registry_uses_one_episode_count_for_profile_and_replay():
-    registry = load_config("configs/profiles.yaml")
-    for model in registry["models"].values():
-        for preset in model["workloads"].values():
-            assert "eval_episodes" in preset
-            assert "n_episodes" not in preset
-            assert "profile_episodes" not in preset
-
-
-def test_registry_has_balance_qwengr00t_preset():
-    spec = load_profile_spec(
-        "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
-    )
-
-    assert spec["session_count"] == 5
-    assert spec["eval_episodes"] == 50
-    assert spec["evaluation_seed"] == 0
-    assert spec["simulation_parallel_envs"] == 1
-    assert spec["calibrate_env_fps"] is False
-    assert spec["simulation_env"] == {}
-    assert spec["model_artifact"]["checkpoint"] == "checkpoints/model.pt"
-    assert "starvla-qwengr00t" in spec["model_artifact"]["hf_path"]
-    assert spec["gpu_models"]["rpbzzz6"]["aliases"] == ["NVIDIA RPBZZZ6"]
-
-
-def test_registry_has_deadly_corridor_profile_presets():
-    for model_id in ("openvla", "wanoft", "pi05", "gr00t"):
-        spec = load_profile_spec("configs/profiles.yaml", model_id, "deadly_corridor")
-        assert spec["session_count"] == 5
-        assert spec["eval_episodes"] == 10
-        assert spec["calibrate_env_fps"] is False
-        assert spec["simulation_parallel_envs"] == 1
-
-
-def test_deployment_collection_preserves_cuda_device_selector(monkeypatch):
-    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
-    monkeypatch.setattr(
-        runner,
-        "collect_hardware_fingerprint",
-        lambda: {
-            "gpu": {"topology": None},
-            "gpus": [
-                {"uuid": "GPU-b", "name": "NVIDIA RPBZZZ6"},
-                {"uuid": "GPU-a", "name": "NVIDIA RPBZZZ6"},
-            ],
-        },
-    )
-
-    deployment, fingerprint = runner._collect_deployment(
-        {
-            "gpu_models": {"rpbzzz6": {"aliases": ["NVIDIA RPBZZZ6"]}},
-            "simulation_gpu": None,
-        }
-    )
-
-    assert os.environ["CUDA_VISIBLE_DEVICES"] == "0,1"
-    assert [(gpu["uuid"], gpu["cuda_index"]) for gpu in deployment["gpus"]] == [
-        ("GPU-a", 1),
-        ("GPU-b", 0),
-    ]
-    assert fingerprint["gpu_deployment"] == deployment
-
-
-def test_gpu_simulator_is_excluded_from_profile_deployment(monkeypatch):
-    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,2")
-    monkeypatch.setattr(
-        runner,
-        "collect_hardware_fingerprint",
-        lambda: {
-            "gpu": {"topology": None},
-            "gpus": [
-                {"uuid": "GPU-sim", "name": "NVIDIA RPBZZZ6"},
-                {"uuid": "GPU-a", "name": "NVIDIA RPBZZZ6"},
-                {"uuid": "GPU-b", "name": "NVIDIA RPBZZZ6"},
-            ],
-        },
-    )
-    spec = {
-        "gpu_models": {"rpbzzz6": {"aliases": ["NVIDIA RPBZZZ6"]}},
-        "simulation_gpu": "cuda:0",
-    }
-
-    deployment, _ = runner._collect_deployment(spec)
-
-    assert deployment["gpu_class"] == "2x-rpbzzz6"
-    assert {gpu["uuid"] for gpu in deployment["gpus"]} == {"GPU-a", "GPU-b"}
-
-
-def test_gpu_simulator_requires_a_separate_inference_gpu(monkeypatch):
-    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
-
-    with pytest.raises(RuntimeError, match="separate inference GPU"):
-        runner._inference_cuda_visible_devices({"simulation_gpu": "cuda:0"})
-
-
-@pytest.mark.parametrize(
-    "model,workload,env_fps,obs_fps",
-    [
-        ("qwenoft", "mikasa_intercept_grab_fast", 37, 37),
-    ],
-)
-def test_measure_config_resolves_task_contract_for_model_bundle(
-    tmp_path, model, workload, env_fps, obs_fps
-):
-    spec = load_profile_spec(
-        "configs/profiles.yaml", model, workload
-    )
-    model_config_path = tmp_path / "bundle" / "config.yaml"
-    spec["checkpoint_path"] = str(tmp_path / "bundle/checkpoints/model.pt")
-    spec["model_config_path"] = str(model_config_path)
-    spec["backbone_path"] = "/models/backbone/snapshots/recorded-commit"
-
-    config = measure_config(
-        spec,
-        {
-            "gpu_class": "1x-rtx3090",
-            "instance_id": "instance_abc",
-            "gpus": [{}],
-        },
-        tmp_path,
-        {"selected_env_fps": env_fps, "selected_obs_fps": obs_fps},
-    )
-
-    assert config["env"]["env_fps"] == env_fps
-    assert config["env"]["obs_fps"] == obs_fps
-    assert config["policy"]["model_config_path"] == str(model_config_path)
-    assert config["policy"]["backbone_path"] == spec["backbone_path"]
-    assert config["policy"]["task_contract_path"] == str(
-        model_config_path.parent / "task_contract.json"
-    )
-
-
-def test_measure_config_strips_eval_suites_for_realtime_demon_attack(tmp_path):
-    spec = load_profile_spec("configs/profiles.yaml", "openvla", "demon_attack")
-    spec["checkpoint_path"] = str(tmp_path / "bundle/checkpoints/model.safetensors")
-    spec["model_config_path"] = str(tmp_path / "bundle/config.full.yaml")
-
-    config = measure_config(
-        spec,
-        {
-            "gpu_class": "1x-rtx3090",
-            "instance_id": "instance_abc",
-            "gpus": [{}],
-        },
-        tmp_path,
-        {"selected_env_fps": 60, "selected_obs_fps": 15},
-    )
-
-    assert config["executor"]["mode"] == "realtime"
-    assert config["latency"]["method"] == "measured"
-    assert config["evaluation"]["eval_latency_values"] is None
-    assert "eval_suites" not in config["evaluation"]
-
-
-def test_fixed_workload_cadence_skips_policy_calibration(tmp_path, monkeypatch):
-    spec = load_profile_spec(
-        "configs/profiles.yaml", "qwengr00t", "g1_sonic_balance_simple"
-    )
-    spec["checkpoint_path"] = "/models/balance/checkpoint-15000"
-    monkeypatch.setattr(
-        runner,
-        "calibrate_env_fps_from_saturated_latency",
-        lambda **_kwargs: pytest.fail("fixed cadence must skip policy calibration"),
-    )
-
-    calibration = runner._calibrate(
-        spec,
-        {
-            "gpu_class": "2x-rpbzzz6",
-            "instance_id": "instance_abc",
-            "gpus": [{}, {}],
-        },
-        tmp_path,
-    )
-
-    assert calibration == {
-        "selected_env_fps": 50,
-        "selected_obs_fps": 50,
-        "calibration_source": "fixed_workload_cadence",
-    }
-    assert json.loads((tmp_path / "calibration.json").read_text()) == calibration
-    assert (tmp_path / "calibration.DONE").exists()
-    assert not (tmp_path / "calibration.generated.yaml").exists()
-
-
-def test_resume_run_id_cannot_escape_artifact_root():
-    with pytest.raises(SystemExit):
-        main(
-            [
-                "run",
-                "--model",
-                "openvla",
-                "--workload",
-                "flappy",
-                "--resume",
-                "../run",
-            ]
-        )
 
 
 def test_current_profile_replacement_keeps_only_new_bundle(tmp_path):
@@ -311,229 +72,22 @@ def test_profile_lock_serializes_current_writers(tmp_path):
     assert entered.is_set()
 
 
-def test_new_runs_are_retained_while_current_moves_forward(tmp_path, monkeypatch):
-    checkpoint = tmp_path / "bundle" / "model.pt"
-    checkpoint.parent.mkdir()
-    checkpoint.write_bytes(b"model weights")
-    base_config = tmp_path / "base.json"
-    base_config.write_text(
-        json.dumps(
-            {
-                "experiment": {},
-                "executor": {},
-                "env": {"env_fps": 25, "obs_fps": 25},
-                "latency": {},
-                "scheduler": {},
-                "policy": {
-                    "type": "dummy",
-                    "checkpoint_path": str(checkpoint),
-                },
-                "logging": {},
-                "evaluation": {},
-            }
-        ),
-        encoding="utf-8",
-    )
-    spec = {
-        "artifact_root": str(tmp_path / "artifacts"),
-        "model_id": "openvla",
-        "workload_id": "flappy",
-        "session_count": 2,
-        "eval_episodes": 1,
-        "evaluation_seed": 0,
-        "base_config": str(base_config),
-        "model_artifact": {
-            "local_root": str(checkpoint.parent),
-            "checkpoint": checkpoint.name,
-        },
-        "checkpoint_kind": "best",
-        "gpu_models": {"rtx4090": {"aliases": ["NVIDIA RTX 4090"]}},
-        "simulation_gpu": None,
-        "calibrate_env_fps": False,
-        "simulation_env": {},
-    }
-    spec = resolve_model_artifacts(spec)
-    deployment = {
-        "gpu_class": "2x-rtx4090",
-        "instance_id": "instance_abc",
-        "gpus": [{}, {}],
-    }
-    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b")
-    run_ids = iter(["run_1", "run_2"])
-    monkeypatch.setattr(
-        runner,
-        "_collect_deployment",
-        lambda _spec: (deployment, {"private": "hardware"}),
-    )
-    monkeypatch.setattr(
-        runner,
-        "_calibrate",
-        lambda _spec, _deployment, _source: {
-            "selected_env_fps": 25,
-            "selected_obs_fps": 25,
-        },
-    )
-    monkeypatch.setattr(runner, "_measure_session", lambda *args, **kwargs: None)
-    monkeypatch.setattr(runner, "_new_run_id", lambda: next(run_ids))
-    monkeypatch.setattr(
-        runner,
-        "public_hardware_projection",
-        lambda *args, **kwargs: {"gpu_class": "2x-rtx4090"},
-    )
-
-    def build_bundle(**kwargs):
-        output = Path(kwargs["output_dir"])
-        output.mkdir()
-        (output / "profile.json").write_text(
-            json.dumps({"source_run_id": kwargs["source_run_id"]}),
-            encoding="utf-8",
-        )
-        (output / "latency_distribution.json").write_text("{}", encoding="utf-8")
-        (output / "latency_burst_model.json").write_text("{}", encoding="utf-8")
-
-    monkeypatch.setattr(runner, "build_profile_from_traces", build_bundle)
-
-    first = runner.run_profile(spec, resume_run_id=None, publish=False)
-    second = runner.run_profile(spec, resume_run_id=None, publish=False)
-
-    coordinate = Path("openvla/2x-rtx4090/flappy/instance_abc")
-    runs = Path(spec["artifact_root"]) / "runs" / coordinate
-    current = Path(spec["artifact_root"]) / "profiles" / coordinate
-    assert first["RUN_ID"] == "run_1"
-    assert second["RUN_ID"] == "run_2"
-    assert (runs / "run_1" / "DONE").exists()
-    assert (runs / "run_2" / "DONE").exists()
-    assert json.loads((current / "profile.json").read_text())["source_run_id"] == "run_2"
-    contract = json.loads((runs / "run_2" / "run_contract.json").read_text())
-    assert contract["identity"]["checkpoint_path"] == str(checkpoint)
-    assert contract["calibration_config"]["logging"]["output_dir"] == (
-        "__latency_bench_contract_output__/calibration_probe"
-    )
-    assert contract["measurement_config"]["logging"]["output_dir"] == (
-        "__latency_bench_contract_output__"
-    )
-
-
-@pytest.mark.parametrize("change", ["path", "weights"])
-def test_resume_requires_matching_run_contract(tmp_path, change):
-    spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
-    checkpoint = tmp_path / "bundle" / "model.pt"
-    checkpoint.parent.mkdir()
-    checkpoint.write_bytes(b"model weights")
-    spec["model_artifact"] = {
-        "local_root": str(checkpoint.parent),
-        "checkpoint": checkpoint.name,
-    }
-    backbone = tmp_path / "backbone"
-    backbone.mkdir()
-    (backbone / "processor_config.json").write_text("{}")
-    spec["backbone_path"] = str(backbone)
-    spec = resolve_model_artifacts(spec)
-    deployment = {
-        "gpu_class": "2x-rtx4090",
-        "instance_id": "instance_abc",
-        "gpus": [{}, {}],
-    }
-    calibration = {"selected_env_fps": 16, "selected_obs_fps": 16}
-    source_dir = tmp_path / "run"
-    source_dir.mkdir()
-    (source_dir / "calibration.json").write_text(
-        json.dumps(calibration), encoding="utf-8"
-    )
-    (source_dir / "calibration.DONE").touch()
-    (source_dir / "run_contract.json").write_text(
-        json.dumps(runner._run_contract(spec, deployment, calibration)),
-        encoding="utf-8",
-    )
-
-    runner._assert_run_contract(spec, deployment, source_dir)
-
-    if change == "path":
-        other_root = tmp_path / "another-bundle"
-        other_root.mkdir()
-        (other_root / checkpoint.name).write_bytes(checkpoint.read_bytes())
-        spec = resolve_model_artifacts(spec, model_path=other_root)
-    else:
-        checkpoint.write_bytes(b"replacement weights")
-    with pytest.raises(ValueError, match="run contract does not match"):
-        runner._assert_run_contract(spec, deployment, source_dir)
-
-
-def test_legacy_run_without_contract_cannot_resume(tmp_path):
-    spec = load_profile_spec("configs/profiles.yaml", "openvla", "flappy")
-    deployment = {
-        "gpu_class": "2x-rtx4090",
-        "instance_id": "instance_abc",
-        "gpus": [{}, {}],
-    }
-    with pytest.raises(FileNotFoundError, match="run_contract.json"):
-        runner._assert_run_contract(spec, deployment, tmp_path)
-
-
-@pytest.mark.parametrize("method", ["fixed", "normal", "iid", "temporal"])
-@pytest.mark.parametrize("model", ["openvla", "wanoft"])
-def test_simulation_uses_profile_slots_and_selected_artifact(tmp_path, method, model):
-    spec = load_profile_spec("configs/profiles.yaml", model, "flappy")
-    spec["checkpoint_path"] = f"/models/{model}"
-    base = load_config(spec["base_config"])
-    if model == "wanoft":
-        assert parse_eval_suites(base)[0].fixed_latency_values == [3]
-    observation_stride = base["env"]["env_fps"] / base["env"]["obs_fps"]
-    profile = {
-        "model_id": model,
-        "gpu_class": "2x-rtx4090",
-        "workload_id": "flappy",
-        "instance_id": "instance_abc",
-        "source_run_id": "run_1",
-        "env_fps": 20,
-        "per_slot_summary": {"0": {}, "1": {}},
-    }
-    if method in {"fixed", "normal"}:
-        profile["summary"] = {"mean_ms": 50.0, "std_ms": 4.0}
-
-    config = simulation_config(
-        spec,
-        output_dir=tmp_path,
-        profile_path=tmp_path / "profile.json",
-        profile_ref=Path(f"{model}/2x-rtx4090/flappy/instance_abc"),
-        profile=profile,
-        method=method,
-        latency_seed=7,
-    )
-
-    assert config["env"]["env_fps"] == 20
-    assert config["env"]["obs_fps"] == pytest.approx(20 / observation_stride)
-    assert config["executor"]["simulated_worker_capacity"] == 2
-    assert config["policy"]["checkpoint_path"] == spec["checkpoint_path"]
-    assert config["latency"]["method"] == method
-    assert config["evaluation"]["eval_latency_values"] is None
-    assert parse_eval_suites(config) == []
-    assert config["latency"]["source_run_id"] == "run_1"
-    assert config["latency"]["seed"] == 7
-    if method == "fixed":
-        assert config["latency"]["fixed_latency_ms"] == 50.0
-    elif method == "normal":
-        assert config["latency"]["mean_latency_ms"] == 50.0
-        assert config["latency"]["std_latency_ms"] == 4.0
-    else:
-        assert "fixed_latency_ms" not in config["latency"]
-        assert "mean_latency_ms" not in config["latency"]
-        assert "std_latency_ms" not in config["latency"]
-
-
-def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatch):
+@pytest.mark.parametrize("artifact", ["measurement", "simulation"])
+def test_publish_uses_one_commit_and_omits_local_configuration(tmp_path, monkeypatch, artifact):
     run = tmp_path / "run"
-    profile = tmp_path / "profile"
+    profile = run / "profile"
     session = run / "sessions" / "0"
     session.mkdir(parents=True)
-    (run / "profile").mkdir()
     profile.mkdir()
     (run / "hardware.json").write_text("private", encoding="utf-8")
     (run / "run_contract.json").write_text("private", encoding="utf-8")
-    (run / "profile" / "profile.json").write_text("candidate", encoding="utf-8")
     (session / "actions.jsonl").write_text("{}\n", encoding="utf-8")
+    (session / "resolved_config.yaml").write_text("local paths", encoding="utf-8")
+    (session / "generated.yaml").write_text("local paths", encoding="utf-8")
     (profile / "profile.json").write_text(
-        json.dumps({"visualization_path": "latency_profile.png"}),
+        json.dumps({"visualization_path": "latency_profile.png", "model_id": "openvla",
+                    "gpu_class": "2x-rtx4090", "workload_id": "flappy",
+                    "instance_id": "instance_abc", "source_run_id": "run_1"}),
         encoding="utf-8",
     )
     (profile / "latency_profile.png").write_bytes(b"png")
@@ -562,19 +116,25 @@ def test_publish_uses_one_commit_and_omits_private_hardware(tmp_path, monkeypatc
         SimpleNamespace(CommitOperationAdd=Add, HfApi=lambda: client),
     )
 
-    publish_run_and_profile(
-        {"hf_repo": "org/profiles"},
-        local_run_dir=run,
-        local_profile_dir=profile,
-        run_ref=Path("openvla/2x-rtx4090/flappy/instance_abc/run_1"),
-        profile_ref=Path("openvla/2x-rtx4090/flappy/instance_abc"),
-    )
+    (run / "DONE").touch()
+    monkeypatch.setattr(runner, "collect_hardware_fingerprint", lambda: pytest.fail("publishing must not inspect this machine"))
+    if artifact == "measurement":
+        main(["publish", "--run-dir", str(run), "--repo", "org/profiles"])
+    else:
+        publish_simulation_dirs(
+            "org/profiles", local_dirs=[session],
+            remote_dirs=[Path("simulations/openvla/run_1/temporal/0")],
+        )
 
     uploaded = {op.path_in_repo for op in client.calls[0]["operations"]}
     assert len(client.calls) == 1
     assert not any(path.endswith("/hardware.json") and path.startswith("runs/") for path in uploaded)
     assert not any(path.endswith("/run_contract.json") for path in uploaded)
     assert not any("/profile/" in path and path.startswith("runs/") for path in uploaded)
+    assert not any(path.endswith(("/generated.yaml", "/resolved_config.yaml")) for path in uploaded)
+    assert any(path.endswith("/actions.jsonl") for path in uploaded)
+    if artifact == "simulation":
+        return
     assert "profiles/openvla/2x-rtx4090/flappy/instance_abc/hardware.json" in uploaded
     assert "profiles/openvla/2x-rtx4090/flappy/instance_abc/latency_profile.png" in uploaded
     profile_uploads = [
@@ -619,12 +179,12 @@ def test_download_fetches_current_profile(tmp_path, monkeypatch):
     )
 
     first = download_profile(
-        {"hf_repo": "org/profiles"},
+        "org/profiles",
         ref,
         local_dir=destination,
     )
     second = download_profile(
-        {"hf_repo": "org/profiles"},
+        "org/profiles",
         ref,
         local_dir=destination,
     )
@@ -679,7 +239,7 @@ def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypa
 
     with pytest.raises(FileNotFoundError):
         download_profile(
-            {"hf_repo": "org/profiles"},
+            "org/profiles",
             ref,
             local_dir=local_dir,
         )
@@ -688,7 +248,7 @@ def test_download_requires_and_repairs_declared_visualization(tmp_path, monkeypa
     (source / "latency_profile.png").write_bytes(b"png")
 
     local = download_profile(
-        {"hf_repo": "org/profiles"},
+        "org/profiles",
         ref,
         local_dir=local_dir,
     )
@@ -719,7 +279,7 @@ def test_download_materializes_hf_snapshot_symlinks(tmp_path, monkeypatch):
     )
 
     local = download_profile(
-        {"hf_repo": "org/profiles"},
+        "org/profiles",
         ref,
         local_dir=tmp_path / "artifact_root" / "downloads" / "profiles" / ref,
     )
@@ -772,14 +332,14 @@ def test_concurrent_download_materializes_a_profile_once(tmp_path, monkeypatch):
     with ThreadPoolExecutor(max_workers=2) as executor:
         first = executor.submit(
             download_profile,
-            {"hf_repo": "org/profiles"},
+            "org/profiles",
             ref,
             local_dir=destination,
         )
         assert copy_started.wait(1.0)
         second = executor.submit(
             download_profile,
-            {"hf_repo": "org/profiles"},
+            "org/profiles",
             ref,
             local_dir=destination,
         )
@@ -821,11 +381,11 @@ def test_interrupted_download_does_not_install_partial_revision(tmp_path, monkey
     destination = tmp_path / "downloads"
     monkeypatch.setattr("latency_bench.profiling.sync.shutil.copyfile", interrupted_copyfile)
     with pytest.raises(OSError, match="interrupted copy"):
-        download_profile({"hf_repo": "org/profiles"}, ref, local_dir=destination)
+        download_profile("org/profiles", ref, local_dir=destination)
     assert sorted(path.name for path in destination.iterdir()) == [".lock"]
 
     monkeypatch.setattr("latency_bench.profiling.sync.shutil.copyfile", copyfile)
-    local = download_profile({"hf_repo": "org/profiles"}, ref, local_dir=destination)
+    local = download_profile("org/profiles", ref, local_dir=destination)
     assert local == destination / cache.name
     assert json.loads((local / "latency_distribution.json").read_text()) == {}
     assert (local / "DONE").exists()
@@ -851,11 +411,134 @@ def test_remote_profile_coordinates_must_match_request(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="coordinates"):
         resolve_remote_profile(
-            {
-                "artifact_root": str(tmp_path / "artifacts"),
-                "model_id": "openvla",
-                "workload_id": "flappy",
-            },
-            gpu_class="2x-rtx4090",
-            instance_id="instance_requested",
+            "org/profiles", "openvla/2x-rtx4090/flappy/instance_requested", output_dir=tmp_path,
         )
+
+
+def test_measurement_preserves_user_deployment_and_clock(profile_config, tmp_path):
+    config = resolve_profile_config(profile_config)
+    config["executor"].update(inference_devices=["cuda:2", "cuda:2"], inference_batch_size=1)
+    config["policy"]["worker_python_executable"] = "/user/python"
+    original = deepcopy(config)
+    measured = measure_config(config, {"gpu_class": "1x-custom", "instance_id": "instance_a"}, tmp_path / "session")
+    for section in ("executor", "policy", "env", "evaluation"):
+        assert measured[section] == original[section]
+    assert config == original
+    assert measured["logging"]["video"]["enabled"] is False
+    assert measured["logging"]["save_latency_records"] is True
+
+
+@pytest.mark.parametrize("field,value", [("repeats", 0), ("model_id", "../escape")])
+def test_invalid_profile_config_is_rejected(profile_config, field, value):
+    profile_config["profiling"][field] = value
+    with pytest.raises(ValueError):
+        resolve_profile_config(profile_config)
+
+
+def test_profiling_rejects_ambiguous_sweep(profile_config):
+    profile_config["evaluation"]["eval_latency_values"] = [0, 10]
+    with pytest.raises(ValueError, match="sweeps"):
+        resolve_profile_config(profile_config)
+
+
+@pytest.mark.parametrize("method", ["temporal", "fixed", "normal"])
+def test_local_replay_preserves_target_clock_and_uses_profile_capacity(profile_config, tmp_path, method):
+    profile = {"model_id": "measured", "workload_id": "source", "gpu_class": "2x-gpu",
+               "instance_id": "instance_a", "source_run_id": "run_a", "env_fps": 7,
+               "per_slot_summary": [{}, {}], "summary": {"mean_ms": 60, "std_ms": 10}}
+    replay = simulation_config(profile_config, output_dir=tmp_path / "replay", profile_path=tmp_path / "profile.json",
+                               profile=profile, method=method, latency_seed=42)
+    assert replay["env"] == profile_config["env"]
+    assert replay["executor"]["simulated_worker_capacity"] == 2
+    assert replay["executor"]["inference_devices"] == ["cpu"]
+    assert replay["latency"]["seed"] == 42
+    if method == "fixed":
+        assert replay["latency"]["fixed_latency_ms"] == 60
+    if method == "normal":
+        assert replay["latency"]["std_latency_ms"] == 10
+
+
+def test_cli_reads_the_same_run_config(profile_config, tmp_path, monkeypatch, capsys):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(profile_config))
+    captured = {}
+    monkeypatch.setattr("latency_bench.profiling.cli.run_profile", lambda config, **kwargs:
+                        captured.update(config=config, kwargs=kwargs) or {"PROFILE_PATH": "/local/profile.json"})
+    main(["run", "--config", str(path)])
+    assert captured == {"config": profile_config, "kwargs": {"resume_run_id": None, "publish": False}}
+    assert "PROFILE_PATH=/local/profile.json" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        main(["run", "--config", str(path), "--resume", "../escape"])
+
+
+@pytest.mark.parametrize("calibration_requested", [False, True])
+def test_completed_sessions_resume_and_fit_without_remeasurement(
+    profile_config, tmp_path, monkeypatch, calibration_requested,
+):
+    profile_config["experiment"].pop("seed")
+    monkeypatch.delenv("LATENCY_BENCH_ENV_BACKEND_START_METHOD", raising=False)
+    hardware = {"cpu": {"model_name": "test", "logical_cores": 4}, "system": {"hostname": "host"},
+                "gpus": [], "gpu": {}, "torch": {}, "memory": {}}
+    monkeypatch.setattr(runner, "collect_hardware_fingerprint", lambda: hardware)
+    monkeypatch.setattr(runner, "_new_run_id", lambda: "run_1")
+    calls = []
+    fail_second = True
+    calibration_calls = []
+    if calibration_requested:
+        profile_config["profiling"]["calibration"] = {
+            "target_latency_frames": 2, "worker_utilization_cap": 0.8,
+        }
+
+    def calibrate(*, config_path, output, **options):
+        calibration_calls.append(config_path)
+        result = {"selected_env_fps": 100, "selected_obs_fps": 20}
+        Path(output).write_text(json.dumps(result))
+        return result
+
+    monkeypatch.setattr(runner, "calibrate_env_fps_from_saturated_latency", calibrate)
+
+    def evaluate(config, generated, output):
+        nonlocal fail_second
+        calls.append(output.name)
+        if output.name == "1" and fail_second:
+            fail_second = False
+            raise RuntimeError("interrupted session")
+        rows = [{"obs_id": i, "episode_id": i // 20, "obs_env_step": i % 20,
+                 "submitted": i % 7 != 0, "worker_id": 0,
+                 "observation_to_action_latency_ms": 20.0 + i % 4,
+                 "worker_service_time_ms": 18.0 + i % 4} for i in range(40)]
+        (output / "observation_attempts.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    monkeypatch.setattr(runner, "_run_evaluation", evaluate)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        runner.run_profile(profile_config)
+    source = next(Path(profile_config["logging"]["output_dir"]).rglob("run_contract.json")).parent
+    assert (source / "sessions/0/DONE").exists()
+    assert not (source / "DONE").exists()
+    profile_config["profiling"]["hf_repo"] = "org/new-publication-target"
+    result = runner.run_profile(profile_config, resume_run_id="run_1")
+    assert calls == ["0", "1", "1"]
+    assert result["PUBLICATION_STATUS"] == "local"
+    profile = json.loads(Path(result["PROFILE_PATH"]).read_text())
+    assert profile["n_observation_attempts"] == 80
+    assert profile["n_capacity_drops"] == 12
+    assert profile["provenance"]["session_ids"] == [0, 1]
+    assert profile["provenance"]["measurement"]["seed"] == 0
+    assert profile["env_fps"] == (100 if calibration_requested else 50)
+    assert len(calibration_calls) == int(calibration_requested)
+    monkeypatch.setenv("LATENCY_BENCH_ENV_BACKEND_START_METHOD", "fork")
+    with pytest.raises(ValueError, match="run contract does not match"):
+        runner.run_profile(profile_config, resume_run_id="run_1")
+    monkeypatch.delenv("LATENCY_BENCH_ENV_BACKEND_START_METHOD")
+    profile_config["evaluation"]["eval_episodes"] = 3
+    with pytest.raises(ValueError, match="run contract does not match"):
+        runner.run_profile(profile_config, resume_run_id="run_1")
+    assert calls == ["0", "1", "1"]
+    assert (source / "calibration.json").exists() == calibration_requested
+    assert (source / "calibration.DONE").exists() == calibration_requested
+    original_profile = profile
+    shutil.rmtree(source / "profile")
+    monkeypatch.setattr(runner, "collect_hardware_fingerprint", lambda: pytest.fail("fit must use recorded hardware"))
+    refit = runner.fit_profile(source)
+    assert json.loads(Path(refit["PROFILE_PATH"]).read_text()) == original_profile
+    assert calls == ["0", "1", "1"]

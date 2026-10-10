@@ -1,7 +1,9 @@
 from argparse import Namespace
 import hashlib
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -15,6 +17,61 @@ from scripts.tasks.decision_history.eval_vla_hist8 import package_bundle, evalua
 from latency_bench.eval.reporting import _corrected_eval_scalar_payload
 from scripts.tasks.atari_hist8.profile_teacher import teacher_configs
 from scripts.tasks.decision_history.collect_vla_hist8 import audit_atari_history
+
+
+@pytest.mark.parametrize("matching_checkpoint", [True, False])
+def test_published_profile_checks_checkpoint_before_measurement(tmp_path, monkeypatch, matching_checkpoint):
+    """Long-lived H8 publication contract owned by the history recipe suite."""
+    from scripts.tasks.atari_hist8 import profile_published as module
+    from latency_bench.core.config import load_config
+
+    checkpoint = tmp_path / "checkpoint.pt"
+    checkpoint.write_bytes(b"published weights")
+    publication = {
+        "task": "atlantis", "model": "qwenoft", "repo_id": "org/models",
+        "path": "published/bundle", "revision": "model-revision",
+        "checkpoint_sha256": module.file_sha256(checkpoint) if matching_checkpoint else "wrong-checkpoint",
+    }
+    publication_path = tmp_path / "publication.json"
+    publication_path.write_text(json.dumps(publication))
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text("{}")
+    measured = []
+
+    def run_profile(config, **kwargs):
+        measured.append(config)
+        return {"PROFILE_PATH": str(profile_path), "PROFILE_REF": "m/g/w/i", "RUN_DIR": str(tmp_path)}
+
+    def download(repo, filename, **kwargs):
+        if kwargs.get("repo_type") == "dataset":
+            assert kwargs["revision"] == "profile-revision"
+            return str(profile_path)
+        assert (repo, filename, kwargs["revision"]) == (
+            "org/models", "published/bundle/checkpoints/model.pt", "model-revision",
+        )
+        return str(checkpoint)
+
+    root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module, "load_config", lambda path: load_config(root / path))
+    monkeypatch.setattr(module, "hf_hub_download", download)
+    monkeypatch.setattr(module, "run_profile", run_profile)
+    monkeypatch.setattr(module, "publish_profile", lambda *args, **kwargs: {"PUBLICATION_STATUS": "published"})
+    monkeypatch.setattr(module, "HfApi", lambda: SimpleNamespace(
+        dataset_info=lambda repo: SimpleNamespace(sha="profile-revision"),
+    ))
+    monkeypatch.setattr(sys, "argv",
+                        ["profile_published", "--publication", str(publication_path)])
+    if not matching_checkpoint:
+        with pytest.raises(ValueError, match="Checkpoint does not match"):
+            module.main()
+        assert measured == []
+        return
+    module.main()
+    assert measured[0]["profiling"]["model_artifact"]["revision"] == "model-revision"
+    receipt = json.loads((tmp_path / "outputs/tasks/atari_hist8_v1/profile_receipts/atlantis-qwenoft.json").read_text())
+    assert receipt["profile_revision"] == "profile-revision"
+    assert receipt["profile_sha256"] == module.file_sha256(profile_path)
 
 
 def arguments(tmp_path, task="demon_attack", model="qwenoft"):

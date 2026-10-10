@@ -20,7 +20,6 @@ from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.core.config import load_config
 from latency_bench.profiling.runtime_configs import write_generated_config
 from scripts.experiments.sim2real import runtime
-from latency_bench.profiling.spec import gpu_name_registry
 from scripts.experiments.sim2real.assets import prepare_assets, prepare_model_assets, portable_eval_config
 from scripts.experiments.sim2real.publication import DATASET_REPO, StudyPublication, download_real_experiment
 from latency_bench.latency.hardware_info import (
@@ -231,7 +230,7 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
     source_ref = (f"experiments/sim2real-calibration/runs/{deployment['gpu_class']}/"
                   f"{task}/{model}/{deployment['instance_id']}/{output.name}")
     public_hardware = public_hardware_projection(
-        fingerprint, gpu_name_registry=gpu_name_registry(load_config(REPO_ROOT / "configs/profiles.yaml")["gpu_models"]),
+        fingerprint,
         cuda_visible_devices=deployment["gpus"][0]["uuid"],
     )
     public_hardware["instance_id"] = deployment["instance_id"]
@@ -406,7 +405,6 @@ def main(argv=None):
     entry = registry["tasks"][task][model]
     deployment = describe_participating_gpus(
         gpus=fingerprint["gpus"], topology=fingerprint["gpu"]["topology"],
-        gpu_name_registry=gpu_name_registry(load_config(REPO_ROOT / "configs/profiles.yaml")["gpu_models"]),
         cuda_visible_devices=str(args.gpu),
     )
     deployment["instance_id"] = instance_id_from_gpu_deployment(deployment)

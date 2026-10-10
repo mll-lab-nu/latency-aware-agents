@@ -18,7 +18,8 @@ third-party sources in one checkout. Installation and simulator setup live in
 | `latency_bench/profiling` | Deployment latency measurement, profile resolution/publication and replay |
 | `scripts/experiments/sim2real` | Held-out and fit-budget research protocols, experiment replay and reports |
 
-The profiling package is a shared workflow layer exposed by `scripts/profile.sh`.
+The profiling package accepts ordinary run configs through
+`python -m latency_bench.profiling.cli run --config ...`.
 It depends on runtime, evaluation and latency primitives. Experiment scripts
 consume those capabilities; profiling never imports the experiment scripts.
 Physical GPU/topology identity belongs to `latency.hardware_info` and retains

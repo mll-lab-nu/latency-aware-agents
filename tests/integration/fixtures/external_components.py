@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -102,3 +103,15 @@ def make_collection_env(config, noop_action):
 
 def make_collection_policy(config, action_resolver):
     return CollectionPolicy(config)
+
+
+class ProfilingPolicy(UserPolicy):
+    """Hold a real worker long enough to exercise concurrent admission and drops."""
+
+    def predict(self, observation):
+        time.sleep(0.06)
+        return super().predict(observation)
+
+
+def make_profiling_policy(config, action_resolver):
+    return ProfilingPolicy(config)

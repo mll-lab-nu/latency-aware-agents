@@ -19,8 +19,29 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 from importlib import metadata
-from typing import Any, Callable, Mapping
+from typing import Any, Callable
 
+
+
+# Preserve published deployment names; other models use their reported name.
+_GPU_NAME_ALIASES = {
+    'NVIDIA A100-SXM4-80GB': 'a100-sxm4-80gb',
+    'NVIDIA A100-SXM4-40GB': 'a100-sxm4-40gb',
+    'NVIDIA A100-PCIE-80GB': 'a100-pcie-80gb',
+    'NVIDIA A100-PCIE-40GB': 'a100-pcie-40gb',
+    'L40S': 'l40s',
+    'NVIDIA L40S': 'l40s',
+    'RTX 3090': 'rtx3090',
+    'NVIDIA GeForce RTX 3090': 'rtx3090',
+    'RTX 4090': 'rtx4090',
+    'NVIDIA GeForce RTX 4090': 'rtx4090',
+    'RTX 5090': 'rtx5090',
+    'NVIDIA GeForce RTX 5090': 'rtx5090',
+    'NVIDIA RTX PRO 6000 Blackwell Workstation Edition': 'rtx-pro-6000-blackwell-ws',
+    'NVIDIA RTX PRO 6000 Blackwell Server Edition': 'rtx-pro-6000-blackwell-server',
+    'NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition': 'rtx-pro-6000-blackwell-maxq-ws',
+    'NVIDIA RPBZZZ6': 'rpbzzz6',
+}
 
 # GPU fields queried from nvidia-smi, in the order requested below.
 _NVIDIA_SMI_FIELDS = (
@@ -129,7 +150,6 @@ def describe_participating_gpus(
     *,
     gpus: list[dict[str, Any]],
     topology: str | None,
-    gpu_name_registry: Mapping[str, str],
     cuda_visible_devices: str | None = None,
 ) -> dict[str, Any]:
     """Return the stable, public descriptor for the GPUs used by this process.
@@ -161,7 +181,11 @@ def describe_participating_gpus(
         selected_indices={item["physical_index"] for item in selected},
         gpus=gpus,
     )
-    names = Counter(gpu_name_registry[gpu["name"]] for gpu in deployment_gpus)
+    names = Counter(
+        _GPU_NAME_ALIASES[gpu["name"]] if gpu["name"] in _GPU_NAME_ALIASES
+        else re.sub(r"[^a-z0-9]+", "-", gpu["name"].lower()).strip("-")
+        for gpu in deployment_gpus
+    )
     gpu_class = "+".join(f"{count}x-{name}" for name, count in sorted(names.items()))
     return {
         "gpu_class": gpu_class,
@@ -170,37 +194,83 @@ def describe_participating_gpus(
     }
 
 
+def describe_inference_deployment(
+    fingerprint: dict[str, Any], devices: list[str],
+) -> dict[str, Any]:
+    """Bind worker slots to the selected CPU or physical CUDA devices."""
+    cuda_indices = []
+    for device in devices:
+        if device == "cpu":
+            continue
+        if device == "cuda":
+            cuda_indices.append(0)
+        elif re.fullmatch(r"cuda:\d+", device):
+            cuda_indices.append(int(device.split(":")[1]))
+        else:
+            raise ValueError(f"Unsupported profiling device: {device!r}; use cpu or cuda:N")
+    if cuda_indices:
+        visible = _select_visible_gpus(fingerprint["gpus"], os.environ.get("CUDA_VISIBLE_DEVICES"))
+        selected = {index: visible[index]["gpu"]["uuid"] for index in cuda_indices}
+        deployment = describe_participating_gpus(
+            gpus=fingerprint["gpus"], topology=fingerprint["gpu"].get("topology"),
+            cuda_visible_devices=",".join(selected.values()),
+        )
+        logical_indices = {uuid: index for index, uuid in selected.items()}
+        for gpu in deployment["gpus"]:
+            gpu["cuda_index"] = logical_indices[gpu["uuid"]]
+        deployment["instance_id"] = instance_id_from_gpu_deployment(deployment)
+    else:
+        selected = {}
+        deployment = {"gpu_class": "cpu", "gpus": [], "topology_links": []}
+    if "cpu" in devices:
+        # CPU profiles need a host identity, since there is no participating GPU UUID.
+        identity = {"hostname": fingerprint["system"]["hostname"],
+                    "cpu": fingerprint["cpu"], "gpus": sorted(selected.values())}
+        # Frequency changes during a run and must not change its storage coordinate.
+        identity["cpu"] = {key: value for key, value in identity["cpu"].items() if key != "cpu_mhz"}
+        encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+        deployment["instance_id"] = "instance_" + hashlib.sha256(encoded).hexdigest()[:16]
+        if selected:
+            deployment["gpu_class"] += "+cpu"
+    deployment["workers"] = [
+        {"slot": slot, "device": device}
+        for slot, device in enumerate(devices)
+    ]
+    return deployment
+
+
 def public_hardware_projection(
     fingerprint: dict[str, Any],
     *,
-    gpu_name_registry: Mapping[str, str],
     cuda_visible_devices: str | None = None,
+    deployment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Project a full local fingerprint into the fields safe to publish."""
-    deployment = describe_participating_gpus(
-        gpus=fingerprint["gpus"],
-        topology=fingerprint["gpu"]["topology"],
-        gpu_name_registry=gpu_name_registry,
-        cuda_visible_devices=cuda_visible_devices,
-    )
+    """Publish device names and topology without host names or GPU UUIDs."""
+    if deployment is None:
+        deployment = describe_participating_gpus(
+            gpus=fingerprint["gpus"], topology=fingerprint["gpu"].get("topology"),
+            cuda_visible_devices=cuda_visible_devices,
+        )
     slots = {gpu["uuid"]: gpu["cuda_index"] for gpu in deployment["gpus"]}
-    return {
+    public = {
         "gpu_class": deployment["gpu_class"],
         "gpus": [
             {"slot": gpu["cuda_index"], "name": gpu["name"]}
             for gpu in sorted(deployment["gpus"], key=lambda gpu: gpu["cuda_index"])
         ],
         "topology_links": [
-            {
-                "slot_a": slots[link["gpu_a"]],
-                "slot_b": slots[link["gpu_b"]],
-                "link": link["link"],
-            }
+            {"slot_a": slots[link["gpu_a"]], "slot_b": slots[link["gpu_b"]], "link": link["link"]}
             for link in deployment["topology_links"]
         ],
-        "driver_version": fingerprint["gpu"]["driver_version"],
         "torch": fingerprint["torch"],
     }
+    if deployment["gpus"]:
+        public["driver_version"] = fingerprint["gpu"]["driver_version"]
+    if "workers" in deployment:
+        public["workers"] = [{"slot": w["slot"], "device": w["device"]} for w in deployment["workers"]]
+        public["cpu"] = fingerprint["cpu"]
+        public["memory"] = fingerprint["memory"]
+    return public
 
 
 def _select_visible_gpus(

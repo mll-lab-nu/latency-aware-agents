@@ -266,5 +266,6 @@ consume another GPU run.
 
 ## Working directory
 
-Run direct Python commands from the repository root. `scripts/profile.sh` sets
-that working directory before invoking the profiling CLI.
+Run the experiment commands from the repository root. The general profiling
+CLI also supports user projects outside the checkout when their modules are
+importable and their config paths use the caller’s working directory.

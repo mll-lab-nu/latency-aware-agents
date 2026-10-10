@@ -94,20 +94,21 @@ profiles, action chunks, state/delay inputs, or online RL.
 
 ## Profile the final VLA
 
-Expose one simulator GPU and at least one inference GPU, then run:
+Inherit `configs/examples/profiling/mikasa_intercept_grab_fast/qwenoft.yaml`
+and select your inference bundle with `profiling.model_artifact.source: local`
+and `profiling.model_artifact.local_root`. The example names
+`checkpoints/model.pt` inside the bundle. Set `policy.backbone_path` when needed.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 \
-  bash scripts/tasks/mikasa_intercept_grab_fast/profile.sh /ABSOLUTE/PATH/inference/checkpoints/model.pt
+CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench.profiling.cli run --config my_profile.yaml
 ```
 
-For a shared state-based run, pass the checkpoint path printed by its launcher.
-Omitting the path selects the workload preset in `configs/profiles.yaml`, which
-references a state-based H1 bundle. Select the original image-only recipe's own
-configuration when evaluating its checkpoint.
-Logical `cuda:0` runs MIKASA. Logical `cuda:1..` run inference.
-Add `--resume RUN_ID` to continue a partial profiling run. Add `--publish` to
-upload the completed run and profile to `MLL-Lab/LAGEN-profiles`.
+The example uses logical `cuda:0` for MIKASA and `cuda:1` for inference.
+It describes a state-based H1 bundle. Use the image-only recipe's input
+configuration when measuring an image-only checkpoint. Select additional
+inference workers explicitly in `executor.inference_devices`.
+Add `--resume RUN_ID` to continue a partial run. Add `--publish` to upload
+the completed run and profile to the configured `profiling.hf_repo`.
 
 ## Original baseline result
 

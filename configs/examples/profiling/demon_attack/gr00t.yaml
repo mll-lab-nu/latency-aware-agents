@@ -1,0 +1,35 @@
+__base__: ../../../experiments/demon_attack/starvla_profile.yaml
+experiment:
+  seed: 42
+executor:
+  mode: realtime
+  inference_devices:
+  - cuda:0
+latency:
+  method: measured
+  device: cuda:0
+  sync_cuda: true
+policy:
+  checkpoint_kind: best
+evaluation:
+  eval_episodes: 10
+  eval_parallel_envs: 1
+  eval_latency_values: null
+  eval_suites: null
+logging:
+  output_dir: outputs/profiling
+  video:
+    enabled: false
+profiling:
+  model_id: gr00t
+  workload_id: demon_attack
+  repeats: 5
+  calibration: null
+  hf_repo: MLL-Lab/LAGEN-profiles
+  model_artifact:
+    source: hf
+    checkpoint: checkpoints/steps_5000_model.safetensors
+    model_config: config.full.yaml
+    hf_repo: MLL-Lab/LAGEN-models
+    revision: e3fea81529fd98b5d5782db38803fe4062215dda
+    hf_path: zero-latency/demon-attack/vla/starvla-qwengr00t-h1/gr00t_bridge_demon_attack_single_latency_clean_data_exp3_action_1e-5_backbone_1e-6

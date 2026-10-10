@@ -6,7 +6,6 @@ import fcntl
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
 
 from latency_bench.latency.profile import load_profile_manifest
 
@@ -20,13 +19,14 @@ PROFILE_FILENAMES = (
 LOCAL_ONLY_RUN_FILES = {
     "calibration.generated.yaml",
     "generated.yaml",
+    "resolved_config.yaml",
     "hardware.json",
     "run_contract.json",
 }
 
 
 def publish_run_and_profile(
-    spec: dict[str, Any],
+    repo_id: str,
     *,
     local_run_dir: Path,
     local_profile_dir: Path,
@@ -54,7 +54,7 @@ def publish_run_and_profile(
         for name in profile_filenames
     )
     HfApi().create_commit(
-        repo_id=spec["hf_repo"],
+        repo_id=repo_id,
         repo_type="dataset",
         operations=operations,
         commit_message=f"profile {profile_ref.as_posix()} from {run_ref.name}",
@@ -62,7 +62,7 @@ def publish_run_and_profile(
 
 
 def download_profile(
-    spec: dict[str, Any],
+    repo_id: str,
     profile_ref: Path,
     *,
     local_dir: Path,
@@ -72,7 +72,7 @@ def download_profile(
     remote_dir = Path("profiles") / profile_ref
     snapshot = Path(
         snapshot_download(
-            repo_id=spec["hf_repo"],
+            repo_id=repo_id,
             repo_type="dataset",
             allow_patterns=[f"{remote_dir.as_posix()}/{name}" for name in PROFILE_FILENAMES],
         )
@@ -82,7 +82,7 @@ def download_profile(
     visualization_filenames = profile_filenames[len(PROFILE_FILENAMES) - 1 : -1]
     if visualization_filenames:
         snapshot_download(
-            repo_id=spec["hf_repo"],
+            repo_id=repo_id,
             repo_type="dataset",
             revision=snapshot.name,
             allow_patterns=[
@@ -113,7 +113,7 @@ def _profile_filenames(profile_dir: Path) -> tuple[str, ...]:
 
 
 def publish_simulation_dirs(
-    spec: dict[str, Any],
+    repo_id: str,
     *,
     local_dirs: list[Path],
     remote_dirs: list[Path],
@@ -127,10 +127,10 @@ def publish_simulation_dirs(
         )
         for local, remote in zip(local_dirs, remote_dirs)
         for path in sorted(local.rglob("*"))
-        if path.is_file() and path.name != "generated.yaml"
+        if path.is_file() and path.name not in LOCAL_ONLY_RUN_FILES
     ]
     HfApi().create_commit(
-        repo_id=spec["hf_repo"],
+        repo_id=repo_id,
         repo_type="dataset",
         operations=operations,
         commit_message=f"simulations under {remote_dirs[0].parent.as_posix()}",

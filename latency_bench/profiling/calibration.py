@@ -14,7 +14,6 @@ from latency_bench.core.config import load_config
 from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.executors.thread_env import set_thread_env_defaults
 from latency_bench.latency.env_fps_calibration import select_env_fps_from_latency_samples
-from latency_bench.latency.hardware_info import visible_cuda_device_count
 from latency_bench.utils.stats import percentile_linear
 
 
@@ -39,7 +38,7 @@ def calibrate_env_fps_from_saturated_latency(
         samples=samples,
         skip=skip,
         period_ms=0.0,
-        devices=[f"cuda:{index}" for index in range(visible_cuda_device_count())],
+        devices=config["executor"]["inference_devices"],
     )
     calibration = select_env_fps_from_latency_samples(
         latency_samples_by_slot_ms=saturated["latency_samples_by_slot_ms"],
@@ -67,7 +66,7 @@ def calibrate_env_fps_from_saturated_latency(
             samples=samples,
             skip=skip,
             period_ms=paced_period_ms,
-            devices=[f"cuda:{index}" for index in range(visible_cuda_device_count())],
+            devices=config["executor"]["inference_devices"],
         )
         payload["paced_period_ms"] = paced_period_ms
         payload["paced_latency_summary"] = paced["total_latency_ms"]
