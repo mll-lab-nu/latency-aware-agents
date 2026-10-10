@@ -693,10 +693,10 @@ class TrainerUtils:
             print("No valid JSON part found")
             return None
 
-    def _get_latest_checkpoint(self, checkpoint_dir):
+    @staticmethod
+    def _get_latest_checkpoint(checkpoint_dir):
         """Find the latest checkpoint in the directory based on step number."""
         if not os.path.exists(checkpoint_dir):
-            self.accelerator.print(f"No checkpoint directory found at {checkpoint_dir}")
             return None, 0
 
         checkpoints = []
@@ -711,7 +711,6 @@ class TrainerUtils:
                 checkpoints.append((name, int(file_match.group(1)), 0))
 
         if not checkpoints:
-            self.accelerator.print(f"No checkpoints found in {checkpoint_dir}")
             return None, 0
 
         # Sort by step number, preferring full training-state directories over
@@ -720,7 +719,6 @@ class TrainerUtils:
         latest_checkpoint, completed_steps, _ = checkpoints[-1]
 
         latest_checkpoint_path = os.path.join(checkpoint_dir, latest_checkpoint)
-        self.accelerator.print(f"Latest checkpoint found: {latest_checkpoint_path}")
         return latest_checkpoint_path, completed_steps
 
 import os

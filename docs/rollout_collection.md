@@ -143,16 +143,30 @@ loader. Set `data_root_dir` to `lerobot`, `data_mix` to `train`, and
 `uses_state` to `include_state`. These fields describe the collected student
 inputs. Privileged teacher state is not an additional student input.
 
-The converter writes raw state values and records training min/max in the
-Gymnasium handoff manifest for inference. The Gymnasium training loader applies
+The converter writes raw state values and records source training min/max in
+the Gymnasium handoff manifest. The Gymnasium training loader applies
 its existing min/max transform using dataset statistics. Its language field is
 `annotation.human.action.task_description`, mapped to `task_index` in the metadata.
 
-The generic training mixture merges its source statistics. The validation loader
-currently computes its own statistics, while inference reads the manifest.
-These existing parameter sources can differ; this refactor does not establish
-training/validation/inference equivalence. Changing those sources requires a
-separate behavior review.
+For generic Gymnasium training, StarVLA's `prepare_data` saves the actual training
+mixture statistics in the run's `dataset_statistics.json`. Validation binds those
+same parameters before reading batches. Checkpoint and resident inference use
+that file and the training DataConfig. Each path applies the state transform once.
+The manifest retains task, dimension and source information; its min/max values
+do not control model inference.
+
+A new training run fits its own statistics. With `trainer.is_resume: true`, the
+trainer selects the checkpoint before constructing loaders and restores that
+run's statistics. Missing statistics, incompatible dimensions or a different
+training DataConfig stop resume. A run in another directory copies the selected
+statistics; resume in the original directory preserves the existing file.
+
+The existing Gymnasium min/max transform does not clip values outside the
+training range. History tensor-only transforms and native q99 transforms retain
+their own behavior. Inference resolves the DataConfig from the saved robot type
+or training mixture. Minimal inference bundles can supply that identity through
+their explicit task manifest. Exported Gymnasium bundles retain `robot_type` so
+they do not need the original training dataset directory.
 
 The converter preserves source image resolution and records image geometry in
 `meta/info.json`. The reference loader resizes model images to 224 × 224. `action_carrier="native"`

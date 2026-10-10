@@ -227,6 +227,10 @@ class StarVlaPolicyRunner(PolicyRunner):
             if self._state_source == "transport":
                 state = np.asarray(observation.data["transport"], dtype=np.float32)
                 example["state"] = state.reshape(1, self._state_dim)
+            elif self._state_source == "gymnasium":
+                example["state"] = np.asarray(
+                    observation.metadata["gymnasium_state"], dtype=np.float32,
+                ).reshape(1, self._state_dim)
             elif self._state_normalization:
                 state = np.asarray(
                     observation.metadata["gymnasium_state"], dtype=np.float32
@@ -377,16 +381,7 @@ def _profiler_stage(profiler: Any, name: str) -> Any:
 
 
 class LiveStarVlaWrapper:
-    """In-process stand-in for ``PolicyServerWrapper`` over a *live* framework.
-
-    During training the trainer already holds the model in memory
-    (``accelerator.unwrap_model(self.model)`` — the same object eval_core calls).
-    This wrapper exposes only the rl_games-mode surface ``StarVlaPolicyRunner``
-    uses — ``predict_action`` (framework forward + rl_games decode),
-    ``reset_memory`` passthrough, and the ``_model_cfg`` attribute — so no
-    checkpoint reload is needed. The disk-backed ``PolicyNormProcessor`` is never
-    built because rl_games decoding ignores un-normalization stats.
-    """
+    """Run a resident model with the checkpoint wrapper's transforms and action decoding."""
 
     def __init__(
         self,
@@ -396,6 +391,8 @@ class LiveStarVlaWrapper:
         env_name: str,
         rl_games_action_env_dim: int | None = None,
         gymnasium_action_space_type: str = "discrete",
+        normalization_statistics: Mapping[str, Any] | None = None,
+        robot_type: str | None = None,
         action_layout: str | None = None,
         multibinary_threshold: float | None = None,
     ) -> None:
@@ -404,6 +401,11 @@ class LiveStarVlaWrapper:
         self._rl_games_env_name = str(env_name)
         self._rl_games_action_env_dim = rl_games_action_env_dim
         self._gymnasium_action_space_type = gymnasium_action_space_type
+        self._normalization_statistics = normalization_statistics
+        self._robot_type = robot_type
+        self._norm_processors = {}
+        if env_name == "gymnasium" and normalization_statistics is None:
+            raise ValueError("Gymnasium live inference requires the model's training statistics")
         (
             self._decode_rl_games_actions,
             resolve_deadly_action_decode_spec,
@@ -434,8 +436,22 @@ class LiveStarVlaWrapper:
         unnorm_key: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        # unnorm_key is unused in rl_games mode; kept for interface parity.
-        del unnorm_key
+        processor = None
+        if self._rl_games_env_name == "gymnasium":
+            if unnorm_key not in self._norm_processors:
+                # StarVLA is optional outside the inference process.
+                starvla_runtime.ensure_starvla_path()
+                from deployment.model_server.policy_norm_processor import PolicyNormProcessor
+
+                self._norm_processors[unnorm_key] = PolicyNormProcessor.from_statistics(
+                    self._model_cfg, self._normalization_statistics,
+                    unnorm_key=unnorm_key, robot_type=self._robot_type,
+                )
+            processor = self._norm_processors[unnorm_key]
+            examples = [
+                {**example, "state": processor.apply_state(example["state"])}
+                if "state" in example else example for example in examples
+            ]
         profiler = kwargs["profiler"] if "profiler" in kwargs else None
         out = self._framework.predict_action(examples=examples, **kwargs)
         normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
@@ -444,6 +460,9 @@ class LiveStarVlaWrapper:
             decode_kwargs["action_env_dim"] = self._rl_games_action_env_dim
             if self._gymnasium_action_space_type == "box":
                 decode_kwargs["gymnasium_action_space_type"] = "box"
+                decode_kwargs["action_values"] = np.stack([
+                    processor.unapply_actions(chunk) for chunk in normalized
+                ])
         with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
             return self._decode_rl_games_actions(
                 normalized_actions=normalized,
@@ -596,22 +615,19 @@ def _validate_gymnasium_starvla_contract(
             raise ValueError(
                 "StarVLA model state_dim does not match the dataset manifest"
             )
-        if not manifest["state_normalization"]:
-            raise ValueError(
-                "StarVLA state-enabled dataset manifest is missing state_normalization"
-            )
 
 
-def _starvla_runner_kwargs(
+def _starvla_policy_inputs(
     config: dict[str, Any],
     action_resolver: ActionResolver,
     model_cfg: Mapping[str, Any] | None,
     *,
     base_prompt: str | None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str | None]:
     """Resolve task and input settings shared by checkpoint and resident models."""
     env_cfg = config["env"]
     policy_cfg = config["policy"]
+    robot_type = model_cfg["datasets"]["vla_data"].get("robot_type") if model_cfg is not None else None
     if env_cfg["name"] == "gymnasium":
         if "task_manifest_path" in policy_cfg:
             task_manifest = json.loads(
@@ -631,6 +647,8 @@ def _starvla_runner_kwargs(
                     )
                 ),
             }
+        if robot_type is None and "data_mix" not in model_cfg["datasets"]["vla_data"]:
+            robot_type = task_manifest.get("robot_type")
         _validate_gymnasium_starvla_contract(
             env_cfg=env_cfg,
             policy_cfg=policy_cfg,
@@ -640,11 +658,13 @@ def _starvla_runner_kwargs(
         semantic_env_name = env_cfg["task_name"]
         action_refs = env_cfg.get("action_order", [])
         base_prompt = env_cfg["base_prompt"]
-        state_normalization = task_manifest.get("state_normalization")
+        state_normalization = None
+        state_source = policy_cfg["state_source"] if "state_source" in policy_cfg else "gymnasium"
     else:
         semantic_env_name = env_cfg["name"]
         action_refs = policy_cfg.get("actions", action_resolver.default_action_refs())
         state_normalization = policy_cfg["state_normalization"] if "state_normalization" in policy_cfg else None
+        state_source = policy_cfg["state_source"] if "state_source" in policy_cfg else None
     kwargs = dict(
         unnorm_key=policy_cfg.get("unnorm_key"),
         env_name=semantic_env_name,
@@ -665,12 +685,12 @@ def _starvla_runner_kwargs(
         obs_fps=env_cfg["obs_fps"],
         model_cfg=model_cfg,
         state_normalization=state_normalization,
-        state_source=policy_cfg["state_source"] if "state_source" in policy_cfg else None,
+        state_source=state_source,
     )
     # Opt-in noise control; existing real/checkpoint callers retain global RNG.
     if "action_noise_seeded" in policy_cfg:
         kwargs["action_noise_seeded"] = policy_cfg["action_noise_seeded"]
-    return kwargs
+    return kwargs, robot_type
 
 
 def build_starvla_policy(
@@ -690,7 +710,7 @@ def build_starvla_policy(
         if integration_env_name == "gymnasium" or "model_config_path" in policy_cfg
         else None
     )
-    runner_kwargs = _starvla_runner_kwargs(
+    runner_kwargs, robot_type = _starvla_policy_inputs(
         config, action_resolver, model_cfg, base_prompt=env_cfg.get("base_prompt")
     )
     wrapper_cls = starvla_runtime.load_policy_wrapper_class()
@@ -724,6 +744,7 @@ def build_starvla_policy(
         if action_space["type"] == "box":
             wrapper_kwargs["rl_games_gymnasium_action_space_type"] = "box"
         wrapper_kwargs["rl_games_env_name"] = integration_env_name
+        wrapper_kwargs["rl_games_gymnasium_robot_type"] = robot_type
     wrapper = wrapper_cls(**wrapper_kwargs)
     return StarVlaPolicyRunner(
         wrapper=wrapper,
@@ -749,6 +770,7 @@ def build_live_starvla_policy(
     model_cfg: dict[str, Any],
     config: dict[str, Any],
     action_resolver: ActionResolver | None = None,
+    normalization_statistics: Mapping[str, Any] | None = None,
 ) -> PolicyRunner:
     """Build a StarVLA policy around a *live* in-memory framework (no reload).
 
@@ -756,7 +778,9 @@ def build_live_starvla_policy(
     ``PolicyServerWrapper`` for :class:`LiveStarVlaWrapper`, so the trainer's
     resident model is evaluated directly. ``model_cfg`` is the in-memory model
     config (e.g. ``read_mode_config`` output) the wrapper would otherwise read
-    from disk.
+    from disk. Generic Gymnasium models require ``normalization_statistics``
+    from the current training run's dataset_statistics.json. Task-contract
+    policies retain their frozen task normalization.
     """
     policy_cfg = config["policy"]
     if "task_contract_path" in policy_cfg:
@@ -780,7 +804,7 @@ def build_live_starvla_policy(
         else None
     )
     # Resident evaluation historically takes non-Gymnasium prompts from the map.
-    runner_kwargs = _starvla_runner_kwargs(
+    runner_kwargs, robot_type = _starvla_policy_inputs(
         config, action_resolver, normalized_model_cfg, base_prompt=None
     )
     wrapper_kwargs: dict[str, Any] = dict(
@@ -802,7 +826,9 @@ def build_live_starvla_policy(
         if action_space["type"] == "box":
             wrapper_kwargs["gymnasium_action_space_type"] = "box"
         wrapper_kwargs["env_name"] = integration_env_name
-    wrapper = LiveStarVlaWrapper(**wrapper_kwargs)
+    wrapper = LiveStarVlaWrapper(
+        **wrapper_kwargs, normalization_statistics=normalization_statistics, robot_type=robot_type,
+    )
     return StarVlaPolicyRunner(
         wrapper=wrapper,
         checkpoint_path=policy_cfg.get("checkpoint_path", ""),

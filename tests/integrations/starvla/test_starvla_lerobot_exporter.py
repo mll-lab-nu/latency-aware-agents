@@ -1013,3 +1013,174 @@ def test_starvla_lerobot_preserves_context_images_oldest_to_newest(tmp_path):
         "video_info": {"video.fps": 10.0},
     }
     assert modality["video"] == {"image": {"original_key": "observation.image"}}
+
+
+@pytest.fixture
+def normalization_run(tmp_path, monkeypatch):
+    """Two raw training sources and a distinct validation range for normalization contracts."""
+    pytest.importorskip("accelerate")
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "third_party/starVLA"))
+    from accelerate import Accelerator
+    from omegaconf import OmegaConf
+    from helpers import write_rollout_fixture
+    from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
+    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
+
+    image = tmp_path / "image.png"
+    save_test_image(image, 7)
+    for name, values in (("first", [2.0, 4.0]), ("second", [6.0, 8.0])):
+        raw = tmp_path / f"raw_{name}"
+        train = [_canonical_row(image, decision_step=i, state=[value, 9.0]) for i, value in enumerate(values)]
+        val = [{**_canonical_row(image, decision_step=i, state=[value, 9.0]), "episode_idx": 1, "split": "val"}
+               for i, value in enumerate([3.0, 10.0])]
+        _write_generic_export(raw, train, include_state=True)
+        write_rollout_fixture(raw, train, val, action_spec=gymnasium_discrete_action_spec(ACTION_LABELS))
+        manifest = convert_canonical_rollout_to_lerobot(raw, tmp_path / name)
+    mixtures = tmp_path / "mixtures.json"
+    mixtures.write_text(json.dumps({
+        "training_mix": [["first", 1.0, "rl_games_gymnasium"], ["second", 1.0, "rl_games_gymnasium"]],
+        "validation_mix": [["first__val", 1.0, "rl_games_gymnasium"]],
+    }))
+    run = tmp_path / "run"
+    run.mkdir()
+    cfg = OmegaConf.create({
+        "output_dir": str(run), "trainer": {"is_resume": False, "pretrained_checkpoint": None},
+        "framework": {"action_model": {"state_dim": 2, "action_dim": 3, "action_horizon": 1}},
+        "datasets": {"vla_data": {
+            "dataset_py": "lerobot_datasets", "data_root_dir": str(tmp_path),
+            "data_mix": "training_mix", "eval_data_mix": "validation_mix",
+            "custom_mixtures_path": str(mixtures), "gymnasium_task_contract": manifest["gymnasium_task"],
+            "active_action_dim": 3, "video_backend": "pyav", "include_state": True,
+            "shuffle": False, "per_device_batch_size": 2, "num_workers": 0,
+            "pin_memory": False, "persistent_workers": False,
+        }},
+    })
+    return cfg, Accelerator(cpu=True)
+
+
+def test_training_validation_and_policy_wrappers_share_statistics(normalization_run, tmp_path, monkeypatch):
+    """Long-lived integration: each model sees one training-derived transform in every path."""
+    import torch
+    import yaml
+    from omegaconf import OmegaConf
+    from starVLA.training.train_starvla import prepare_data
+    from starVLA.model.framework.base_framework import baseframework
+    from deployment.model_server.policy_wrapper import PolicyServerWrapper
+    from latency_bench.policy.starvla import LiveStarVlaWrapper
+
+    cfg, accelerator = normalization_run
+    train, val = prepare_data(cfg, accelerator, Path(cfg.output_dir))
+    np.testing.assert_allclose([item["state"][0] for item in next(iter(val))], [[-2 / 3, 0], [5 / 3, 0]], atol=1e-6)
+    train_statistics = json.loads((Path(cfg.output_dir) / "dataset_statistics.json").read_text())
+    eval_statistics = json.loads((Path(cfg.output_dir) / "dataset_statistics_eval.json").read_text())
+    tag = next(iter(train_statistics))
+    assert train_statistics[tag]["state"] == eval_statistics[tag]["state"]
+    assert train_statistics[tag]["action"] == eval_statistics[tag]["action"]
+
+    class Framework(torch.nn.Module):
+        def predict_action(self, examples, **kwargs):
+            self.examples = examples
+            return {"normalized_actions": np.tile([[[0.0, 1.0, 0.0]]], (len(examples), 1, 1))}
+
+    checkpoint = Path(cfg.output_dir) / "checkpoints/steps_9_pytorch_model.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"weights are supplied by the injected framework")
+    model_cfg = OmegaConf.to_container(cfg, resolve=True)
+    (Path(cfg.output_dir) / "config.yaml").write_text(yaml.safe_dump(model_cfg))
+    disk_framework, live_framework = Framework(), Framework()
+    monkeypatch.setattr(baseframework, "from_pretrained", lambda *args, **kwargs: disk_framework)
+    disk = PolicyServerWrapper(str(checkpoint), device="cpu", action_output_mode="rl_games",
+                               rl_games_env_name="gymnasium", rl_games_action_env_dim=3)
+    live = LiveStarVlaWrapper(framework=live_framework, model_cfg=model_cfg, env_name="gymnasium",
+                              rl_games_action_env_dim=3, normalization_statistics=train_statistics)
+    for raw in ([3.0, 9.0], [10.0, 9.0]):
+        examples = [{"state": np.asarray([raw], dtype=np.float32), "image": [], "lang": "Drive."}]
+        disk_output = disk.predict_action(examples)
+        live_output = live.predict_action(examples)
+        expected = [[(raw[0] - 2) / 3 - 1, 0]]
+        np.testing.assert_allclose(disk_framework.examples[0]["state"], expected, atol=1e-6)
+        np.testing.assert_allclose(live_framework.examples[0]["state"], expected, atol=1e-6)
+        np.testing.assert_array_equal(disk_output["actions"], live_output["actions"])
+
+
+@pytest.mark.parametrize("mode", ["same_run", "new_directory", "new_training"])
+def test_resume_freezes_training_statistics(normalization_run, tmp_path, mode):
+    """Long-lived resume contract: saved statistics survive changed training data."""
+    from starVLA.training.train_starvla import prepare_data
+
+    cfg, accelerator = normalization_run
+    from omegaconf import OmegaConf
+    original = Path(cfg.output_dir)
+    prepare_data(cfg, accelerator, original)
+    (original / "config.yaml").write_text(OmegaConf.to_yaml(cfg))
+    saved = (original / "dataset_statistics.json").read_bytes()
+    checkpoint = original / "checkpoints/steps_9_pytorch_model.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"checkpoint")
+    for name in ("first", "second"):
+        dataset = tmp_path / name
+        path = dataset / "data/chunk-000/episode_000000.parquet"
+        table = pq.read_table(path)
+        values = [[row["observation.state"][0] + 100, 9.0] for row in table.to_pylist()]
+        table = table.set_column(table.schema.get_field_index("observation.state"), "observation.state",
+                                 pa.array(values, type=table["observation.state"].type))
+        pq.write_table(table, path)
+        (dataset / "meta/stats_gr00t.json").unlink()
+    expected_checkpoint = checkpoint
+    if mode == "same_run":
+        expected_checkpoint = checkpoint.parent / "steps_9_state"
+        expected_checkpoint.mkdir()
+        (expected_checkpoint / "model.safetensors").write_bytes(b"full training state")
+    target = original if mode == "same_run" else tmp_path / mode
+    target.mkdir(exist_ok=True)
+    cfg.output_dir = str(target)
+    cfg.trainer.is_resume = mode != "new_training"
+    cfg.trainer.pretrained_checkpoint = str(checkpoint) if mode != "same_run" else None
+    train, val = prepare_data(cfg, accelerator, target)
+    actual = (target / "dataset_statistics.json").read_bytes()
+    if mode == "new_training":
+        payload = json.loads(actual)
+        assert next(iter(payload.values()))["state"]["min"] == [102.0, 9.0]
+    else:
+        assert actual == saved
+        assert cfg.trainer.pretrained_checkpoint == str(expected_checkpoint)
+        assert cfg.trainer.resume_step == 9
+        np.testing.assert_allclose(next(iter(train))[0]["state"], [[(102.0 - 2) / 3 - 1, 0]], atol=1e-5)
+        np.testing.assert_allclose(next(iter(val))[0]["state"], [[-2 / 3, 0]], atol=1e-6)
+    assert (original / "dataset_statistics.json").read_bytes() == saved
+
+
+@pytest.mark.parametrize("corruption", ["missing", "wrong_dimension", "changed_transform"])
+def test_resume_rejects_unusable_training_statistics(normalization_run, tmp_path, corruption):
+    """Long-lived artifact boundary: failed statistics restore cannot overwrite the source."""
+    from starVLA.training.train_starvla import prepare_data
+
+    cfg, accelerator = normalization_run
+    from omegaconf import OmegaConf
+    run = Path(cfg.output_dir)
+    prepare_data(cfg, accelerator, run)
+    (run / "config.yaml").write_text(OmegaConf.to_yaml(cfg))
+    checkpoint = run / "checkpoints/steps_9_pytorch_model.pt"
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"checkpoint")
+    path = run / "dataset_statistics.json"
+    if corruption == "missing":
+        path.unlink()
+        expected_error = FileNotFoundError
+    elif corruption == "changed_transform":
+        mixtures = Path(cfg.datasets.vla_data.custom_mixtures_path)
+        payload = json.loads(mixtures.read_text())
+        for entry in payload["training_mix"]:
+            entry[2] = "rl_games_flappy"
+        mixtures.write_text(json.dumps(payload))
+        expected_error = ValueError
+    else:
+        payload = json.loads(path.read_text())
+        next(iter(payload.values()))["state"]["min"] = [[2.0, 9.0], [2.0, 9.0]]
+        path.write_text(json.dumps(payload))
+        expected_error = ValueError
+    before = path.read_bytes() if path.exists() else None
+    cfg.trainer.is_resume = True
+    with pytest.raises(expected_error):
+        prepare_data(cfg, accelerator, run)
+    assert (path.read_bytes() if path.exists() else None) == before

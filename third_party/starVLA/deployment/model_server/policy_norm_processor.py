@@ -30,73 +30,19 @@ import numpy as np
 import torch
 
 from starVLA.dataloader.gr00t_lerobot.registry import (
-    DATASET_NAMED_MIXTURES,
+    resolve_robot_type,
     ROBOT_TYPE_CONFIG_MAP,
 )
 from starVLA.dataloader.gr00t_lerobot.schema import (
     DatasetMetadata,
     StateActionMetadata,
+    split_modality_statistics,
 )
 from starVLA.dataloader.gr00t_lerobot.transform.base import ComposedModalityTransform
 from starVLA.model.framework.share_tools import read_mode_config
 
 logger = logging.getLogger(__name__)
 
-
-def _resolve_robot_type(
-    model_cfg: dict,
-    unnorm_key: Optional[str] = None,
-) -> str:
-    """Look up the training robot_type from the saved cfg.
-
-    Convention used by starVLA train scripts:
-      ``cfg.datasets.vla_data.data_mix`` is a key in
-      ``DATASET_NAMED_MIXTURES`` whose value is a list of
-      ``(dataset_name, weight, robot_type)`` tuples.
-
-    When a data_mix contains entries from multiple robot types (e.g.
-    ``bridge_rt_1`` covers ``oxe_bridge`` + ``oxe_rt1``), ``unnorm_key``
-    is used to identify which embodiment is requested.  In those mixtures
-    the ``robot_type`` field of each entry **matches** the top-level key in
-    ``dataset_statistics.json``, so ``unnorm_key`` serves as the selector.
-    Inference bundles can store the resolved robot_type directly when their
-    training mixture is not installed on the inference host.
-    """
-    vla_data = model_cfg["datasets"]["vla_data"]
-    if "robot_type" in vla_data:
-        return vla_data["robot_type"]
-    try:
-        data_mix = vla_data["data_mix"]
-    except (KeyError, TypeError) as e:
-        raise KeyError(
-            "ckpt config.yaml is missing `datasets.vla_data.data_mix`; "
-            "cannot resolve training-time robot_type."
-        ) from e
-
-    if data_mix not in DATASET_NAMED_MIXTURES:
-        raise KeyError(
-            f"data_mix={data_mix!r} not in DATASET_NAMED_MIXTURES "
-            f"(available: {sorted(DATASET_NAMED_MIXTURES.keys())[:20]} ...). "
-            "Did you forget to register the example under examples/<bench>/train_files/data_registry/?"
-        )
-
-    mixture = DATASET_NAMED_MIXTURES[data_mix]
-    robot_types = sorted({entry[2] for entry in mixture})
-
-    if len(robot_types) == 1:
-        return robot_types[0]
-
-    # Multiple robot types in the mixture.
-    # Use unnorm_key as a direct selector: for multi-robot mixtures the
-    # dataset_statistics.json top-level keys equal the robot_type values.
-    if unnorm_key is not None and unnorm_key in robot_types:
-        return unnorm_key
-
-    raise ValueError(
-        f"data_mix={data_mix!r} contains multiple robot_types {robot_types}. "
-        "Pass `unnorm_key` matching one of them to disambiguate "
-        f"(e.g. unnorm_key={robot_types[0]!r})."
-    )
 
 
 def _infer_key_dims(
@@ -193,30 +139,12 @@ def _build_dataset_metadata(
         ``key_dims`` maps each full key to its integer dimension.
         Returns ``(stats_per_subkey, meta_per_subkey)``.
         """
-        stats_per_subkey: Dict[str, Dict[str, List[float]]] = {}
-        meta_per_subkey: Dict[str, StateActionMetadata] = {}
-        cursor = 0
-        for full_key in keys:
-            subkey = full_key.split(".", 1)[1]
-            dim_k = key_dims.get(full_key, 1)
-            per_key: Dict[str, List[float]] = {}
-            for stat_name, arr in combined.items():
-                if stat_name == "mask":
-                    continue
-                end = cursor + dim_k
-                if end > len(arr):
-                    # Saved combined array shorter than expected (truncated
-                    # pad channels etc.). Skip this stat field silently.
-                    continue
-                per_key[stat_name] = [float(v) for v in arr[cursor:end]]
-            stats_per_subkey[subkey] = per_key
-            meta_per_subkey[subkey] = StateActionMetadata(
-                absolute=True,
-                rotation_type=None,
-                shape=(dim_k,),
-                continuous=True,
-            )
-            cursor += dim_k
+        dims = {full_key.split(".", 1)[1]: key_dims[full_key] for full_key in keys}
+        stats_per_subkey = split_modality_statistics(combined, dims)
+        meta_per_subkey = {
+            key: StateActionMetadata(absolute=True, rotation_type=None, shape=(dim,), continuous=True)
+            for key, dim in dims.items()
+        }
         return stats_per_subkey, meta_per_subkey
 
     action_combined = stats_for_key.get("action", {})
@@ -265,8 +193,17 @@ class PolicyNormProcessor:
         unnorm_key: Optional[str] = None,
         robot_type: Optional[str] = None,
     ) -> None:
-        self._ckpt_path = str(ckpt_path)
-        cfg, norm_stats = read_mode_config(self._ckpt_path)
+        cfg, norm_stats = read_mode_config(ckpt_path)
+        self._initialize(cfg, norm_stats, unnorm_key, robot_type)
+
+    @classmethod
+    def from_statistics(cls, model_cfg: dict, norm_stats: dict, *, unnorm_key=None, robot_type=None):
+        """Build the same transform for a resident model using its training statistics."""
+        processor = cls.__new__(cls)
+        processor._initialize(model_cfg, norm_stats, unnorm_key, robot_type)
+        return processor
+
+    def _initialize(self, cfg, norm_stats, unnorm_key, robot_type):
         self._model_cfg = cfg
         self._norm_stats = norm_stats
 
@@ -284,7 +221,7 @@ class PolicyNormProcessor:
 
         # 1) Resolve which DataConfig was used at training.
         if robot_type is None:
-            robot_type = _resolve_robot_type(cfg, unnorm_key=unnorm_key)
+            robot_type = resolve_robot_type(cfg, unnorm_key=unnorm_key)
         if robot_type not in ROBOT_TYPE_CONFIG_MAP:
             raise KeyError(
                 f"robot_type={robot_type!r} not in ROBOT_TYPE_CONFIG_MAP "

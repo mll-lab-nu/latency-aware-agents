@@ -78,6 +78,7 @@ def test_appo_gr00t_h1_manifest_and_four_gpu_config(tmp_path, task, state_dim, a
         from scripts.gym_adapt.gr00t import export_bundle
         trained = tmp_path / "trained"
         trained.mkdir()
+        config["datasets"]["vla_data"]["robot_type"] = "rl_games_gymnasium_discrete"
         (trained / "config.full.yaml").write_text(yaml.safe_dump(config))
         (trained / "dataset_statistics.json").write_text("{}")
         checkpoint = trained / "steps_2000_pytorch_model.pt"
@@ -89,6 +90,7 @@ def test_appo_gr00t_h1_manifest_and_four_gpu_config(tmp_path, task, state_dim, a
         export_bundle(task, trained, checkpoint, tmp_path, bundle, source_manifest=source)
         inference = yaml.safe_load((bundle / "config.yaml").read_text())
         assert inference["datasets"]["vla_data"]["include_state"] is True
+        assert inference["datasets"]["vla_data"]["robot_type"] == "rl_games_gymnasium_discrete"
         assert inference["datasets"]["vla_data"]["gymnasium_task_contract"] == contract
         assert inference["framework"]["action_model"]["state_dim"] == 4
         assert inference["framework"]["action_model"]["action_dim"] == 5

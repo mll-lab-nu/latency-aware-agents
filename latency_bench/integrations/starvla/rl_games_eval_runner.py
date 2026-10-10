@@ -329,13 +329,11 @@ def build_latency_bench_config_for_rl_games(
     if str(config["env"].get("name", "")) == "gymnasium":
         data_cfg = model_cfg["datasets"]["vla_data"]
         if env_name == "gymnasium":
-            task_manifest_path = Path(data_cfg["data_root_dir"]) / data_cfg["data_mix"] / "manifest.json"
-            policy["task_manifest_path"] = str(task_manifest_path)
-            if "gymnasium_task_contract" in data_cfg:
-                task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
-            else:
-                task_manifest = json.loads(task_manifest_path.read_text(encoding="utf-8"))
-                task_contract = task_manifest.get("gymnasium_task", gymnasium_task_contract(config["env"]))
+            task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
+            policy["gymnasium_active_action_dim"] = len(
+                task_contract["action_labels"] if "action_labels" in task_contract
+                else task_contract["action_space"]["labels"]
+            )
         else:
             task_contract = gymnasium_task_contract(config["env"])
             policy["gymnasium_cross_task_eval"] = True
@@ -571,6 +569,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         tasks = self._get_tasks()
         image_size = self._image_size()
         model_cfg = self._model_cfg_from_training_cfg()
+        normalization_statistics = None
         env_eval = self.cfg.rl_games.env_eval
         eval_seed = int(getattr(env_eval, "seed", getattr(self.cfg, "seed", 42)) or 42)
 
@@ -622,10 +621,15 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 action_layout=self._task_action_layout(task_name),
                 multibinary_threshold=self._deadly_multibinary_threshold(),
             )
+            if lb_config["env"]["name"] == "gymnasium" and normalization_statistics is None:
+                normalization_statistics = json.loads(
+                    (Path(self.output_dir) / "dataset_statistics.json").read_text(encoding="utf-8")
+                )
             policy = build_live_starvla_policy(
                 framework=model,
                 model_cfg=model_cfg,
                 config=lb_config,
+                normalization_statistics=normalization_statistics,
                 action_resolver=ActionResolver(lb_config["env"]),
             )
             metrics_list = run_from_config(

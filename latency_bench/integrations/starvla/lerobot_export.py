@@ -672,8 +672,8 @@ def convert_canonical_rollout_to_lerobot(
 ) -> dict[str, Any]:
     """Convert canonical rollouts to LeRobot, preserving raw state and action units.
 
-    Gymnasium handoff metadata records training min/max for inference. The
-    registered training loader owns the state transform, using dataset statistics.
+    Gymnasium handoff metadata records source training min/max. Model transforms
+    use the statistics saved by training; the stored state remains untransformed.
 
     Args:
         raw_export_dir: Directory with canonical rollout parquet files and metadata.

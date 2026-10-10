@@ -42,9 +42,10 @@ from deployment.model_server.rl_games_action_decode import (
 
 
 class PolicyServerWrapper:
+    """Wraps a model with its training-time transforms for checkpoint inference."""
+
     _rl_games_gymnasium_action_space_type = "discrete"
-    _rl_games_gymnasium_robot_type = "rl_games_gymnasium"
-    """Wraps a `baseframework` for use as a websocket-server policy."""
+    _rl_games_gymnasium_robot_type = None
 
     def __init__(
         self,
@@ -58,7 +59,7 @@ class PolicyServerWrapper:
         rl_games_multibinary_threshold: Optional[float] = None,
         rl_games_action_env_dim: Optional[int] = None,
         rl_games_gymnasium_action_space_type: str = "discrete",
-        rl_games_gymnasium_robot_type: str = "rl_games_gymnasium",
+        rl_games_gymnasium_robot_type: Optional[str] = None,
         backbone_path: Optional[str] = None,
     ) -> None:
         self._ckpt_path = str(ckpt_path)

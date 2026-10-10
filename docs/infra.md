@@ -164,6 +164,11 @@ resident DAgger integrations live in `integrations/starvla/` and reuse these pol
 StarVLA LeRobot conversion belongs to `lerobot_export.py` in that directory.
 Task preparation, normalization statistics and saved task contracts belong to
 `task_contracts.py`. Canonical rollout storage remains in `data/`.
+Generic Gymnasium model normalization uses the run's `dataset_statistics.json`.
+The trainer binds these statistics to validation before iteration. Checkpoint and
+live wrappers apply the training DataConfig transform to raw state; the LAGEN
+runner selects inputs without another Gymnasium normalization step. Task-contract
+policies continue to use their frozen task statistics.
 
 The Sample Factory source version is fixed by the benchmark repository commit.
 Compatibility code in `training/common` has active training consumers:

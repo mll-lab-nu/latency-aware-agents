@@ -215,7 +215,7 @@ def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
     model_cfg["rl_games"] = {"gymnasium": {"task_contract": task_contract}}
     model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"] = task_contract
     model_cfg["datasets"]["vla_data"].update(
-        {"data_root_dir": str(tmp_path), "data_mix": "walker_train"}
+        {"data_root_dir": str(tmp_path), "data_mix": "walker_mixture"}
     )
 
     cfg = build_latency_bench_config_for_rl_games(
@@ -236,9 +236,8 @@ def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
 
     assert cfg["env"] == {"name": "gymnasium", "obs_resize": [224, 224], **task_contract}
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(16.0)
-    assert cfg["policy"]["task_manifest_path"] == str(
-        tmp_path / "walker_train" / "manifest.json"
-    )
+    assert cfg["policy"]["gymnasium_training_task_contract"] == task_contract
+    assert cfg["policy"]["gymnasium_active_action_dim"] == 2
     assert cfg["evaluation"]["eval_episodes"] == 20
 
 
@@ -589,6 +588,11 @@ def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
 
 def test_runner_applies_eval_only_gymnasium_reset_kwargs(tmp_path, monkeypatch):
     captured = {}
+    saved_statistics = {"new_embodiment": {
+        "state": {key: [0.0] * 7 for key in ("mean", "std", "min", "max", "q01", "q99")},
+        "action": {key: [0.0] * 2 for key in ("mean", "std", "min", "max", "q01", "q99")},
+    }}
+    (tmp_path / "dataset_statistics.json").write_text(json.dumps(saved_statistics))
     task_contract = {
         "task_name": "air_raid",
         "env_id": "LatencyBench/AirRaid-v0",
@@ -616,7 +620,11 @@ def test_runner_applies_eval_only_gymnasium_reset_kwargs(tmp_path, monkeypatch):
         return [EpisodeMetrics(episode_id=0, episode_return=1.0, survival_steps=5)]
 
     monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
-    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
+    def build_policy(**kwargs):
+        captured["statistics"] = kwargs["normalization_statistics"]
+        return object()
+
+    monkeypatch.setattr(runner_mod, "build_live_starvla_policy", build_policy)
 
     LatencyBenchRlGamesEvalRunner(cfg=cfg, output_dir=str(tmp_path)).run(
         model=object(), step=5000, stage="post_train", save=False
@@ -624,6 +632,7 @@ def test_runner_applies_eval_only_gymnasium_reset_kwargs(tmp_path, monkeypatch):
 
     assert captured["make_kwargs"] == {"noop_max": 30, "fire_reset": True}
     assert task_contract["make_kwargs"] == {"noop_max": 0}
+    assert captured["statistics"] == saved_statistics
 
 
 def test_runner_threads_multiframe_frame_stack_from_model_cfg(tmp_path, monkeypatch):

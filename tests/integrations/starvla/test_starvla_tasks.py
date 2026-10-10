@@ -306,3 +306,44 @@ def test_balance_masked_l1_uses_equal_sample_weights_and_no_padding_gradient(mon
     all_valid = torch.ones((2, 8), dtype=torch.bool)
     torch.testing.assert_close(model._compute_action_loss(pred, target, action_loss_mask=all_valid),
                                (pred - target).abs().mean())
+
+
+def test_saved_statistics_restore_field_order_across_embodiments(tmp_path, monkeypatch):
+    """Long-lived statistics format: save/restore preserves each named field and its metadata."""
+    pytest.importorskip("accelerate")
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "third_party/starVLA"))
+    from starVLA.dataloader.gr00t_lerobot.datasets import LeRobotMixtureDataset
+    from starVLA.dataloader.gr00t_lerobot.schema import DatasetMetadata
+
+    def metadata(tag, fields):
+        stats = {key: {name: [value] for name in ("min", "max", "mean", "std", "q01", "q99")}
+                 for key, value in fields.items()}
+        return DatasetMetadata.model_validate({
+            "embodiment_tag": tag, "statistics": {"state": stats, "action": {"command": stats["x"]}},
+            "modalities": {"video": {},
+                          "state": {key: {"absolute": False, "shape": [1], "continuous": True} for key in fields},
+                          "action": {"command": {"absolute": True, "shape": [1], "continuous": True}}},
+        })
+
+    class Source:
+        def __init__(self, tag, keys):
+            self.tag = tag
+            self.modality_keys = {"action": ["action.command"], "state": [f"state.{key}" for key in keys]}
+            self.trajectory_ids = [0]
+
+        def __len__(self):
+            return 1
+
+        def set_transforms_metadata(self, value):
+            self.transform_metadata = value
+
+    dataset = LeRobotMixtureDataset.__new__(LeRobotMixtureDataset)
+    dataset.datasets = [Source("gr1", ["x"]), Source("new_embodiment", ["y", "x"])]
+    dataset.merged_metadata = {"gr1": metadata("gr1", {"x": 10.0}),
+                               "new_embodiment": metadata("new_embodiment", {"y": 20.0, "x": 30.0})}
+    expected = {tag: value.model_dump(mode="json") for tag, value in dataset.merged_metadata.items()}
+    path = tmp_path / "statistics.json"
+    dataset.save_dataset_statistics(path)
+    dataset.apply_cached_statistics(json.loads(path.read_text()))
+    for source in dataset.datasets:
+        assert source.transform_metadata.model_dump(mode="json") == expected[source.tag]

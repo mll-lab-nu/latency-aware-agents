@@ -381,7 +381,7 @@ def test_policy_wrapper_gymnasium_stateless_example_skips_state_normalization():
     assert prediction["actions"].tolist() == [[[1]]]
 
 
-def test_policy_wrapper_gymnasium_uses_registered_generic_data_config():
+def test_policy_wrapper_gymnasium_resolves_training_data_config():
     policy_wrapper_module = _load_policy_wrapper_module()
     calls = []
 
@@ -404,7 +404,7 @@ def test_policy_wrapper_gymnasium_uses_registered_generic_data_config():
             "checkpoint.safetensors",
             {
                 "unnorm_key": "new_embodiment",
-                "robot_type": "rl_games_gymnasium",
+                "robot_type": None,
             },
         )
     ]
@@ -512,7 +512,7 @@ def test_policy_wrapper_rl_games_mode_records_decode_timing():
 def test_policy_wrapper_loads_checkpoint_framework_in_eval_mode():
     policy_wrapper_module = _load_policy_wrapper_module()
     framework = FakeFramework([[[0.1, 0.9]]])
-    policy_wrapper_module.baseframework.from_pretrained = lambda ckpt_path: framework
+    policy_wrapper_module.baseframework.from_pretrained = lambda ckpt_path, *, backbone_path=None: framework
     policy_wrapper_module.read_mode_config = lambda ckpt_path: (
         {"framework": {"action_model": {"action_horizon": 1}}},
         {},

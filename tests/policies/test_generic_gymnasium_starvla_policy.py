@@ -190,11 +190,11 @@ def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
     assert wrapper.rl_games_env_name == "gymnasium"
     assert wrapper.rl_games_action_env_dim == 3
     assert wrapper.rl_games_gymnasium_action_space_type is None
-    assert wrapper.rl_games_gymnasium_robot_type is None
+    assert wrapper.rl_games_gymnasium_robot_type == "rl_games_gymnasium"
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == "Drive the car up the mountain."
     np.testing.assert_array_equal(
-        example["state"], np.asarray([[0.125, -0.25]], dtype=np.float32)
+        example["state"], np.asarray([[1.25, -2.5]], dtype=np.float32)
     )
     assert output.action.name == "push_right"
     assert output.action.value == 2
@@ -281,18 +281,9 @@ def test_generic_checkpoint_policy_keeps_stateless_gymnasium_stateless(
     assert "state" not in GenericPolicyServerWrapper.instances[0].calls[0]["examples"][0]
 
 
-@pytest.mark.parametrize(
-    ("mismatch", "message"),
-    [
-        ("state_labels", "state_labels"),
-        ("state_normalization", "state_normalization"),
-    ],
-)
 def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
     monkeypatch,
     tmp_path: Path,
-    mismatch: str,
-    message: str,
 ):
     from latency_bench.policy import starvla
 
@@ -302,14 +293,11 @@ def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
     manifest_path = Path(config["policy"]["task_manifest_path"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    if mismatch == "state_labels":
-        manifest["state_labels"] = ["position"]
-    else:
-        manifest["state_normalization"] = {}
+    manifest["state_labels"] = ["position"]
 
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="state_labels"):
         build_policy(config, ActionResolver(config["env"]))
 
 
@@ -400,7 +388,7 @@ def test_synthetic_continuous_checkpoint_policy_passes_state_and_box_contract(
     assert wrapper.rl_games_gymnasium_action_space_type == "box"
     np.testing.assert_allclose(
         wrapper.calls[0]["examples"][0]["state"],
-        (state / 10.0).reshape(1, 2),
+        state.reshape(1, 2),
     )
     assert output.action.value == [0.0, 0.0]
 
@@ -457,11 +445,20 @@ def test_generic_prompt_map_takes_priority_over_explicit_base_prompt(
     assert example["lang"] == "Use the latency-three policy."
 
 
-def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
+def test_generic_live_policy_uses_training_statistics_and_decodes_actions(
     monkeypatch,
     tmp_path: Path,
 ):
+    pytest.importorskip("accelerate")
     from latency_bench.policy import starvla
+
+    def stats(low, high):
+        return {"min": low, "max": high, "mean": [0.0] * len(low), "std": [1.0] * len(low),
+                "q01": low, "q99": high}
+    training_statistics = {"new_embodiment": {
+        "state": stats([-20.0, -20.0], [20.0, 20.0]),
+        "action": stats([0.0] * 3, [1.0] * 3),
+    }}
 
     decode_calls = []
 
@@ -517,11 +514,13 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
         Path(config["policy"]["model_config_path"]).read_text(encoding="utf-8")
     )
 
+    model_cfg["datasets"]["vla_data"]["robot_type"] = "rl_games_gymnasium"
     policy = starvla.build_live_starvla_policy(
         framework=framework,
         model_cfg=model_cfg,
         config=config,
         action_resolver=ActionResolver(config["env"]),
+        normalization_statistics=training_statistics,
     )
     output = policy.predict(_observation())
 
@@ -531,7 +530,7 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
     assert framework.calls[0]["examples"][0]["lang"] == "Drive the car up the mountain."
     np.testing.assert_array_equal(
         framework.calls[0]["examples"][0]["state"],
-        np.asarray([[0.125, -0.25]], dtype=np.float32),
+        np.asarray([[0.0625, -0.125]], dtype=np.float32),
     )
     assert output.action.name == "push_right"
     assert output.action.value == 2
@@ -542,6 +541,7 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
         env_name="gymnasium",
         rl_games_action_env_dim=2,
         gymnasium_action_space_type="box",
+        normalization_statistics=training_statistics,
     )
     box_prediction = box_wrapper.predict_action(
         examples=[{"image": [], "lang": "", "state": np.asarray([[3.0, 4.0]])}]

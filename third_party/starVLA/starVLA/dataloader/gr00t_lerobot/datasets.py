@@ -46,6 +46,7 @@ from starVLA.dataloader.gr00t_lerobot.video import get_all_frames, get_frames_by
 from starVLA.dataloader.gr00t_lerobot.embodiment_tags import EmbodimentTag
 from starVLA.dataloader.gr00t_lerobot.schema import (
     DatasetMetadata,
+    split_modality_statistics,
     DatasetStatisticalValues,
     LeRobotModalityMetadata,
     LeRobotStateActionMetadata,
@@ -3180,16 +3181,6 @@ class LeRobotMixtureDataset(Dataset):
                     weighted_average: Use the weighted average of the percentiles using the weight used in sampling the datasets.
                     min_max: Use the min of the 1st percentile and max of the 99th percentile.
         """
-        # If cached path is provided, try to load and apply
-        if cached_statistics_path is not None:
-            try:
-                cached_stats = self.load_merged_statistics(cached_statistics_path)
-                self.apply_cached_statistics(cached_stats)
-                return
-            except (FileNotFoundError, KeyError, ValidationError) as e:
-                print(f"Failed to load cached statistics: {e}")
-                print("Falling back to computing statistics from scratch...")
-
         self.tag = EmbodimentTag.NEW_EMBODIMENT.value
         self.merged_metadata: dict[str, DatasetMetadata] = {}
         # Group metadata by tag
@@ -3206,6 +3197,20 @@ class LeRobotMixtureDataset(Dataset):
             )
         for dataset in self.datasets:
             dataset.set_transforms_metadata(self.merged_metadata[dataset.tag])
+        if cached_statistics_path is not None:
+            self.apply_cached_statistics(self.load_merged_statistics(cached_statistics_path))
+
+
+    def _used_modality_keys(self):
+        """Use the same cross-dataset field order for saving and restoring statistics."""
+        action_keys, state_keys = [], []
+        for dataset in self.datasets:
+            actions, states = get_used_modality_keys(dataset.modality_keys)
+            for target, source in ((action_keys, actions), (state_keys, states)):
+                for key in source:
+                    if key not in target:
+                        target.append(key)
+        return action_keys, state_keys
 
     def save_dataset_statistics(self, save_path: Path | str, format: str = "json") -> None:
         """
@@ -3223,19 +3228,8 @@ class LeRobotMixtureDataset(Dataset):
         # Build the data structure to save
         statistics_data = {}
         
-        # Collect actually used keys from all datasets
-        all_used_action_keys = []
-        all_used_state_keys = []
-        
-        for dataset in self.datasets:
-            used_action_keys, used_state_keys = get_used_modality_keys(dataset.modality_keys)
-            for used_action_key in used_action_keys:
-                if used_action_key not in all_used_action_keys:
-                    all_used_action_keys.append(used_action_key)
-            for used_state_key in used_state_keys:
-                if used_state_key not in all_used_state_keys:
-                    all_used_state_keys.append(used_state_key)
-        
+        all_used_action_keys, all_used_state_keys = self._used_modality_keys()
+
         # Organize statistics by tag
         for tag, merged_metadata in self.merged_metadata.items():
             tag_stats = {}
@@ -3368,55 +3362,21 @@ class LeRobotMixtureDataset(Dataset):
             raise ValueError(f"Unsupported file format: {load_path.suffix}")
 
     def apply_cached_statistics(self, cached_statistics: dict) -> None:
-        """
-        Apply cached statistics to avoid recomputation.
-        
-        Args:
-            cached_statistics (dict): Statistics loaded from file
-        """
-        # Validate that cached statistics match current datasets
-        if "metadata" in cached_statistics:
-            cached_dataset_names = set(cached_statistics["metadata"]["dataset_names"])
-            current_dataset_names = set(dataset.dataset_name for dataset in self.datasets)
-            
-            if cached_dataset_names != current_dataset_names:
-                print("Warning: Cached statistics dataset names don't match current datasets.")
-                print(f"Cached: {cached_dataset_names}")
-                print(f"Current: {current_dataset_names}")
-                return
-        
-        # Apply cached statistics
-        self.merged_metadata = {}
-        for tag, stats_data in cached_statistics.items():
-            if tag == "metadata":  # Skip metadata field
-                continue
-                
-            # Convert back to DatasetMetadata format
-            metadata_dict = {
-                "embodiment_tag": tag,
-                "statistics": {
-                    "action": {},
-                    "state": {}
-                },
-                "modalities": {}
-            }
-            
-            # Convert action statistics back
-            if "action" in stats_data:
-                action_data = stats_data["action"]
-                # This is simplified - you may need to split back to sub-keys
-                metadata_dict["statistics"]["action"] = action_data
-            
-            # Convert state statistics back
-            if "state" in stats_data:
-                state_data = stats_data["state"]
-                metadata_dict["statistics"]["state"] = state_data
-            
-            self.merged_metadata[tag] = DatasetMetadata.model_validate(metadata_dict)
-        
-        # Update transforms metadata for each dataset
+        """Bind saved training statistics without changing dataset modality definitions."""
+        ordered_keys = dict(zip(("action", "state"), self._used_modality_keys()))
+        restored = {}
+        for tag, metadata in self.merged_metadata.items():
+            payload = metadata.model_dump(mode="json")
+            for modality in ("action", "state"):
+                keys = [key for key in ordered_keys[modality] if key in getattr(metadata.statistics, modality)]
+                dims = {
+                    key: int(np.prod(getattr(metadata.modalities, modality)[key].shape))
+                    for key in keys
+                }
+                payload["statistics"][modality] = split_modality_statistics(
+                    cached_statistics[tag][modality], dims,
+                )
+            restored[tag] = DatasetMetadata.model_validate(payload)
+        self.merged_metadata = restored
         for dataset in self.datasets:
-            if dataset.tag in self.merged_metadata:
-                dataset.set_transforms_metadata(self.merged_metadata[dataset.tag])
-        
-        print(f"Applied cached statistics for {len(self.merged_metadata)} embodiment tags.")
+            dataset.set_transforms_metadata(restored[dataset.tag])

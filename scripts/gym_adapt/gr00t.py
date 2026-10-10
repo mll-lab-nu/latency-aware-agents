@@ -124,6 +124,10 @@ def export_bundle(task: str, trained: Path, checkpoint: Path, dataset: Path, des
     inference["backbone"] = BACKBONE
     manifest = json.loads((dataset / "manifest.json").read_text())
     inference["datasets"]["vla_data"]["gymnasium_task_contract"] = manifest["gymnasium_task"]
+    training_data = config["datasets"]["vla_data"]
+    inference["datasets"]["vla_data"]["robot_type"] = (
+        training_data["robot_type"] if "robot_type" in training_data else manifest["robot_type"]
+    )
     inference["rl_games"] = {"model_alias": "gr00t", "task": "gymnasium", "action_carrier": "native",
         "gymnasium": {"task_contract": manifest["gymnasium_task"]},
         "env_eval": {"image_size": 224, "frameskip": 1, "image_transform": "raw_rgb", "prompt_mode": "raw"}}
