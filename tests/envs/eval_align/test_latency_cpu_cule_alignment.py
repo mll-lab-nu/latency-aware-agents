@@ -191,8 +191,8 @@ def test_frozen_h8_teacher_cpu_and_cule_continue_beyond_first_life_loss(tmp_path
 
     config = load_config(os.environ["DEMON_ATTACK_TEACHER_EVAL_CONFIG"])
     config["experiment"]["seed"] = 42
-    config["evaluation"].update(eval_episodes=16, eval_parallel_envs=16, eval_max_steps=7000,
-                                episode_seed_offset=104729, eval_raw_reward=True)
+    config['evaluation'].update(episodes=16, max_env_steps=7000, episode_seed_offset=104729, eval_raw_reward=True)
+    config["executor"]["parallel_envs"] = 16
     config["env"]["clip_reward"] = True
     config["logging"].update(save_step_records=False, save_action_records=False, save_latency_records=False)
     descriptor, _ = load_rollout_training_config(config["policy"]["checkpoint_path"], device_override="gpu")

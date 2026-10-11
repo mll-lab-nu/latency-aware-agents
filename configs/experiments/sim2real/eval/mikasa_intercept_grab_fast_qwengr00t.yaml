@@ -3,11 +3,12 @@ experiment:
   seed: 4242424242
 executor:
   mode: simulated
-  simulated_inference_pool: true
   inference_devices:
   - cuda:1
   inference_batch_size: 8
   simulated_worker_capacity: 1
+  inference_pool: true
+  parallel_envs: 10
 env:
   name: mikasa_intercept_grab_fast
   env_fps: 20
@@ -33,18 +34,18 @@ scheduler:
   hold_last_chunk_action: true
 policy:
   type: starvla
-  checkpoint_path: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwengr00t_latency_3090_2xh200_20260922/run/inference/checkpoints/model.pt
-  model_config_path: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwengr00t_latency_3090_2xh200_20260922/run/inference/config.yaml
   task_contract_path: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwengr00t_latency_3090_2xh200_20260922/run/inference/task_contract.json
   worker_python_executable: /home/ubuntu/miniconda3/envs/starvla_rl_games_gr00t/bin/python
-  device: cuda:1
   state_info_key: mikasa_proprio
   image_views_info_key: mikasa_image_views
+  source: local
+  root:
+    /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwengr00t_latency_3090_2xh200_20260922/run/inference
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
 evaluation:
-  eval_episodes: 200
-  eval_parallel_envs: 10
-  eval_max_steps: 60
-  eval_deterministic: true
+  episodes: 200
+  max_env_steps: 60
 logging:
   output_dir: /home/ubuntu/codex/mikasa-h1-latency-20260922/outputs/latency_rl/mikasa/mikasa_qwengr00t_latency_3090_2xh200_20260922/run/evals/final-hold-last-20260923
   video:

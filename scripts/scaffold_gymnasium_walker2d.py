@@ -100,8 +100,7 @@ def build_walker2d_env_config(
     env_fps: float,
 ) -> dict[str, Any]:
     return {
-        "name": "gymnasium",
-        "task_name": "walker2d_continuous_torque",
+        "name": "walker2d_continuous_torque",
         "env_id": GYMNASIUM_WALKER2D_ENV_ID,
         "registration_imports": ["latency_bench.envs.tasks.walker2d"],
         "make_kwargs": {
@@ -148,15 +147,21 @@ def write_configs(config_dir: Path, env_config: dict[str, Any]) -> None:
     train["logging"]["output_dir"] = "/mnt/data/latency-sensitive-bench/walker2d/train"
 
     small_eval = configs["small_model_eval.yaml"]
-    small_eval["policy"]["checkpoint_path"] = ""
-    small_eval["evaluation"]["eval_episodes"] = 10
-    small_eval["evaluation"]["eval_latency_values"] = [0, 1, 2, 3, 4]
+    small_eval["policy"]["checkpoint"] = None
+    small_eval["evaluation"]["episodes"] = 10
+    small_eval["evaluation"]["suites"] = [
+        {"name": f"fixed_{value}", "latency": {"method": "fixed", "fixed_latency_ms": value * 1000.0 / env_config["env_fps"]}}
+        for value in range(5)
+    ]
     small_eval["logging"]["output_dir"] = "/mnt/data/latency-sensitive-bench/walker2d/continuous_small_model_eval"
 
     bench_eval = configs["latency_bench_eval.yaml"]
     bench_eval["experiment"]["name"] = "gymnasium_walker2d_continuous_latency_bench_eval"
-    bench_eval["evaluation"]["eval_episodes"] = 10
-    bench_eval["evaluation"]["eval_latency_values"] = [0, 1, 2, 3, 4]
+    bench_eval["evaluation"]["episodes"] = 10
+    bench_eval["evaluation"]["suites"] = [
+        {"name": f"fixed_{value}", "latency": {"method": "fixed", "fixed_latency_ms": value * 1000.0 / env_config["env_fps"]}}
+        for value in range(5)
+    ]
     bench_eval["logging"]["output_dir"] = "/mnt/data/latency-sensitive-bench/walker2d/latency_bench_eval"
 
     config_dir.mkdir(parents=True, exist_ok=True)

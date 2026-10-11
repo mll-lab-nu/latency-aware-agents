@@ -145,7 +145,7 @@ def evaluation_config(
     })
     config["executor"].update({
         "mode": "simulated", "simulated_worker_capacity": 1,
-        "simulated_inference_pool": True,
+        "inference_pool": True,
         "inference_devices": devices, "inference_batch_size": (parallel_envs + len(devices) - 1) // len(devices),
     })
     config["latency"] = {"method": "zero"} if env_condition == "zero" else {
@@ -153,8 +153,8 @@ def evaluation_config(
         "profile_worker_slot": 0, "seed": 271828, "add_latency_info": False,
     }
     config["policy"].update({
-        "checkpoint_path": str(bundle / "checkpoints/model.pt"),
-        "model_config_path": str(bundle / "config.yaml"),
+        "source": "local", "root": str(bundle), "checkpoint": "checkpoints/model.pt",
+        "model_config": "config.yaml",
         "backbone_path": str(backbone),
         "device": device,
         "worker_python_executable": str(vla_python),
@@ -175,11 +175,11 @@ def evaluation_config(
             "render_crosshair": False, "render_weapon": True,
             "render_decals": False, "render_particles": False,
         })
+    config["executor"]["parallel_envs"] = parallel_envs
+    config["policy"]["deterministic"] = True
     config["evaluation"].update({
-        "eval_episodes": episodes,
-        "eval_parallel_envs": parallel_envs,
-        "eval_max_steps": HORIZONS[task] if max_steps is None else max_steps,
-        "eval_deterministic": True,
+        "episodes": episodes,
+        "max_env_steps": HORIZONS[task] if max_steps is None else max_steps,
         "eval_raw_reward": True,
     })
     config["logging"].update({
@@ -241,7 +241,7 @@ def main() -> None:
         **provenance, "eval_protocol_version": EVAL_PROTOCOL,
         "history_encoding": "binary_0_1", "episodes": args.episodes,
         "env_condition": args.env_condition, "parallel_envs": args.parallel_envs,
-        "max_episode_raw_frames": config["evaluation"]["eval_max_steps"],
+        "max_episode_raw_frames": config["evaluation"]["max_env_steps"],
         "inference_devices": config["executor"]["inference_devices"],
         "episode_seeds": [1_000_000, 1_000_000 + args.episodes - 1],
         "profile_sha256": file_sha256(args.profile_path.resolve()) if args.env_condition == "profile" else None,

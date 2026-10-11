@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.core.config import load_config, merge_dicts
+from latency_bench.envs.factory import environment_integration
 from latency_bench.utils.io import read_yaml, write_yaml
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
@@ -53,6 +54,7 @@ TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
     "env",
     "latency",
     "scheduler",
+    "policy",
     "training",
     "evaluation",
     "logging",
@@ -60,7 +62,8 @@ TOP_LEVEL_SAMPLE_FACTORY_KEYS = (
 
 EXECUTOR_KEYS = (
     "mode",
-    "simulated_worker_capacity",
+    "simulated_worker_capacity", "parallel_envs", "inference_devices",
+    "inference_pool", "env_backend", "sync_cuda",
 )
 
 LATENCY_KEYS = (
@@ -175,13 +178,14 @@ ENV_KEYS_BY_NAME = {
     ),
     "gymnasium": (
         "name",
-        "task_name",
         "env_id",
         "registration_imports",
         "make_kwargs",
         "env_fps",
         "obs_fps",
         "frame_stack",
+        "state_space",
+        "action_space",
         "action_history_decisions",
         "simulator",
         "gpu_env_device",
@@ -199,15 +203,6 @@ SCHEDULER_KEYS = (
     "ordering_policy",
 )
 
-LATENCY_BENCH_POLICY_TYPES = {
-    "flappy": "flappy_sf",
-    "demon_attack": "demon_attack_sf",
-    "deadly_corridor": "deadly_corridor_sf",
-    "defend_the_line": "deadly_corridor_sf",
-    "gymnasium": "gymnasium_sf",
-}
-
-
 def _resolve_path(value: str | Path, *, base_dir: Path) -> Path:
     path = Path(value)
     if path.is_absolute():
@@ -221,13 +216,6 @@ def _frame_ms(config: dict[str, Any]) -> float:
 
 def _env_name(config: dict[str, Any]) -> str:
     return str(config["env"]["name"])
-
-
-def _task_name(config: dict[str, Any]) -> str:
-    env_cfg = config["env"]
-    if env_cfg["name"] == "gymnasium":
-        return env_cfg["task_name"]
-    return env_cfg["name"]
 
 
 def _env_slug(env_name: str) -> str:
@@ -327,55 +315,27 @@ def _latency_distribution_spec(kind: str, setting: dict[str, Any]) -> LatencyDis
     )
 
 
-def _matched_eval_suites(
-    setting: dict[str, Any],
-    *,
-    latency_label: str,
-    seed: int,
-) -> dict[str, list[Any]]:
-    if "eval_suites" in setting:
-        return deepcopy(setting["eval_suites"])
-
+def _matched_eval_suites(setting, *, latency_label, seed, env_fps):
+    if "suites" in setting:
+        suites = deepcopy(setting["suites"])
+        for suite in suites:
+            latency = suite["latency"]
+            if latency["method"] in {"normal", "uniform", "iid", "temporal"} and "seed" not in latency:
+                latency["seed"] = seed
+        return suites
     kind = setting["kind"]
     if kind in {"iid", "temporal"}:
-        return {
-            kind: [
-                {
-                    "name": latency_label,
-                    "profile_path": setting["profile_path"],
-                    "seed": int(seed),
-                }
-            ]
+        latency = {"method": kind, "profile_path": setting["profile_path"], "seed": seed}
+    elif kind == "fixed":
+        frames = setting["frames"]
+        latency = {"method": "zero"} if frames == 0 else {
+            "method": "fixed", "fixed_latency_ms": frames * 1000.0 / env_fps,
         }
-
-    def fixed_suite() -> dict[str, list[list[Any]]]:
-        return {
-            "fixed": [[setting["frames"]]],
-            "normal": [],
-            "uniform": [],
-        }
-
-    def normal_suite() -> dict[str, list[list[Any]]]:
-        return {
-            "fixed": [],
-            "normal": [[setting["mean"], setting["std"], setting["min"], setting["max"]]],
-            "uniform": [],
-        }
-
-    def uniform_suite() -> dict[str, list[list[Any]]]:
-        return {
-            "fixed": [],
-            "normal": [],
-            "uniform": [[setting["min"], setting["max"]]],
-        }
-
-    builders = {
-        "fixed": fixed_suite,
-        "normal": normal_suite,
-        "uniform": uniform_suite,
-    }
-    return builders[kind]()
-
+    else:
+        latency = distribution_frames_to_ms_latency_config(
+            _latency_distribution_spec(kind, setting), env_fps=env_fps, seed=seed,
+        )
+    return [{"name": latency_label, "latency": latency}]
 
 def _run_axis_fragment(
     sweep_name: str,
@@ -582,7 +542,7 @@ def _prune_sample_factory_config(config: dict[str, Any]) -> dict[str, Any]:
     }
 
     env_cfg = pruned["env"]
-    env_keys = ENV_KEYS_BY_NAME[str(env_cfg["name"]).strip().lower()]
+    env_keys = ENV_KEYS_BY_NAME[environment_integration(config)]
     pruned["env"] = {
         key: deepcopy(env_cfg[key])
         for key in env_keys
@@ -630,7 +590,7 @@ def _build_full_train_config(
     experiment_family: str,
 ) -> dict[str, Any]:
     config = deepcopy(base_config)
-    env_name = _task_name(config)
+    env_name = _env_name(config)
     config.setdefault("experiment", {})["name"] = _run_name(
         env_name,
         sweep_name,
@@ -641,7 +601,6 @@ def _build_full_train_config(
         seed,
     )
     config["experiment"]["seed"] = int(seed)
-    config.setdefault("backend", {})["type"] = "sample_factory"
     config["backend"]["device"] = str(device)
     config["backend"]["train_dir"] = str(train_dir)
     config["backend"]["restart_behavior"] = str(restart_behavior)
@@ -649,10 +608,10 @@ def _build_full_train_config(
     config.setdefault("env", {})["frame_stack"] = int(frame_stack)
     config["env"]["obs_fps"] = obs_fps
     _apply_latency_setting(config, latency_setting, int(seed))
-    config.setdefault("evaluation", {})["eval_suites"] = _matched_eval_suites(
+    config.setdefault("evaluation", {})["suites"] = _matched_eval_suites(
         latency_setting,
         latency_label=latency_label,
-        seed=seed,
+        seed=seed, env_fps=config["env"]["env_fps"],
     )
     config.setdefault("logging", {})["output_dir"] = str(
         _output_dir(output_root, "train", sweep_name, latency_label, frame_stack, obs_fps, observation_stride, seed)
@@ -674,7 +633,7 @@ def _build_full_train_config(
         observation_stride,
         seed,
     )
-    specified_tags = config["logging"]["wandb_tags"]
+    specified_tags = config["logging"].get("wandb_tags", [])
     config["logging"]["wandb_tags"] = _wandb_tags(
         experiment_family,
         env_name,
@@ -719,23 +678,23 @@ def _build_latency_bench_eval_config(
     checkpoint_kind: str = "latest",
 ) -> dict[str, Any]:
     config = merge_dicts(base_config, full_train_config)
-    config["evaluation"]["eval_suites"] = deepcopy(full_train_config["evaluation"]["eval_suites"])
+    config["evaluation"]["suites"] = deepcopy(full_train_config["evaluation"]["suites"])
     env_name = _env_name(config)
     config["backend"]["run_mode"] = "eval"
-    if ("latency_bench_env_backend" in config["evaluation"]
-            and config["evaluation"]["latency_bench_env_backend"] in {"atlantis_gpu_batched", "asterix_gpu_batched"}):
+    if ("env_backend" in config["executor"]
+            and config["executor"]["env_backend"] in {"atlantis_gpu_batched", "asterix_gpu_batched"}):
         config["env"]["simulator"] = "gpu"
     _drop_eval_time_limit_fields(config)
     _align_demon_attack_raw_eval_config(config, env_name)
     config["policy"] = merge_dicts(
         base_config["policy"],
         {
-            "type": LATENCY_BENCH_POLICY_TYPES[env_name],
-            "checkpoint_path": "",
-            "device": str(latency_bench_policy_device),
+            "type": "sample_factory",
+            "source": "local", "root": str(Path(full_train_config["backend"]["train_dir"]) / full_train_config["experiment"]["name"]), "checkpoint": None,
             "deterministic": True,
         },
     )
+    config["executor"]["inference_devices"] = [str(latency_bench_policy_device)]
     config["policy"]["checkpoint_kind"] = checkpoint_kind
     apply_checkpoint_kind_override(config["backend"], checkpoint_kind)
     config["logging"]["output_dir"] = str(
@@ -912,7 +871,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         manifest_rows.append(
             _build_manifest_row(
                 experiment_family=experiment_family,
-                env_name=_task_name(train_config),
+                env_name=_env_name(train_config),
                 sweep_name=sweep_name,
                 latency_label=latency_label,
                 latency_setting=latency_setting,

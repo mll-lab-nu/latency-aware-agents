@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.latency.config import latency_type_from_config
+from latency_bench.envs.factory import environment_integration, resolve_env_config
+from latency_bench.core.config import resolve_runtime_config
 from training.common.utils import maybe_set_cli_override
 
 ENV_INTEGRATIONS = {
@@ -134,7 +136,8 @@ def gpu_env_sample_factory_layout(training_cfg: dict[str, Any]) -> dict[str, int
 
 
 def import_integration_module(config: dict[str, Any]):
-    env_name = str(config["env"]["name"]).strip().lower()
+    resolve_env_config(config)
+    env_name = environment_integration(config)
     module_name = ENV_INTEGRATIONS[env_name]
     return importlib.import_module(module_name)
 
@@ -178,6 +181,7 @@ def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any]) -> No
 def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[str]:
     from latency_bench.integrations.sample_factory.runtime import resolve_sample_factory_device
 
+    resolve_runtime_config(config)
     backend_cfg = config["backend"]
     experiment_cfg = config["experiment"]
     training_cfg = config["training"]
@@ -345,11 +349,10 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
     append_cli_arg(args, "--max-pending-actions", latency_cfg.get("max_pending_actions"))
 
-    append_cli_arg(args, "--eval-episodes", evaluation_cfg.get("eval_episodes"))
-    append_cli_arg(args, "--eval-parallel-envs", evaluation_cfg.get("eval_parallel_envs"))
-    append_cli_arg(args, "--eval-latency-raw-frame-values", evaluation_cfg.get("eval_latency_values"))
-    append_cli_arg(args, "--eval-max-steps", evaluation_cfg.get("eval_max_steps"))
-    append_cli_arg(args, "--eval-deterministic", evaluation_cfg.get("eval_deterministic", True))
+    append_cli_arg(args, "--eval-episodes", evaluation_cfg.get("episodes"))
+    append_cli_arg(args, "--eval-parallel-envs", config["executor"]["parallel_envs"])
+    append_cli_arg(args, "--eval-max-steps", evaluation_cfg.get("max_env_steps"))
+    append_cli_arg(args, "--eval-deterministic", config["policy"]["deterministic"])
     if evaluation_cfg.get("eval_raw_reward"):
         args.append("--eval-raw-reward")
 

@@ -80,9 +80,9 @@ def simulate(output, model, manifest, publication, worker_python):
         base, output / "runtime", inference_device="cuda:0", simulator_device=None, env_fps=fps,
         run_id=0, method="temporal", profile_path=output / "profiles/holdout" / str(manifest["fit_runs"]) / "profile.json", latency_seed=0, protocol=manifest["protocol"],
     )
-    config["evaluation"].update(eval_parallel_envs=slots, eval_episodes=manifest["protocol"]["episodes"] * slots)
+    config['evaluation'].update(episodes=manifest['protocol']['episodes'] * slots)
+    config["executor"]["parallel_envs"] = slots
     config["executor"]["inference_batch_size"] = manifest["inference_batch_size"][model]
-    config["logging"]["simulated_pipeline_profile"] = False
     runtime.prepare_replay_runtime(config)
     write_json_atomic(output / "runtime/config.json", config)
     executor = build_executor(config, inference_devices=["cuda:0"])

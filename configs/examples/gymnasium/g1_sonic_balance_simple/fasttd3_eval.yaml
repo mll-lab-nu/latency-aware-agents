@@ -5,13 +5,15 @@ backend:
   extra_args: [--load_checkpoint_kind, best]
 
 policy:
-  type: gymnasium_sf
+  type: sample_factory
   checkpoint_kind: best
-  device: cuda
   deterministic: true
 
 evaluation:
-  eval_latency_values: [0]
+  suites:
+  - name: eval_latency_0
+    latency:
+      method: zero
 
 logging:
   output_dir: outputs/tasks/humanoidbench_balance_simple/eval_best_l0
@@ -19,3 +21,6 @@ logging:
     enabled: true
   save_step_records: true
   save_action_records: true
+executor:
+  inference_devices:
+  - cuda

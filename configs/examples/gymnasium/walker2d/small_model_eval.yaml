@@ -4,7 +4,6 @@ experiment:
   name: gymnasium_walker2d_small_model_eval
 
 env:
-  task_name: walker2d
   state_space:
     labels:
       - torso_height
@@ -25,5 +24,6 @@ env:
       - left_leg_angular_velocity
       - left_foot_angular_velocity
 
+  name: walker2d
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/walker2d/small_model_eval

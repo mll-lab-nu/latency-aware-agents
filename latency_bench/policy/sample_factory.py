@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from importlib import import_module
+from pathlib import Path
 from typing import Any, Mapping
 
 import numpy as np
@@ -15,16 +16,25 @@ from latency_bench.core.types import Observation, PolicyOutput
 from latency_bench.integrations.sample_factory import actions as sf_actions
 from latency_bench.integrations.sample_factory import runtime as sf_runtime
 from latency_bench.policy.base import PolicyRunner
+from latency_bench.envs.factory import environment_integration
+from latency_bench.policy.model_source import model_file
 
 
 _INTEGRATIONS = {
-    "flappy_sf": ("training.flappy_sf.integration", "register_flappy_envs"),
-    "demon_attack_sf": ("training.demon_attack_sf.integration", "register_demon_attack_envs"),
-    "deadly_corridor_sf": (
+    "flappy": ("training.flappy_sf.integration", "register_flappy_envs"),
+    "demon_attack": (
+        "training.demon_attack_sf.integration",
+        "register_demon_attack_envs",
+    ),
+    "deadly_corridor": (
         "training.deadly_corridor_sf.integration",
         "register_deadly_corridor_components",
     ),
-    "gymnasium_sf": (
+    "defend_the_line": (
+        "training.deadly_corridor_sf.integration",
+        "register_deadly_corridor_components",
+    ),
+    "gymnasium": (
         "training.gymnasium_sf.integration",
         "register_gymnasium_envs",
     ),
@@ -119,14 +129,17 @@ def _obs_batch_to_sf_inputs(
 
     try:
         batched_obs = {
-            key: torch.cat(tensors, dim=0)
-            for key, tensors in batched_parts.items()
+            key: torch.cat(tensors, dim=0) for key, tensors in batched_parts.items()
         }
     except RuntimeError as exc:
-        raise ValueError("Cannot batch Sample Factory observations with incompatible tensor shapes") from exc
+        raise ValueError(
+            "Cannot batch Sample Factory observations with incompatible tensor shapes"
+        ) from exc
 
     if all(mask is not None for mask in action_masks):
-        return batched_obs, torch.cat([mask for mask in action_masks if mask is not None], dim=0)
+        return batched_obs, torch.cat(
+            [mask for mask in action_masks if mask is not None], dim=0
+        )
     return batched_obs, None
 
 
@@ -181,9 +194,7 @@ def _mapping_obs_batch_to_sf_inputs_stacked(
         if not isinstance(data, Mapping):
             return None
         current_values = {
-            str(key): value
-            for key, value in data.items()
-            if str(key) != "action_mask"
+            str(key): value for key, value in data.items() if str(key) != "action_mask"
         }
         if list(current_values) != keys:
             return None
@@ -230,7 +241,11 @@ def _stack_numpy_values(values: Sequence[Any]) -> np.ndarray | None:
     first_shape = first.shape
     first_dtype = first.dtype
     for array in arrays[1:]:
-        if array.shape != first_shape or array.dtype != first_dtype or array.dtype == object:
+        if (
+            array.shape != first_shape
+            or array.dtype != first_dtype
+            or array.dtype == object
+        ):
             return None
     return np.stack(arrays, axis=0)
 
@@ -249,7 +264,6 @@ def validate_sample_factory_obs_shape(
     obs_dict: Mapping[str, torch.Tensor | np.ndarray],
     *,
     expected_shape: tuple[int, ...] | None,
-    policy_type: str,
 ) -> None:
     if expected_shape is None:
         return
@@ -259,20 +273,21 @@ def validate_sample_factory_obs_shape(
     actual_shape = tuple(int(dim) for dim in obs.shape[-len(expected_shape) :])
     if actual_shape != tuple(int(dim) for dim in expected_shape):
         raise ValueError(
-            f"{policy_type} observation shape mismatch: policy/checkpoint expects "
+            "Sample Factory observation shape mismatch: policy/checkpoint expects "
             f"{tuple(expected_shape)}, got {actual_shape}. Check env.obs_resize/env.obs_mode "
             "and retrain checkpoints when channel count or resize changes."
         )
 
 
 class SampleFactoryPolicyRunner(PolicyRunner):
+    """Run a checkpoint with the registered task's observation and action contract."""
+
     def __init__(
         self,
         *,
         config: dict[str, Any],
         action_resolver: ActionResolver,
         integration_module: Any,
-        policy_type: str,
     ):
         from sample_factory.algo.sampling.batched_sampling import preprocess_actions
         from sample_factory.algo.utils.action_distributions import argmax_actions
@@ -285,9 +300,10 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         self.config = config
         self.action_resolver = action_resolver
         self.integration_module = integration_module
-        self.policy_type = policy_type
-        self.device = torch.device(sf_runtime.resolve_torch_device(config["policy"].get("device", "auto")))
-        self.deterministic = bool(config["policy"].get("deterministic", True))
+        self.device = torch.device(
+            sf_runtime.resolve_torch_device(config["executor"]["inference_devices"][0])
+        )
+        self.deterministic = config["policy"]["deterministic"]
         self._prepare_and_normalize_obs = prepare_and_normalize_obs
         self._argmax_actions = argmax_actions
         self._preprocess_actions = preprocess_actions
@@ -297,7 +313,11 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         cfg = integration_module.build_sf_cfg_from_config(config)
         self.cfg = cfg
         self.use_rnn = bool(getattr(cfg, "use_rnn", False))
-        checkpoint_path = config["policy"].get("checkpoint_path") or None
+        checkpoint_path = (
+            model_file(config["policy"], "checkpoint")
+            if config["policy"].get("checkpoint") is not None
+            else None
+        )
         if checkpoint_path is None:
             from sample_factory.cfg.arguments import load_from_checkpoint
 
@@ -308,28 +328,42 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         reference_env = integration_module.make_reference_env(cfg)
         self.env_info = extract_env_info(reference_env, cfg)
         self.action_space = reference_env.action_space
-        self.actor_critic = create_actor_critic(cfg, reference_env.observation_space, reference_env.action_space)
+        self.actor_critic = create_actor_critic(
+            cfg, reference_env.observation_space, reference_env.action_space
+        )
         self.actor_critic.eval()
         self.actor_critic.model_to_device(self.device)
 
-        self.expected_obs_shape = _shape_from_observation_space(reference_env.observation_space)
+        self.expected_obs_shape = _shape_from_observation_space(
+            reference_env.observation_space
+        )
         try:
-            checkpoint, resolved_checkpoint_path = sf_runtime.load_sample_factory_policy_state_dict(
-                cfg,
-                self.actor_critic,
-                self.device,
-                checkpoint_path,
+            checkpoint, resolved_checkpoint_path = (
+                sf_runtime.load_sample_factory_policy_state_dict(
+                    cfg,
+                    self.actor_critic,
+                    self.device,
+                    checkpoint_path,
+                )
             )
         except RuntimeError as exc:
             raise ValueError(
-                f"{policy_type} checkpoint/model shape mismatch. Check env.obs_resize/env.obs_mode "
+                "Sample Factory checkpoint/model shape mismatch. Check env.obs_resize/env.obs_mode "
                 "and use a checkpoint trained with the same observation shape."
             ) from exc
         self.checkpoint_path = str(resolved_checkpoint_path)
-        config["policy"]["checkpoint_path"] = self.checkpoint_path
-        self.checkpoint_global_step = int(checkpoint.get("train_step", checkpoint.get("env_steps", 0)))
+        config["policy"].update(
+            source="local",
+            root=str(Path(self.checkpoint_path).parent),
+            checkpoint=Path(self.checkpoint_path).name,
+        )
+        self.checkpoint_global_step = int(
+            checkpoint.get("train_step", checkpoint.get("env_steps", 0))
+        )
         self.rnn_size = int(get_rnn_size(cfg))
-        self.rnn_states = torch.zeros([1, self.rnn_size], dtype=torch.float32, device=self.device)
+        self.rnn_states = torch.zeros(
+            [1, self.rnn_size], dtype=torch.float32, device=self.device
+        )
         self._rnn_states_by_slot: dict[int, torch.Tensor] = {}
         reference_env.close()
 
@@ -349,7 +383,6 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         validate_sample_factory_obs_shape(
             obs_dict,
             expected_shape=self.expected_obs_shape,
-            policy_type=self.policy_type,
         )
         normalized_obs = self._prepare_and_normalize_obs(self.actor_critic, obs_dict)
         with torch.no_grad():
@@ -381,7 +414,6 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         validate_sample_factory_obs_shape(
             obs_dict,
             expected_shape=self.expected_obs_shape,
-            policy_type=self.policy_type,
         )
         normalized_obs = self._prepare_and_normalize_obs(self.actor_critic, obs_dict)
         batch_size = len(observations)
@@ -393,7 +425,9 @@ class SampleFactoryPolicyRunner(PolicyRunner):
                 dim=0,
             )
         else:
-            rnn_states = torch.zeros([batch_size, self.rnn_size], dtype=torch.float32, device=self.device)
+            rnn_states = torch.zeros(
+                [batch_size, self.rnn_size], dtype=torch.float32, device=self.device
+            )
         with torch.no_grad():
             policy_outputs = self.actor_critic(normalized_obs, rnn_states)
             actions = policy_outputs["actions"]
@@ -419,28 +453,41 @@ class SampleFactoryPolicyRunner(PolicyRunner):
 
     def _policy_output(self, raw_value: Any) -> PolicyOutput:
         metadata = {
-            "policy_type": self.policy_type,
+            "policy_type": "sample_factory",
             "checkpoint_path": self.checkpoint_path,
             "checkpoint_global_step": self.checkpoint_global_step,
         }
-        if self.cfg.algo == "FAST_TD3" and self.policy_type == "gymnasium_sf":
-            raw_chunk = np.asarray(raw_value, dtype=np.float32).reshape(self.action_chunk_horizon, -1)
+        if (
+            self.cfg.algo == "FAST_TD3"
+            and environment_integration(self.config) == "gymnasium"
+        ):
+            raw_chunk = np.asarray(raw_value, dtype=np.float32).reshape(
+                self.action_chunk_horizon, -1
+            )
             native_space = self.config["env"]["action_space"]
             native_chunk = sf_actions.scale_box_action(
-                raw_chunk, np.asarray(native_space["low"], dtype=np.float32),
+                raw_chunk,
+                np.asarray(native_space["low"], dtype=np.float32),
                 np.asarray(native_space["high"], dtype=np.float32),
             )
             actions = [
-                sf_actions.resolve_action(row.tolist(), self.action_resolver, action_space=self.action_space)
+                sf_actions.resolve_action(
+                    row.tolist(), self.action_resolver, action_space=self.action_space
+                )
                 for row in native_chunk
             ]
             return PolicyOutput(
-                action=actions[0], action_chunk=actions if self.action_chunk_horizon > 1 else None,
-                raw_output=raw_chunk.tolist() if self.action_chunk_horizon > 1 else raw_chunk[0].tolist(),
+                action=actions[0],
+                action_chunk=actions if self.action_chunk_horizon > 1 else None,
+                raw_output=raw_chunk.tolist()
+                if self.action_chunk_horizon > 1
+                else raw_chunk[0].tolist(),
                 metadata=metadata,
             )
         return PolicyOutput(
-            action=sf_actions.resolve_action(raw_value, self.action_resolver, action_space=self.action_space),
+            action=sf_actions.resolve_action(
+                raw_value, self.action_resolver, action_space=self.action_space
+            ),
             raw_output=raw_value,
             metadata=metadata,
         )
@@ -466,7 +513,9 @@ class SampleFactoryPolicyRunner(PolicyRunner):
     def _zero_rnn_state(self) -> torch.Tensor:
         return torch.zeros([1, self.rnn_size], dtype=torch.float32, device=self.device)
 
-    def _slot_ids_for_observations(self, observations: Sequence[Observation]) -> list[int]:
+    def _slot_ids_for_observations(
+        self, observations: Sequence[Observation]
+    ) -> list[int]:
         slot_ids = []
         for observation in observations:
             slot_id = int(observation.metadata["slot_id"])
@@ -478,7 +527,9 @@ class SampleFactoryPolicyRunner(PolicyRunner):
     def _rnn_state_for_slot(self, slot_id: int) -> torch.Tensor:
         return self._rnn_states_by_slot[slot_id]
 
-    def _store_batch_rnn_states(self, slot_ids: Sequence[int], new_rnn_states: torch.Tensor) -> None:
+    def _store_batch_rnn_states(
+        self, slot_ids: Sequence[int], new_rnn_states: torch.Tensor
+    ) -> None:
         for index, slot_id in enumerate(slot_ids):
             self._rnn_states_by_slot[int(slot_id)] = new_rnn_states[index : index + 1]
 
@@ -499,18 +550,18 @@ class SampleFactoryPolicyRunner(PolicyRunner):
 def build_sample_factory_policy(
     config: dict[str, Any],
     action_resolver: ActionResolver,
-    *,
-    policy_type: str,
 ) -> SampleFactoryPolicyRunner:
-    integration_module, register_components = _INTEGRATIONS[policy_type]
+    integration = environment_integration(config)
+    integration_module, register_components = _INTEGRATIONS[integration]
     policy_action_resolver = (
         _GymnasiumPolicyActionResolver(action_resolver, config["env"]["action_order"])
-        if policy_type == "gymnasium_sf" and "action_order" in config["env"]
+        if integration == "gymnasium" and "action_order" in config["env"]
         else action_resolver
     )
     return SampleFactoryPolicyRunner(
         config=config,
         action_resolver=policy_action_resolver,
-        integration_module=SampleFactoryIntegrationModule(import_module(integration_module), register_components),
-        policy_type=policy_type,
+        integration_module=SampleFactoryIntegrationModule(
+            import_module(integration_module), register_components
+        ),
     )

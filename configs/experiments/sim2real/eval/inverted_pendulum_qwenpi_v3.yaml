@@ -2,7 +2,6 @@ experiment:
   name: pi05_inverted_pendulum_measured
   seed: 42
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: outputs/examples/gymnasium_inverted_pendulum/checkpoints
@@ -12,13 +11,10 @@ executor:
   mode: realtime
   inference_devices:
   - cuda:0
-  inference_batch_size: 1
+  sync_cuda: true
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: inverted_pendulum
-  env_id: LatencyBench/InvertedPendulumDiscrete-v0
-  registration_imports:
-  - latency_bench.envs.tasks.inverted_pendulum
+  name: inverted_pendulum
   make_kwargs:
     base_env_id: InvertedPendulum-v4
     base_make_kwargs: {}
@@ -57,21 +53,19 @@ env:
   obs_resize:
   - 224
   - 224
-latency:
-  method: measured
-  sync_cuda: true
 scheduler:
   hold_policy: hold
   ordering_policy: issue_order_fifo
 policy:
   type: starvla
-  checkpoint_path: ${PI05_PROFILE_BUNDLE}/checkpoints/model.pt
-  model_config_path: ${PI05_PROFILE_BUNDLE}/config.yaml
   backbone_path: ${PI05_BACKBONE_DIR}
-  device: cuda:0
   task_manifest_path: ${PI05_PROFILE_BUNDLE}/manifest.json
   latency_prompt_map_path: ${PI05_PROFILE_BUNDLE}/latency_prompt_map.json
   latency_prompt_key: 1
+  source: local
+  root: ${PI05_PROFILE_BUNDLE}
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
 training:
   train_for_env_steps: 1000000
   num_workers: 1
@@ -98,11 +92,8 @@ training:
   save_every_sec: 600
   keep_checkpoints: 5
 evaluation:
-  eval_episodes: 20
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-  eval_latency_values: null
+  episodes: 20
+  max_env_steps: 1000
 logging:
   output_dir: ${PI05_3090_RUN}/F
   video:
@@ -111,4 +102,3 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  realtime_pipeline_profile: false

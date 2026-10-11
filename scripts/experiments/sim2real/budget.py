@@ -147,11 +147,9 @@ def simulate(output, source, model, worker_python, publication, parallel_runs, *
     first_profile = output / "profiles" / first_split / str(manifest["fit_sizes"][0]) / "profile.json"
     config = runtime.run_config(base, output / "runtime", inference_device="cuda:0", simulator_device=None,
                               env_fps=fps, run_id=0, method="temporal", profile_path=first_profile, latency_seed=0, protocol=protocol)
-    config["evaluation"].update(
-        eval_parallel_envs=parallel_runs, eval_episodes=protocol["episodes"] * parallel_runs,
-    )
+    config['evaluation'].update(episodes=protocol['episodes'] * parallel_runs)
+    config["executor"]["parallel_envs"] = parallel_runs
     config["executor"]["inference_batch_size"] = parallel_runs
-    config["logging"]["simulated_pipeline_profile"] = False
     runtime.prepare_replay_runtime(config)
     start = time.perf_counter()
     executor = build_executor(config, inference_devices=["cuda:0"])
@@ -226,11 +224,9 @@ def verify_parallel(output, source, model, worker_python, manifest):
         config = runtime.run_config(base, output / "verification" / str(slots) / "runtime",
                                   inference_device="cuda:0", simulator_device=None, env_fps=fps,
                                   run_id=0, method="temporal", profile_path=profile, latency_seed=0, protocol=protocol)
-        config["evaluation"].update(
-            eval_parallel_envs=slots, eval_episodes=protocol["episodes"] * parallel_runs, eval_max_steps=verification["max_steps"],
-        )
+        config['evaluation'].update(episodes=protocol['episodes'] * parallel_runs, max_env_steps=verification['max_steps'])
+        config["executor"]["parallel_envs"] = slots
         config["executor"]["inference_batch_size"] = slots
-        config["logging"]["simulated_pipeline_profile"] = False
         runtime.prepare_replay_runtime(config)
         executor = build_executor(config, inference_devices=["cuda:0"])
         with runtime.warmed_replay_executor(executor):
@@ -238,7 +234,7 @@ def verify_parallel(output, source, model, worker_python, manifest):
                 replay_config = runtime.run_config(base, output, inference_device="cuda:0", simulator_device=None,
                                                  env_fps=fps, run_id=0, method=method,
                                                  profile_path=profile, latency_seed=0, protocol=protocol)
-                replay_config["evaluation"]["eval_max_steps"] = verification["max_steps"]
+                replay_config["evaluation"]["max_env_steps"] = verification["max_steps"]
                 path = output / "verification" / str(slots) / method
                 pending = [run_id for run_id in run_ids if not (path / "runs" / str(run_id) / "DONE").exists()]
                 if pending:

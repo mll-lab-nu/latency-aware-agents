@@ -3,7 +3,6 @@ experiment:
   seed: 0
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: outputs/examples/gymnasium_lunar_lander/checkpoints
@@ -14,11 +13,9 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: lunar_lander_discrete
-  env_id: LunarLander-v2
-  registration_imports: []
+  name: lunar_lander_discrete
   make_kwargs:
     render_mode: rgb_array
     continuous: false
@@ -61,6 +58,7 @@ policy:
     - fire_main_engine
     - fire_right_orientation_engine
 
+  deterministic: true
 training:
   train_for_env_steps: 1000000
   num_workers: 1
@@ -89,11 +87,8 @@ training:
 
 evaluation:
   eval_interval_steps: null
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-
+  episodes: 5
+  max_env_steps: 1000
 logging:
   output_dir: outputs/examples/gymnasium_lunar_lander/train
   video:

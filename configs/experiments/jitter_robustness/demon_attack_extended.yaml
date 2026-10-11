@@ -6,4 +6,4 @@ train_upload_path_prefix: ""
 eval_upload_path_prefix: jitter_robustness/demon_attack/extended
 
 evaluation:
-  eval_max_steps: 36000
+  max_env_steps: 36000

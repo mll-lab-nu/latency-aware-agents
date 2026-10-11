@@ -8,8 +8,7 @@ env:
   gpu_env_device: auto
   noop_max: 30
 
-evaluation:
-  latency_bench_env_backend: asterix_gpu_batched
-
 logging:
   output_dir: outputs/asterix_sf_eval_gpu_zero_latency
+executor:
+  env_backend: asterix_gpu_batched

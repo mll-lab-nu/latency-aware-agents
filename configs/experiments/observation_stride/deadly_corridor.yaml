@@ -19,10 +19,8 @@ seeds:
   - 14
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 32
-  eval_max_steps: 30000
-
+  episodes: 100
+  max_env_steps: 30000
 latency_settings:
   fixed_l4:
     kind: fixed
@@ -43,3 +41,5 @@ sweeps:
       - 4
       - 5
       - 6
+executor:
+  parallel_envs: 32

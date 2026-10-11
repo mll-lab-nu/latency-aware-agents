@@ -4,23 +4,19 @@ experiment:
   name: deadly_corridor_sf_zero_latency
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 16
-  eval_max_steps: 30000
-  eval_suites:
-    fixed: []
-    normal: []
-    uniform: []
+  episodes: 100
+  max_env_steps: 30000
+  suites: []
 
 latency:
   method: zero
 
 policy:
-  type: deadly_corridor_sf
-  checkpoint_path: ""
-  device: auto
+  type: sample_factory
   deterministic: true
 
+  source: local
+  root: .
 logging:
   output_dir: outputs/deadly_corridor_sf_eval_zero_latency
   video:
@@ -28,3 +24,7 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
+executor:
+  inference_devices:
+  - auto
+  parallel_envs: 16

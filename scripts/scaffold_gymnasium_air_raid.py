@@ -96,8 +96,7 @@ def build_air_raid_env_config(
 ) -> dict[str, Any]:
     return {
         "env": {
-            "name": "gymnasium",
-            "task_name": "air_raid",
+            "name": "air_raid",
             "env_id": GYMNASIUM_AIR_RAID_ENV_ID,
             "registration_imports": ["latency_bench.envs.tasks.air_raid"],
             "make_kwargs": {

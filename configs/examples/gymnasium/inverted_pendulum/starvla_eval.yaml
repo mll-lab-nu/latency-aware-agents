@@ -5,15 +5,20 @@ experiment:
 
 policy:
   type: starvla
-  checkpoint_path: third_party/starVLA/results/Checkpoints/inverted_pendulum_rgb_state_openvla_sft/checkpoints/steps_2000_pytorch_model.pt
-  model_config_path: third_party/starVLA/results/Checkpoints/inverted_pendulum_rgb_state_openvla_sft/config.full.yaml
-  task_manifest_path: third_party/starVLA/playground/Datasets/rl_games/inverted_pendulum_rgb_state/manifest.json
-  device: cuda
-  latency_prompt_map_path: third_party/starVLA/playground/Datasets/rl_games/inverted_pendulum_rgb_state/latency_prompt_map.json
+  task_manifest_path:
+    /home/lixinyuan/latency-sensitive-bench/third_party/starVLA/playground/Datasets/rl_games/inverted_pendulum_rgb_state/manifest.json
+  latency_prompt_map_path:
+    /home/lixinyuan/latency-sensitive-bench/third_party/starVLA/playground/Datasets/rl_games/inverted_pendulum_rgb_state/latency_prompt_map.json
   latency_prompt_key: 1
 
+  source: local
+  root: third_party/starVLA/results/Checkpoints/inverted_pendulum_rgb_state_openvla_sft
+  checkpoint: checkpoints/steps_2000_pytorch_model.pt
+  model_config: config.full.yaml
 evaluation:
-  eval_episodes: 20
-
+  episodes: 20
 logging:
   output_dir: outputs/examples/gymnasium_inverted_pendulum/starvla_eval
+executor:
+  inference_devices:
+  - cuda

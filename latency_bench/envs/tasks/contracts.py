@@ -62,7 +62,7 @@ def gymnasium_action_space_contract(env_config: Mapping[str, Any]) -> dict[str, 
 def gymnasium_task_contract(env_config: Mapping[str, Any]) -> dict[str, Any]:
     """Return the immutable task semantics shared by training, data, and evaluation."""
     contract = {
-        "task_name": env_config["task_name"],
+        "task_name": env_config["name"],
         "env_id": env_config["env_id"],
         "make_kwargs": env_config["make_kwargs"],
         "registration_imports": env_config["registration_imports"],
@@ -90,3 +90,35 @@ def gymnasium_task_contract(env_config: Mapping[str, Any]) -> dict[str, Any]:
             }
         )
     return contract
+
+
+_LEGACY_GYMNASIUM_TASK_NAMES = {
+    "ant_rgb_state": "ant",
+    "half_cheetah_rgb_state": "half_cheetah",
+    "hopper_rgb_state": "hopper",
+    "humanoid_rgb_state": "humanoid",
+    "inverted_pendulum_rgb_state": "inverted_pendulum",
+    "inverted_pendulum_discrete": "inverted_pendulum",
+    "swimmer_rgb_state": "swimmer",
+    "walker2d_rgb_state": "walker2d",
+}
+
+
+def canonical_gymnasium_contract(
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    canonical = dict(contract)
+    task_name = canonical["task_name"]
+    if task_name in _LEGACY_GYMNASIUM_TASK_NAMES:
+        canonical["task_name"] = _LEGACY_GYMNASIUM_TASK_NAMES[task_name]
+    if canonical["env_id"] == "LatencyBench/HopperRgbState-v0":
+        canonical["env_id"] = "LatencyBench/Hopper-v0"
+    canonical["registration_imports"] = [
+        registration_module_name(
+            "latency_bench.envs.tasks.hopper"
+            if module == "latency_bench.envs.gymnasium_hopper_rgb_state"
+            else module
+        )
+        for module in canonical["registration_imports"]
+    ]
+    return canonical

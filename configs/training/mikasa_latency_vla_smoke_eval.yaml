@@ -6,19 +6,20 @@ env:
 executor:
   mode: simulated
   simulated_worker_capacity: 1
-  simulated_inference_pool: true
   inference_devices: ["cuda:1"]
   inference_batch_size: 1
+  inference_pool: true
+  parallel_envs: 1
 latency:
   method: zero
   seed: 123
 policy:
-  checkpoint_path: third_party/starVLA/results/Checkpoints/mikasa_latency_smoke_h1_ds/checkpoints/steps_2_pytorch_model.pt
-  model_config_path: third_party/starVLA/results/Checkpoints/mikasa_latency_smoke_h1_ds/config.full.yaml
   worker_python_executable: /pfs/users/lxy/conda/envs/starvla_rl_games_openvla/bin/python
-  device: cuda:1
+  source: local
+  root: third_party/starVLA/results/Checkpoints/mikasa_latency_smoke_h1_ds
+  checkpoint: checkpoints/steps_2_pytorch_model.pt
+  model_config: config.full.yaml
 evaluation:
-  eval_episodes: 1
-  eval_parallel_envs: 1
+  episodes: 1
 logging:
   output_dir: outputs/latency_rl/mikasa/vla_zero_smoke

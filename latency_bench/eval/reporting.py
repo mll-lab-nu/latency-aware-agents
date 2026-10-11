@@ -11,7 +11,7 @@ from typing import Any
 
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval.config import (
-    _eval_episodes,
+    _episodes,
     _evaluation_seed,
     _latency_steps_from_config,
 )
@@ -22,7 +22,7 @@ from latency_bench.logging.wandb_eval import eval_scalar_payload, normalize_wand
 
 def _print_progress_start(config: dict[str, Any], *, num_sweeps: int, num_episodes: int | None = None) -> None:
     if num_episodes is None:
-        num_episodes = _eval_episodes(config)
+        num_episodes = _episodes(config)
     print(
         f"[bench] run={config['experiment'].get('name', 'latency_bench')} "
         f"sweeps={num_sweeps} "
@@ -59,6 +59,8 @@ def _summary_latency_label(config: dict[str, Any]) -> int | str | None:
     executor_mode = config["executor"]["mode"].strip().lower()
     if executor_mode == "realtime":
         return "measured"
+    if executor_mode == "paused":
+        return "zero"
     latency_steps = _latency_steps_from_config(config)
     if latency_steps is not None:
         return latency_steps
@@ -72,44 +74,12 @@ def _summary_payloads_for_printing(
 ) -> list[dict[str, Any]]:
     experiment_name = str(config["experiment"].get("name", "latency_bench"))
     seed = _evaluation_seed(config)
-    eval_latency_values = config["evaluation"]["eval_latency_values"]
-    if eval_latency_values is None:
-        latency_label = _summary_latency_label(config)
-        if latency_label is None:
-            return []
-        return [
-            build_queue_eval_summary(
-                metrics,
-                experiment_name=experiment_name,
-                seed=seed,
-                latency=latency_label,
-            )
-        ]
-
-    payloads = []
-    for latency_steps in eval_latency_values:
-        latency_metrics = [
-            metric
-            for metric in metrics
-            if _metric_eval_latency_steps(metric) == int(latency_steps)
-        ]
-        payloads.append(
-            build_queue_eval_summary(
-                latency_metrics,
-                experiment_name=experiment_name,
-                seed=seed,
-                latency=int(latency_steps),
-            )
-        )
-    return payloads
-
-
-def _metric_eval_latency_steps(metric: EpisodeMetrics) -> int | None:
-    value = metric.metadata.get("eval_latency_steps")
-    if value is None:
-        return None
-    return int(value)
-
+    latency_label = _summary_latency_label(config)
+    if latency_label is None:
+        return []
+    return [build_queue_eval_summary(
+        metrics, experiment_name=experiment_name, seed=seed, latency=latency_label,
+    )]
 
 def _log_corrected_eval_summaries_to_wandb(
     config: dict[str, Any], summaries: list[dict[str, Any]], *, prefix: str = "eval_corrected",

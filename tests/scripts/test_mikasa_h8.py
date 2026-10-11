@@ -865,7 +865,7 @@ def test_mikasa_h8_execution_audit_covers_initial_noops_requests_and_chunk_age(t
     assert audit["first_action_apply_raw_frames"] == [2, 2]
     assert audit["executed_later_heads"] == 4
     zero_config = yaml.safe_load((tmp_path / "eval_config.yaml").read_text())
-    zero_config["latency"] = {"method": "zero", "sync_cuda": False}
+    zero_config["latency"] = {"method": "zero"}
     (tmp_path / "eval_config.yaml").write_text(yaml.safe_dump(zero_config))
     zero_events = [
         {
@@ -986,17 +986,19 @@ def test_mikasa_h8_eval_uses_20hz_rtx3090_profile_capacity_one(tmp_path, monkeyp
         args,
         tmp_path / "bundle",
         tmp_path / "evaluation",
-        eval_episodes=50,
+        episodes=50,
     )
 
     assert config["env"]["env_fps"] == 20
     assert config["env"]["obs_fps"] == 20
     assert config["executor"] == {
         "mode": "simulated",
-        "simulated_inference_pool": True,
+        "inference_pool": True,
         "simulated_worker_capacity": 1,
         "inference_devices": ["cuda:1"],
         "inference_batch_size": 8,
+        "parallel_envs": 10,
+        "sync_cuda": False,
     }
     assert config["latency"] == {
         "method": "temporal",
@@ -1005,17 +1007,17 @@ def test_mikasa_h8_eval_uses_20hz_rtx3090_profile_capacity_one(tmp_path, monkeyp
     }
     assert config["policy"]["state_info_key"] == "mikasa_proprio"
     assert config["policy"]["image_views_info_key"] == "mikasa_image_views"
-    assert config["evaluation"]["eval_parallel_envs"] == 10
+    assert config["executor"]["parallel_envs"] == 10
 
     zero_config = train_task.eval_config(
         args,
         tmp_path / "bundle",
         tmp_path / "evaluation-zero",
-        eval_episodes=50,
+        episodes=50,
         eval_latency_frames=0,
     )
     assert zero_config["executor"]["simulated_worker_capacity"] == 1
-    assert zero_config["latency"] == {"method": "zero", "sync_cuda": False}
+    assert zero_config["latency"] == {"method": "zero"}
 
 
 def test_mikasa_conditioned_eval_keeps_causal_action_context_in_all_settings(
@@ -1057,20 +1059,20 @@ def test_mikasa_conditioned_eval_keeps_causal_action_context_in_all_settings(
     )
 
     profile = train_task.eval_config(
-        args, bundle, tmp_path / "profile", eval_episodes=50
+        args, bundle, tmp_path / "profile", episodes=50
     )
     zero = train_task.eval_config(
         args,
         bundle,
         tmp_path / "zero",
-        eval_episodes=50,
+        episodes=50,
         eval_latency_frames=0,
     )
     fixed = train_task.eval_config(
         args,
         bundle,
         tmp_path / "fixed",
-        eval_episodes=50,
+        episodes=50,
         eval_latency_frames=2,
     )
 
@@ -1124,9 +1126,9 @@ def test_conditioned_grid_preserves_training_prefix(tmp_path, train_latency, eva
     assert config["policy"]["action_prefix"] == prefix
     assert config["env"]["action_prefix_state_key"] == "mikasa_proprio"
     assert config["executor"]["simulated_worker_capacity"] == 1
-    assert config["evaluation"]["eval_episodes"] == 200
+    assert config["evaluation"]["episodes"] == 200
     assert config["experiment"]["seed"] == 4242424242
-    assert config["latency"] == ({"method": "zero", "sync_cuda": False} if eval_latency == 0
+    assert config["latency"] == ({"method": "zero"} if eval_latency == 0
                                   else {"method": "fixed", "fixed_latency_ms": eval_latency * 50.0})
 
 

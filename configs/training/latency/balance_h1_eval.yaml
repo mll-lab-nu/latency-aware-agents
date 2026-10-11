@@ -4,17 +4,18 @@ backend:
   run_mode: eval
 
 policy:
-  type: gymnasium_sf
+  type: sample_factory
   checkpoint_kind: latest
-  device: cuda
   deterministic: true
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-
+  episodes: 100
+  max_env_steps: 1000
 logging:
   output_dir: outputs/latency_rl/balance/h1/eval_profile
   save_action_records: true
   save_latency_records: true
+executor:
+  inference_devices:
+  - cuda
+  parallel_envs: 1

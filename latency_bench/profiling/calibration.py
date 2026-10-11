@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.core.config import load_config
-from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.executors.thread_env import set_thread_env_defaults
 from latency_bench.latency.env_fps_calibration import select_env_fps_from_latency_samples
 from latency_bench.utils.stats import percentile_linear
@@ -52,11 +51,6 @@ def calibrate_env_fps_from_saturated_latency(
         "calibration_source": "saturated_policy_latency",
         "saturated_latency_summary": saturated["total_latency_ms"],
         "saturated_latency_by_slot_summary": saturated["latency_by_slot_summary"],
-        "policy_stage_summary": {
-            "policy_build_example_ms": saturated["policy_build_example_ms"],
-            "policy_wrapper_predict_action_ms": saturated["policy_wrapper_predict_action_ms"],
-            "policy_decode_ms": saturated["policy_decode_ms"],
-        },
         "saturated_probe_samples": samples,
         "saturated_skip_samples": skip,
     }
@@ -111,15 +105,6 @@ def _run_spawned_latency_probe(
         "latency_samples_ms": [sample for samples in slot_samples for sample in samples],
         "total_latency_ms": _summary([sample for samples in slot_samples for sample in samples]),
         "latency_by_slot_summary": [result["total_latency_ms"] for result in results],
-        "policy_build_example_ms": _summary(
-            [value for result in results for value in result["policy_build_example_ms"]]
-        ),
-        "policy_wrapper_predict_action_ms": _summary(
-            [value for result in results for value in result["policy_wrapper_predict_action_ms"]]
-        ),
-        "policy_decode_ms": _summary(
-            [value for result in results for value in result["policy_decode_ms"]]
-        ),
     }
 
 
@@ -159,41 +144,24 @@ def measure_policy_latency_in_current_process(
     from latency_bench.policy.factory import build_policy
 
     worker_config = deepcopy(config)
-    worker_config["policy"]["device"] = device
-    worker_config["latency"]["device"] = device
+    worker_config["executor"]["inference_devices"] = [device]
     action_resolver = ActionResolver(worker_config["env"])
     env = build_env_adapter(worker_config, action_resolver.noop_action)
     policy = build_policy(worker_config, action_resolver)
     measurer = RuntimeLatencyMeasurer(
-        device=worker_config["latency"]["device"],
-        sync_cuda=worker_config["latency"]["sync_cuda"],
+        device=device,
+        sync_cuda=worker_config["executor"]["sync_cuda"],
     )
 
     latency_values: list[float] = []
-    build_values: list[float] = []
-    wrapper_values: list[float] = []
-    decode_values: list[float] = []
     env.reset(seed=0)
     try:
         for obs_id in range(samples):
             sample_start = time.perf_counter()
             observation = env.observe()
-            # sync_cuda=False: this loop measures policy latency, so a CUDA sync
-            # inside the call would contaminate the calibration it produces.
-            profiler = StageProfiler(enabled=True, sync_cuda=False)
-
-            def call_policy(observation_arg):
-                with profiler_scope(profiler):
-                    return policy.predict(observation_arg)
-
-            _output, record = measurer.run_and_measure(call_policy, observation, obs_id=obs_id)
+            _output, record = measurer.run_and_measure(policy.predict, observation, obs_id=obs_id)
             if obs_id >= skip:
-                timing = profiler.timings
                 latency_values.append(record.latency_ms)
-                # These stage timings are optional instrumentation; uninstrumented policies record zero.
-                build_values.append(timing.get("policy_build_example_ms", 0.0))
-                wrapper_values.append(timing.get("policy_wrapper_predict_action_ms", 0.0))
-                decode_values.append(timing.get("policy_decode_ms", 0.0))
             env.step(action_resolver.noop_action)
             elapsed_ms = (time.perf_counter() - sample_start) * 1000.0
             sleep_ms = period_ms - elapsed_ms
@@ -208,9 +176,6 @@ def measure_policy_latency_in_current_process(
         "skip": skip,
         "latency_samples_ms": latency_values,
         "total_latency_ms": _summary(latency_values),
-        "policy_build_example_ms": build_values,
-        "policy_wrapper_predict_action_ms": wrapper_values,
-        "policy_decode_ms": decode_values,
     }
 
 

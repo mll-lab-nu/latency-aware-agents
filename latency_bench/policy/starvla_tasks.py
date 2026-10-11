@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
 from PIL import Image
 
 from latency_bench.core.types import Action, Observation, PolicyOutput
 from latency_bench.integrations.starvla.task_contracts import denormalize, normalize
 from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.policy.base import PolicyRunner
+from latency_bench.policy.model_source import model_file
 from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
 
 
@@ -97,14 +97,14 @@ def build_task_starvla_policy(config: dict) -> TaskStarVlaPolicyRunner:
     from starVLA.model.framework.base_framework import baseframework
 
     cfg = config["policy"]
-    if "model_config_path" in cfg:
-        model_config = starvla_runtime.load_model_config(cfg["model_config_path"])
+    if "model_config" in cfg:
+        model_config = starvla_runtime.load_model_config(model_file(cfg, "model_config"))
     else:
-        model_config = starvla_runtime.load_checkpoint_config(cfg["checkpoint_path"])
+        model_config = starvla_runtime.load_checkpoint_config(model_file(cfg, "checkpoint"))
     framework = baseframework.from_pretrained(
-        cfg["checkpoint_path"], backbone_path=cfg["backbone_path"]
+        model_file(cfg, "checkpoint"), backbone_path=cfg["backbone_path"]
     )
-    framework = framework.to(device=cfg["device"], dtype=torch.bfloat16).eval()
+    framework = framework.to(device=config["executor"]["inference_devices"][0], dtype=torch.bfloat16).eval()
     contract = json.loads(Path(cfg["task_contract_path"]).read_text(encoding="utf-8"))
     return TaskStarVlaPolicyRunner(
         framework, policy_config=cfg, model_config=model_config, contract=contract

@@ -95,8 +95,8 @@ profiles, action chunks, state/delay inputs, or online RL.
 ## Profile the final VLA
 
 Inherit `configs/examples/profiling/mikasa_intercept_grab_fast/qwenoft.yaml`
-and select your inference bundle with `profiling.model_artifact.source: local`
-and `profiling.model_artifact.local_root`. The example names
+and select your inference bundle with `policy.source: local`
+and `policy.root`. The example names
 `checkpoints/model.pt` inside the bundle. Set `policy.backbone_path` when needed.
 
 ```bash
@@ -108,7 +108,7 @@ It describes a state-based H1 bundle. Use the image-only recipe's input
 configuration when measuring an image-only checkpoint. Select additional
 inference workers explicitly in `executor.inference_devices`.
 Add `--resume RUN_ID` to continue a partial run. Add `--publish` to upload
-the completed run and profile to the configured `profiling.hf_repo`.
+the completed run and profile to the configured `profiling.publish_repo`.
 
 ## Original baseline result
 

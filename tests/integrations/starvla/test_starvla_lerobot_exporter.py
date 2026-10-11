@@ -160,6 +160,7 @@ def test_history_export_preserves_state_and_task_action_contract(tmp_path, task,
     from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
     from helpers import write_rollout_fixture
     from latency_bench.core.config import load_config
+    from latency_bench.envs.factory import resolve_env_config
     from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
     from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 
@@ -174,6 +175,7 @@ def test_history_export_preserves_state_and_task_action_contract(tmp_path, task,
         action_spec = gymnasium_discrete_action_spec(env["action_order"])
         action_id = len(action_spec.labels) - 1
         expected_action = [0.0] * action_id + [1.0]
+        resolve_env_config({"env": env})
         task_metadata = {"integration_name": "gymnasium", "gymnasium_task": gymnasium_task_contract(env)}
 
     image_path = tmp_path / "image.png"

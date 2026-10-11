@@ -83,7 +83,7 @@ def _relabel_saved_dataset(
         table = pq.read_table(source_dir / f"{split}.parquet")
         encoded_actions = [
             encode_action_for_env(
-                env_config["task_name"], request,
+                env_config["name"], request,
                 action_spec=G1_SONIC_ACTION_SPEC,
             )
             for request in table["action"].to_pylist()
@@ -145,7 +145,7 @@ def _teacher_rollout(policy, envs, remaining_steps, minimum_sources):
 
 def _balance_row_for_image_path(config, image_path, state, label, episode, step, seed, split):
     row = teacher_dataset_row(
-        env_name=config["task_name"], spec={"episode_idx": episode, "split": split, "seed": seed},
+        env_name=config["name"], spec={"episode_idx": episode, "split": split, "seed": seed},
         decision_step=step, image=str(image_path), raw_action=label,
         info={"latency_raw_frames": 0, "latency_ms": 0.0}, reward=0.0,
         env_fps=config["env_fps"], obs_fps=config["obs_fps"],
@@ -204,7 +204,7 @@ class BalanceDaggerCollector:
             _copy_collection_env(self.envs[slot], self.branches[slot])
         chunks, masks = _teacher_rollout(
             self.teacher_policy, [self.branches[slot] for slot in slots],
-            [self.config["evaluation"]["eval_max_steps"] - state.episode_steps[slot] for slot in slots],
+            [self.config["evaluation"]["max_env_steps"] - state.episode_steps[slot] for slot in slots],
             [self.envs[slot].env_step_idx for slot in slots],
         )
         self.teacher_branch_raw_frames += sum(self.branches[slot].env_step_idx - self.envs[slot].env_step_idx for slot in slots)
@@ -228,7 +228,7 @@ class BalanceDaggerCollector:
             _, rewards[slot], terminated, truncated, _ = self.envs[slot].step(
                 state.outputs[slot].action_chunk,
             )
-            if terminated or truncated or state.episode_steps[slot] + 1 == self.config["evaluation"]["eval_max_steps"]:
+            if terminated or truncated or state.episode_steps[slot] + 1 == self.config["evaluation"]["max_env_steps"]:
                 done.append(slot)
         return done, rewards
 
@@ -297,9 +297,9 @@ def make_collection_env(config: dict, *, seed: int, render: bool = True):
 def load_teacher(teacher_config_path: Path, teacher_checkpoint: Path, device: str):
     config = load_config(teacher_config_path)
     config["backend"]["run_mode"] = "eval"
-    config["policy"] = {"type": "gymnasium_sf", "checkpoint_path": str(teacher_checkpoint),
-                        "device": device, "deterministic": True}
-    return build_sample_factory_policy(config, ActionResolver(config["env"]), policy_type="gymnasium_sf")
+    config['policy'] = {'type': 'sample_factory', 'deterministic': True, 'checkpoint': str(Path(str(teacher_checkpoint)).absolute()).lstrip('/'), 'source': 'local', 'root': '/'}
+    config["executor"]["inference_devices"] = [device]
+    return build_sample_factory_policy(config, ActionResolver(config["env"]))
 
 
 def collect_balance_dagger(
@@ -324,7 +324,7 @@ def collect_balance_dagger(
     teacher_policy = load_teacher(teacher_config_path, teacher_checkpoint, env_config["simulator_device"])
     student_pool = ProcessInferencePool(
         config=policy_config,
-        inference_devices=[policy_config["policy"]["device"]],
+        inference_devices=[policy_config["executor"]["inference_devices"][0]],
     )
     envs = [
         make_collection_env(policy_config, seed=10_000_000 + round_number * 1_000_000 + slot)
@@ -355,10 +355,11 @@ def write_balance_dataset(output_dir, env_config, train_rows, val_rows):
     gymnasium_task = {
         key: env_config[key]
         for key in (
-            "task_name", "env_id", "registration_imports", "make_kwargs",
+            "env_id", "registration_imports", "make_kwargs",
             "env_fps", "obs_fps", "frame_stack", "base_prompt",
         )
     }
+    gymnasium_task["task_name"] = env_config["name"]
     gymnasium_task["state_space"] = {
         "labels": [f"state_{index}" for index in range(len(train_rows[0]["state"]))]
     }
@@ -368,7 +369,7 @@ def write_balance_dataset(output_dir, env_config, train_rows, val_rows):
         "dtype": "float32",
     }
     metadata = {
-        "env_name": env_config["task_name"],
+        "env_name": env_config["name"],
         "integration_name": "gymnasium",
         "action_layout": G1_SONIC_ACTION_SPEC.layout,
         "action_labels": list(G1_SONIC_ACTION_SPEC.labels),
@@ -414,7 +415,7 @@ def collect_balance_bootstrap(policy_config_path, teacher_config_path, teacher_c
         rows, selected, valid = [], [], []
         split = "train" if episode < train_count else "val"
         try:
-            for step in range(8 if smoke else config["evaluation"]["eval_max_steps"]):
+            for step in range(8 if smoke else config["evaluation"]["max_env_steps"]):
                 image = np.asarray(env.render()).copy()
                 state = env.unwrapped._policy_observation().copy()
                 request = _teacher_requests(teacher, [env])[0]

@@ -18,28 +18,6 @@ from latency_bench.core.types import Action, ActionEvent, LatencyRecord
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def realtime_profile(bench_overhead_ms: float = 0.0) -> dict[str, float]:
-    return {
-        "env_observe_ms": 0.0,
-        "env_to_parent_ipc_ms": 0.0,
-        "parent_observation_handle_ms": 0.0,
-        "parent_to_worker_ipc_ms": 0.0,
-        "worker_recv_overhead_ms": 0.0,
-        "worker_to_parent_ipc_ms": 0.0,
-        "parent_release_ms": 0.0,
-        "parent_to_env_ipc_ms": bench_overhead_ms,
-        "env_action_recv_to_enqueue_ms": 0.0,
-        "env_scheduler_update_ms": 0.0,
-        "worker_observation_attach_ms": 0.0,
-        "worker_observation_localize_ms": 0.0,
-        "policy_build_example_ms": 0.0,
-        "policy_wrapper_predict_action_ms": 0.0,
-        "policy_decode_ms": 0.0,
-        "env_step_ms": 0.0,
-        "env_wall_lag_ms": 0.0,
-    }
-
-
 def make_action_event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> ActionEvent:
     ready_time_ms = clock.step_to_time_ms(ready_step)
     return ActionEvent(

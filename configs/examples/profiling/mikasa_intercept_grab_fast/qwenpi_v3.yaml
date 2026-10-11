@@ -5,17 +5,17 @@ executor:
   mode: realtime
   inference_devices:
   - cuda:1
-  inference_batch_size: 1
-latency:
-  method: measured
-  device: cuda:1
   sync_cuda: true
+  parallel_envs: 1
 policy:
-  checkpoint_kind: best
+  source: hf
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
+  hf_repo: MLL-Lab/LAGEN-models
+  root:
+    zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z
 evaluation:
-  eval_episodes: 50
-  eval_parallel_envs: 1
-  eval_latency_values: null
+  episodes: 50
 logging:
   output_dir: outputs/profiling
   video:
@@ -25,13 +25,7 @@ profiling:
   workload_id: mikasa_intercept_grab_fast
   repeats: 5
   calibration: null
-  hf_repo: MLL-Lab/LAGEN-profiles
-  model_artifact:
-    source: hf
-    checkpoint: checkpoints/model.pt
-    model_config: config.yaml
-    hf_repo: MLL-Lab/LAGEN-models
-    hf_path: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z
   eval_entrypoint: scripts/mikasa/evaluate.py
+  publish_repo: MLL-Lab/LAGEN-profiles
 env:
   simulator_device: cuda:0

@@ -436,7 +436,7 @@ def test_invalid_profile_config_is_rejected(profile_config, field, value):
 
 
 def test_profiling_rejects_ambiguous_sweep(profile_config):
-    profile_config["evaluation"]["eval_latency_values"] = [0, 10]
+    profile_config["evaluation"]["suites"] = [{"name": "fixed_0", "latency": {"method": "zero"}}]
     with pytest.raises(ValueError, match="sweeps"):
         resolve_profile_config(profile_config)
 
@@ -515,7 +515,7 @@ def test_completed_sessions_resume_and_fit_without_remeasurement(
     source = next(Path(profile_config["logging"]["output_dir"]).rglob("run_contract.json")).parent
     assert (source / "sessions/0/DONE").exists()
     assert not (source / "DONE").exists()
-    profile_config["profiling"]["hf_repo"] = "org/new-publication-target"
+    profile_config["profiling"]["publish_repo"] = "org/new-publication-target"
     result = runner.run_profile(profile_config, resume_run_id="run_1")
     assert calls == ["0", "1", "1"]
     assert result["PUBLICATION_STATUS"] == "local"
@@ -530,7 +530,7 @@ def test_completed_sessions_resume_and_fit_without_remeasurement(
     with pytest.raises(ValueError, match="run contract does not match"):
         runner.run_profile(profile_config, resume_run_id="run_1")
     monkeypatch.delenv("LATENCY_BENCH_ENV_BACKEND_START_METHOD")
-    profile_config["evaluation"]["eval_episodes"] = 3
+    profile_config["evaluation"]["episodes"] = 3
     with pytest.raises(ValueError, match="run contract does not match"):
         runner.run_profile(profile_config, resume_run_id="run_1")
     assert calls == ["0", "1", "1"]

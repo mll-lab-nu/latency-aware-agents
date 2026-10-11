@@ -18,16 +18,18 @@ env:
   action_history_decisions: 8
 
 policy:
-  type: gymnasium_sf
-  checkpoint_path: ""
+  type: sample_factory
   checkpoint_kind: best
-  device: auto
   deterministic: true
 
+  source: local
+  root: .
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 32
-  eval_max_steps: 14400
-
+  episodes: 100
+  max_env_steps: 14400
 logging:
   output_dir: outputs/atari_zero_hist8_cpu15m/asterix/eval_best_cpu
+executor:
+  inference_devices:
+  - auto
+  parallel_envs: 32

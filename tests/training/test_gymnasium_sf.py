@@ -10,6 +10,8 @@ import training.gymnasium_sf.integration as gymnasium_integration
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import OrderingPolicy
 from latency_bench.core.config import load_config
+from latency_bench.policy.model_source import model_file
+from latency_bench.envs.factory import resolve_env_config
 from latency_bench.latency.sample import LatencySample
 from latency_bench.envs.tasks.contracts import (
     gymnasium_discrete_action_labels,
@@ -33,6 +35,13 @@ from training.gymnasium_sf.integration import (
     make_reference_env,
 )
 from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
+
+
+@pytest.fixture(autouse=True)
+def registered_mountain_car(monkeypatch):
+    from latency_bench.envs import factory
+    monkeypatch.setattr(factory, "_ENV_ADAPTER_BUILDERS", dict(factory._ENV_ADAPTER_BUILDERS))
+    factory.register_env_adapter("mountain_car", env_id="MountainCar-v0")(factory._build_gymnasium_env)
 
 
 class _NativeActionTraceEnv(gym.Env):
@@ -88,8 +97,7 @@ def _vector_gymnasium_config():
     )
     config["backend"]["device"] = "cpu"
     config["env"] = {
-        "name": "gymnasium",
-        "task_name": "mountain_car",
+        "name": "mountain_car",
         "env_id": "MountainCar-v0",
         "registration_imports": [],
         "make_kwargs": {"render_mode": "rgb_array"},
@@ -129,7 +137,7 @@ def test_inverted_pendulum_adaptation_declares_state_contract():
     )
     args = build_cli_args_from_config(config)
 
-    assert config["env"]["task_name"] == "inverted_pendulum"
+    assert config["env"]["name"] == "inverted_pendulum"
     assert config["env"]["state_space"]["labels"] == [
         "cart_position",
         "pole_angle",
@@ -147,7 +155,7 @@ def test_walker2d_adaptation_declares_seventeen_state_values():
         "configs/examples/gymnasium/walker2d/small_model_train.yaml"
     )
 
-    assert config["env"]["task_name"] == "walker2d"
+    assert config["env"]["name"] == "walker2d"
     assert len(config["env"]["state_space"]["labels"]) == 17
     assert config["env"]["state_space"]["labels"][:2] == [
         "torso_height",
@@ -394,7 +402,7 @@ def test_atari_learning_check_eval_uses_gpu_backend(config_path, backend):
     config = load_config(config_path)
 
     assert config["env"]["simulator"] == "gpu"
-    assert config["evaluation"]["latency_bench_env_backend"] == backend
+    assert config["executor"]["env_backend"] == backend
 
 
 def test_gymnasium_sf_policy_decodes_catalog_ids_with_action_order():
@@ -420,8 +428,8 @@ def test_periodic_eval_preserves_generic_task_contract(tmp_path):
     )
 
     assert config["env"] == training_config["env"]
-    assert config["policy"]["type"] == "gymnasium_sf"
-    assert config["policy"]["checkpoint_path"] == str(tmp_path / "checkpoint.pth")
+    assert config["policy"]["type"] == "sample_factory"
+    assert model_file(config["policy"], "checkpoint") == str(tmp_path / "checkpoint.pth")
     assert config["backend"]["run_mode"] == "eval"
 
 
@@ -668,6 +676,7 @@ class _TerminalTrajectoryEnv(_VectorActionTraceEnv):
 
 def test_profile_streams_are_reproducible_per_global_environment_across_worker_layouts():
     config = load_config("configs/training/latency/balance_fasttd3_chunk_h8_qwenoft.yaml")
+    resolve_env_config(config)
     cfg = build_train_cfg_from_config(config)
     cfg.episode_metrics_path = ""
 
@@ -689,6 +698,7 @@ def test_profile_streams_are_reproducible_per_global_environment_across_worker_l
 
 def test_g1_noop_conversion_preserves_raw_control_trajectory():
     config = load_config("configs/training/latency/balance_fasttd3_chunk_h8_zero.yaml")
+    resolve_env_config(config)
     cfg = build_train_cfg_from_config(config)
     cfg.episode_metrics_path = ""
     wrapped = make_gymnasium_sf_env(

@@ -61,26 +61,73 @@ def make_teacher(config, action_resolver):
 
 
 @pytest.fixture
-def config(tmp_path):
+def config(tmp_path, monkeypatch):
+    from latency_bench.envs import factory
+    monkeypatch.setattr(factory, "_ENV_ADAPTER_BUILDERS", dict(factory._ENV_ADAPTER_BUILDERS))
+    factory.register_env_adapter("counter", env_id="CollectionCounter-v0")(factory._build_gymnasium_env)
     gym.envs.registry.pop("CollectionCounter-v0", None)
     gym.register("CollectionCounter-v0", entry_point=CounterEnv, disable_env_checker=True)
     CounterEnv.instances = []
     return {
-        "experiment": {"name": "canonical", "seed": 7},
-        "env": {"name": "gymnasium", "env_id": "CollectionCounter-v0", "task_name": "counter",
-                "registration_imports": [], "make_kwargs": {"render_mode": "rgb_array"},
-                "env_fps": 20, "obs_fps": 10, "frame_stack": 1, "noop_action": [0.0],
-                "base_prompt": "Issue the next count.", "state_space": {"labels": ["count"]},
-                "action_space": {"type": "box", "shape": [1], "dtype": "float32",
-                                 "low": [-10], "high": [10], "labels": ["command"]}},
-        "policy": {"type": "custom", "factory": "test_rollout:make_teacher"},
-        "executor": {"mode": "simulated"},
-        "latency": {"method": "fixed", "fixed_latency_ms": 150},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "evaluation": {"eval_episodes": 2, "eval_max_steps": 8},
-        "logging": {"output_dir": str(tmp_path / "dataset"), "save_step_records": False,
-                    "save_action_records": False, "save_latency_records": False},
-        "collection": {"student_observation": {"state_key": "gymnasium_state"}, "val_fraction": 0.5},
+        'experiment': {
+            'name': 'canonical',
+            'seed': 7,
+        },
+        'env': {
+            'name': 'counter',
+            'env_id': 'CollectionCounter-v0',
+            'registration_imports': [],
+            'make_kwargs': {
+                'render_mode': 'rgb_array',
+            },
+            'env_fps': 20,
+            'obs_fps': 10,
+            'frame_stack': 1,
+            'noop_action': [0.0],
+            'base_prompt': 'Issue the next count.',
+            'state_space': {
+                'labels': ['count'],
+            },
+            'action_space': {
+                'type': 'box',
+                'shape': [1],
+                'dtype': 'float32',
+                'low': [-10],
+                'high': [10],
+                'labels': ['command'],
+            },
+        },
+        'policy': {
+            'type': 'custom',
+            'factory': 'test_rollout:make_teacher',
+        },
+        'executor': {
+            'mode': 'simulated',
+        },
+        'latency': {
+            'method': 'fixed',
+            'fixed_latency_ms': 150,
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'evaluation': {
+            'episodes': 2,
+            'max_env_steps': 8,
+        },
+        'logging': {
+            'output_dir': str(tmp_path / 'dataset'),
+            'save_step_records': False,
+            'save_action_records': False,
+            'save_latency_records': False,
+        },
+        'collection': {
+            'student_observation': {
+                'state_key': 'gymnasium_state',
+            },
+            'val_fraction': 0.5,
+        },
     }
 
 
@@ -99,7 +146,7 @@ def test_continuous_source_snapshots_and_labels_survive_conversion(config, tmp_p
         config["latency"] = {"method": "iid", "profile_path": str(tmp_path / "profile.json"), "seed": 7}
     else:
         config["latency"]["fixed_latency_ms"] = latency_ms
-    config["evaluation"]["eval_parallel_envs"] = parallel
+    config["executor"]["parallel_envs"] = parallel
     result = collect_rollouts(config)
     output = tmp_path / "dataset"
     episodes = []

@@ -10,12 +10,18 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: outputs/models/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: outputs/models/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k/config.full.yaml
-  task_manifest_path: docs/gym-adapt/gymnasium/air_raid/assets/air_raid/vla_dataset/manifest.json
-  device: cuda
-  latency_prompt_map_path: docs/gym-adapt/gymnasium/air_raid/assets/air_raid/vla_dataset/latency_prompt_map.json
+  task_manifest_path:
+    /home/lixinyuan/latency-sensitive-bench/docs/gym-adapt/gymnasium/air_raid/assets/air_raid/vla_dataset/manifest.json
+  latency_prompt_map_path:
+    /home/lixinyuan/latency-sensitive-bench/docs/gym-adapt/gymnasium/air_raid/assets/air_raid/vla_dataset/latency_prompt_map.json
   latency_prompt_key: 0
 
+  source: local
+  root: outputs/models/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
+  checkpoint: checkpoints/steps_5000_pytorch_model.pt
+  model_config: config.full.yaml
 logging:
   output_dir: outputs/examples/gymnasium_air_raid/starvla_profile
+executor:
+  inference_devices:
+  - cuda

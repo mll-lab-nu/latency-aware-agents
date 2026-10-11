@@ -7,28 +7,30 @@ device: cuda
 restart_behavior: resume
 train_upload_repo_id: MLL-Lab/LAGEN-models
 train_upload_repo_type: model
-train_upload_path_prefix: latency-aware/deadly-corridor/small-policy/memory_rollout_teacher:deadly_corridor:teacher:fixed_l6:fs4:obs8p75:stride4:seed0
+train_upload_path_prefix:
+  latency-aware/deadly-corridor/small-policy/memory_rollout_teacher:deadly_corridor:teacher:fixed_l6:fs4:obs8p75:stride4:seed0
 
 seeds:
-  - 0
+- 0
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 1
-  eval_max_steps: 30000
-
+  episodes: 100
+  max_env_steps: 30000
 latency_settings:
   fixed_l6:
     kind: fixed
     frames: 6
-    eval_suites:
-      fixed: [[6]]
-      normal: []
-      uniform: []
+    suites:
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
 
 sweeps:
   teacher:
     frame_stack:
-      - 4
+    - 4
     obs_fps:
-      - 8.75
+    - 8.75
+executor:
+  parallel_envs: 1

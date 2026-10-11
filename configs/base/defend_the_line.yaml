@@ -3,7 +3,6 @@ experiment:
   seed: 42
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cpu
   train_dir: results/sample_factory
@@ -14,6 +13,7 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 1
 env:
   name: defend_the_line
   env_id: doom_defend_the_line
@@ -39,6 +39,7 @@ policy:
   actions:
     - [0, 0]
 
+  deterministic: true
 training:
   train_for_env_steps: 25000000
   num_workers: 32
@@ -72,19 +73,39 @@ training:
 
 evaluation:
   eval_interval_steps: 1000000
-  eval_episodes: 20
-  eval_parallel_envs: 1
-  eval_max_steps: 7200
-  eval_deterministic: true
   eval_raw_reward: true
-  eval_suites:
-    fixed:
-      - [0, 2, 4, 6]
-    normal:
-      - [4.0, 1.0, 0, 15]
-    uniform:
-      - [2, 6]
-
+  episodes: 20
+  max_env_steps: 7200
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 57.142857142857146
+  - name: fixed_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 114.28571428571429
+  - name: fixed_6
+    latency:
+      method: fixed
+      fixed_latency_ms: 171.42857142857142
+  - name: normal_mean_4_std_1_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 114.28571428571429
+      std_latency_ms: 28.571428571428573
+      min_latency_ms: 0.0
+      max_latency_ms: 428.5714285714286
+      seed: 42
+  - name: uniform_min_2_max_6
+    latency:
+      method: uniform
+      min_latency_ms: 57.142857142857146
+      max_latency_ms: 171.42857142857144
+      seed: 42
 logging:
   output_dir: outputs/defend_the_line_base
   video:

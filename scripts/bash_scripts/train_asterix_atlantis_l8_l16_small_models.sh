@@ -107,9 +107,10 @@ seeds:
   - 14
 
 evaluation:
-  eval_episodes: ${EVAL_EPISODES}
-  eval_parallel_envs: 1
-  eval_max_steps: ${EVAL_MAX_STEPS}
+  episodes: ${EVAL_EPISODES}
+  max_env_steps: ${EVAL_MAX_STEPS}
+executor:
+  parallel_envs: 1
 
 training:
   train_for_env_steps: ${TRAIN_STEPS}
@@ -118,19 +119,15 @@ latency_settings:
   fixed_l8:
     kind: fixed
     frames: 8
-    eval_suites:
-      fixed:
-        - [8]
-      normal: []
-      uniform: []
+    suites:
+      - name: fixed_8
+        latency: {method: fixed, fixed_latency_ms: 133.33333333333334}
   fixed_l16:
     kind: fixed
     frames: 16
-    eval_suites:
-      fixed:
-        - [16]
-      normal: []
-      uniform: []
+    suites:
+      - name: fixed_16
+        latency: {method: fixed, fixed_latency_ms: 266.6666666666667}
 
 sweeps:
   frame_stack:

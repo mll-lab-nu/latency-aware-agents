@@ -11,34 +11,38 @@ backend:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 1
 env:
   obs_resize: [224, 224]
 
 policy:
   type: starvla
-  checkpoint_path: third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce/checkpoints/steps_1000_pytorch_model.pt
-  model_config_path: third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce/config.full.yaml
-  device: cuda
   action_layout: multibinary_7
   multibinary_threshold: 0.0
-  latency_prompt_map_path: third_party/starVLA/data/deadly_corridor_fix_latency_6_1000ep_context5/deadly_corridor_train__bridge/latency_prompt_map.json
+  latency_prompt_map_path:
+    /home/lixinyuan/latency-sensitive-bench/third_party/starVLA/data/deadly_corridor_fix_latency_6_1000ep_context5/deadly_corridor_train__bridge/latency_prompt_map.json
   latency_prompt_key: 6
 
+  source: local
+  root:
+    third_party/starVLA/results/Checkpoints/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce
+  checkpoint: checkpoints/steps_1000_pytorch_model.pt
+  model_config: config.full.yaml
 latency:
   method: fixed
   fixed_latency_ms: 171.42857142857142
 
 evaluation:
-  eval_episodes: 20
-  eval_parallel_envs: 1
-  eval_max_steps: 14400
-  eval_deterministic: true
   eval_raw_reward: true
-  eval_suites:
-    fixed:
-      - [6]
-    normal: []
-    uniform: []
+  episodes: 20
+  max_env_steps: 14400
+  suites:
+  - name: fixed_6
+    latency:
+      method: fixed
+      fixed_latency_ms: 171.42857142857142
 
 logging:
   output_dir: outputs/starvla_wan_oft_deadly_corridor_raw6

@@ -2,13 +2,13 @@ experiment:
   name: custom_mountain_car_profile
   seed: 7
 env:
-  name: custom
-  factory: components:make_env
-  env_id: MountainCar-v0
+  name: custom_mountain_car
   env_fps: 50
   obs_fps: 10
   noop_action: coast
   action_map: {left: 0, coast: 1, right: 2}
+  registration_imports:
+  - components
 policy:
   type: custom
   factory: components:make_policy
@@ -16,15 +16,13 @@ policy:
 executor:
   mode: realtime
   inference_devices: [cpu]
-latency:
-  method: measured
   sync_cuda: false
 scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
 evaluation:
-  eval_episodes: 3
-  eval_max_steps: 50
+  episodes: 3
+  max_env_steps: 50
 logging:
   output_dir: outputs/profiling/custom_mountain_car
 profiling:

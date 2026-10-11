@@ -76,6 +76,9 @@ StarVLA variants `qwenoft`, `qwenpi_v3`, `qwengr00t`, and `wanoft` share
 `starvla_rl_games_openvla`. Benchmark and data tools use the `latency`
 environment.
 
+Read the [run configuration contract](docs/configuration.md) for field ownership,
+model sources and execution modes.
+
 Complete the simulator-specific steps in the [setup guide](docs/QUICK_START.md).
 Then follow the [standard pipeline](docs/standard_pipeline.md) to prepare data,
 train, evaluate, and profile a policy. The task guides below specify the

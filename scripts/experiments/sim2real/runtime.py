@@ -1,4 +1,6 @@
 """Runtime configuration, asset preparation and resource lifetime for sim2real experiments."""
+
+from latency_bench.core.config import resolve_runtime_config
 from contextlib import contextmanager
 from copy import deepcopy
 import os
@@ -24,36 +26,36 @@ def run_config(base, output, *, inference_device, simulator_device, env_fps,
     set_env_clock_preserving_observation_stride(config, env_fps)
     if simulator_device is not None:
         config["env"]["simulator_device"] = simulator_device
-    config["policy"]["device"] = inference_device
     config["executor"].update(
         mode="realtime" if method == "measured" else "simulated",
         inference_devices=[inference_device],
     )
     if method == "measured":
-        for key in ("simulated_worker_capacity", "simulated_inference_pool", "inference_batch_size"):
+        for key in ("simulated_worker_capacity", "inference_pool", "inference_batch_size"):
             config["executor"].pop(key, None)
-        config["latency"] = {"method": "measured", "device": inference_device, "sync_cuda": True}
+        config.pop("latency", None)
+        config["executor"]["sync_cuda"] = True
     else:
         profile = read_json(profile_path)
         config["executor"].update(
-            simulated_worker_capacity=1, simulated_inference_pool=True, inference_batch_size=1,
+            simulated_worker_capacity=1, inference_pool=True, inference_batch_size=1,
         )
         config["latency"] = {
             "method": method, "profile_path": str(profile_path), "seed": latency_seed,
             "profile_worker_slot": 0,
         }
         apply_profile_latency_summary(config["latency"], method, profile)
-    if "add_latency_info" in base["latency"]:
+    if method != "measured" and "add_latency_info" in base.get("latency", {}):
         config["latency"]["add_latency_info"] = base["latency"]["add_latency_info"]
     config["experiment"]["seed"] = protocol["seed"] + protocol["seed_stride"] * run_id
     config["evaluation"].update(
-        eval_episodes=protocol["episodes"], eval_parallel_envs=1, eval_latency_values=None,
+        episodes=protocol["episodes"], suites=[],
         episode_seed_offset=0,
     )
-    config["evaluation"].pop("eval_suites", None)
+    config["executor"]["parallel_envs"] = 1
     config["logging"].update(
         output_dir=str(output), save_step_records=True, save_action_records=True,
-        save_latency_records=True, realtime_pipeline_profile=True,
+        save_latency_records=True,
     )
     return config
 
@@ -61,11 +63,11 @@ def run_config(base, output, *, inference_device, simulator_device, env_fps,
 def prepare_replay_runtime(config):
     """Resolve model inputs and RNG before building a simulated replay executor."""
     # Real collection does not need to import the replay policy/model runtime.
-    from latency_bench.eval.config import resolve_evaluation_config
+
     from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
     from latency_bench.utils.seeding import seed_everything
 
-    resolve_evaluation_config(config)
+    resolve_runtime_config(config)
     prepare_starvla_checkpoint_input_config(config)
     seed_everything(config["experiment"]["seed"])
 

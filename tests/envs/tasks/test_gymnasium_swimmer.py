@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
 from types import SimpleNamespace
 
 import gymnasium as gym
@@ -139,11 +140,13 @@ def test_swimmer_configs_preserve_native_state_contract():
         "configs/examples/gymnasium/swimmer/starvla_eval.yaml",
     ]
     configs = [load_config(path) for path in config_paths]
+    for config in configs:
+        resolve_env_config(config)
     envs = [config["env"] for config in configs]
 
     assert envs[1:] == envs[:-1]
     env = envs[0]
-    assert env["task_name"] == "swimmer"
+    assert env["name"] == "swimmer"
     assert env["env_id"] == gymnasium_swimmer.GYMNASIUM_SWIMMER_ENV_ID
     assert env["registration_imports"] == ["latency_bench.envs.tasks.swimmer"]
     assert env["make_kwargs"] == {
@@ -166,6 +169,7 @@ def test_swimmer_configs_preserve_native_state_contract():
 
 def test_swimmer_training_uses_vendored_sample_factory_mujoco_recipe():
     config = load_config("configs/examples/gymnasium/swimmer/small_model_train.yaml")
+    resolve_env_config(config)
     cfg = build_train_cfg_from_config(config)
     contract = gymnasium_task_contract(config["env"])
 
@@ -183,9 +187,11 @@ def test_swimmer_training_uses_vendored_sample_factory_mujoco_recipe():
 
 def test_swimmer_eval_contracts_cover_expected_latencies():
     small_model = load_config("configs/examples/gymnasium/swimmer/small_model_eval.yaml")
+    resolve_env_config(small_model)
     starvla = load_config("configs/examples/gymnasium/swimmer/starvla_eval.yaml")
+    resolve_env_config(starvla)
 
-    assert small_model["evaluation"]["eval_latency_values"] == [0, 1, 2, 3, 4]
-    assert small_model["evaluation"]["eval_episodes"] == 10
-    assert starvla["evaluation"]["eval_latency_values"] == [0, 2]
-    assert starvla["evaluation"]["eval_episodes"] == 20
+    assert [round(suite["latency"].get("fixed_latency_ms", 0) * small_model["env"]["env_fps"] / 1000) for suite in small_model["evaluation"]["suites"]] == [0, 1, 2, 3, 4]
+    assert small_model["evaluation"]["episodes"] == 10
+    assert [round(suite["latency"].get("fixed_latency_ms", 0) * starvla["env"]["env_fps"] / 1000) for suite in starvla["evaluation"]["suites"]] == [0, 2]
+    assert starvla["evaluation"]["episodes"] == 20

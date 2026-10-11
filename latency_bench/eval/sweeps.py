@@ -5,6 +5,8 @@ progress tail is factored into :func:`_run_one_sweep`.
 """
 from __future__ import annotations
 
+from latency_bench.core.config import resolve_runtime_config
+
 import json
 import sys
 import time
@@ -16,14 +18,10 @@ from typing import Any
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval.config import (
-    _apply_eval_latency,
     _evaluation_seed,
     _is_sample_factory_policy,
-    _latency_steps_from_config,
-    _latency_steps_to_ms,
     _selected_episode_count,
-    resolve_evaluation_config,
-)
+    )
 from latency_bench.eval.reporting import (
     _log_corrected_eval_summaries_to_wandb,
     _print_progress_start,
@@ -34,18 +32,9 @@ from latency_bench.eval.suites import has_eval_suites, parse_eval_suites
 from latency_bench.eval.driver import run_from_config
 from latency_bench.logging.summary import write_queue_eval_summary
 from latency_bench.policy.factory import build_policy
-
-
-def _prepare_fixed_sweep_config(
-    config: dict[str, Any],
-    latency_steps: int,
-    output_dir: Path,
-) -> tuple[dict[str, Any], float]:
-    sweep_config = deepcopy(config)
-    configured_latency_ms = _latency_steps_to_ms(sweep_config, latency_steps)
-    _apply_eval_latency(sweep_config, latency_steps, configured_latency_ms)
-    sweep_config["logging"]["output_dir"] = str(output_dir)
-    return sweep_config, configured_latency_ms
+from latency_bench.policy.model_source import resolve_model_source, set_model_files
+from latency_bench.envs.factory import resolve_env_config
+from latency_bench.latency.config import latency_type_from_config
 
 
 def _run_one_sweep(
@@ -117,83 +106,38 @@ def run_eval_sweep_from_config(
         run_eval_suites_from_config(config, progress=progress, episode_ids=episode_ids, policy=policy)
         return []
 
-    resolve_evaluation_config(config)
-    eval_latency_values = config["evaluation"]["eval_latency_values"]
-    if eval_latency_values is None:
-        if not progress:
-            return run_from_config(
-                config,
-                episode_ids=episode_ids,
-                **({"policy": policy} if policy is not None else {}),
-            )
-        num_episodes = _selected_episode_count(config, episode_ids)
-        _print_progress_start(config, num_sweeps=1, num_episodes=num_episodes)
-        start_time = time.perf_counter()
-        latency_label = _progress_latency_label(_summary_latency_label(config))
-        print(f"[bench] sweep 1/1: eval_latency={latency_label}", file=sys.stderr, flush=True)
-        completed = 0
-
-        def on_episode_complete(_episode_metrics: EpisodeMetrics) -> None:
-            nonlocal completed
-            completed += 1
-            print(
-                f"[bench] sweep 1/1 episode {completed}/{num_episodes} done",
-                file=sys.stderr,
-                flush=True,
-            )
-
-        metrics = run_from_config(
+    resolve_runtime_config(config)
+    if not progress:
+        return run_from_config(
             config,
-            on_episode_complete=on_episode_complete,
             episode_ids=episode_ids,
             **({"policy": policy} if policy is not None else {}),
         )
-        elapsed = time.perf_counter() - start_time
-        print(f"[bench] sweep 1/1 complete elapsed={elapsed:.1f}s", file=sys.stderr, flush=True)
-        return metrics
-
-    base_output_dir = Path(config["logging"]["output_dir"])
-    train_latency_steps = _latency_steps_from_config(config)
-    experiment_name = str(config["experiment"].get("name", "latency_bench"))
-    seed = _evaluation_seed(config)
-    all_metrics: list[EpisodeMetrics] = []
-    num_sweeps = len(eval_latency_values)
     num_episodes = _selected_episode_count(config, episode_ids)
-    if progress:
-        _print_progress_start(config, num_sweeps=num_sweeps, num_episodes=num_episodes)
-    for sweep_index, eval_latency_steps in enumerate(eval_latency_values, start=1):
-        if progress:
-            print(
-                f"[bench] sweep {sweep_index}/{num_sweeps}: eval_latency={eval_latency_steps}",
-                file=sys.stderr,
-                flush=True,
-            )
-        sweep_config, configured_latency_ms = _prepare_fixed_sweep_config(
-            config, eval_latency_steps, base_output_dir / f"eval_latency_{eval_latency_steps}"
-        )
-        summary_metadata = {
-            "train_latency_steps": train_latency_steps,
-            "eval_latency_steps": eval_latency_steps,
-            "configured_latency_ms": configured_latency_ms,
-            "latency_type": "fixed_sweep",
-        }
-        latency_metrics, _ = _run_one_sweep(
-            sweep_config,
-            experiment_name=experiment_name,
-            seed=seed,
-            summary_dir=base_output_dir,
-            latency_label=eval_latency_steps,
-            summary_metadata=summary_metadata,
-            progress=progress,
-            sweep_index=sweep_index,
-            num_sweeps=num_sweeps,
-            num_episodes=num_episodes,
-            episode_ids=episode_ids,
-            policy=policy,
-        )
-        all_metrics.extend(latency_metrics)
-    return all_metrics
+    _print_progress_start(config, num_sweeps=1, num_episodes=num_episodes)
+    start_time = time.perf_counter()
+    latency_label = _progress_latency_label(_summary_latency_label(config))
+    print(f"[bench] sweep 1/1: eval_latency={latency_label}", file=sys.stderr, flush=True)
+    completed = 0
 
+    def on_episode_complete(_episode_metrics: EpisodeMetrics) -> None:
+        nonlocal completed
+        completed += 1
+        print(
+            f"[bench] sweep 1/1 episode {completed}/{num_episodes} done",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    metrics = run_from_config(
+        config,
+        on_episode_complete=on_episode_complete,
+        episode_ids=episode_ids,
+        **({"policy": policy} if policy is not None else {}),
+    )
+    elapsed = time.perf_counter() - start_time
+    print(f"[bench] sweep 1/1 complete elapsed={elapsed:.1f}s", file=sys.stderr, flush=True)
+    return metrics
 
 def run_eval_suites_from_config(
     config: dict[str, Any],
@@ -204,91 +148,37 @@ def run_eval_suites_from_config(
     policy: Any | None = None,
 ) -> list[dict[str, Any]]:
     suites = parse_eval_suites(config)
-    resolve_evaluation_config(config)
+    resolve_runtime_config(config)
     policy = _reuse_checkpoint_policy(config, policy)
     base_output_dir = Path(config["logging"]["output_dir"])
-    train_latency_steps = _latency_steps_from_config(config)
     experiment_name = str(config["experiment"].get("name", "latency_bench"))
     seed = _evaluation_seed(config)
     num_episodes = _selected_episode_count(config, episode_ids)
-    num_sweeps = sum(len(suite.fixed_latency_values or [suite.latency_label]) for suite in suites)
+    num_sweeps = len(suites)
     if progress:
         _print_progress_start(config, num_sweeps=num_sweeps, num_episodes=num_episodes)
-
-    summaries: list[dict[str, Any]] = []
-    sweep_index = 0
-    for suite in suites:
-        suite_output_dir = base_output_dir / suite.name
-        if suite.fixed_latency_values is not None:
-            for eval_latency_steps in suite.fixed_latency_values:
-                sweep_index += 1
-                if progress:
-                    print(
-                        f"[bench] sweep {sweep_index}/{num_sweeps}: "
-                        f"suite={suite.name} eval_latency={eval_latency_steps}",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                sweep_config, configured_latency_ms = _prepare_fixed_sweep_config(
-                    config, eval_latency_steps,
-                    suite_output_dir / f"eval_latency_{eval_latency_steps}",
-                )
-                summary_metadata = {
-                    "train_latency_steps": train_latency_steps,
-                    "eval_latency_steps": int(eval_latency_steps),
-                    "configured_latency_ms": configured_latency_ms,
-                    **suite.metadata,
-                }
-                if extra_metadata:
-                    summary_metadata.update(extra_metadata)
-                _, summary = _run_one_sweep(
-                    sweep_config,
-                    experiment_name=experiment_name,
-                    seed=seed,
-                    summary_dir=suite_output_dir,
-                    latency_label=int(eval_latency_steps),
-                    summary_metadata=summary_metadata,
-                    progress=progress,
-                    sweep_index=sweep_index,
-                    num_sweeps=num_sweeps,
-                    num_episodes=num_episodes,
-                    episode_ids=episode_ids,
-                    policy=policy,
-                )
-                summaries.append(summary)
-            continue
-
-        sweep_index += 1
-        if progress:
-            print(
-                f"[bench] sweep {sweep_index}/{num_sweeps}: "
-                f"suite={suite.name} eval_latency={suite.latency_label}",
-                file=sys.stderr,
-                flush=True,
-            )
+    summaries = []
+    for sweep_index, suite in enumerate(suites, start=1):
         suite_config = deepcopy(config)
-        suite_config["latency"] = dict(suite.latency_config or {})
+        suite_config["latency"] = deepcopy(suite["latency"])
+        suite_config["evaluation"]["suites"] = []
+        suite_output_dir = base_output_dir / suite["name"]
         suite_config["logging"]["output_dir"] = str(suite_output_dir)
-        summary_metadata = dict(suite.metadata)
+        summary_metadata = {"suite_name": suite["name"],
+                            "latency_type": latency_type_from_config(suite["latency"])}
+        if "seed" in suite["latency"]:
+            summary_metadata["latency_seed"] = suite["latency"]["seed"]
         if extra_metadata:
             summary_metadata.update(extra_metadata)
         _, summary = _run_one_sweep(
-            suite_config,
-            experiment_name=experiment_name,
-            seed=seed,
-            summary_dir=suite_output_dir,
-            latency_label=suite.latency_label,
-            summary_metadata=summary_metadata,
-            progress=progress,
-            sweep_index=sweep_index,
-            num_sweeps=num_sweeps,
-            num_episodes=num_episodes,
-            episode_ids=episode_ids,
-            policy=policy,
+            suite_config, experiment_name=experiment_name, seed=seed,
+            summary_dir=suite_output_dir, latency_label=suite["name"],
+            summary_metadata=summary_metadata, progress=progress,
+            sweep_index=sweep_index, num_sweeps=num_sweeps,
+            num_episodes=num_episodes, episode_ids=episode_ids, policy=policy,
         )
         summaries.append(summary)
     return summaries
-
 
 def _reuse_checkpoint_policy(
     config: dict[str, Any],
@@ -300,19 +190,21 @@ def _reuse_checkpoint_policy(
     executor_cfg = config["executor"]
     if executor_cfg["mode"] == "realtime" or (
         executor_cfg["mode"] == "simulated"
-        and executor_cfg["simulated_inference_pool"]
+        and executor_cfg["inference_pool"]
     ):
         return None
 
     policy_type = config["policy"]["type"]
-    if "checkpoint_path" not in config["policy"] or not (
+    if "checkpoint" not in config["policy"] or not (
         _is_sample_factory_policy(config) or policy_type == "starvla"
     ):
         return policy
 
+    config.update(resolve_model_source(config))
     if policy_type == "starvla":
         from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
 
+        resolve_env_config(config)
         prepare_starvla_checkpoint_input_config(config)
 
     return build_policy(config, ActionResolver(config["env"]))
@@ -342,7 +234,7 @@ def _run_retained_eval_checkpoints_from_config(
     for marker in _retained_eval_checkpoint_markers(config):
         train_env_steps = int(marker["train_env_steps"])
         checkpoint_config = deepcopy(config)
-        checkpoint_config["policy"]["checkpoint_path"] = str(marker["checkpoint_path"])
+        set_model_files(checkpoint_config, checkpoint=marker["checkpoint_path"])
         checkpoint_config["logging"]["output_dir"] = str(
             base_output_dir / "eval_corrected_replay" / f"step_{train_env_steps}"
         )

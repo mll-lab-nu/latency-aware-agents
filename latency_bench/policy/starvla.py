@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import environment_integration
+from latency_bench.policy.model_source import model_file
+
 import json
-from contextlib import nullcontext
 import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -13,15 +15,14 @@ from PIL import Image
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.latency_distribution import derive_seed
-from latency_bench.core.timing import current_profiler
-from latency_bench.core.types import Action, Observation, PolicyOutput
+from latency_bench.core.types import Observation, PolicyOutput
 from latency_bench.data.ghost_trail import (
     GhostTrailConfig, build_flappy_ghost_trail_window, build_demon_attack_ghost_trail_window,
 )
 from latency_bench.data.state_normalization import min_max_normalize_state
 from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY
 from latency_bench.envs.tasks.contracts import (
-    registration_module_name,
+    canonical_gymnasium_contract,
     gymnasium_action_space_contract,
     gymnasium_task_contract,
 )
@@ -104,23 +105,19 @@ class StarVlaPolicyRunner(PolicyRunner):
         return self.predict_batch([observation])[0]
 
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
-        profiler = current_profiler()
-        with profiler.time("policy_build_example_ms"):
-            examples = [self._build_example(observation) for observation in observations]
-        with profiler.time("policy_wrapper_predict_action_ms"):
-            prediction = self._wrapper.predict_action(
-                examples=examples, unnorm_key=self._unnorm_key, profiler=profiler
+        examples = [self._build_example(observation) for observation in observations]
+        prediction = self._wrapper.predict_action(
+            examples=examples, unnorm_key=self._unnorm_key
+        )
+        outputs = [
+            self._decode_prediction(
+                prediction=prediction,
+                index=index,
+                observation=observation,
+                example=example,
             )
-        with profiler.time("policy_decode_ms"):
-            outputs = [
-                self._decode_prediction(
-                    prediction=prediction,
-                    index=index,
-                    observation=observation,
-                    example=example,
-                )
-                for index, (observation, example) in enumerate(zip(observations, examples))
-            ]
+            for index, (observation, example) in enumerate(zip(observations, examples))
+        ]
         return outputs
 
     def _decode_prediction(
@@ -342,21 +339,20 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
 
     policy_cfg = config["policy"]
     if "task_contract_path" in policy_cfg:
-        if config["env"]["name"] == "gymnasium":
+        if environment_integration(config) == "gymnasium":
             contract = json.loads(
                 Path(policy_cfg["task_contract_path"]).read_text(encoding="utf-8")
             )
             config["env"]["state_space"] = {"labels": contract["state_labels"]}
             if contract["robot_type"] in ("latency_balance_profile_h8", "latency_balance_profile_h16"):
-                config["env"]["name"] = "balance_profile"
                 config["env"]["action_context_horizon"] = contract["action_horizon"]
         config["env"]["frame_stack"] = 1
         return
-    if "model_config_path" in policy_cfg:
-        model_cfg = starvla_runtime.load_model_config(policy_cfg["model_config_path"])
+    if "model_config" in policy_cfg:
+        model_cfg = starvla_runtime.load_model_config(model_file(policy_cfg, "model_config"))
     else:
-        model_cfg = starvla_runtime.load_checkpoint_config(policy_cfg["checkpoint_path"])
-    if config["env"]["name"] == "gymnasium":
+        model_cfg = starvla_runtime.load_checkpoint_config(model_file(policy_cfg, "checkpoint"))
+    if environment_integration(config) == "gymnasium":
         image_size = model_cfg["rl_games"]["env_eval"]["image_size"]
         config["env"]["obs_resize"] = [image_size, image_size]
     image_transform_cfg = (
@@ -376,8 +372,6 @@ def prepare_starvla_checkpoint_input_config(config: dict[str, Any]) -> None:
     )
 
 
-def _profiler_stage(profiler: Any, name: str) -> Any:
-    return profiler.time(name) if profiler is not None else nullcontext()
 
 
 class LiveStarVlaWrapper:
@@ -452,7 +446,6 @@ class LiveStarVlaWrapper:
                 {**example, "state": processor.apply_state(example["state"])}
                 if "state" in example else example for example in examples
             ]
-        profiler = kwargs["profiler"] if "profiler" in kwargs else None
         out = self._framework.predict_action(examples=examples, **kwargs)
         normalized = np.asarray(out["normalized_actions"])  # (B, T, D)
         decode_kwargs: dict[str, Any] = {}
@@ -463,58 +456,27 @@ class LiveStarVlaWrapper:
                 decode_kwargs["action_values"] = np.stack([
                     processor.unapply_actions(chunk) for chunk in normalized
                 ])
-        with _profiler_stage(profiler, "starvla_wrapper_rl_games_decode_ms"):
-            return self._decode_rl_games_actions(
-                normalized_actions=normalized,
-                env_name=self._rl_games_env_name,
-                deadly_action_layout=(
-                    self._action_layout
-                    if self._rl_games_env_name == "deadly_corridor"
-                    else None
-                ),
-                deadly_multibinary_threshold=(
-                    self._multibinary_threshold
-                    if self._rl_games_env_name == "deadly_corridor"
-                    else None
-                ),
-                asterix_action_layout=(
-                    self._action_layout
-                    if self._rl_games_env_name == "asterix"
-                    else None
-                ),
-                **decode_kwargs,
-            )
-
-
-_LEGACY_GYMNASIUM_TASK_NAMES = {
-    "ant_rgb_state": "ant",
-    "half_cheetah_rgb_state": "half_cheetah",
-    "hopper_rgb_state": "hopper",
-    "humanoid_rgb_state": "humanoid",
-    "inverted_pendulum_rgb_state": "inverted_pendulum",
-    "swimmer_rgb_state": "swimmer",
-    "walker2d_rgb_state": "walker2d",
-}
-
-
-def _canonical_gymnasium_contract_namespace(
-    contract: Mapping[str, Any],
-) -> dict[str, Any]:
-    canonical = dict(contract)
-    task_name = canonical["task_name"]
-    if task_name in _LEGACY_GYMNASIUM_TASK_NAMES:
-        canonical["task_name"] = _LEGACY_GYMNASIUM_TASK_NAMES[task_name]
-    if canonical["env_id"] == "LatencyBench/HopperRgbState-v0":
-        canonical["env_id"] = "LatencyBench/Hopper-v0"
-    canonical["registration_imports"] = [
-        registration_module_name(
-            "latency_bench.envs.tasks.hopper"
-            if module == "latency_bench.envs.gymnasium_hopper_rgb_state"
-            else module
+        return self._decode_rl_games_actions(
+            normalized_actions=normalized,
+            env_name=self._rl_games_env_name,
+            deadly_action_layout=(
+                self._action_layout
+                if self._rl_games_env_name == "deadly_corridor"
+                else None
+            ),
+            deadly_multibinary_threshold=(
+                self._multibinary_threshold
+                if self._rl_games_env_name == "deadly_corridor"
+                else None
+            ),
+            asterix_action_layout=(
+                self._action_layout
+                if self._rl_games_env_name == "asterix"
+                else None
+            ),
+            **decode_kwargs,
         )
-        for module in canonical["registration_imports"]
-    ]
-    return canonical
+
 
 
 def _validate_gymnasium_starvla_contract(
@@ -539,33 +501,33 @@ def _validate_gymnasium_starvla_contract(
         comparable_eval_contract.update(
             env_fps=expected["env_fps"], obs_fps=expected["obs_fps"]
         )
-    if _canonical_gymnasium_contract_namespace(
+    if canonical_gymnasium_contract(
         comparable_eval_contract
-    ) != _canonical_gymnasium_contract_namespace(expected):
+    ) != canonical_gymnasium_contract(expected):
         raise ValueError(
             "Evaluation Gymnasium task contract does not match the StarVLA training contract or dataset manifest"
         )
     if manifest.get("integration_name", "gymnasium") != "gymnasium":
         raise ValueError("StarVLA task manifest is not a Gymnasium handoff")
     if manifest_task is not None:
-        if _canonical_gymnasium_contract_namespace(
+        if canonical_gymnasium_contract(
             manifest_task
-        ) != _canonical_gymnasium_contract_namespace(expected):
+        ) != canonical_gymnasium_contract(expected):
             raise ValueError(
                 "Evaluation Gymnasium task contract does not match the StarVLA dataset manifest"
             )
     model_contract = model_cfg["datasets"]["vla_data"].get("gymnasium_task_contract")
     if model_contract is not None:
-        if _canonical_gymnasium_contract_namespace(
+        if canonical_gymnasium_contract(
             model_contract
-        ) != _canonical_gymnasium_contract_namespace(expected):
+        ) != canonical_gymnasium_contract(expected):
             raise ValueError(
                 "Evaluation Gymnasium task contract does not match the StarVLA model config"
             )
     action_space = gymnasium_action_space_contract(env_cfg)
     action_layout = str(policy_cfg.get("action_layout", "") or "").strip().lower()
     is_asterix_factorized = (
-        str(env_cfg.get("task_name", "")) == "asterix"
+        str(env_cfg.get("name", "")) == "asterix"
         and action_layout in {"factorized_6", "factorized6", "asterix_factorized_6", "asterix_factorized6"}
     )
     if not is_asterix_factorized and manifest["active_action_dim"] != len(action_space["labels"]):
@@ -628,7 +590,7 @@ def _starvla_policy_inputs(
     env_cfg = config["env"]
     policy_cfg = config["policy"]
     robot_type = model_cfg["datasets"]["vla_data"].get("robot_type") if model_cfg is not None else None
-    if env_cfg["name"] == "gymnasium":
+    if environment_integration(config) == "gymnasium":
         if "task_manifest_path" in policy_cfg:
             task_manifest = json.loads(
                 Path(policy_cfg["task_manifest_path"]).read_text(encoding="utf-8")
@@ -655,7 +617,7 @@ def _starvla_policy_inputs(
             model_cfg=model_cfg,
             manifest=task_manifest,
         )
-        semantic_env_name = env_cfg["task_name"]
+        semantic_env_name = env_cfg["name"]
         action_refs = env_cfg.get("action_order", [])
         base_prompt = env_cfg["base_prompt"]
         state_normalization = None
@@ -704,10 +666,10 @@ def build_starvla_policy(
 
         return build_task_starvla_policy(config)
     env_cfg = config["env"]
-    integration_env_name = env_cfg["name"]
+    integration_env_name = environment_integration(config)
     model_cfg = (
-        starvla_runtime.load_model_config(policy_cfg["model_config_path"])
-        if integration_env_name == "gymnasium" or "model_config_path" in policy_cfg
+        starvla_runtime.load_model_config(model_file(policy_cfg, "model_config"))
+        if integration_env_name == "gymnasium" or "model_config" in policy_cfg
         else None
     )
     runner_kwargs, robot_type = _starvla_policy_inputs(
@@ -715,8 +677,8 @@ def build_starvla_policy(
     )
     wrapper_cls = starvla_runtime.load_policy_wrapper_class()
     wrapper_kwargs: dict[str, Any] = dict(
-        ckpt_path=policy_cfg["checkpoint_path"],
-        device=policy_cfg["device"],
+        ckpt_path=model_file(policy_cfg, "checkpoint"),
+        device=config["executor"]["inference_devices"][0],
         use_bf16=True,
         unnorm_key=runner_kwargs["unnorm_key"],
         action_output_mode=(
@@ -748,8 +710,8 @@ def build_starvla_policy(
     wrapper = wrapper_cls(**wrapper_kwargs)
     return StarVlaPolicyRunner(
         wrapper=wrapper,
-        checkpoint_path=policy_cfg["checkpoint_path"],
-        device=policy_cfg["device"],
+        checkpoint_path=model_file(policy_cfg, "checkpoint"),
+        device=config["executor"]["inference_devices"][0],
         **runner_kwargs,
         image_views_info_key=(
             policy_cfg["image_views_info_key"]
@@ -797,7 +759,7 @@ def build_live_starvla_policy(
         )
 
     env_cfg = config["env"]
-    integration_env_name = env_cfg["name"]
+    integration_env_name = environment_integration(config)
     normalized_model_cfg = (
         starvla_runtime.normalize_model_config(model_cfg)
         if integration_env_name == "gymnasium"
@@ -831,8 +793,8 @@ def build_live_starvla_policy(
     )
     return StarVlaPolicyRunner(
         wrapper=wrapper,
-        checkpoint_path=policy_cfg.get("checkpoint_path", ""),
-        device=policy_cfg.get("device", "cuda"),
+        checkpoint_path=model_file(policy_cfg, "checkpoint") if policy_cfg.get("checkpoint") is not None else "",
+        device=config["executor"]["inference_devices"][0],
         **runner_kwargs,
     )
 

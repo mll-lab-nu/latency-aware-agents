@@ -5,7 +5,6 @@ experiment:
   seed: 0
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: results/checkpoints
@@ -66,23 +65,102 @@ training:
 
 evaluation:
   eval_interval_steps: 1000000
-  eval_episodes: 20
-  eval_parallel_envs: 100
-  eval_max_steps: 3600
-  eval_deterministic: true
   eval_raw_reward: false
-  eval_suites:
-    fixed:
-      - [0, 15]
-    normal:
-      - [2.0, 1.0, 0, 15]
-      - [4.0, 2.0, 0, 15]
-    uniform:
-      - [0, 5]
-
+  episodes: 20
+  max_env_steps: 3600
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
+  - name: fixed_1
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 66.66666666666667
+  - name: fixed_3
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
+  - name: fixed_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 133.33333333333334
+  - name: fixed_5
+    latency:
+      method: fixed
+      fixed_latency_ms: 166.66666666666666
+  - name: fixed_6
+    latency:
+      method: fixed
+      fixed_latency_ms: 200.0
+  - name: fixed_7
+    latency:
+      method: fixed
+      fixed_latency_ms: 233.33333333333334
+  - name: fixed_8
+    latency:
+      method: fixed
+      fixed_latency_ms: 266.6666666666667
+  - name: fixed_9
+    latency:
+      method: fixed
+      fixed_latency_ms: 300.0
+  - name: fixed_10
+    latency:
+      method: fixed
+      fixed_latency_ms: 333.3333333333333
+  - name: fixed_11
+    latency:
+      method: fixed
+      fixed_latency_ms: 366.6666666666667
+  - name: fixed_12
+    latency:
+      method: fixed
+      fixed_latency_ms: 400.0
+  - name: fixed_13
+    latency:
+      method: fixed
+      fixed_latency_ms: 433.3333333333333
+  - name: fixed_14
+    latency:
+      method: fixed
+      fixed_latency_ms: 466.6666666666667
+  - name: fixed_15
+    latency:
+      method: fixed
+      fixed_latency_ms: 500.0
+  - name: normal_mean_2_std_1_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 66.66666666666667
+      std_latency_ms: 33.333333333333336
+      min_latency_ms: 0.0
+      max_latency_ms: 500.00000000000006
+      seed: 0
+  - name: normal_mean_4_std_2_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 133.33333333333334
+      std_latency_ms: 66.66666666666667
+      min_latency_ms: 0.0
+      max_latency_ms: 500.00000000000006
+      seed: 0
+  - name: uniform_min_0_max_5
+    latency:
+      method: uniform
+      min_latency_ms: 0.0
+      max_latency_ms: 166.66666666666669
+      seed: 0
 logging:
   output_dir: outputs/train/flappy/latency_0/seed_0_periodic_eval
   wandb_project: latency-sensitive-bench
   wandb_group: flappy-new(remove training episode limit)
   wandb_job_type: sample_factory
   wandb_name: flappy-bird-l0-s0-periodic-eval
+executor:
+  parallel_envs: 100
+policy:
+  deterministic: true

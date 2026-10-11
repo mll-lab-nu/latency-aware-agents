@@ -5,11 +5,9 @@ experiment:
 executor:
   mode: simulated
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: lunar_lander_discrete
-  env_id: LunarLander-v2
-  registration_imports: []
+  name: lunar_lander_discrete
   make_kwargs:
     render_mode: rgb_array
     continuous: false
@@ -52,10 +50,8 @@ policy:
     - fire_right_orientation_engine
 
 evaluation:
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-
+  episodes: 5
+  max_env_steps: 1000
 logging:
   output_dir: outputs/examples/gymnasium_lunar_lander/latency_bench_eval
   video:

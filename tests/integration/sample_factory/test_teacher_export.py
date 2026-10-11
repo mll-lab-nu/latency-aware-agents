@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import importlib
 import logging
 import os
 import sys
@@ -84,9 +85,9 @@ def _write_checkpoint_config(path: Path, **overrides) -> Path:
         "max_pending_actions": None,
         "hold_policy": "hold",
         "ordering_policy": "latest_ready",
-        "eval_episodes": 20,
-        "eval_parallel_envs": 1,
-        "eval_max_steps": 3600,
+        "episodes": 20,
+        "parallel_envs": 1,
+        "max_env_steps": 3600,
         "eval_deterministic": True,
         "eval_raw_reward": True,
         "output_dir": "outputs/demon_fixed_l4_seed0",
@@ -1954,7 +1955,7 @@ def test_rollout_cfg_registers_integration_and_parses_evaluation_args(
         ),
     )
     setattr(module, registration, lambda: registered.append(True))
-    monkeypatch.setattr(teacher_runtime, "import_integration_module", lambda config: module)
+    monkeypatch.setattr(teacher_runtime, "import_module", lambda module_name: module)
     monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
 
     result_module, result_cfg = teacher_runtime.build_sample_factory_rollout_cfg({

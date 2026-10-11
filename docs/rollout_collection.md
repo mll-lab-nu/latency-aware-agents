@@ -77,8 +77,8 @@ Episodes are assigned to splits using `val_fraction` and `split_seed`. The defau
 are `0.0` and `0`, respectively. An empty validation split remains an empty valid
 Parquet file. No training rows are copied into validation.
 
-Collection uses `evaluation.eval_episodes`, `eval_max_steps` and
-`eval_parallel_envs`. The step budget is in raw frames. Generic collection defaults
+Collection uses `evaluation.episodes`, `evaluation.max_env_steps` and
+`executor.parallel_envs`. The step budget is in raw frames. Generic collection defaults
 to one pass and `filter_preset: none`. Optional `episode_return_gt` and
 `episode_acceptance` use the existing episode filters. `max_attempts` bounds
 attempts when filtering is enabled. Rejected episodes do not count toward the

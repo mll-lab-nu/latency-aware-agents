@@ -17,66 +17,251 @@ env:
   obs_fps: 8.75
 
 seeds:
-  - 0
-  - 42
-  - 114514
+- 0
+- 42
+- 114514
 
 evaluation:
-  eval_episodes: 20
-  eval_parallel_envs: 32
-  eval_max_steps: 30000
-  eval_suites:
-    fixed:
-      - [2, 4, 6]
-    normal:
-      - [4.0, 1.0, 0, 15]
-    uniform:
-      - [2, 6]
-
+  episodes: 20
+  max_env_steps: 30000
+  suites:
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 57.142857142857146
+  - name: fixed_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 114.28571428571429
+  - name: fixed_6
+    latency:
+      method: fixed
+      fixed_latency_ms: 171.42857142857142
+  - name: normal_mean_4_std_1_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 114.28571428571429
+      std_latency_ms: 28.571428571428573
+      min_latency_ms: 0.0
+      max_latency_ms: 428.5714285714286
+      seed: 42
+  - name: uniform_min_2_max_6
+    latency:
+      method: uniform
+      min_latency_ms: 57.142857142857146
+      max_latency_ms: 171.42857142857144
+      seed: 42
 latency_settings:
   fixed_l2:
     kind: fixed
     frames: 2
-    eval_suites: &full_eval_suites
-      fixed: [[2, 4, 6]]
-      normal: [[4.0, 1.0, 0, 15]]
-      uniform: [[2, 6]]
+    suites:
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
+    - name: normal_mean_4_std_1_min_0_max_15
+      latency:
+        method: normal
+        mean_latency_ms: 114.28571428571429
+        std_latency_ms: 28.571428571428573
+        min_latency_ms: 0.0
+        max_latency_ms: 428.5714285714286
+    - name: uniform_min_2_max_6
+      latency:
+        method: uniform
+        min_latency_ms: 57.142857142857146
+        max_latency_ms: 171.42857142857144
   fixed_l4:
     kind: fixed
     frames: 4
-    eval_suites: *full_eval_suites
+    suites:
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
+    - name: normal_mean_4_std_1_min_0_max_15
+      latency:
+        method: normal
+        mean_latency_ms: 114.28571428571429
+        std_latency_ms: 28.571428571428573
+        min_latency_ms: 0.0
+        max_latency_ms: 428.5714285714286
+    - name: uniform_min_2_max_6
+      latency:
+        method: uniform
+        min_latency_ms: 57.142857142857146
+        max_latency_ms: 171.42857142857144
   fixed_l6:
     kind: fixed
     frames: 6
-    eval_suites: *full_eval_suites
+    suites:
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
+    - name: normal_mean_4_std_1_min_0_max_15
+      latency:
+        method: normal
+        mean_latency_ms: 114.28571428571429
+        std_latency_ms: 28.571428571428573
+        min_latency_ms: 0.0
+        max_latency_ms: 428.5714285714286
+    - name: uniform_min_2_max_6
+      latency:
+        method: uniform
+        min_latency_ms: 57.142857142857146
+        max_latency_ms: 171.42857142857144
   normal_n4_s1:
     kind: normal
     mean: 4.0
     std: 1.0
     min: 0
     max: 15
-    eval_suites: *full_eval_suites
+    suites:
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
+    - name: normal_mean_4_std_1_min_0_max_15
+      latency:
+        method: normal
+        mean_latency_ms: 114.28571428571429
+        std_latency_ms: 28.571428571428573
+        min_latency_ms: 0.0
+        max_latency_ms: 428.5714285714286
+    - name: uniform_min_2_max_6
+      latency:
+        method: uniform
+        min_latency_ms: 57.142857142857146
+        max_latency_ms: 171.42857142857144
   uniform_u2_6:
     kind: uniform
     min: 2
     max: 6
-    eval_suites: *full_eval_suites
+    suites:
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
+    - name: normal_mean_4_std_1_min_0_max_15
+      latency:
+        method: normal
+        mean_latency_ms: 114.28571428571429
+        std_latency_ms: 28.571428571428573
+        min_latency_ms: 0.0
+        max_latency_ms: 428.5714285714286
+    - name: uniform_min_2_max_6
+      latency:
+        method: uniform
+        min_latency_ms: 57.142857142857146
+        max_latency_ms: 171.42857142857144
   mixed_normal_n4_s1:
     kind: mixed_normal
     mean: 4.0
     std: 1.0
     min: 0
     max: 15
-    eval_suites: *full_eval_suites
+    suites:
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
+    - name: normal_mean_4_std_1_min_0_max_15
+      latency:
+        method: normal
+        mean_latency_ms: 114.28571428571429
+        std_latency_ms: 28.571428571428573
+        min_latency_ms: 0.0
+        max_latency_ms: 428.5714285714286
+    - name: uniform_min_2_max_6
+      latency:
+        method: uniform
+        min_latency_ms: 57.142857142857146
+        max_latency_ms: 171.42857142857144
   mixed_uniform_u2_6:
     kind: mixed_uniform
     min: 2
     max: 6
-    eval_suites: *full_eval_suites
+    suites:
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
+    - name: normal_mean_4_std_1_min_0_max_15
+      latency:
+        method: normal
+        mean_latency_ms: 114.28571428571429
+        std_latency_ms: 28.571428571428573
+        min_latency_ms: 0.0
+        max_latency_ms: 428.5714285714286
+    - name: uniform_min_2_max_6
+      latency:
+        method: uniform
+        min_latency_ms: 57.142857142857146
+        max_latency_ms: 171.42857142857144
 
 sweeps:
   jitter_robustness:
     frame_stack:
-      - 4
+    - 4
     obs_fps:
-      - 8.75
+    - 8.75
+executor:
+  parallel_envs: 32

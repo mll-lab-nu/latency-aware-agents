@@ -19,14 +19,38 @@ def test_calibration_summary_uses_linear_percentiles():
 
 def _write_config(path: Path) -> None:
     payload = {
-        "experiment": {"name": "calibration-test", "seed": 0},
-        "executor": {"mode": "realtime", "inference_devices": ["cpu", "cuda:2"]},
-        "env": {"name": "dummy", "env_fps": 16, "obs_fps": 16, "noop_action": "noop"},
-        "latency": {"device": "cpu", "sync_cuda": False},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "policy": {"type": "constant", "action": "noop", "actions": ["noop"]},
-        "evaluation": {"eval_episodes": 1, "eval_parallel_envs": 1, "eval_latency_values": None, "eval_max_steps": 10},
-        "logging": {"output_dir": str(path.parent / "run")},
+        'experiment': {
+            'name': 'calibration-test',
+            'seed': 0,
+        },
+        'executor': {
+            'mode': 'realtime',
+            'inference_devices': ['cpu', 'cuda:2'],
+            'parallel_envs': 1,
+            'sync_cuda': False,
+        },
+        'env': {
+            'name': 'dummy',
+            'env_fps': 16,
+            'obs_fps': 16,
+            'noop_action': 'noop',
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'policy': {
+            'type': 'constant',
+            'action': 'noop',
+            'actions': ['noop'],
+        },
+        'evaluation': {
+            'episodes': 1,
+            'max_env_steps': 10,
+        },
+        'logging': {
+            'output_dir': str(path.parent / 'run'),
+        },
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
@@ -55,9 +79,6 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
                 {"n": samples - skip, "mean": 34.0, "median": 34.0, "p90": 34.0, "p95": 34.0}
                 for _ in devices
             ],
-            "policy_build_example_ms": {"n": samples - skip, "mean": 1.0, "median": 1.0, "p90": 1.0, "p95": 1.0},
-            "policy_wrapper_predict_action_ms": {"n": samples - skip, "mean": 32.0, "median": 32.0, "p90": 32.0, "p95": 32.0},
-            "policy_decode_ms": {"n": samples - skip, "mean": 1.0, "median": 1.0, "p90": 1.0, "p95": 1.0},
         }
 
     monkeypatch.setattr(module, "_run_spawned_latency_probe", fake_probe)
@@ -76,4 +97,3 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
     assert written == payload
     assert payload["calibration_source"] == "saturated_policy_latency"
     assert payload["saturated_latency_summary"]["median"] == 34.0
-    assert payload["policy_stage_summary"]["policy_wrapper_predict_action_ms"]["median"] == 32.0

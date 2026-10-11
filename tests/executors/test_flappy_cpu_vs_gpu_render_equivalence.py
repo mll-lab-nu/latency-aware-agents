@@ -40,57 +40,57 @@ def _flap() -> Action:
 
 def _gpu_backend_config(output_dir: str, *, frame_stack: int) -> dict[str, Any]:
     return {
-        "experiment": {
-            "name": "flappy_cpu_vs_gpu_render_equivalence_test",
-            "seed": 0,
+        'experiment': {
+            'name': 'flappy_cpu_vs_gpu_render_equivalence_test',
+            'seed': 0,
         },
-        "executor": {
-            "mode": "simulated",
+        'executor': {
+            'mode': 'simulated',
+            'parallel_envs': 2,
         },
-        "env": {
-            "name": "flappy",
-            "gym_id": "FlappyBird-v0",
-            "env_fps": 30,
-            "obs_fps": 30,
-            "noop_action": "noop",
-            "action_map": {
-                "noop": 0,
-                "flap": 1,
+        'env': {
+            'name': 'flappy',
+            'gym_id': 'FlappyBird-v0',
+            'env_fps': 30,
+            'obs_fps': 30,
+            'noop_action': 'noop',
+            'action_map': {
+                'noop': 0,
+                'flap': 1,
             },
-            "oneshot_actions": ["flap"],
-            "pipe_gap": 100,
-            "bird_color": "yellow",
-            "pipe_color": "green",
-            "background": "day",
-            "obs_resize": [84, 84],
-            "frame_stack": int(frame_stack),
-            "use_gpu_render": True,
-            "simulator": "cpu",
-            "gpu_render_device": "cpu",
-            "gpu_render_profile": False,
-            "gpu_render_profile_interval": 1000,
+            'oneshot_actions': ['flap'],
+            'pipe_gap': 100,
+            'bird_color': 'yellow',
+            'pipe_color': 'green',
+            'background': 'day',
+            'obs_resize': [84, 84],
+            'frame_stack': int(frame_stack),
+            'use_gpu_render': True,
+            'simulator': 'cpu',
+            'gpu_render_device': 'cpu',
+            'gpu_render_profile': False,
+            'gpu_render_profile_interval': 1000,
         },
-        "latency": {
-            "method": "zero",
+        'latency': {
+            'method': 'zero',
         },
-        "scheduler": {
-            "hold_policy": "one_frame_then_noop",
-            "ordering_policy": "latest_ready",
+        'scheduler': {
+            'hold_policy': 'one_frame_then_noop',
+            'ordering_policy': 'latest_ready',
         },
-        "policy": {
-            "type": "starvla",
-            "actions": ["noop", "flap"],
+        'policy': {
+            'type': 'starvla',
+            'actions': ['noop', 'flap'],
         },
-        "evaluation": {
-            "eval_episodes": 1,
-            "eval_max_steps": 6,
-            "eval_parallel_envs": 2,
+        'evaluation': {
+            'episodes': 1,
+            'max_env_steps': 6,
         },
-        "logging": {
-            "output_dir": output_dir,
-            "save_step_records": True,
-            "save_action_records": True,
-            "save_latency_records": True,
+        'logging': {
+            'output_dir': output_dir,
+            'save_step_records': True,
+            'save_action_records': True,
+            'save_latency_records': True,
         },
     }
 
@@ -272,7 +272,7 @@ def _metrics_contract(metrics: list[Any]) -> list[tuple[Any, ...]]:
 
 
 @pytest.mark.parametrize(
-    ("eval_episodes", "eval_parallel_envs"),
+    ("episodes", "parallel_envs"),
     [
         (3, 3),
         # More episodes than slots exercises the slot-reuse dispatch path.
@@ -280,29 +280,29 @@ def _metrics_contract(metrics: list[Any]) -> list[tuple[Any, ...]]:
     ],
 )
 def test_flappy_cpu_serial_executor_matches_gpu_batched_executor_episode_metrics(
-    tmp_path, eval_episodes, eval_parallel_envs
+    tmp_path, episodes, parallel_envs
 ):
     pytest.importorskip("torch")
 
     cpu_config = _gpu_backend_config(str(tmp_path / "cpu"), frame_stack=4)
     cpu_config["policy"] = {"type": "constant", "action": "flap", "actions": ["noop", "flap"]}
-    cpu_config["evaluation"]["eval_episodes"] = eval_episodes
-    cpu_config["evaluation"]["eval_parallel_envs"] = eval_parallel_envs
+    cpu_config["evaluation"]["episodes"] = episodes
+    cpu_config["executor"]["parallel_envs"] = parallel_envs
     cpu_config["env"]["use_gpu_render"] = False
-    cpu_config["evaluation"]["latency_bench_env_backend"] = "serial"
+    cpu_config["executor"]["env_backend"] = "serial"
 
     gpu_config = deepcopy(cpu_config)
     gpu_config["logging"]["output_dir"] = str(tmp_path / "gpu")
     gpu_config["env"]["use_gpu_render"] = True
-    gpu_config["evaluation"]["latency_bench_env_backend"] = "flappy_gpu_batched"
+    gpu_config["executor"]["env_backend"] = "flappy_gpu_batched"
 
     cpu_executor = build_executor(cpu_config)
     gpu_executor = build_executor(gpu_config)
     try:
-        episode_ids = list(range(eval_episodes))
-        seeds = [11 * (index + 1) for index in range(eval_episodes)]
-        cpu_metrics = cpu_executor.run_episodes(episode_ids=episode_ids, seeds=seeds, eval_max_steps=6)
-        gpu_metrics = gpu_executor.run_episodes(episode_ids=episode_ids, seeds=seeds, eval_max_steps=6)
+        episode_ids = list(range(episodes))
+        seeds = [11 * (index + 1) for index in range(episodes)]
+        cpu_metrics = cpu_executor.run_episodes(episode_ids=episode_ids, seeds=seeds, max_env_steps=6)
+        gpu_metrics = gpu_executor.run_episodes(episode_ids=episode_ids, seeds=seeds, max_env_steps=6)
     finally:
         gpu_executor.close()
         cpu_executor.close()

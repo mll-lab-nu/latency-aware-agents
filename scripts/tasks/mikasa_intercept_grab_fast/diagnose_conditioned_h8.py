@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from latency_bench.policy.model_source import model_file
 
 import numpy as np
 
@@ -107,7 +108,7 @@ def capture_batch_first(args: argparse.Namespace) -> None:
     )
 
     config = load_config(args.eval_config)
-    slots = config["evaluation"]["eval_parallel_envs"]
+    slots = config["executor"]["parallel_envs"]
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output / "episodes").mkdir()
     backend = MikasaEnvStepBackend(config=config, num_slots=slots)
@@ -455,7 +456,7 @@ def batch_reset_parity(args: argparse.Namespace) -> None:
     from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
 
     config = load_config(args.eval_config)
-    slots = config["evaluation"]["eval_parallel_envs"]
+    slots = config["executor"]["parallel_envs"]
     backend = MikasaEnvStepBackend(config=config, num_slots=slots)
     rows = []
     try:
@@ -502,13 +503,13 @@ def corrected_eval(args: argparse.Namespace) -> None:
     config = load_config(args.eval_config)
     config["logging"]["output_dir"] = str(args.output)
     config["experiment"]["name"] += "_scalar_reset_diagnostic"
-    config["evaluation"]["eval_episodes"] = args.episodes
+    config["evaluation"]["episodes"] = args.episodes
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output / "eval_config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
     )
     backend = ScalarResetBackend(
-        config=config, num_slots=config["evaluation"]["eval_parallel_envs"]
+        config=config, num_slots=config["executor"]["parallel_envs"]
     )
     run_from_config(
         config, env_backend=backend,
@@ -532,7 +533,7 @@ def rollout_relabel(args: argparse.Namespace) -> None:
     )
 
     config = load_config(args.eval_config)
-    slots = config["evaluation"]["eval_parallel_envs"]
+    slots = config["executor"]["parallel_envs"]
     action_rows = [json.loads(line) for line in args.actions.read_text().splitlines()]
     step_rows = [json.loads(line) for line in args.steps.read_text().splitlines()]
     actions_by_request = {
@@ -566,7 +567,7 @@ def rollout_relabel(args: argparse.Namespace) -> None:
         for slot in range(slots):
             backend._reset_slot_observation(slot, seed=config["experiment"]["seed"] + slot)
         oracle_initial = backend.env.unwrapped.ball.linear_velocity.clone()
-        for frame in range(config["evaluation"]["eval_max_steps"]):
+        for frame in range(config["evaluation"]["max_env_steps"]):
             prefixes = np.zeros((slots, 8, 7), dtype=np.float32)
             masks = np.zeros((slots, 8), dtype=bool)
             submitted = np.zeros(slots, dtype=bool)
@@ -643,7 +644,7 @@ def overfit(args: argparse.Namespace) -> None:
 
     config = yaml.safe_load(args.eval_config.read_text(encoding="utf-8"))
     config["policy"]["backbone_path"] = str(args.backbone)
-    config["policy"]["device"] = args.device
+    config["executor"]["inference_devices"] = [args.device]
     runner = build_task_starvla_policy(config)
     statistics = runner.contract["normalization"]["action"]
     rows = _dataset_rows(args.raw, "train", first_limit=args.rows, later_limit=0)
@@ -745,7 +746,7 @@ def sampler_steps(args: argparse.Namespace) -> None:
 
     config = yaml.safe_load(args.eval_config.read_text(encoding="utf-8"))
     config["policy"]["backbone_path"] = str(args.backbone)
-    config["policy"]["device"] = args.device
+    config["executor"]["inference_devices"] = [args.device]
     runner = build_task_starvla_policy(config)
     action_stats = runner.contract["normalization"]["action"]
     rows = (
@@ -900,7 +901,7 @@ def analyze(args: argparse.Namespace) -> None:
                     [row for row, _ in selected], [record for _, record in selected], means
                 )
     result = {
-        "model": args.model, "checkpoint": str(config["policy"]["checkpoint_path"]),
+        "model": args.model, "checkpoint": str(model_file(config["policy"], "checkpoint")),
         "raw": str(args.raw), "capture": str(args.capture), "groups": summary,
     }
     if args.actions is not None:

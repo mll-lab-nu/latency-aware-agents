@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
+from latency_bench.policy.model_source import model_file
 from types import SimpleNamespace
 
 import gymnasium as gym
@@ -107,11 +109,12 @@ def test_hopper_probe_reports_native_contract(monkeypatch):
 )
 def test_hopper_configs_share_contract(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
     env = config["env"]
     clock = EnvClock(env_fps=env["env_fps"], obs_fps=env["obs_fps"])
 
     assert env["env_id"] == hopper.GYMNASIUM_HOPPER_ENV_ID
-    assert env["task_name"] == "hopper"
+    assert env["name"] == "hopper"
     assert env["state_space"]["labels"] == scaffold.STATE_LABELS
     assert env["action_space"] == {
         "type": "box",
@@ -127,6 +130,7 @@ def test_hopper_configs_share_contract(config_path):
 
 def test_hopper_training_uses_sample_factory_mujoco_recipe():
     config = load_config("configs/examples/gymnasium/hopper/small_model_train.yaml")
+    resolve_env_config(config)
     cfg = build_train_cfg_from_config(config)
     contract = gymnasium_task_contract(config["env"])
 
@@ -144,11 +148,12 @@ def test_hopper_training_uses_sample_factory_mujoco_recipe():
 
 def test_hopper_starvla_eval_uses_final_checkpoint():
     config = load_config("configs/examples/gymnasium/hopper/starvla_eval.yaml")
+    resolve_env_config(config)
 
-    assert config["policy"]["checkpoint_path"].endswith("steps_5000_pytorch_model.pt")
-    assert "continuous_projector_sft_5k" in config["policy"]["checkpoint_path"]
-    assert "continuous_projector_sft_5k" in config["policy"]["model_config_path"]
+    assert model_file(config["policy"], "checkpoint").endswith("steps_5000_pytorch_model.pt")
+    assert "continuous_projector_sft_5k" in model_file(config["policy"], "checkpoint")
+    assert "continuous_projector_sft_5k" in model_file(config["policy"], "model_config")
     assert config["logging"]["output_dir"].endswith("starvla_eval_continuous_projector")
-    assert config["evaluation"]["eval_latency_values"] == [0, 2]
-    assert config["evaluation"]["eval_episodes"] == 20
-    assert config["evaluation"]["eval_max_steps"] == 1000
+    assert [round(suite["latency"].get("fixed_latency_ms", 0) * config["env"]["env_fps"] / 1000) for suite in config["evaluation"]["suites"]] == [0, 2]
+    assert config["evaluation"]["episodes"] == 20
+    assert config["evaluation"]["max_env_steps"] == 1000

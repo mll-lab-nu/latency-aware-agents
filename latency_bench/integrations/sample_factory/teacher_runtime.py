@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+from importlib import import_module
+from training.common.config_adapter import ENV_INTEGRATIONS
 from copy import deepcopy
 import json
 import logging
@@ -35,7 +37,6 @@ from latency_bench.integrations.sample_factory.runtime import (
 from latency_bench.latency.config import latency_type_from_config
 from training.asterix_sf.batched_gpu_env import AsterixBatchedGpuEnv
 from training.atlantis_sf.batched_gpu_env import AtlantisBatchedGpuEnv
-from training.common.config_adapter import import_integration_module
 from training.common.utils import maybe_set_cli_override
 
 
@@ -140,7 +141,8 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
     from sample_factory.cfg.arguments import load_from_checkpoint
 
     integration_name = config["integration_name"]
-    module = import_integration_module({"env": {"name": integration_name}})
+
+    module = import_module(ENV_INTEGRATIONS[integration_name])
     _register_components(module, integration_name)
     flat_cfg = config["flat_cfg"]
     argv = [

@@ -7,6 +7,7 @@ from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+from latency_bench.envs.factory import environment_integration
 from typing import Any
 
 from latency_bench.core.config import load_config, merge_dicts
@@ -34,14 +35,6 @@ BASE_CONFIGS = {
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
 }
-POLICY_TYPES = {
-    "flappy": "flappy_sf",
-    "demon_attack": "demon_attack_sf",
-    "deadly_corridor": "deadly_corridor_sf",
-    "gymnasium": "gymnasium_sf",
-}
-
-
 def periodic_eval_enabled(config: dict[str, Any]) -> bool:
     evaluation_cfg = config.get("evaluation", {})
     return isinstance(evaluation_cfg, dict) and (
@@ -59,7 +52,7 @@ def build_latency_bench_config_from_training_config(
     env_name = str(training_config["env"]["name"]).strip().lower()
     base_config = (
         deepcopy(training_config)
-        if env_name == "gymnasium"
+        if environment_integration(training_config) == "gymnasium"
         else load_config(BASE_CONFIGS[env_name])
     )
     override = {
@@ -78,15 +71,16 @@ def build_latency_bench_config_from_training_config(
         if key in training_config
     }
     config = merge_dicts(base_config, override)
-    if "eval_suites" in training_config["evaluation"]:
-        config["evaluation"]["eval_suites"] = deepcopy(training_config["evaluation"]["eval_suites"])
+    if "suites" in training_config["evaluation"]:
+        config["evaluation"]["suites"] = deepcopy(training_config["evaluation"]["suites"])
     config["backend"]["run_mode"] = "eval"
     config["policy"] = merge_dicts(
         base_config.get("policy", {}),
         {
-            "type": POLICY_TYPES[env_name],
-            "checkpoint_path": str(Path(checkpoint_path).expanduser()),
-            "deterministic": bool(config["evaluation"].get("eval_deterministic", True)),
+            "type": "sample_factory",
+            "source": "local", "root": str(Path(checkpoint_path).expanduser().absolute().parent),
+            "checkpoint": Path(checkpoint_path).name,
+            "deterministic": training_config["policy"].get("deterministic", True),
         },
     )
     config["logging"]["output_dir"] = str(Path(output_dir).expanduser())

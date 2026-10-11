@@ -12,6 +12,8 @@ import shutil
 import yaml
 
 from latency_bench.core.config import load_config
+from latency_bench.envs.factory import resolve_env_config
+from latency_bench.envs.tasks.contracts import canonical_gymnasium_contract
 from scripts.starvla.model_config import make_model_config
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +40,7 @@ def file_sha256(path: Path) -> str:
 def teacher_config(task: str, run_root: Path, profile: Path | None, source: Path | None = None) -> dict:
     cfg = load_config(source if source is not None else
                       ROOT / f"configs/examples/gymnasium/{task}/small_model_train.yaml")
+    resolve_env_config(cfg)
     if task != "air_raid":
         cfg["env"].update(env_fps=5, obs_fps=5)
         cfg["latency"] = {"method": "zero", "add_latency_info": False}
@@ -58,15 +61,16 @@ def teacher_evaluation_config(config_path: Path, checkpoint: Path, output: Path,
     cfg["backend"]["run_mode"] = "eval"
     cfg["experiment"]["seed"] = 42
     cfg["executor"] = {"mode": "simulated", "simulated_worker_capacity": 1,
-                       "simulated_inference_pool": True, "inference_devices": ["cuda:0"]}
+                       "inference_pool": True, "inference_devices": ["cuda:0"]}
     cfg["latency"] = {"method": "iid", "profile_path": str(profile), "profile_worker_slot": 0,
                       "seed": 0, "add_latency_info": False}
-    cfg["policy"] = {"type": "gymnasium_sf", "checkpoint_path": str(checkpoint),
-                     "device": "cuda:0", "deterministic": True}
-    cfg["evaluation"].update(eval_episodes=episodes, eval_parallel_envs=1, eval_latency_values=None)
-    if cfg["env"]["task_name"] == "air_raid":
+    cfg['policy'] = {'type': 'sample_factory', 'deterministic': True, 'checkpoint': checkpoint.name, 'source': 'local', 'root': str(checkpoint.parent)}
+    cfg["executor"]["inference_devices"] = ['cuda:0']
+    cfg['evaluation'].update(episodes=episodes, suites=[])
+    cfg["executor"]["parallel_envs"] = 1
+    if cfg["env"]["name"] == "air_raid":
         cfg["env"]["make_kwargs"].update(noop_max=30, fire_reset=True)
-        cfg["evaluation"]["eval_max_steps"] = 3600
+        cfg["evaluation"]["max_env_steps"] = 3600
     cfg["logging"] = {"output_dir": str(output), "video": {"enabled": False, "num_bins": 1},
                       "save_step_records": True, "save_action_records": True, "save_latency_records": True}
     return cfg
@@ -155,11 +159,10 @@ def evaluation_config(task: str, bundle: Path, backbone: Path, output: Path, *, 
                       profile: Path | None, episodes: int, profiling: bool, prompt_key: int) -> dict:
     recipe = "starvla_eval.yaml" if task == "air_raid" else "small_model_train.yaml"
     cfg = load_config(ROOT / f"configs/examples/gymnasium/{task}/{recipe}")
+    resolve_env_config(cfg)
     cfg["env"]["obs_resize"] = [224, 224]
     if task != "air_raid":
-        from latency_bench.policy.starvla import _canonical_gymnasium_contract_namespace
-
-        contract = _canonical_gymnasium_contract_namespace(
+        contract = canonical_gymnasium_contract(
             json.loads((bundle / "manifest.json").read_text())["gymnasium_task"]
         )
         for key in ("env_id", "registration_imports", "make_kwargs", "base_prompt", "frame_stack", "state_space"):
@@ -176,37 +179,36 @@ def evaluation_config(task: str, bundle: Path, backbone: Path, output: Path, *, 
     cfg["executor"] = {"mode": "realtime" if mode == "measured" else "simulated",
         "inference_devices": ["cuda:0"], "inference_batch_size": 1}
     if mode != "measured":
-        cfg["executor"].update(simulated_inference_pool=True, simulated_worker_capacity=1)
-    cfg["latency"] = {"method": mode, "sync_cuda": mode == "measured"}
+        cfg["executor"].update(inference_pool=True, simulated_worker_capacity=1)
+    cfg["latency"] = {"method": mode}
+    cfg["executor"].update(parallel_envs=1, sync_cuda=True)
+    if mode == "measured":
+        cfg.pop("latency", None)
     if mode == "iid":
         cfg["latency"].update(profile_path=str(profile.resolve()), profile_worker_slot=0, seed=0)
-    cfg["policy"] = {"type": "starvla", "checkpoint_path": str(bundle / "checkpoints/model.pt"),
-        "model_config_path": str(bundle / "config.yaml"), "backbone_path": str(backbone), "device": "cuda:0"}
+    cfg["policy"] = {"type": "starvla", "source": "local", "root": str(bundle),
+        "checkpoint": "checkpoints/model.pt", "model_config": "config.yaml", "backbone_path": str(backbone)}
     cfg["policy"].update(task_manifest_path=str(bundle / "manifest.json"),
         latency_prompt_map_path=str(bundle / "latency_prompt_map.json"), latency_prompt_key=prompt_key)
     horizon = (3000 if profiling else 3600) if task == "air_raid" else (900 if profiling else 1000)
-    cfg["evaluation"] = {"eval_episodes": episodes, "eval_parallel_envs": 1, "eval_max_steps": horizon,
-        "eval_deterministic": True, "eval_latency_values": None}
+    cfg["evaluation"] = {"episodes": episodes, "max_env_steps": horizon, "suites": []}
     cfg["logging"] = {"output_dir": str(output), "video": {"enabled": False, "num_bins": 1},
-        "save_step_records": True, "save_action_records": True, "save_latency_records": True,
-        "realtime_pipeline_profile": profiling}
+        "save_step_records": True, "save_action_records": True, "save_latency_records": True}
     return cfg
 
 
 def profiling_config(task: str, config_path: Path, bundle: Path, output: Path) -> dict:
     config = load_config(config_path)
     config["experiment"]["seed"] = 42
-    config["evaluation"].update(eval_episodes=10, eval_parallel_envs=1, eval_latency_values=None)
-    config["evaluation"].pop("eval_suites", None)
+    config['evaluation'].update(episodes=10, suites=[])
     config["executor"].update(mode="realtime", inference_devices=["cuda:0"])
-    config["latency"] = {"method": "measured", "device": "cuda:0", "sync_cuda": True}
+    config.pop("latency", None)
+    config["executor"].update(sync_cuda=True, parallel_envs=1)
     config["logging"]["output_dir"] = str(output)
     config["profiling"] = {"model_id": "gr00t", "workload_id": task, "repeats": 5,
                            "calibration": None}
-    config["profiling"]["model_artifact"] = {
-        "source": "local", "local_root": str(bundle),
-        "checkpoint": "checkpoints/model.pt", "model_config": "config.yaml",
-    }
+    config["policy"].update(source="local", root=str(bundle),
+                            checkpoint="checkpoints/model.pt", model_config="config.yaml")
     return config
 
 

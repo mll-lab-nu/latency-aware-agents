@@ -562,7 +562,6 @@ def test_flappy_sf_shape_mismatch_fails_fast():
         validate_sample_factory_obs_shape(
             {"obs": np.zeros((1, 12, 512, 288), dtype=np.uint8)},
             expected_shape=(12, 84, 84),
-            policy_type="flappy_sf",
         )
 
 
@@ -576,10 +575,12 @@ def test_flappy_sf_update_ratio_metadata():
 
 def test_common_sf_args_passes_latency_distribution_without_legacy_train_values():
     config = {
+        "executor": {"mode": "simulated"},
+        "policy": {"type": "sample_factory"},
         "experiment": {"name": "dist_run", "seed": 3},
         "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
         "env": {"name": "demon_attack", "env_fps": 60, "obs_fps": 15},
-        "executor": {"simulated_worker_capacity": 1},
+        "executor": {"mode": "simulated", "simulated_worker_capacity": 1},
         "latency": {
             "method": "uniform",
             "min_latency_ms": 0.0,

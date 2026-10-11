@@ -10,27 +10,18 @@ executor:
   mode: realtime
   inference_devices: [cuda:0]
 
-latency:
-  method: measured
-  device: cuda:0
   sync_cuda: true
-  model_id: air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k
-  gpu_class: 1x-rtx3090
-  workload_id: qwenoft
-  instance_id: instance_859cf1e47bca6046
-
 policy:
-  checkpoint_path: /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k/config.full.yaml
   task_manifest_path: /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k/manifest.json
-  device: cuda:0
   latency_prompt_map_path: /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k/latency_prompt_map.json
   latency_prompt_key: 3
 
+  source: local
+  root:
+    /workspace/models/extra-envs-checkpoints/OpenVLA/profile-latency/air_raid_qwenoft_rtx3090_profile_return_gt2000_100ep_openvla_native_sft_5k
+  checkpoint: checkpoints/steps_5000_pytorch_model.pt
+  model_config: config.full.yaml
 evaluation:
-  eval_episodes: 20
-  eval_latency_values: null
-
+  episodes: 20
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/air_raid/rtx3090_profile_starvla_realtime_eval
-  realtime_pipeline_profile: true

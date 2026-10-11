@@ -110,18 +110,6 @@ def _action_record(
 ) -> dict:
     metadata: dict = {
         "frame_ms": 40.0,
-        "realtime_profile": {
-            "env_observe_ms": 1.0,
-            "env_to_parent_ipc_ms": 2.0,
-            "parent_observation_handle_ms": 3.0,
-            "parent_to_worker_ipc_ms": 0.0,
-            "worker_recv_overhead_ms": 0.0,
-            "worker_to_parent_ipc_ms": 0.0,
-            "parent_release_ms": 4.0,
-            "parent_to_env_ipc_ms": 5.0,
-            "env_action_recv_to_enqueue_ms": 6.0,
-            "env_scheduler_update_ms": 7.0,
-        }
     }
     if episode_id is not None:
         metadata["episode_id"] = episode_id

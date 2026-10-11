@@ -5,16 +5,28 @@ experiment:
 
 policy:
   type: starvla
-  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/humanoid_rgb_state_l0_return_gt5000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/humanoid_rgb_state_l0_return_gt5000_100ep_openvla_native_sft_5k/config.full.yaml
   task_manifest_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/humanoid_rgb_state_l0_return_gt5000_100ep/manifest.json
-  device: cuda
   latency_prompt_map_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/humanoid_rgb_state_l0_return_gt5000_100ep/latency_prompt_map.json
   latency_prompt_key: 0
 
+  source: local
+  root:
+    /mnt/checkpoints/latency-sensitive-bench/openvla_runs/humanoid_rgb_state_l0_return_gt5000_100ep_openvla_native_sft_5k
+  checkpoint: checkpoints/steps_5000_pytorch_model.pt
+  model_config: config.full.yaml
 evaluation:
-  eval_episodes: 20
-  eval_latency_values: [0, 2]
+  episodes: 20
+  suites:
+  - name: eval_latency_0
+    latency:
+      method: zero
+  - name: eval_latency_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 29.999999999999996
 
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/humanoid/starvla_eval
+executor:
+  inference_devices:
+  - cuda

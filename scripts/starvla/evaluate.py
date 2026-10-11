@@ -95,15 +95,15 @@ def main():
     else:
         input_keys = runtime.TASK_INPUT_KEYS[task_spec(args.task).name]
         config["policy"].update(
-            type="starvla", checkpoint_path=str(args.bundle / "checkpoints/model.pt"),
-            model_config_path=str(args.bundle / "config.yaml"),
-            task_contract_path=str(args.bundle / "task_contract.json"),
+            type="starvla", source="local", root=str(args.bundle), checkpoint="checkpoints/model.pt",
+            model_config="config.yaml",
+            task_contract_path="task_contract.json",
             worker_python_executable=str(args.vla_python), backbone_path=str(args.backbone),
-            device="cuda:0",
             state_info_key=input_keys["state_info_key"],
             image_views_info_key=input_keys["image_views_info_key"],
         )
-        config["evaluation"]["eval_episodes"] = args.episodes
+        config["executor"]["inference_devices"] = ["cuda:0"]
+        config["evaluation"]["episodes"] = args.episodes
         config["experiment"]["seed"] = args.seed_start
         config["logging"]["output_dir"] = str(args.output)
         config_path = args.output / "eval_config.yaml"

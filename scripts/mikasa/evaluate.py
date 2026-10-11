@@ -124,7 +124,7 @@ def _latency_eval(argv: list[str]) -> None:
     if config["executor"]["mode"] == "simulated":
         backend = MikasaEnvStepBackend(
             config=config,
-            num_slots=int(config["evaluation"]["eval_parallel_envs"]),
+            num_slots=int(config["executor"]["parallel_envs"]),
         )
     run_from_config(
         config,

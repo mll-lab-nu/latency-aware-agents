@@ -11,11 +11,13 @@ policy:
   state_source: transport
   prompt_mode: latency_neutral
 
-latency:
-  method: measured
-
 evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  latency_bench_env_backend: serial
-  eval_max_steps: 7200
+  episodes: 10
+  max_env_steps: 7200
+executor:
+  parallel_envs: 1
+  env_backend: serial
+  mode: realtime
+  inference_devices:
+  - cuda
+  sync_cuda: true

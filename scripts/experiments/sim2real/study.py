@@ -65,7 +65,7 @@ def calibrate(base, training_profile, output, *, inference_device, simulator_dev
         # At least one request is admitted per episode. The driver finishes
         # the current episode once the sample budget has been collected.
         config["evaluation"].update(
-            eval_episodes=protocol["calibration_samples"], calibration_samples=protocol["calibration_samples"],
+            episodes=protocol["calibration_samples"], calibration_samples=protocol["calibration_samples"],
         )
         runtime.execute_stage(config, probe_dir, entry)
         publication.publish(f"calibration/probe_{index}", [probe_dir])
@@ -241,7 +241,7 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
         **{key: registry[key] for key in ("model_repo", "model_revision", "backbone")},
     }
     write_json_atomic(output / "experiment.json", manifest)
-    write_generated_config(output / "eval_template.yaml", portable_eval_config(base, entry))
+    write_generated_config(output / "eval_template.yaml", portable_eval_config(base, entry, registry))
     publication = StudyPublication(output, source_ref)
     print(f"EXPERIMENT_ID={output.name}\nOUTPUT_DIR={output}", flush=True)
     publication.publish("context", [output / filename for filename in (

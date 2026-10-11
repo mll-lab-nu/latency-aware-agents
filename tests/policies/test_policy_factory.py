@@ -82,15 +82,13 @@ def test_custom_policy_rejects_invalid_factory_reference(monkeypatch, reference,
         build_policy(config, ActionResolver(config["env"]))
 
 
-@pytest.mark.parametrize("policy_type", [
-    "flappy_sf", "demon_attack_sf", "deadly_corridor_sf", "gymnasium_sf",
-])
-def test_sample_factory_policy_types_are_supported(monkeypatch, policy_type):
+def test_sample_factory_policy_type_is_supported(monkeypatch):
+    policy_type = "sample_factory"
     policy_module = ModuleType("latency_bench.policy.sample_factory")
     built = []
     sentinel = object()
 
-    def build_sample_factory_policy(config, action_resolver, *, policy_type):
+    def build_sample_factory_policy(config, action_resolver):
         built.append((config, action_resolver, policy_type))
         return sentinel
 

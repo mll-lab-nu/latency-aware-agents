@@ -5,16 +5,17 @@ executor:
   mode: realtime
   inference_devices:
   - cuda:0
-latency:
-  method: measured
-  device: cuda:0
   sync_cuda: true
+  parallel_envs: 1
 policy:
-  checkpoint_kind: best
+  source: hf
+  checkpoint: checkpoints/steps_5000_pytorch_model.pt
+  model_config: config.full.yaml
+  revision: a4099f759f71ffa72d967be3695c8e054cfc377c
+  hf_repo: MLL-Lab/LAGEN-models
+  root: zero-latency/flappy/vla/starvla-qwenoft-h1/openvla_flappy_fix_latency_0
 evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_latency_values: null
+  episodes: 10
 logging:
   output_dir: outputs/profiling
   video:
@@ -24,11 +25,4 @@ profiling:
   workload_id: flappy
   repeats: 5
   calibration: null
-  hf_repo: MLL-Lab/LAGEN-profiles
-  model_artifact:
-    source: hf
-    checkpoint: checkpoints/steps_5000_pytorch_model.pt
-    model_config: config.full.yaml
-    hf_repo: MLL-Lab/LAGEN-models
-    revision: a4099f759f71ffa72d967be3695c8e054cfc377c
-    hf_path: zero-latency/flappy/vla/starvla-qwenoft-h1/openvla_flappy_fix_latency_0
+  publish_repo: MLL-Lab/LAGEN-profiles

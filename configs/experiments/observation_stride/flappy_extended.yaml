@@ -19,9 +19,8 @@ seeds:
   - 14
 
 evaluation:
-  eval_episodes: 100
-  eval_max_steps: 36000
-
+  episodes: 100
+  max_env_steps: 36000
 latency_settings:
   fixed_l2:
     kind: fixed

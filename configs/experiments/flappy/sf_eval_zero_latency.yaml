@@ -12,22 +12,17 @@ latency:
   add_latency_info: false
 
 policy:
-  type: flappy_sf
-  checkpoint_path: ""
+  type: sample_factory
   checkpoint_kind: best
-  device: auto
   deterministic: true
 
+  source: local
+  root: .
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 100
-  eval_max_steps: 3600
-  eval_deterministic: true
   eval_raw_reward: false
-  eval_suites:
-    fixed: []
-    normal: []
-    uniform: []
+  episodes: 100
+  max_env_steps: 3600
+  suites: []
 
 logging:
   output_dir: outputs/flappy_sf_eval_zero_latency
@@ -37,3 +32,7 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
+executor:
+  inference_devices:
+  - auto
+  parallel_envs: 100

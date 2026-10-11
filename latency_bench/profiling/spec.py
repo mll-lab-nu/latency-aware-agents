@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from latency_bench.core.config import resolve_runtime_config
+
 import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from latency_bench.eval.config import resolve_evaluation_config
+
 
 
 def path_segment(value: str) -> str:
@@ -24,7 +26,7 @@ def resolve_profile_config(config: dict[str, Any]) -> dict[str, Any]:
     Filesystem paths follow evaluation's caller-working-directory convention.
     """
     config = deepcopy(config)
-    resolve_evaluation_config(config)
+    resolve_runtime_config(config)
     options = config["profiling"]
     for name in ("model_id", "workload_id"):
         path_segment(options[name])
@@ -38,8 +40,8 @@ def resolve_profile_config(config: dict[str, Any]) -> dict[str, Any]:
         options["eval_entrypoint"] = os.path.abspath(Path(options["eval_entrypoint"]).expanduser())
     if not config["executor"]["inference_devices"]:
         raise ValueError("executor.inference_devices must select at least one worker")
-    if config["evaluation"]["eval_parallel_envs"] != 1:
-        raise ValueError("Profiling requires evaluation.eval_parallel_envs: 1")
-    if config["evaluation"]["eval_latency_values"] is not None or config["evaluation"].get("eval_suites"):
+    if config["executor"]["parallel_envs"] != 1:
+        raise ValueError("Profiling requires executor.parallel_envs: 1")
+    if config["evaluation"]["suites"]:
         raise ValueError("Profiling requires one workload, without evaluation sweeps or suites")
     return config

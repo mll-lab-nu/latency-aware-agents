@@ -89,7 +89,7 @@ state supports `--resume`. Preserve its run ID, inputs, configuration, and data.
 The shared runner evaluates the final bundle at zero latency. Use that bundle
 in an ordinary profiling config. For MIKASA, inherit
 `configs/examples/profiling/mikasa_intercept_grab_fast/qwenoft.yaml` and set
-`profiling.model_artifact.source: local` plus `local_root` to the inference
+`policy.source: local` plus `policy.root` to the inference
 bundle directory. The example names `checkpoints/model.pt` inside that directory.
 Set `policy.backbone_path` when the bundle has no explicit backbone metadata.
 
@@ -98,7 +98,7 @@ CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench.profiling.cli run --config my_p
 ```
 
 `profiling.repeats` selects the total measurement repetitions, including the first.
-`evaluation.eval_episodes` selects episodes per repetition. Balance and MIKASA
+`evaluation.episodes` selects episodes per repetition. Balance and MIKASA
 examples use five repetitions of 50 episodes. Profiling fits action latency from `observation_attempts.jsonl`.
 See the [profiling cookbook](profiling/cookbook.md) for device allocation,
 resume, local replay, and publication. A simulated control rate does not

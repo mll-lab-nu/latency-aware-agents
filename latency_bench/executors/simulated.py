@@ -119,7 +119,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         self,
         episode_id: int,
         seed: int | None = None,
-        eval_max_steps: int = 10000,
+        max_env_steps: int = 10000,
     ) -> EpisodeMetrics:
         if self.episode_latency_source_factory is not None:
             self.latency_source = self.episode_latency_source_factory(episode_id)
@@ -219,7 +219,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
 
         raw_frame = 0
         recent_drop_count = 0
-        while raw_frame < eval_max_steps:
+        while raw_frame < max_env_steps:
             current_time_ms = self.clock.step_to_time_ms(raw_frame)
             worker_capacity.release_ready(raw_frame)
             if pool is not None:

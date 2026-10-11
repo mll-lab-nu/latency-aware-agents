@@ -48,8 +48,8 @@ an existing run with the same inputs. Model suffixes select the other three mode
 ## Profile a checkpoint
 
 Inherit `configs/examples/profiling/g1_sonic_balance_simple/qwenoft.yaml` in
-`my_profile.yaml`. Select `profiling.model_artifact.source: local` and set
-`profiling.model_artifact.local_root` to the training run's inference bundle.
+`my_profile.yaml`. Select `policy.source: local` and set
+`policy.root` to the training run's inference bundle.
 The example uses `checkpoints/model.pt` inside that bundle. Configure the
 matching backbone through `policy.backbone_path` when needed.
 

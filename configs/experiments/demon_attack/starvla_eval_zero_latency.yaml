@@ -11,6 +11,10 @@ backend:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 10
+  env_backend: demon_attack_gpu_batched
 env:
   env_fps: 60
   obs_fps: 15
@@ -21,9 +25,6 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: ""
-  model_config_path: ""
-  device: cuda
   unnorm_key: new_embodiment
   prompt_mode: raw
   actions:
@@ -34,21 +35,16 @@ policy:
     - RIGHTFIRE
     - LEFTFIRE
 
+  source: local
+  root: .
 latency:
   method: zero
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 10
-  latency_bench_env_backend: demon_attack_gpu_batched
-  eval_max_steps: 14400
-  eval_deterministic: true
   eval_raw_reward: true
-  eval_latency_values: null
-  eval_suites:
-    fixed: []
-    normal: []
-    uniform: []
+  episodes: 100
+  max_env_steps: 14400
+  suites: []
 
 logging:
   output_dir: outputs/starvla_demon_attack_zero_latency_eval

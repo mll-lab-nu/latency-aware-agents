@@ -83,14 +83,14 @@ class RunTrajectoryLogger(TrajectoryLogger):
         self._flush_episode_records()
 
 
-def _run_grouped_episodes(executor, groups, seeds, sources, eval_max_steps):
+def _run_grouped_episodes(executor, groups, seeds, sources, max_env_steps):
     """Run and flush prebuilt logical episode groups through a resident executor."""
     result = executor.run_episodes(
         episode_ids=[episode_id for group in groups for episode_id in group],
         seeds=seeds,
         episode_groups=groups,
         latency_sources_by_episode=sources,
-        eval_max_steps=eval_max_steps,
+        max_env_steps=max_env_steps,
     )
     executor.logger.flush()
     return result
@@ -99,11 +99,9 @@ def _run_grouped_episodes(executor, groups, seeds, sources, eval_max_steps):
 def build_replay_executor(config, parallel_runs):
     """Use the task's existing environment backend, including for a one-slot check."""
     config = deepcopy(config)
-    config["evaluation"].update(
-        eval_parallel_envs=parallel_runs, eval_episodes=config["evaluation"]["eval_episodes"] * parallel_runs,
-    )
+    config['evaluation'].update(episodes=config['evaluation']['episodes'] * parallel_runs)
+    config["executor"]["parallel_envs"] = parallel_runs
     config["executor"]["inference_batch_size"] = parallel_runs
-    config["logging"]["simulated_pipeline_profile"] = False
     runtime.prepare_replay_runtime(config)
     if config["env"]["name"] == "mikasa_intercept_grab_fast":
         # The simulator interpreter owns this optional ManiSkill dependency.
@@ -111,7 +109,7 @@ def build_replay_executor(config, parallel_runs):
         backend = MikasaEnvStepBackend(config=config, num_slots=parallel_runs)
     else:
         backend = build_env_step_backend(
-            resolve_latency_bench_env_backend(config, eval_parallel_envs=parallel_runs),
+            resolve_latency_bench_env_backend(config, parallel_envs=parallel_runs),
             config=config, noop_action=ActionResolver(config["env"]).noop_action, num_slots=parallel_runs,
         )
     executor = build_executor(config, env_backend=backend,
@@ -134,7 +132,7 @@ def replay_runs(executor, configs, run_paths, runtime_dir, on_run_complete, *, p
     )
     return _run_grouped_episodes(
         executor, groups, seeds, sources,
-        next(iter(configs.values()))["evaluation"]["eval_max_steps"],
+        next(iter(configs.values()))["evaluation"]["max_env_steps"],
     )
 
 
@@ -207,7 +205,7 @@ def replay_group(executor, config, path, run_ids, on_run_complete, *, protocol, 
         executor.clock, protocol=protocol, replica_seed=True,
     )
     return _run_grouped_episodes(
-        executor, groups, seeds, sources, config["evaluation"]["eval_max_steps"],
+        executor, groups, seeds, sources, config["evaluation"]["max_env_steps"],
     )
 
 
@@ -239,7 +237,7 @@ def replay_settings(executor, jobs, output, publication, *, protocol):
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     print(f"PARALLEL_RUNS={len(jobs)} SETTINGS={len({path.parent for path in paths.values()})}", flush=True)
     _run_grouped_episodes(
-        executor, groups, seeds, sources, jobs[0][2]["evaluation"]["eval_max_steps"],
+        executor, groups, seeds, sources, jobs[0][2]["evaluation"]["max_env_steps"],
     )
     timing = output / "runtime/groups" / f"{stamp}.json"
     write_json(timing, {"stage": "sim", "seconds": time.perf_counter() - started, "gpu_count": 1,

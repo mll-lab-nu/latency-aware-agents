@@ -231,9 +231,9 @@ def test_eval_config_preserves_explicit_episode_count_and_seed(tmp_path, monkeyp
         teacher_config=teacher_config,
     )
 
-    config = train_task.eval_config(args, tmp_path / 'bundle', tmp_path / 'eval', eval_episodes=50)
+    config = train_task.eval_config(args, tmp_path / 'bundle', tmp_path / 'eval', episodes=50)
 
-    assert config['evaluation']['eval_episodes'] == 50
+    assert config['evaluation']['episodes'] == 50
     assert config['experiment']['seed'] == 1234
 
 
@@ -474,9 +474,23 @@ def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_pat
     profile.write_text(json.dumps({'summary': {'mean_ms': 40.001}}))
     source = tmp_path / 'environment.json'
     source.write_text(json.dumps({
-        'experiment': {'seed': 1}, 'env': {'name': 'gymnasium', 'env_fps': 50},
-        'executor': {'mode': 'realtime'}, 'policy': {'type': 'random'},
-        'evaluation': {}, 'logging': {},
+        'experiment': {
+            'seed': 1,
+        },
+        'env': {
+            'name': 'g1_sonic_balance_simple',
+            'env_fps': 50,
+        },
+        'executor': {
+            'mode': 'realtime',
+        },
+        'policy': {
+            'type': 'random',
+        },
+        'evaluation': {
+        },
+        'logging': {
+        },
     }))
     output = tmp_path / 'eval'
     monkeypatch.setattr(sys, 'argv', [
@@ -502,14 +516,15 @@ def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_pat
     assert (
         config['policy']['state_info_key'], config['policy']['image_views_info_key']
     ) == expected_input_keys[task]
-    assert config['policy']['device'] == 'cuda:0'
+    assert config['executor']['inference_devices'] == ['cuda:0']
     assert config['experiment']['seed'] == 810001
-    assert config['evaluation']['eval_episodes'] == 2
+    assert config['evaluation']['episodes'] == 2
     command = ' '.join(map(str, calls[0]))
     assert {'balance': 'latency_bench.run', 'mikasa': 'scripts/mikasa/evaluate.py'}[task] in command
     if task == 'balance':
+        config['policy']['task_contract_path'] = str(bundle / 'task_contract.json')
         prepare_starvla_checkpoint_input_config(config)
-        assert config['env']['name'] == 'balance_profile'
+        assert config['env']['name'] == 'g1_sonic_balance_simple'
         assert config['env']['action_context_horizon'] == 8
     with pytest.raises(FileExistsError):
         evaluate.main()

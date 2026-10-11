@@ -30,7 +30,7 @@ def _has_explicit_sample_factory_checkpoint_selection(config: dict[str, Any]) ->
     policy_cfg = config["policy"]
     if "checkpoint_kind" in policy_cfg:
         return True
-    return "checkpoint_path" in policy_cfg and bool(policy_cfg["checkpoint_path"])
+    return "checkpoint" in policy_cfg and policy_cfg["checkpoint"] is not None
 
 
 def _episode_ids_from_cli_args(args: argparse.Namespace) -> list[int] | None:
@@ -54,8 +54,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--checkpoint-kind", choices=["latest", "best"])
     parser.add_argument("--latency-prompt-map-path", type=Path)
     parser.add_argument("--latency-raw-frames", type=int)
-    parser.add_argument("--eval-max-steps", type=int)
-    parser.add_argument("--eval-parallel-envs", type=int)
+    parser.add_argument("--max-env-steps", type=int)
+    parser.add_argument("--parallel-envs", type=int)
     parser.add_argument("--episode-start", type=int)
     parser.add_argument("--episode-count", type=int)
     args = parser.parse_args(argv)
@@ -70,8 +70,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         checkpoint_kind=args.checkpoint_kind,
         latency_prompt_map_path=args.latency_prompt_map_path,
         latency_raw_frames=args.latency_raw_frames,
-        eval_max_steps=args.eval_max_steps,
-        eval_parallel_envs=args.eval_parallel_envs,
+        max_env_steps=args.max_env_steps,
+        parallel_envs=args.parallel_envs,
     )
     episode_ids = _episode_ids_from_cli_args(args)
     if has_eval_suites(config):

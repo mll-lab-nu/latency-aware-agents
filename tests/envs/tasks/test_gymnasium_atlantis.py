@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
 from types import SimpleNamespace
 from typing import Any
 
@@ -152,6 +153,7 @@ def test_scaffold_reports_ntsc_and_random_noop(monkeypatch, capsys):
 ])
 def test_atlantis_configs_share_contract_and_l1(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 
@@ -173,6 +175,7 @@ def test_atlantis_configs_share_contract_and_l1(config_path):
 ])
 def test_atlantis_zero_latency_configs_share_contract(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 

@@ -3,7 +3,6 @@ experiment:
   name: pendulum_fasttd3_chunk_h8
   seed: 0
 backend:
-  type: sample_factory
   device: gpu
   train_dir: outputs/examples/pendulum_fasttd3_chunk/checkpoints
   restart_behavior: restart
@@ -11,11 +10,9 @@ backend:
   initial_model_path: null
 executor:
   mode: simulated
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: pendulum_continuous
-  env_id: Pendulum-v1
-  registration_imports: []
+  name: pendulum_continuous
   make_kwargs:
     render_mode: null
   env_fps: 20
@@ -39,16 +36,15 @@ latency:
   add_latency_info: false
 policy:
   type: random
+  deterministic: true
 training:
   train_for_env_steps: 1000000
   save_every_sec: 600
   keep_checkpoints: 5
 evaluation:
   eval_interval_steps: null
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
+  episodes: 5
+  max_env_steps: 1000
 logging:
   output_dir: outputs/examples/pendulum_fasttd3_chunk/train
   video:

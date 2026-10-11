@@ -39,17 +39,17 @@ class _ResidentPolicy(PolicyRunner):
 def _config(args: argparse.Namespace) -> dict:
     config = yaml.safe_load(args.eval_config.read_text(encoding="utf-8"))
     training = yaml.safe_load((args.source_run / "bootstrap.yaml").read_text(encoding="utf-8"))
-    config["policy"]["checkpoint_path"] = str(args.checkpoint)
-    config["policy"]["model_config_path"] = str(args.checkpoint.parent.parent / "config.yaml")
+    config["policy"].update(source="local", root=str(args.checkpoint.parent.parent),
+                            checkpoint=str(args.checkpoint.relative_to(args.checkpoint.parent.parent)),
+                            model_config="config.yaml")
     config["policy"]["backbone_path"] = training["framework"]["qwenvl"]["base_vlm"]
     config["policy"]["task_contract_path"] = str(args.bootstrap / "lerobot/task_contract.json")
-    config["policy"]["device"] = f"cuda:{args.inference_gpu}"
     config["executor"]["inference_devices"] = [f"cuda:{args.inference_gpu}"]
-    config["executor"]["simulated_inference_pool"] = args.resident_control_dir is None
+    config["executor"]["inference_pool"] = args.resident_control_dir is None
     config["env"]["simulator_device"] = f"cuda:{args.simulator_gpu}"
     config["experiment"]["seed"] = args.seed
-    config["evaluation"]["eval_episodes"] = args.episodes
-    config["evaluation"]["eval_parallel_envs"] = args.parallel_envs
+    config["evaluation"]["episodes"] = args.episodes
+    config["executor"]["parallel_envs"] = args.parallel_envs
     config["logging"]["output_dir"] = str(args.output)
     return config
 

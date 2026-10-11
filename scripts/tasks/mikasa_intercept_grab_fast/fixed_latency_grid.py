@@ -45,7 +45,7 @@ def build_config(args, bundle: Path, output: Path) -> dict:
         smoke=False, vla_python=args.vla_python, backbone_path=args.backbone_path,
     )
     return eval_config(runtime, bundle, output,
-                       eval_episodes=EPISODES, eval_latency_frames=args.eval_latency)
+                       episodes=EPISODES, eval_latency_frames=args.eval_latency)
 
 
 def summarize_cell(directory: Path, manifest: dict) -> dict:
@@ -139,8 +139,8 @@ def aggregate(zero_results: Path, output: Path) -> dict:
         "protocol": {
             "model": "qwenoft", "action_horizon": 8, "env_fps": 20, "obs_fps": 20,
             "episodes_per_cell": EPISODES, "seed_start": START_SEED,
-            "seed_end": START_SEED + EPISODES - 1, "eval_max_steps": 60,
-            "simulated_worker_capacity": 1, "eval_parallel_envs": 10,
+            "seed_end": START_SEED + EPISODES - 1, "max_env_steps": 60,
+            "simulated_worker_capacity": 1, "parallel_envs": 10,
             "inference_batch_size": 8, "prefix": "fixed by training contract",
             "columns": "train_latency", "rows": "eval_latency", "metric": "success_rate",
         },

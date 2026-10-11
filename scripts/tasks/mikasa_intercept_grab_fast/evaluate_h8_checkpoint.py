@@ -51,7 +51,7 @@ def main() -> None:
         backbone_path=Path(training["framework"]["qwenvl"]["base_vlm"]),
         task_python=args.task_python,
         output_dir=args.run_dir,
-        eval_episodes=args.episodes,
+        episodes=args.episodes,
         eval_cuda_visible_devices=args.eval_cuda_visible_devices,
     )
     label = args.label or f"final-{args.setting}"

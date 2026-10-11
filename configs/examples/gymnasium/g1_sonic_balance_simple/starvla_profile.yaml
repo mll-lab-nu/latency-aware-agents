@@ -7,12 +7,12 @@ experiment:
 executor:
   mode: realtime
 
+  inference_devices:
+  - cuda:0
+  sync_cuda: false
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: g1_sonic_balance_simple
-  env_id: LatencyBench/G1SonicBalanceSimple-v0
-  registration_imports:
-    - latency_bench.envs.tasks.humanoidbench.sonic
+  name: g1_sonic_balance_simple
   make_kwargs:
     scene_path: ./results/humanoidbench_g1_sonic_assets/assets/assets/humanoidbench/g1-sonic/sonic_g1/envs/scene_balance_simple.xml
     render_mode: rgb_array
@@ -26,10 +26,6 @@ env:
   noop_action: [-0.312, -0.312, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.669, 0.669, 0.2, 0.0, -0.363, -0.363, 0.2, 0.2, 0.0, 0.0, 0.0, 0.0, -0.2, 0.6, 0.0, 0.0, 0.0, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   base_prompt: Keep the G1 humanoid balanced on the support board.
 
-latency:
-  method: measured
-  sync_cuda: false
-
 scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
@@ -39,19 +35,17 @@ policy:
   action_prefix:
     mode: none
   type: starvla
-  checkpoint_path: unused
-  model_config_path: unused
   task_contract_path: task_contract.json
-  device: cuda:0
   state_info_key: gymnasium_state
   image_views_info_key: env_raw_rgb_frame_stack
 
+  source: local
+  root: .
+  checkpoint: unused
+  model_config: unused
 evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-
+  episodes: 10
+  max_env_steps: 1000
 logging:
   output_dir: outputs/tasks/humanoidbench_balance_simple/starvla_profile
   video:

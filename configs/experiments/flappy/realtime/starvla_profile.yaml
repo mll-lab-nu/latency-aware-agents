@@ -6,8 +6,12 @@ backend:
   run_mode: eval
 
 executor:
-  mode: simulated
+  mode: realtime
 
+  inference_devices:
+  - cuda
+  sync_cuda: true
+  parallel_envs: 1
 env:
   name: flappy
   gym_id: FlappyBird-v0
@@ -29,12 +33,7 @@ env:
     noop: 0
     flap: 1
   oneshot_actions:
-    - flap
-
-latency:
-  method: measured
-  device: cuda:0
-  sync_cuda: true
+  - flap
 
 scheduler:
   hold_policy: one_frame_then_noop
@@ -42,23 +41,19 @@ scheduler:
 
 policy:
   type: starvla
-  checkpoint_path: ""
-  model_config_path: ""
-  device: cuda
   unnorm_key: new_embodiment
   prompt_mode: latency_neutral
   actions:
-    - noop
-    - flap
+  - noop
+  - flap
 
+  source: local
+  root: .
 evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_latency_values: null
-  eval_max_steps: 3600
-  eval_deterministic: true
   eval_raw_reward: true
 
+  episodes: 10
+  max_env_steps: 3600
 logging:
   output_dir: outputs/starvla_flappy_profile
   save_step_records: true

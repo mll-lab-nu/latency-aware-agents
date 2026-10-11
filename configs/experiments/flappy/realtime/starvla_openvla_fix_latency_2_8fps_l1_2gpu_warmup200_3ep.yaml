@@ -5,6 +5,10 @@ experiment:
 executor:
   mode: realtime
 
+  inference_devices:
+  - cuda:0
+  sync_cuda: true
+  parallel_envs: 1
 env:
   name: flappy
   gym_id: FlappyBird-v0
@@ -28,19 +32,12 @@ env:
   oneshot_actions:
     - flap
 
-latency:
-  method: measured
-  device: cuda:0
-  sync_cuda: true
-
 scheduler:
   hold_policy: one_frame_then_noop
   ordering_policy: latest_ready
 
 policy:
   type: starvla
-  checkpoint_path: /mnt/data/latency_data/openvla_flappy_fix_latency_2/checkpoints/steps_5000_pytorch_model.pt
-  device: cuda
   unnorm_key: new_embodiment
   # Real and simulated runs share the same latency-neutral model prompt.
   prompt_mode: latency_neutral
@@ -48,12 +45,12 @@ policy:
     - noop
     - flap
 
+  source: local
+  root: /mnt/data/latency_data/openvla_flappy_fix_latency_2/checkpoints
+  checkpoint: steps_5000_pytorch_model.pt
 evaluation:
-  eval_episodes: 3
-  eval_parallel_envs: 1
-  eval_latency_values: null
-  eval_max_steps: 3600
-
+  episodes: 3
+  max_env_steps: 3600
 logging:
   output_dir: outputs/starvla_realtime_equivalence_warmup2gpu_3ep/realtime_8fps_l1_2gpu_warmup200_3ep
   save_step_records: true

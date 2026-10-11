@@ -10,25 +10,26 @@ train_upload_repo_type: model
 train_upload_path_prefix: latency-aware/flappy/small-policy/memory_rollout_teacher:flappy:teacher:fixed_l3:fs4:obs30:stride1:seed0
 
 seeds:
-  - 0
+- 0
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 50
-  eval_max_steps: 7200
-
+  episodes: 100
+  max_env_steps: 7200
 latency_settings:
   fixed_l3:
     kind: fixed
     frames: 3
-    eval_suites:
-      fixed: [[3]]
-      normal: []
-      uniform: []
+    suites:
+    - name: fixed_3
+      latency:
+        method: fixed
+        fixed_latency_ms: 100.0
 
 sweeps:
   teacher:
     frame_stack:
-      - 4
+    - 4
     obs_fps:
-      - 13
+    - 13
+executor:
+  parallel_envs: 50

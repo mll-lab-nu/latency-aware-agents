@@ -9,6 +9,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+from latency_bench.policy.model_source import model_file
 import re
 import shutil
 import subprocess
@@ -376,35 +377,39 @@ def inference_bundle(trained: Path, checkpoint: Path, destination: Path, *,
 
 
 def eval_config(args, bundle: Path, output_dir: Path, *,
-                eval_episodes: int | None = None,
+                episodes: int | None = None,
                 eval_latency_frames: int | None = None) -> dict:
     settings = TASK_SETTINGS[args.task]
     spec = task_spec(args.task)
     config = load_config(runtime.ROOT / settings['eval_config'])
     config['experiment'] = {'name': f'{spec.name}_{args.model}_{args.condition}', 'seed': args.eval_seed}
-    config['executor'] = {'mode': 'simulated', 'simulated_inference_pool': True,
+    config['executor'] = {'mode': 'simulated', 'inference_pool': True,
                           'inference_devices': [args.inference_device], 'inference_batch_size': 2 if args.smoke else 8}
-    config['latency'] = {'method': 'zero', 'sync_cuda': False}
+    config['latency'] = {'method': 'zero'}
+    config['executor']['sync_cuda'] = False
     config['env'].update({'obs_fps': spec.fps, 'frame_stack': 1, 'simulator_device': args.simulator_device})
     input_keys = runtime.TASK_INPUT_KEYS[spec.name]
     config['policy'] = {
-        'type': 'starvla', 'action_prefix': {'mode': 'none'}, 'checkpoint_path': str(bundle / 'checkpoints/model.pt'),
-        'model_config_path': str(bundle / 'config.yaml'), 'task_contract_path': str(bundle / 'task_contract.json'),
-        'worker_python_executable': str(args.vla_python), 'device': args.inference_device,
+        'type': 'starvla', 'source': 'local', 'root': str(bundle),
+        'checkpoint': 'checkpoints/model.pt', 'model_config': 'config.yaml',
+        'task_contract_path': 'task_contract.json',
+        'action_prefix': {'mode': 'none'},
+        'worker_python_executable': str(args.vla_python),
         'backbone_path': str(args.backbone_path),
         'state_info_key': input_keys['state_info_key'],
         'image_views_info_key': input_keys['image_views_info_key'],
     }
     config['scheduler'] = {'hold_policy': 'hold', 'ordering_policy': 'latest_ready', 'hold_last_chunk_action': True}
-    config['evaluation'] = {'eval_episodes': (2 if args.smoke else 100)
-                            if eval_episodes is None else eval_episodes,
-                            'eval_parallel_envs': 2 if args.smoke else 10,
-                            'eval_max_steps': settings['max_episode_steps'], 'eval_deterministic': True}
+    config['evaluation'] = {'episodes': (2 if args.smoke else 100)
+                            if episodes is None else episodes,
+                            'max_env_steps': settings['max_episode_steps']}
+    config['executor']['parallel_envs'] = 2 if args.smoke else 10
+    config['policy']['deterministic'] = True
     if args.task in ('mikasa_h8', 'mikasa_conditioned_h8'):
         config['executor']['simulated_worker_capacity'] = 1
         config['latency'] = (
             mikasa_h8_profile_latency(args.model) if eval_latency_frames is None
-            else {'method': 'zero', 'sync_cuda': False} if eval_latency_frames == 0
+            else {'method': 'zero'} if eval_latency_frames == 0
             else {'method': 'fixed', 'fixed_latency_ms': eval_latency_frames * 50.0}
         )
         if args.task == 'mikasa_conditioned_h8':
@@ -417,7 +422,7 @@ def eval_config(args, bundle: Path, output_dir: Path, *,
         config['latency'] = deepcopy(teacher_config['latency'])
         config['scheduler'] = deepcopy(teacher_config['scheduler'])
         config['executor']['simulated_worker_capacity'] = 1
-        config['evaluation']['eval_parallel_envs'] = 1
+        config['executor']['parallel_envs'] = 1
     config['logging'] = {'output_dir': str(output_dir), 'video': {'enabled': False, 'num_bins': 10},
                           'save_step_records': True, 'save_action_records': True, 'save_latency_records': True}
     if args.task == 'balance' and not args.smoke:
@@ -435,7 +440,7 @@ def evaluate(args, bundle: Path, *, label: str,
     output_dir.mkdir(parents=True, exist_ok=True)
     config_path = output_dir / 'eval_config.yaml'
     config = eval_config(args, bundle, output_dir,
-                         eval_episodes=args.eval_episodes, eval_latency_frames=eval_latency_frames)
+                         episodes=args.eval_episodes, eval_latency_frames=eval_latency_frames)
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     command = runtime.evaluation_command(args, config_path)
     if args.task in ('mikasa_h8', 'mikasa_conditioned_h8') and args.eval_cuda_visible_devices is not None:
@@ -636,7 +641,7 @@ def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict
         'round': round_number, 'kind': 'dagger', 'teacher': teacher_reference,
         'bootstrap': {key: value for key, value in bootstrap_reference.items() if key != 'local_dir'},
         'policy_source': {
-            'checkpoint_path': policy['policy']['checkpoint_path'],
+            'checkpoint_path': model_file(policy['policy'], 'checkpoint'),
             'phase': ('initial' if args.dagger_from is not None else 'bootstrap')
                      if round_number == 0 else 'dagger',
             'optimizer_step': ((0 if args.dagger_from is not None else

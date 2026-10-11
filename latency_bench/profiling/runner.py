@@ -22,7 +22,8 @@ from latency_bench.latency.hardware_info import (
 from latency_bench.latency.profile_builder import build_profile_from_traces
 from latency_bench.profiling.artifacts import profile_dir, profile_ref, run_dir, run_ref, simulation_seed_dir
 from latency_bench.profiling.calibration import calibrate_env_fps_from_saturated_latency
-from latency_bench.profiling.profile_resolver import resolve_model_artifacts
+from latency_bench.policy.model_source import resolve_model_source
+from latency_bench.eval.artifacts import read_runtime_snapshot
 from latency_bench.profiling.runtime_configs import (
     eval_command, evaluation_environment, measure_config, simulation_config, write_generated_config,
 )
@@ -36,11 +37,11 @@ def run_profile(
 ) -> dict[str, str]:
     """Measure and fit one deployment using the ordinary realtime evaluation path."""
     set_thread_env_defaults()
-    config = resolve_profile_config(resolve_model_artifacts(config))
-    if config["executor"]["mode"] != "realtime" or config["latency"]["method"] != "measured":
-        raise ValueError("Profiling requires executor.mode: realtime and latency.method: measured")
+    config = resolve_profile_config(resolve_model_source(config))
+    if config["executor"]["mode"] != "realtime":
+        raise ValueError("Profiling requires executor.mode: realtime")
     options = config["profiling"]
-    publish_repo = options["hf_repo"] if publish else None
+    publish_repo = options["publish_repo"] if publish else None
     fingerprint = collect_hardware_fingerprint()
     deployment = describe_inference_deployment(fingerprint, config["executor"]["inference_devices"])
     ref = profile_ref(options["model_id"], deployment["gpu_class"], options["workload_id"], deployment["instance_id"])
@@ -77,7 +78,7 @@ def fit_profile(source_dir: str | Path) -> dict[str, str]:
     """Fit completed local sessions without loading the model or remeasuring hardware."""
     source_dir = Path(source_dir).expanduser().absolute()
     contract = read_json(source_dir / "run_contract.json")
-    config = contract["config"]
+    config = read_runtime_snapshot(contract["config"])
     options = config["profiling"]
     calibration = read_json(source_dir / "calibration.json") if options["calibration"] is not None else None
     config = measure_config(config, contract["deployment"], source_dir, calibration)
@@ -92,7 +93,7 @@ def fit_profile(source_dir: str | Path) -> dict[str, str]:
         provenance = {
             key: {name: value for name, value in artifact.items() if name != "local_root"}
             for key, artifact in config["provenance"].items()
-            if key in {"model_artifact", "runtime_artifact", "backbone_artifact"}
+            if key in {"model_artifact", "backbone_artifact"}
         }
         build_profile_from_traces(
             sessions=[{"measure_session_id": session_id,
@@ -141,9 +142,9 @@ def run_simulation(
     """Replay local profiles using their recorded artifact sources."""
     profile_path = Path(profile_path).expanduser().absolute()
     profile = read_json(profile_path)
-    config = resolve_profile_config(resolve_model_artifacts(config, profile=profile))
+    config = resolve_profile_config(resolve_model_source(config, profile=profile))
     options = config["profiling"]
-    publish_repo = options["hf_repo"] if publish else None
+    publish_repo = options["publish_repo"] if publish else None
     ref = profile_ref(*(path_segment(profile[key]) for key in (
         "model_id", "gpu_class", "workload_id", "instance_id",
     )))
@@ -203,8 +204,8 @@ def _assert_run_contract(
     actual = read_json(path)
     expected = deepcopy(_run_contract(config, deployment))
     # Publication targets do not change the measurement protocol.
-    actual["config"]["profiling"].pop("hf_repo", None)
-    expected["config"]["profiling"].pop("hf_repo", None)
+    actual["config"]["profiling"].pop("publish_repo", None)
+    expected["config"]["profiling"].pop("publish_repo", None)
     if actual != expected:
         raise ValueError(f"Profile run contract does not match: {path}")
 

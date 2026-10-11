@@ -4,18 +4,35 @@ backend:
   run_mode: eval
 
 policy:
-  type: gymnasium_sf
-  checkpoint_path: ''
+  type: sample_factory
   checkpoint_kind: best
-  device: cuda
   deterministic: true
 
+  source: local
+  root: .
 evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-  eval_latency_values: [0, 1, 2, 3, 4]
+  episodes: 10
+  max_env_steps: 1000
+  suites:
+  - name: eval_latency_0
+    latency:
+      method: zero
+  - name: eval_latency_1
+    latency:
+      method: fixed
+      fixed_latency_ms: 8.0
+  - name: eval_latency_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 16.0
+  - name: eval_latency_3
+    latency:
+      method: fixed
+      fixed_latency_ms: 24.0
+  - name: eval_latency_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 32.0
 
 logging:
   output_dir: /mnt/data/latency-sensitive-bench/walker2d/continuous_sf_official_10m_best_eval
@@ -25,3 +42,7 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
+executor:
+  inference_devices:
+  - cuda
+  parallel_envs: 1

@@ -16,6 +16,7 @@ from huggingface_hub.utils import HfHubHTTPError
 from requests import Response
 
 from latency_bench.core.config import load_config
+from latency_bench.policy.model_source import model_file
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.samplers import build_sampler
@@ -72,9 +73,9 @@ def test_asset_resolution_pins_profile_model_and_relocates_archive(tmp_path, mon
     assert config["evaluation"] == original["evaluation"]
     assert config["policy"]["latency_prompt_key"] == 1
     assert config["policy"]["prompt_mode"] == "raw"
-    assert config["policy"]["checkpoint_path"] == str(snapshot / entry["bundle"] / "checkpoints/model.pt")
+    assert model_file(config["policy"], "checkpoint") == str(snapshot / entry["bundle"] / "checkpoints/model.pt")
     assert config["policy"]["task_manifest_path"] == str(snapshot / entry["bundle"] / "manifest.json")
-    model_root = Path(config["policy"]["checkpoint_path"]).parents[1]
+    model_root = Path(model_file(config["policy"], "checkpoint")).parents[1]
     # StarVLA loads these beside the checkpoint even when the adapter reads config.full.yaml.
     assert (model_root / "config.yaml").is_file()
     assert (model_root / "dataset_statistics.json").is_file()
@@ -108,7 +109,7 @@ def test_archived_task_contract_survives_clock_calibration(tmp_path, task, clock
         before = deepcopy(original)
         assert original["env"]["env_fps"] == fps
         assert original["env"]["obs_fps"] == fps / stride
-        assert original["evaluation"]["eval_max_steps"] == horizon
+        assert original["evaluation"]["max_env_steps"] == horizon
         config = runtime.run_config(
             original, tmp_path, inference_device="cuda:0", simulator_device=None,
             env_fps=17.3, run_id=6,
@@ -117,11 +118,11 @@ def test_archived_task_contract_survives_clock_calibration(tmp_path, task, clock
         assert config["env"]["obs_fps"] == 17.3 / stride
         assert config["env"] == {**original["env"], "env_fps": 17.3, "obs_fps": 17.3 / stride}
         assert config["scheduler"] == original["scheduler"]
-        assert config["evaluation"]["eval_max_steps"] == horizon
-        assert config["evaluation"]["eval_episodes"] == 2
+        assert config["evaluation"]["max_env_steps"] == horizon
+        assert config["evaluation"]["episodes"] == 2
         assert config["experiment"]["seed"] == 2_000_120
         assert config["executor"]["inference_devices"] == ["cuda:0"]
-        assert config["policy"] == {**original["policy"], "device": "cuda:0"}
+        assert config["policy"] == original["policy"]
         assert original == before
         assert entry["training_profile"]["revision"]
         for method in PROTOCOL["methods"]:
@@ -134,7 +135,7 @@ def test_archived_task_contract_survives_clock_calibration(tmp_path, task, clock
             )
             assert simulated["env"]["env_fps"] == 17.3
             assert simulated["env"]["obs_fps"] == 17.3 / stride
-            assert simulated["evaluation"]["eval_max_steps"] == horizon
+            assert simulated["evaluation"]["max_env_steps"] == horizon
             assert simulated["experiment"]["seed"] == 2_000_120
             assert simulated["latency"]["method"] == method
             assert simulated["latency"]["profile_path"] == str(profile_path)
@@ -160,13 +161,32 @@ def test_prepare_replay_runtime_resolves_task_contract_and_uses_config_seed(tmp_
     expected_numpy = np.random.RandomState(seed).random_sample()
     expected_torch = torch.rand((), generator=torch.Generator().manual_seed(seed))
     config = {
-        "experiment": {"seed": seed},
-        "executor": {"mode": "simulated"},
-        "env": {"name": "gymnasium", "frame_stack": 4, "env_fps": 20, "obs_fps": 20},
-        "latency": {"method": "zero"},
-        "policy": {"type": "starvla", "task_contract_path": str(task_contract)},
-        "evaluation": {"eval_episodes": 2, "eval_max_steps": 60},
-        "logging": {"output_dir": str(tmp_path / "replay")},
+        'experiment': {
+            'seed': seed,
+        },
+        'executor': {
+            'mode': 'simulated',
+        },
+        'env': {
+            'name': 'g1_sonic_balance_simple',
+            'frame_stack': 4,
+            'env_fps': 20,
+            'obs_fps': 20,
+        },
+        'latency': {
+            'method': 'zero',
+        },
+        'policy': {
+            'type': 'starvla',
+            'task_contract_path': str(task_contract),
+        },
+        'evaluation': {
+            'episodes': 2,
+            'max_env_steps': 60,
+        },
+        'logging': {
+            'output_dir': str(tmp_path / 'replay'),
+        },
     }
 
     original_rng = capture_rng_state()
@@ -176,10 +196,9 @@ def test_prepare_replay_runtime_resolves_task_contract_and_uses_config_seed(tmp_
         assert config["policy"]["task_contract_path"] == str(task_contract)
         assert config["env"]["frame_stack"] == 1
         assert config["env"]["state_space"] == {"labels": ["position"]}
-        assert config["evaluation"]["eval_parallel_envs"] == 1
-        assert config["evaluation"]["eval_latency_values"] is None
-        assert config["executor"]["simulated_inference_pool"] is False
-        assert config["logging"]["simulated_pipeline_profile"] is False
+        assert config["executor"]["parallel_envs"] == 1
+        assert config["evaluation"]["suites"] == []
+        assert config["executor"]["inference_pool"] is False
         assert random.random() == expected_python
         assert np.random.random() == expected_numpy
         torch.testing.assert_close(torch.rand(()), expected_torch)
@@ -305,7 +324,7 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
     monkeypatch.setattr(study, "public_hardware_projection", lambda *a, **kw: {
         "gpu_class": "1x-test", "gpus": [{"name": "test", "slot": 0}],
     })
-    base["policy"]["checkpoint_path"] = "/private-host/model.pt"
+    base["policy"].update(source="local", root="/private-host", checkpoint="model.pt")
     output = tmp_path / "experiment"
     hub = MemoryHub()
     monkeypatch.setattr(publication_module, "HfApi", lambda: hub)
@@ -318,7 +337,7 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
         evaluated.append(directory)
         seed = config["experiment"]["seed"]
         observed_seeds[directory] = seed
-        count = config["evaluation"]["eval_episodes"]
+        count = config["evaluation"]["episodes"]
         if "calibration_samples" in config["evaluation"]:
             write_jsonl(directory / "observation_attempts.jsonl", _attempts(500, 20.0))
         else:
@@ -393,7 +412,7 @@ def test_real_upload_resume_and_pinned_cross_host_replay(tmp_path, monkeypatch, 
     assert f"{source_ref}/profile/profile.json" in hub.profile_snapshots[profile_source["revision"]]
     changed = deepcopy(base)
     changed["env"].update(env_fps=30, obs_fps=30)
-    changed["policy"]["checkpoint_path"] = "/new-host/model.pt"
+    changed["policy"].update(source="local", root="/new-host", checkpoint="model.pt")
     if parallel_runs == 5:
         monkeypatch.setattr(replay_engine, "build_replay_executor", lambda config, slots: (
             SimpleNamespace(run_warmup=lambda: None, close=lambda: None), config,

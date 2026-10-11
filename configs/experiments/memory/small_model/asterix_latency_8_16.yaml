@@ -12,17 +12,15 @@ eval_upload_repo_id: MLL-Lab/LAGEN-datasets
 eval_upload_repo_type: dataset
 eval_upload_path_prefix: evaluations/archive/paper-experiment-evals/memory/small_model/asterix/latency_8_16_10m_fs4_1min_eval
 seeds:
-  - 10
-  - 11
-  - 12
-  - 13
-  - 14
+- 10
+- 11
+- 12
+- 13
+- 14
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 1
-  eval_max_steps: 3600
-
+  episodes: 100
+  max_env_steps: 3600
 training:
   train_for_env_steps: 10000000
 
@@ -30,23 +28,25 @@ latency_settings:
   fixed_l8:
     kind: fixed
     frames: 8
-    eval_suites:
-      fixed:
-        - [8]
-      normal: []
-      uniform: []
+    suites:
+    - name: fixed_8
+      latency:
+        method: fixed
+        fixed_latency_ms: 133.33333333333334
   fixed_l16:
     kind: fixed
     frames: 16
-    eval_suites:
-      fixed:
-        - [16]
-      normal: []
-      uniform: []
+    suites:
+    - name: fixed_16
+      latency:
+        method: fixed
+        fixed_latency_ms: 266.6666666666667
 
 sweeps:
   frame_stack:
     frame_stack:
-      - 4
+    - 4
     obs_fps:
-      - 15
+    - 15
+executor:
+  parallel_envs: 1

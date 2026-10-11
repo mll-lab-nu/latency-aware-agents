@@ -6,15 +6,41 @@ import pytest
 @pytest.fixture
 def profile_config(tmp_path):
     return {
-        "experiment": {"name": "measurement", "seed": 7},
-        "env": {"name": "dummy", "env_fps": 50, "obs_fps": 10, "noop_action": "noop"},
-        "policy": {"type": "constant", "action": "noop"},
-        "executor": {"mode": "realtime", "inference_devices": ["cpu"]},
-        "latency": {"method": "measured", "sync_cuda": False},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "evaluation": {"eval_episodes": 2, "eval_max_steps": 10},
-        "logging": {"output_dir": str(tmp_path / "output")},
-        "profiling": {"model_id": "user_model", "workload_id": "user_task", "repeats": 2},
+        'experiment': {
+            'name': 'measurement',
+            'seed': 7,
+        },
+        'env': {
+            'name': 'dummy',
+            'env_fps': 50,
+            'obs_fps': 10,
+            'noop_action': 'noop',
+        },
+        'policy': {
+            'type': 'constant',
+            'action': 'noop',
+        },
+        'executor': {
+            'mode': 'realtime',
+            'inference_devices': ['cpu'],
+            'sync_cuda': False,
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'evaluation': {
+            'episodes': 2,
+            'max_env_steps': 10,
+        },
+        'logging': {
+            'output_dir': str(tmp_path / 'output'),
+        },
+        'profiling': {
+            'model_id': 'user_model',
+            'workload_id': 'user_task',
+            'repeats': 2,
+        },
     }
 
 

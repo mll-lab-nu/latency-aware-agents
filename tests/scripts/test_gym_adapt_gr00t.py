@@ -25,9 +25,10 @@ def test_air_raid_gr00t_configs_keep_appo_h1_and_realtime_modes(tmp_path):
     for mode in ("zero", "iid", "measured"):
         evaluation = evaluation_config("air_raid", tmp_path, tmp_path / "backbone", tmp_path,
             mode=mode, profile=tmp_path / "profile.json", episodes=20, profiling=False, prompt_key=0)
-        assert evaluation["latency"]["method"] == mode
+        if mode != "measured":
+            assert evaluation["latency"]["method"] == mode
         assert evaluation["executor"]["mode"] == ("realtime" if mode == "measured" else "simulated")
-        assert evaluation["evaluation"]["eval_max_steps"] == 3600
+        assert evaluation["evaluation"]["max_env_steps"] == 3600
         assert evaluation["policy"]["task_manifest_path"] == str(tmp_path / "manifest.json")
 
     config_path = tmp_path / "evaluation.json"
@@ -35,8 +36,8 @@ def test_air_raid_gr00t_configs_keep_appo_h1_and_realtime_modes(tmp_path):
     profile = profiling_config("air_raid", config_path, tmp_path / "bundle", tmp_path / "profile")
     assert profile["env"] == evaluation["env"]
     assert profile["executor"]["mode"] == "realtime"
-    assert profile["latency"]["method"] == "measured"
-    assert profile["profiling"]["model_artifact"]["local_root"] == str(tmp_path / "bundle")
+    assert profile["executor"]["sync_cuda"] is True
+    assert profile["policy"]["root"] == str(tmp_path / "bundle")
     assert profile["profiling"]["repeats"] == 5
 
 
@@ -81,7 +82,7 @@ def test_appo_gr00t_h1_manifest_and_four_gpu_config(tmp_path, task, state_dim, a
         evaluation = evaluation_config(task, tmp_path, tmp_path, tmp_path / "eval",
             mode="zero", profile=None, episodes=20, profiling=profiling, prompt_key=0)
         assert gymnasium_task_contract(evaluation["env"]) == contract
-        assert evaluation["evaluation"]["eval_max_steps"] == (900 if profiling else 1000)
+        assert evaluation["evaluation"]["max_env_steps"] == (900 if profiling else 1000)
     if task == "inverted_pendulum":
         import yaml
         from scripts.gym_adapt.gr00t import export_bundle

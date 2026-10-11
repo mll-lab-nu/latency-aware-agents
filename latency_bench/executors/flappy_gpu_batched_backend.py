@@ -361,7 +361,7 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
 
     @staticmethod
     def _policy_observation_layout(config: dict[str, Any]) -> str:
-        return "chw" if config_policy_type(config) == "flappy_sf" else "hwc"
+        return "chw" if config_policy_type(config) == "sample_factory" else "hwc"
 
     @staticmethod
     def _nchw_to_hwc_frames(obs: torch.Tensor) -> list[np.ndarray]:

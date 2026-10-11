@@ -89,8 +89,7 @@ def build_lunar_lander_env_config(
 ) -> dict[str, Any]:
     return {
         "env": {
-            "name": "gymnasium",
-            "task_name": "lunar_lander_discrete",
+            "name": "lunar_lander_discrete",
             "env_id": env_id,
             "registration_imports": [],
             "make_kwargs": make_kwargs,

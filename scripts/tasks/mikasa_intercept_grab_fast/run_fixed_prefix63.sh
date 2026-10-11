@@ -74,8 +74,8 @@ training = yaml.safe_load((sft / 'bootstrap.yaml').read_text())
 args = SimpleNamespace(task='mikasa_conditioned_h8', model='qwenoft', condition=condition,
     eval_seed=4242424442, inference_device='cuda:1', simulator_device='cuda:0', smoke=False,
     vla_python=python, backbone_path=Path(training['framework']['qwenvl']['base_vlm']))
-config = eval_config(args, sft / 'inference', Path('unused'), state / 'development',
-                     eval_episodes=100, eval_latency_frames=FIXED_LATENCIES[condition])
+config = eval_config(args, sft / 'inference', state / 'development',
+                     episodes=100, eval_latency_frames=FIXED_LATENCIES[condition])
 (state / 'eval.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
 PY
 printf 'dagger-5000-five-latencies\n' > "$STATE/phase"

@@ -11,6 +11,7 @@ from gymnasium.spaces import Box, Discrete
 
 from latency_bench.core.types import Action, PolicyOutput
 from latency_bench.envs.adapters.dummy import DummyEnvAdapter
+from latency_bench.envs.factory import register_env_adapter
 from latency_bench.policy.base import PolicyRunner
 
 
@@ -53,6 +54,7 @@ class UserPolicy(PolicyRunner):
         return PolicyOutput(Action(self.count), raw_output=self.count)
 
 
+@register_env_adapter("external_counter")
 def make_env(config, noop_action):
     return UserEnv(config, noop_action)
 
@@ -97,6 +99,7 @@ class CollectionPolicy(UserPolicy):
         return [self.predict(observation) for observation in observations]
 
 
+@register_env_adapter("external_collection")
 def make_collection_env(config, noop_action):
     return CollectionEnv(config, noop_action)
 

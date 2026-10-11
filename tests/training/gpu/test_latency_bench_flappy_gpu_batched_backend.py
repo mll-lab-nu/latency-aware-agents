@@ -70,9 +70,9 @@ def _config(output_dir: str, *, num_episodes: int = 3, score_limit: int | None =
             "actions": ["noop", "flap"],
         },
         "evaluation": {
-            "eval_episodes": int(num_episodes),
-            "eval_max_steps": 6,
-            "eval_parallel_envs": 3,
+            "episodes": int(num_episodes),
+            "max_env_steps": 6,
+            "parallel_envs": 3,
         },
         "logging": {
             "output_dir": output_dir,
@@ -413,10 +413,10 @@ def test_flappy_gpu_batched_executor_preserves_serial_episode_metrics(tmp_path):
     pytest.importorskip("torch")
 
     serial_config = _config(str(tmp_path / "serial"), num_episodes=3)
-    serial_config["evaluation"]["latency_bench_env_backend"] = "serial"
+    serial_config["executor"]["env_backend"] = "serial"
     batched_config = deepcopy(serial_config)
     batched_config["logging"]["output_dir"] = str(tmp_path / "batched")
-    batched_config["evaluation"]["latency_bench_env_backend"] = "flappy_gpu_batched"
+    batched_config["executor"]["env_backend"] = "flappy_gpu_batched"
 
     serial_executor = build_executor(serial_config)
     batched_executor = build_executor(batched_config)
@@ -426,12 +426,12 @@ def test_flappy_gpu_batched_executor_preserves_serial_episode_metrics(tmp_path):
         serial_metrics = serial_executor.run_episodes(
             episode_ids=episode_ids,
             seeds=seeds,
-            eval_max_steps=6,
+            max_env_steps=6,
         )
         batched_metrics = batched_executor.run_episodes(
             episode_ids=episode_ids,
             seeds=seeds,
-            eval_max_steps=6,
+            max_env_steps=6,
         )
     finally:
         batched_executor.close()

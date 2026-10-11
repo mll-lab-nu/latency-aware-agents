@@ -36,7 +36,6 @@ from latency_bench.executors.realtime.messages import (
 )
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool, attach_observation_arrays
-from latency_bench.logging.realtime_pipeline import PipelineProfile
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
@@ -62,7 +61,6 @@ class CompletionScript:
     ready_time_ms: float
     worker_id: int
     device: str
-    profile: PipelineProfile | None = None
 
 
 class ScriptedInferencePool:
@@ -124,8 +122,6 @@ class ScriptedInferencePool:
         for task, script in self._pending:
             if script.ready_time_ms <= (self.time_fn() - self.episode_start_s) * 1000.0:
                 self._busy_worker_ids.remove(script.worker_id)
-                if script.profile is not None and task.profile is not None:
-                    task.profile.merge_measured(script.profile)
                 ready.append(
                     RealtimePolicyCompletion(
                         task=task,
@@ -145,7 +141,7 @@ class ScriptedInferencePool:
                         ),
                         worker_id=script.worker_id,
                         device=script.device,
-                        profile=task.profile,
+
                     )
                 )
             else:
@@ -261,7 +257,7 @@ def test_inference_worker_seeds_before_policy_build_with_worker_offset(monkeypat
         SuccessfulWorkerMeasurer,
     )
 
-    config = {"experiment": {"seed": 123}, "env": {}, "policy": {}, "latency": {}}
+    config = {"experiment": {"seed": 123}, "env": {}, "policy": {}, "executor": {"sync_cuda": True}}
     for worker_id in (0, 1, 0):
         _inference_worker(
             CloseWorkerConnection(),
@@ -320,7 +316,7 @@ def test_inference_worker_selects_cuda_device_before_policy_build(monkeypatch):
 
     _inference_worker(
         Connection(),
-        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "executor": {"sync_cuda": True}},
         worker_id=1,
         device="cuda:1",
         start_method="spawn",
@@ -508,7 +504,7 @@ class LateCompletionAfterFinalizePool:
                 worker_service_time_ms=1.0,
                 worker_id=0,
                 device="cpu",
-                profile=task.profile,
+
             )
         ]
 
@@ -618,7 +614,7 @@ class SuccessfulWorkerMeasurer:
         self.device = device
         self.sync_cuda = sync_cuda
 
-    def run_and_measure(self, predict, observation, profile, *, obs_id: int):
+    def run_and_measure(self, predict, observation, *, obs_id: int):
         return (
             PolicyOutput(action=Action("jump")),
             LatencyRecord(obs_id=obs_id, latency_ms=1.0),
@@ -630,7 +626,7 @@ class FailingWorkerMeasurer:
         self.device = device
         self.sync_cuda = sync_cuda
 
-    def run_and_measure(self, predict, observation, profile, *, obs_id: int):
+    def run_and_measure(self, predict, observation, *, obs_id: int):
         raise RuntimeError("policy boom")
 
 
@@ -639,8 +635,8 @@ class CallingWorkerMeasurer:
         self.device = device
         self.sync_cuda = sync_cuda
 
-    def run_and_measure(self, predict, observation, profile, *, obs_id: int):
-        return predict(observation, profile), LatencyRecord(obs_id=obs_id, latency_ms=1.0)
+    def run_and_measure(self, predict, observation, *, obs_id: int):
+        return predict(observation), LatencyRecord(obs_id=obs_id, latency_ms=1.0)
 
 
 def _patch_worker_dependencies(monkeypatch, measurer_cls):
@@ -708,7 +704,7 @@ def test_realtime_history_joins_late_results_to_source_windows_and_resets():
     executor = _executor(pool=pool, env_fps=60, obs_fps=15, max_steps=13,
                          config={"env": {"action_history_decisions": 8}}, action_space=Discrete(4))
     for episode in range(2):
-        executor.run_episode(episode_id=episode, eval_max_steps=13)
+        executor.run_episode(episode_id=episode, max_env_steps=13)
         first, second = pool.submitted
         np.testing.assert_array_equal(first.observation.data["transport"], np.zeros(56))
         assert second.submit_env_step == 12
@@ -745,7 +741,7 @@ def test_env_process_fails_when_action_pipe_is_closed(monkeypatch):
     monkeypatch.setattr(executor, "_drain_and_release_results", fake_drain_and_release_results)
 
     with pytest.raises(BrokenPipeError):
-        executor._run_episode_with_env_process(pool=pool, episode_id=0, seed=0, eval_max_steps=1)
+        executor._run_episode_with_env_process(pool=pool, episode_id=0, seed=0, max_env_steps=1)
     assert parent_conn.closed
 
 
@@ -792,7 +788,7 @@ def test_env_process_drains_ready_results_before_submitting_observation(monkeypa
         pool=pool,
         episode_id=0,
         seed=0,
-        eval_max_steps=1,
+        max_env_steps=1,
     )
 
     assert len(pool.submitted) == 1
@@ -841,7 +837,7 @@ def test_env_process_does_not_enqueue_released_actions_on_parent_scheduler(monke
         pool=pool,
         episode_id=0,
         seed=0,
-        eval_max_steps=1,
+        max_env_steps=1,
     )
 
     assert metrics.num_actions == 1
@@ -897,7 +893,7 @@ def test_env_process_records_tail_attempt_and_releases_observation_before_episod
         pool=pool,
         episode_id=0,
         seed=0,
-        eval_max_steps=1,
+        max_env_steps=1,
     )
 
     assert metrics.num_actions == 0
@@ -966,7 +962,7 @@ def test_inference_worker_exits_when_result_pipe_is_closed(monkeypatch):
 
     _inference_worker(
         connection,
-        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "executor": {"sync_cuda": True}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -989,7 +985,7 @@ def test_inference_worker_returns_slim_result_without_observation_task(monkeypat
 
     _inference_worker(
         connection,
-        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "executor": {"sync_cuda": True}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -1049,7 +1045,7 @@ def test_inference_worker_batch_predicts_raw_observations_without_localizing(mon
     connection = Connection()
     _inference_worker(
         connection,
-        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "executor": {"sync_cuda": True}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -1102,7 +1098,7 @@ def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatc
 
         _inference_worker(
             connection,
-            {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+            {"experiment": {"seed": 0}, "env": {}, "policy": {}, "executor": {"sync_cuda": True}},
             worker_id=0,
             device="cpu",
             start_method="spawn",
@@ -1121,28 +1117,6 @@ def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatc
         owner.close()
 
 
-def test_action_dispatch_and_ack_payloads_carry_realtime_profile() -> None:
-    event = ActionEvent(
-        action_id=11,
-        action=Action("jump"),
-        obs_env_step=4,
-        ready_time_ms=120.0,
-        ready_step_float=3.6,
-        latency=LatencyRecord(obs_id=5, latency_ms=20.0),
-        metadata={"realtime_profile": PipelineProfile(parent_release_ms=1.5)},
-    )
-    event.latency_raw_frames = 2
-    event.ready_raw_frame = 6
-
-    payload = _action_event_dispatch_payload(event)
-    dispatched = _action_event_from_dispatch_payload(payload)
-    dispatched.applied = True
-    dispatched.apply_raw_frame = 7
-    ack = _action_event_ack_payload(dispatched)
-
-    assert payload["profile"] == {"parent_release_ms": 1.5}
-    assert dispatched.profile.to_dict() == {"parent_release_ms": 1.5}
-    assert ack["profile"] == {"parent_release_ms": 1.5}
 
 
 def test_env_action_drain_happens_before_scheduler_update() -> None:
@@ -1160,7 +1134,7 @@ def test_env_action_drain_happens_before_scheduler_update() -> None:
         ready_time_ms=0.0,
         ready_step_float=0.0,
         latency=LatencyRecord(obs_id=0, latency_ms=0.0),
-        metadata={"realtime_profile": PipelineProfile(parent_to_env_send_start_ms=9.0)},
+        metadata={},
     )
     event.latency_raw_frames = 0
     event.ready_raw_frame = 0
@@ -1170,15 +1144,12 @@ def test_env_action_drain_happens_before_scheduler_update() -> None:
         connection=pipe,
         action_scheduler=scheduler,
         release_observation=lambda obs_id: None,
-        now_ms_fn=lambda: 10.0,
     )
     active_action = scheduler.update(0, 0.0)
     applied = scheduler.get_applied_events()[0]
 
     assert closed is False
     assert active_action == Action("jump")
-    assert applied.profile.parent_to_env_ipc_ms == 1.0
-    assert applied.profile.env_action_recv_to_enqueue_ms is not None
 
 
 def test_env_action_drain_releases_observations_with_explicit_callback() -> None:
@@ -1218,7 +1189,7 @@ def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
         ready_time_ms=0.0,
         ready_step_float=0.0,
         latency=LatencyRecord(obs_id=0, latency_ms=0.0),
-        metadata={"realtime_profile": PipelineProfile(parent_to_env_send_start_ms=999.0)},
+        metadata={},
     )
     event.ready_raw_frame = 0
     pipe = TimedEnvMessagePipe(
@@ -1232,7 +1203,6 @@ def test_env_wait_drains_actions_before_next_frame_boundary() -> None:
         release_observation=lambda obs_id: None,
         target_wall_s=1.100,
         time_fn=fake_clock.time,
-        now_ms_fn=lambda: 1000.0,
     )
     active_action = scheduler.update(0, 0.0)
 
@@ -1251,13 +1221,13 @@ def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypat
         submit_env_step=4,
         submit_time_ms=120.0,
         observation_start_time_ms=5.0,
-        profile=PipelineProfile(parent_observation_handle_ms=2.0),
+
     )
     result = RealtimePolicyResult(
         policy_output=PolicyOutput(action=Action("jump")),
         completion_time_ms=135.0,
         latency_record=LatencyRecord(obs_id=11, latency_ms=15.0),
-        profile=PipelineProfile(worker_recv_overhead_ms=3.0, worker_result_send_start_ms=17.0),
+
     )
     pool = ProcessInferencePool.__new__(ProcessInferencePool)
     pool.closed = False
@@ -1272,9 +1242,6 @@ def test_process_inference_pool_reconstructs_completion_from_busy_task(monkeypat
     assert completions[0].policy_output.action.value == "jump"
     assert completions[0].worker_id == 0
     assert completions[0].device == "cpu"
-    assert completions[0].profile.parent_observation_handle_ms == 2.0
-    assert completions[0].profile.worker_recv_overhead_ms == 3.0
-    assert completions[0].profile.worker_to_parent_ipc_ms == 3.0
     assert completions[0].observation_to_action_latency_ms == 15.0
     assert completions[0].worker_service_time_ms == 10.0
 
@@ -1335,7 +1302,7 @@ def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch):
 
     _inference_worker(
         connection,
-        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "executor": {"sync_cuda": True}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -1356,7 +1323,7 @@ def test_realtime_observes_on_stride_without_catchup_metadata():
     )
     executor = _executor(pool=pool, env_fps=30.0, obs_fps=10.0, max_steps=7)
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=7)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=7)
 
     assert [task.submit_env_step for task in pool.submitted] == [0, 3, 6]
     assert len(executor.env.applied_actions) == 7
@@ -1372,7 +1339,7 @@ def test_realtime_drops_observation_when_all_workers_are_busy():
     )
     executor = _executor(pool=pool, max_steps=3)
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=3)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=3)
 
     assert [task.submit_env_step for task in pool.submitted] == [0]
     assert metrics.metadata["submitted_observation_frames"] == 1
@@ -1393,7 +1360,7 @@ def test_realtime_logs_capacity_drops_and_tail_completion_in_attempt_order(tmp_p
     )
     executor = _executor(pool=pool, max_steps=3, logger=logger)
 
-    metrics = executor.run_episode(episode_id=4, eval_max_steps=3)
+    metrics = executor.run_episode(episode_id=4, max_env_steps=3)
 
     attempts = [
         json.loads(line)
@@ -1446,7 +1413,7 @@ def test_realtime_attempt_trace_uses_observation_order_for_out_of_order_results(
         logger=logger,
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=4)
+    executor.run_episode(episode_id=0, max_env_steps=4)
 
     attempts = [
         json.loads(line)
@@ -1470,7 +1437,7 @@ def test_realtime_records_inference_worker_count_in_episode_metadata():
     )
     executor = _executor(pool=pool, max_steps=2)
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=2)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=2)
 
     assert metrics.metadata["inference_worker_count"] == 2
 
@@ -1487,7 +1454,7 @@ def test_latest_ready_ignores_older_late_result():
     )
     executor = _executor(pool=pool, ordering_policy=OrderingPolicy.LATEST_READY, max_steps=4)
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=4)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=4)
 
     applied_values = [event.action.value for event in executor.action_scheduler.get_applied_events()]
     assert applied_values == ["second"]
@@ -1507,7 +1474,7 @@ def test_issue_order_fifo_blocks_later_ready_result_until_head_completes():
     )
     executor = _executor(pool=pool, ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO, max_steps=5)
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=5)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=5)
 
     applied_values = [event.action.value for event in executor.action_scheduler.get_applied_events()]
     assert applied_values == ["first", "second"]
@@ -1529,7 +1496,7 @@ def test_realtime_records_worker_id_once_on_latency_metadata(tmp_path):
     )
     executor = _executor(pool=pool, max_steps=2, logger=logger)
 
-    executor.run_episode(episode_id=0, eval_max_steps=2)
+    executor.run_episode(episode_id=0, max_env_steps=2)
 
     # Records are flushed to disk (and cleared from memory) at episode end.
     latency = json.loads((tmp_path / "latencies.jsonl").read_text(encoding="utf-8").splitlines()[0])
@@ -1560,7 +1527,7 @@ def test_realtime_overrun_uses_wall_readiness_for_actions_and_prefix(tmp_path):
         return step(action)
 
     executor.env.step = slow_step
-    executor.run_episode(episode_id=0, eval_max_steps=4)
+    executor.run_episode(episode_id=0, max_env_steps=4)
     rows = [json.loads(line) for line in (tmp_path / "steps.jsonl").read_text().splitlines()]
     assert [row["active_action"]["value"] for row in rows] == [[0], [1], [2], [3]]
     np.testing.assert_array_equal(pool.submitted[2].observation.metadata["action_prefix"][:, 0], [2, 2, 0, 0])
@@ -1621,8 +1588,8 @@ def test_environment_worker_uses_wall_readiness_after_slow_steps(monkeypatch):
     owner = ObservationSlotPool.from_observation(env.observe(), capacity=4)
     try:
         assert env_worker._run_episode(
-            connection, {"logging": {"realtime_pipeline_profile": False}, "policy": {"action_prefix": {"mode": "none"}}},
-            env, clock, scheduler, owner, episode_id=0, seed=1, eval_max_steps=4,
+            connection, {"logging": {}, "policy": {"action_prefix": {"mode": "none"}}},
+            env, clock, scheduler, owner, episode_id=0, seed=1, max_env_steps=4,
             video_output_dir=None, video_fps=None,
         )
     finally:
@@ -1640,7 +1607,7 @@ def test_realtime_records_current_episode_video(tmp_path):
     recorder = EpisodeVideoRecorder(tmp_path / "videos", fps=30.0)
     executor = _executor(pool=pool, max_steps=2, video_recorder=recorder)
 
-    executor.run_episode(episode_id=5, eval_max_steps=2)
+    executor.run_episode(episode_id=5, max_env_steps=2)
 
     manifest = [
         json.loads(line)
@@ -1663,21 +1630,11 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path, histor
     monkeypatch.setattr(realtime_warmup, "STABLE_WINDOW_COUNT", 3)
 
     action = Action(2)
-    profile = PipelineProfile(
-        worker_observation_attach_ms=0.1,
-        worker_observation_localize_ms=0.2,
-        policy_build_example_ms=0.3,
-        policy_wrapper_predict_action_ms=0.4,
-        policy_decode_ms=0.5,
-        worker_recv_overhead_ms=0.6,
-        worker_to_parent_ipc_ms=0.7,
-        parent_to_worker_ipc_ms=0.8,
-    )
     pool = ScriptedInferencePool(
         [
-            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", profile=profile),
-            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", profile=profile),
-            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", profile=profile),
+            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", ),
+            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", ),
+            CompletionScript(action, ready_time_ms=1.0, worker_id=0, device="cuda:0", ),
         ],
         num_workers=1,
     )
@@ -1715,13 +1672,11 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path, histor
     assert summary["warmup_mode"] == "realtime_pipeline"
     assert summary["warmup_status"] == "stable"
     assert summary["warmup_samples"] == 3
-    assert summary["warmup_stage_summary"]["policy_wrapper_predict_action_ms"]["p50"] == pytest.approx(0.4)
     assert len(pool.submitted) == 3
     assert all(task.observation.metadata["episode_id"] == -1 for task in pool.submitted)
     assert all(task.observation.metadata["action_noise_seed"] == 0 for task in pool.submitted)
     assert len(formal_logger.latency_records) == 0
     assert (warmup_dir / "warmup_latencies.jsonl").is_file()
-    assert (warmup_dir / "warmup_pipeline_profile.jsonl").is_file()
     assert (warmup_dir / "warmup_summary.json").is_file()
     assert (warmup_dir / "warmup_stability.png").is_file()
     assert not (tmp_path / "warmup_summary.json").exists()
@@ -1801,8 +1756,8 @@ def test_realtime_pipeline_warmup_keeps_steps_out_of_formal_episodes(monkeypatch
     monkeypatch.setattr(pool, "submit", capture)
     run_episode = executor.run_episode
 
-    def fail_run_episode(*, episode_id, seed, eval_max_steps):
-        del episode_id, seed, eval_max_steps
+    def fail_run_episode(*, episode_id, seed, max_env_steps):
+        del episode_id, seed, max_env_steps
         raise AssertionError("stress warmup must not run realtime episodes")
 
     executor.run_episode = fail_run_episode
@@ -1816,7 +1771,7 @@ def test_realtime_pipeline_warmup_keeps_steps_out_of_formal_episodes(monkeypatch
     for prefix in snapshots:
         np.testing.assert_array_equal(prefix[:, 0], [7, 7, 0, 0])
     executor.run_episode = run_episode
-    executor.run_episode(episode_id=0, seed=1, eval_max_steps=1)
+    executor.run_episode(episode_id=0, seed=1, max_env_steps=1)
     first = pool.submitted[0].observation
     assert first.env_step == 0
     np.testing.assert_array_equal(first.metadata["action_prefix"][:, 0], [7, 7, 0, 0])
@@ -1844,7 +1799,7 @@ def test_run_episode_leaves_gc_enabled():
     pool = ScriptedInferencePool([], num_workers=1)
     executor = _executor(pool=pool, max_steps=3)
 
-    executor.run_episode(episode_id=0, seed=0, eval_max_steps=3)
+    executor.run_episode(episode_id=0, seed=0, max_env_steps=3)
 
     assert gc.isenabled()
 
@@ -1867,7 +1822,7 @@ def test_inference_worker_collect_command_runs_gc_and_keeps_serving(monkeypatch)
 
     _inference_worker(
         connection,
-        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "latency": {}},
+        {"experiment": {"seed": 0}, "env": {}, "policy": {}, "executor": {"sync_cuda": True}},
         worker_id=0,
         device="cpu",
         start_method="spawn",
@@ -1956,7 +1911,7 @@ def test_realtime_prefix_is_frozen_before_completion(ready_time_ms):
     executor = _executor(pool=pool, max_steps=1)
     executor.action_scheduler.noop_action = Action([7.0])
     executor.action_prefix = {"mode": "profile_mean", "frames": 2, "action_horizon": 4, "action_dim": 1}
-    executor.run_episode(episode_id=0, seed=1, eval_max_steps=1)
+    executor.run_episode(episode_id=0, seed=1, max_env_steps=1)
     metadata = pool.submitted[0].observation.metadata
     np.testing.assert_array_equal(metadata["action_prefix"][:, 0], [7, 7, 0, 0])
     np.testing.assert_array_equal(metadata["action_prefix_mask"], [True, True, False, False])
@@ -1972,7 +1927,7 @@ def test_environment_worker_freezes_prefix_before_shared_memory(monkeypatch):
 
         def __init__(self):
             self.commands = [
-                ("episode", {"episode_id": 0, "seed": 1, "eval_max_steps": 1}),
+                ("episode", {"episode_id": 0, "seed": 1, "max_env_steps": 1}),
                 ("release_observation", {"obs_id": 0}),
                 ("finish_episode", {}),
                 ("close", {}),
@@ -1999,11 +1954,30 @@ def test_environment_worker_freezes_prefix_before_shared_memory(monkeypatch):
     env = DummyEnvAdapter(env_fps=50, max_steps=1, noop_action=Action([7.0]))
     monkeypatch.setattr(env_factory, "build_env_adapter", lambda *args: env)
     config = {
-        "env": {"env_fps": 50, "obs_fps": 50, "noop_action": [7.0],
-                "action_space": {"type": "box", "low": [0.0], "high": [10.0]}},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "policy": {"action_prefix": {"mode": "profile_mean", "frames": 2, "action_horizon": 4, "action_dim": 1}},
-        "logging": {"realtime_pipeline_profile": True},
+        'env': {
+            'env_fps': 50,
+            'obs_fps': 50,
+            'noop_action': [7.0],
+            'action_space': {
+                'type': 'box',
+                'low': [0.0],
+                'high': [10.0],
+            },
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'policy': {
+            'action_prefix': {
+                'mode': 'profile_mean',
+                'frames': 2,
+                'action_horizon': 4,
+                'action_dim': 1,
+            },
+        },
+        'logging': {
+        },
     }
     connection = Connection()
     _env_loop_worker(connection, config, None, None)
@@ -2048,12 +2022,12 @@ def test_resident_environment_warms_first_step_and_resets_formal_episodes(monkey
                              ("step", {"action": Action(1)})]
             for episode in range(2):
                 self.commands.extend([
-                    ("episode", {"episode_id": episode, "seed": 100 + episode, "eval_max_steps": 2}),
+                    ("episode", {"episode_id": episode, "seed": 100 + episode, "max_env_steps": 2}),
                     ("release_observation", {"obs_id": 0}),
                     ("release_observation", {"obs_id": 1}), ("finish_episode", {}),
                 ])
             self.commands.append(("close", {}))
-            self.records, self.observations, self.warmup_steps = [], [], []
+            self.records, self.observations, self.warmup_results = [], [], []
 
         def recv(self):
             return self.commands.pop(0)
@@ -2074,20 +2048,34 @@ def test_resident_environment_warms_first_step_and_resets_formal_episodes(monkey
                 if "record" in payload:
                     self.records.append(payload["record"])
                 else:
-                    self.warmup_steps.append(payload["result"].info["env_step_ms"])
+                    self.warmup_results.append(payload["result"])
 
     config = {
-        "env": {"env_fps": 50, "obs_fps": 50, "noop_action": 0,
-                "action_map": {"noop": 0, "jump": 1}},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "policy": {"action_prefix": {"mode": "none"}},
-        "logging": {"realtime_pipeline_profile": True},
+        'env': {
+            'env_fps': 50,
+            'obs_fps': 50,
+            'noop_action': 0,
+            'action_map': {
+                'noop': 0,
+                'jump': 1,
+            },
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'policy': {
+            'action_prefix': {
+                'mode': 'none',
+            },
+        },
+        'logging': {
+        },
     }
     connection = Connection()
     env_worker._env_loop_worker(connection, config, None, None)
-    assert connection.warmup_steps == [500.0]
+    assert len(connection.warmup_results) == 1
     assert connection.observations == [(0, None), (0, 100), (1, 100), (0, 101), (1, 101)]
     assert [r.episode_id for r in connection.records] == [0, 0, 1, 1]
-    assert [r.info["env_step_ms"] for r in connection.records] == pytest.approx([1.0] * 4)
     assert max(r.info["wall_clock_lag_ms"] for r in connection.records) == pytest.approx(0)
     assert env.closed

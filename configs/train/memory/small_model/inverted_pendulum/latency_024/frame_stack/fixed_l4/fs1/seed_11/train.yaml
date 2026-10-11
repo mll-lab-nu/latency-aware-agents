@@ -8,11 +8,11 @@ latency:
   fixed_latency_ms: 160.0
 
 evaluation:
-  eval_suites:
-    fixed:
-      - [4]
-    normal: []
-    uniform: []
+  suites:
+  - name: fixed_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 160.0
 
 logging:
   output_dir: outputs/memory/small_model/inverted_pendulum/latency_024/train/frame_stack/fixed_l4/fs1/seed_11

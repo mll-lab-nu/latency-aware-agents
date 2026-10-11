@@ -3,7 +3,7 @@
 Profiling accepts an ordinary realtime evaluation configuration. The same
 configuration describes the environment, policy, devices, clocks, episodes,
 and seed. The `profiling` section describes independent measurement repetitions
-and model artifact sources. Project examples use this same interface.
+and publication targets. Project examples use this same interface.
 
 A run produces ordered request traces and a fitted profile. The profile can
 supply latency to simulated evaluation or the public Gymnasium wrapper.
@@ -25,7 +25,7 @@ trained policy quality. Copy the files into your own project and update their
 paths to use the same workflow outside this checkout.
 
 For a model you already evaluate, keep its environment and policy configuration.
-Set `executor.mode: realtime`, `latency.method: measured`, and explicit
+Set `executor.mode: realtime` and explicit
 `executor.inference_devices`. Configure the repetitions and episodes:
 
 ```yaml
@@ -34,7 +34,7 @@ profiling:
   workload_id: my_task
   repeats: 5
 evaluation:
-  eval_episodes: 20
+  episodes: 20
 ```
 
 `model_id` and `workload_id` are artifact labels. Each must be one path segment.
@@ -44,7 +44,7 @@ HF artifact provenance records the downloaded snapshot revision.
 
 `profiling.repeats` is the total number of independent measurements, including
 the first. Each repetition starts a new evaluation process, loads the policy,
-and performs warmup. `evaluation.eval_episodes` sets the measured episodes per
+and performs warmup. `evaluation.episodes` sets the measured episodes per
 repetition. The example measures 5 × 20 = 100 episodes. Warmup is separate.
 
 Use `experiment.seed` for the evaluation seed. Each repetition uses the same
@@ -68,7 +68,7 @@ added to the inference pool. Unknown GPU names need no registration.
 
 The profiler retains the configured FPS, observation cadence, policy inputs,
 worker interpreter, and executor settings. It enables the required records
-and pipeline timing. Video is disabled when no video setting is supplied.
+and preserves basic request timing. Video is disabled when no video setting is supplied.
 Keep `logging.video.enabled: false` for formal measurements.
 Warmup uses the existing realtime evaluator's policy and remains outside the
 fitting trace. The profiler does not introduce a separate inference path.
@@ -116,11 +116,9 @@ snapshot revision. To use a local bundle, inherit an example and override:
 
 ```yaml
 __base__: /path/to/checkout/configs/examples/profiling/flappy/openvla.yaml
-profiling:
-  model_artifact:
-    source: local
-    local_root: /models/my_bundle
 policy:
+  source: local
+  root: /models/my_bundle
   backbone_path: /models/my_backbone
 ```
 
@@ -128,14 +126,27 @@ The inherited artifact specifies the checkpoint and model-config filenames
 relative to that bundle. Change them if your bundle uses different filenames.
 A missing local file fails. It does not trigger an HF download.
 
-Custom policies can load models through their ordinary `policy` config, without
-an artifact declaration. The optional `model_artifact` and `runtime_artifact`
-settings provide the existing local/HF bundle resolver when needed.
-`runtime_artifact` supplies `env.runtime_checkpoint_path`.
-StarVLA can use its ordinary checkpoint and backbone configuration.
-An artifact declaration is optional. Bundles with explicit `backbone` metadata
-in `config.yaml` can resolve the backbone before workers start.
-The existing policy loader owns model configuration and normalization statistics.
+Models use one flat declaration in `policy`:
+
+```yaml
+policy:
+  type: starvla
+  source: hf
+  hf_repo: org/models
+  revision: optional-pinned-revision
+  root: models/my_task
+  checkpoint: checkpoints/model.pt
+  model_config: config.full.yaml
+```
+
+For local files, use `source: local` and a local `root`. The two filenames stay
+relative to that root. HF resolution records the snapshot revision and produces
+a local root before workers start. `profiling.publish_repo` selects the dataset
+repository used by the publication command.
+
+Bundles with `backbone` metadata in the declared model config can resolve that
+backbone before workers start. The policy loader owns model configuration and
+normalization statistics.
 
 ## Resume or fit existing records
 
@@ -145,7 +156,7 @@ python -m latency_bench.profiling.cli fit --run-dir /path/to/completed/measureme
 ```
 
 Resume checks the saved configuration, deployment, environment start method,
-and evaluation Python path once before continuing. Changing `profiling.hf_repo`
+and evaluation Python path once before continuing. Changing `profiling.publish_repo`
 does not change the measurement protocol. Completed sessions remain unchanged.
 An incomplete session runs again from its beginning.
 Resume and `fit` require the current local run-contract structure.
@@ -259,7 +270,7 @@ python -m latency_bench.profiling.cli publish \
 
 Downloads contain a complete immutable snapshot, including distribution and
 burst-model files. Use the returned `PROFILE_PATH` in downstream configs.
-To publish at the end of measurement, set `profiling.hf_repo` and pass `--publish`.
+To publish at the end of measurement, set `profiling.publish_repo` and pass `--publish`.
 Model downloads and profile uploads are separate operations.
 Measurement and simulation uploads omit local run contracts, full hardware
 fingerprints, and generated or resolved configurations.

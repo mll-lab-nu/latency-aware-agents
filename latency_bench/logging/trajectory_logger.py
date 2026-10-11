@@ -4,16 +4,13 @@ from pathlib import Path
 
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
 from latency_bench.logging.latency_traces import e2e_latency_rows
-from latency_bench.logging.realtime_pipeline import realtime_pipeline_profile_rows, realtime_pipeline_summary
-from latency_bench.utils.io import append_jsonl, load_jsonl_records, write_json, write_jsonl
+from latency_bench.utils.io import append_jsonl, write_jsonl
 
 _OUTPUT_FILENAMES = (
     "steps.jsonl",
     "actions.jsonl",
     "observation_attempts.jsonl",
     "e2e_latencies.jsonl",
-    "realtime_pipeline_profile.jsonl",
-    "realtime_pipeline_summary.json",
     "latencies.jsonl",
     "episode_metrics.jsonl",
 )
@@ -78,12 +75,6 @@ class TrajectoryLogger:
 
     def flush(self) -> None:
         self._flush_episode_records()
-        pipeline_path = self.output_dir / "realtime_pipeline_profile.jsonl"
-        if pipeline_path.exists():
-            write_json(
-                self.output_dir / "realtime_pipeline_summary.json",
-                realtime_pipeline_summary(load_jsonl_records(pipeline_path)),
-            )
         # Episode metrics stay in memory until the end: the driver backfills
         # their metadata after all episodes have run.
         write_jsonl(self.output_dir / "episode_metrics.jsonl", self.episode_metrics)
@@ -100,9 +91,6 @@ class TrajectoryLogger:
         if self.save_action_records:
             append_jsonl(self.output_dir / "actions.jsonl", self.action_records)
             append_jsonl(self.output_dir / "e2e_latencies.jsonl", e2e_latency_rows(self.action_records))
-            pipeline_rows = realtime_pipeline_profile_rows(self.action_records)
-            if pipeline_rows:
-                append_jsonl(self.output_dir / "realtime_pipeline_profile.jsonl", pipeline_rows)
             self.action_records = []
         if self.save_latency_records:
             append_jsonl(self.output_dir / "latencies.jsonl", self.latency_records)

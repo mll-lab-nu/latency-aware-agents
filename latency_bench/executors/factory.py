@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from latency_bench.core.config import resolve_runtime_config
+
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -10,7 +12,7 @@ from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.types import ExecutorMode
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
-from latency_bench.eval.config import resolve_evaluation_config
+
 from latency_bench.executors.backend_selection import (
     build_env_step_backend,
     raise_if_unsupported_batched_action_space,
@@ -28,7 +30,6 @@ from latency_bench.latency.config import (
     BATCHED_SIMULATED_METHODS,
     resolve_latency_method,
 )
-from latency_bench.latency.hardware_info import visible_cuda_device_count
 from latency_bench.latency.samplers import (
     build_episode_sampler_factory,
     build_sampler,
@@ -54,16 +55,16 @@ def build_executor(
     inference_devices: list[str] | None = None,
 ) -> Executor:
     """Build an executor; injected environments use config["env"]["env_fps"]."""
-    resolve_evaluation_config(config)
+    resolve_runtime_config(config)
     prepare_action_prefix(config)
     executor_cfg = config["executor"]
     if inference_devices is None and "inference_devices" in executor_cfg:
         inference_devices = executor_cfg["inference_devices"]
     mode = ExecutorMode(executor_cfg["mode"])
-    eval_parallel_envs = _eval_parallel_envs(config)
-    if eval_parallel_envs > 1 and mode in {ExecutorMode.PAUSED, ExecutorMode.REALTIME}:
+    parallel_envs = _parallel_envs(config)
+    if parallel_envs > 1 and mode in {ExecutorMode.PAUSED, ExecutorMode.REALTIME}:
         raise ValueError(
-            "evaluation.eval_parallel_envs > 1 is only supported for executor.mode=simulated; "
+            "executor.parallel_envs > 1 is only supported for executor.mode=simulated; "
             f"got executor.mode={mode.value}"
         )
     if mode == ExecutorMode.SIMULATED:
@@ -101,18 +102,17 @@ def _build_simulated_policy_and_pool(
     inference_devices: list[str] | None,
 ) -> tuple[PolicyRunner | None, ProcessInferencePool | None]:
     inference_pool = None
-    if config["executor"]["simulated_inference_pool"]:
+    if config["executor"]["inference_pool"]:
         if policy is not None:
             raise ValueError(
-                "executor.simulated_inference_pool builds its policy inside subprocess "
+                "executor.inference_pool builds its policy inside subprocess "
                 "workers; an injected in-process policy cannot cross the process boundary"
             )
         inference_pool = ProcessInferencePool(
             config=config,
             inference_devices=(
-                _resolve_realtime_inference_devices()
-                if inference_devices is None
-                else inference_devices
+                config["executor"]["inference_devices"]
+                if inference_devices is None else inference_devices
             ),
         )
     else:
@@ -167,12 +167,12 @@ def _build_simulated_executor(
     env_backend: EnvStepBackend | None = None,
     inference_devices: list[str] | None = None,
 ) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
-    eval_parallel_envs = _eval_parallel_envs(config)
-    num_episodes = int(config["evaluation"]["eval_episodes"])
+    parallel_envs = _parallel_envs(config)
+    num_episodes = int(config["evaluation"]["episodes"])
     if (
         (
             env_backend is not None
-            or eval_parallel_envs > 1
+            or parallel_envs > 1
             or config["env"].get("action_history_decisions") is not None
         )
         and num_episodes > 0
@@ -180,7 +180,7 @@ def _build_simulated_executor(
     ):
         return _build_batched_simulated_executor(
             config,
-            max_parallel_envs=min(eval_parallel_envs, num_episodes),
+            max_parallel_envs=min(parallel_envs, num_episodes),
             policy=policy,
             env_backend=env_backend,
             inference_devices=inference_devices,
@@ -244,7 +244,7 @@ def _build_batched_simulated_executor(
     scheduler_cfg = config["scheduler"]
     action_resolver = ActionResolver(config["env"])
     if env_backend is None:
-        backend_name = resolve_latency_bench_env_backend(config, eval_parallel_envs=max_parallel_envs)
+        backend_name = resolve_latency_bench_env_backend(config, parallel_envs=max_parallel_envs)
         env_backend = build_env_step_backend(
             backend_name,
             config=config,
@@ -263,7 +263,7 @@ def _build_batched_simulated_executor(
             if type(policy).predict_batch is PolicyRunner.predict_batch:
                 raise ValueError(
                     f"policy.type={config['policy']['type']} does not support safe batched simulated eval yet; "
-                    "implement PolicyRunner.predict_batch before using evaluation.eval_parallel_envs > 1"
+                    "implement PolicyRunner.predict_batch before using executor.parallel_envs > 1"
                 )
         decision_scheduler = ObservationCadenceDecisionScheduler(clock)
         action_schedulers = [
@@ -297,7 +297,6 @@ def _build_batched_simulated_executor(
             logger=logger,
             episode_latency_source_factory=episode_latency_source_factory,
             simulated_worker_capacity=config["executor"]["simulated_worker_capacity"],
-            profile_pipeline=config["logging"]["simulated_pipeline_profile"],
             inference_pool=inference_pool,
             action_prefix=config["policy"]["action_prefix"],
             action_history_decisions=config["env"].get("action_history_decisions"),
@@ -315,10 +314,6 @@ def _build_paused_executor(
     policy: PolicyRunner | None = None,
     env: EnvAdapter | None = None,
 ) -> PausedLatencyExecutor:
-    latency_cfg = config["latency"]
-    if resolve_latency_method(latency_cfg) != "zero":
-        raise ValueError("paused executor supports only latency.method=zero")
-
     c = _build_executor_runtime_components(config, env=env)
     try:
         return PausedLatencyExecutor(
@@ -348,15 +343,8 @@ def _build_realtime_executor(
             "realtime constructs environments and policies inside subprocess workers; "
             "injected live objects cannot cross the process boundary"
         )
-    latency_cfg = config["latency"]
-    if resolve_latency_method(latency_cfg) != "measured":
-        raise ValueError("realtime executor requires latency.method=measured")
     if inference_devices is None:
-        inference_devices = (
-            config["executor"]["inference_devices"]
-            if "inference_devices" in config["executor"]
-            else _resolve_realtime_inference_devices()
-        )
+        inference_devices = config["executor"]["inference_devices"]
 
     video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
     clock = _build_clock(config)
@@ -384,13 +372,6 @@ def _build_realtime_executor(
         raise
 
 
-def _resolve_realtime_inference_devices() -> list[str]:
-    device_count = visible_cuda_device_count()
-    if device_count == 0:
-        raise RuntimeError("realtime inference requires at least one visible CUDA device")
-    return [f"cuda:{idx}" for idx in range(device_count)]
-
-
 def _build_clock(config: dict[str, Any]) -> EnvClock:
     env_cfg = config["env"]
     return EnvClock(
@@ -407,8 +388,8 @@ def _video_output_dir(config: dict[str, Any]) -> str:
     return str(os.path.join(str(config["logging"]["output_dir"]), "videos"))
 
 
-def _eval_parallel_envs(config: dict[str, Any]) -> int:
-    eval_parallel_envs = config["evaluation"]["eval_parallel_envs"]
-    if eval_parallel_envs <= 0:
-        raise ValueError("evaluation.eval_parallel_envs must be positive")
-    return eval_parallel_envs
+def _parallel_envs(config: dict[str, Any]) -> int:
+    parallel_envs = config["executor"]["parallel_envs"]
+    if parallel_envs <= 0:
+        raise ValueError("executor.parallel_envs must be positive")
+    return parallel_envs

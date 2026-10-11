@@ -28,28 +28,49 @@ def _run_user_project(project, mode, policy_factory="make_policy", *, collection
                       parallel_envs=1, inference_pool=False, continuous=False, include_state=False):
     output = project / "output"
     config = {
-        "experiment": {"name": "outside_project", "seed": 7},
-        "executor": {"mode": mode, "inference_devices": ["cpu"]},
-        "env": {
-            "name": "custom", "factory": "outside_lagen:make_env",
-            "env_fps": 20, "obs_fps": 20, "noop_action": 0,
+        'experiment': {
+            'name': 'outside_project',
+            'seed': 7,
         },
-        "policy": {"type": "custom", "factory": f"outside_lagen:{policy_factory}"},
-        "latency": {"method": "measured" if mode == "realtime" else "zero"},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "evaluation": {"eval_episodes": 2, "eval_max_steps": 4},
-        "logging": {
-            "output_dir": str(output), "save_step_records": True,
-            "save_action_records": True, "save_latency_records": True,
-            "realtime_pipeline_profile": mode == "realtime",
+        'executor': {
+            'mode': mode,
+            'inference_devices': ['cpu'],
         },
-        "factory_audit_path": str(project / "audit.jsonl"),
+        'env': {
+            'name': 'external_counter',
+            'env_fps': 20,
+            'obs_fps': 20,
+            'noop_action': 0,
+            'registration_imports': ['outside_lagen'],
+        },
+        'policy': {
+            'type': 'custom',
+            'factory': f'outside_lagen:{policy_factory}',
+        },
+        'latency': {
+            'method': 'zero',
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'evaluation': {
+            'episodes': 2,
+            'max_env_steps': 4,
+        },
+        'logging': {
+            'output_dir': str(output),
+            'save_step_records': True,
+            'save_action_records': True,
+            'save_latency_records': True,
+        },
+        'factory_audit_path': str(project / 'audit.jsonl'),
     }
     config_path = project / "eval.yaml"
     if collection:
-        config["env"]["factory"] = "outside_lagen:make_collection_env"
+        config["env"]["name"] = "external_collection"
         config["policy"]["factory"] = "outside_lagen:make_collection_policy"
-        config["env"].update(task_name="external_counter", base_prompt="Choose the next count.",
+        config["env"].update(base_prompt="Choose the next count.",
                              action_order=["zero", "one", "two", "three", "four"],
                              action_map={"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4},
                              noop_action="zero")
@@ -68,8 +89,8 @@ def _run_user_project(project, mode, policy_factory="make_policy", *, collection
                 state_key="student_state", state_source="data",
             )
         config["latency"] = {"method": "fixed", "fixed_latency_ms": 100} if mode == "simulated" else {"method": "zero"}
-        config["evaluation"]["eval_parallel_envs"] = parallel_envs
-        config["executor"]["simulated_inference_pool"] = inference_pool
+        config["executor"]["parallel_envs"] = parallel_envs
+        config["executor"]["inference_pool"] = inference_pool
         if inference_pool:
             config["executor"]["inference_batch_size"] = parallel_envs
     config_path.write_text(yaml.safe_dump(config))
@@ -141,7 +162,7 @@ def test_external_factories_run_from_user_project(user_project, mode):
         for episode in range(2):
             assert [row["active_action"]["value"] for row in steps if row["episode_id"] == episode] == [1, 2, 3, 4]
     resolved = yaml.safe_load((output / "resolved_config.yaml").read_text())
-    assert resolved["env"]["factory"] == "outside_lagen:make_env"
+    assert resolved["env"]["name"] == "external_counter"
     assert resolved["policy"]["factory"] == "outside_lagen:make_policy"
 
 
@@ -209,17 +230,43 @@ def test_collected_dataset_loads_starvla_training_batch(
 def test_external_profile_reaches_simulation_and_training_wrapper(user_project):
     """Long-lived cross-module contract: real workers produce a reusable local profile."""
     config = {
-        "experiment": {"name": "outside_profile", "seed": 7},
-        "env": {"name": "custom", "factory": "outside_lagen:make_env",
-                "env_fps": 50, "obs_fps": 50, "noop_action": 0},
-        "policy": {"type": "custom", "factory": "outside_lagen:make_profiling_policy"},
-        "executor": {"mode": "realtime", "inference_devices": ["cpu", "cpu"]},
-        "latency": {"method": "measured", "sync_cuda": False},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "evaluation": {"eval_episodes": 10, "eval_max_steps": 4},
-        "logging": {"output_dir": str(user_project / "profiling")},
-        "profiling": {"model_id": "outside", "workload_id": "counter", "repeats": 2},
-        "factory_audit_path": str(user_project / "profile_audit.jsonl"),
+        'experiment': {
+            'name': 'outside_profile',
+            'seed': 7,
+        },
+        'env': {
+            'name': 'external_counter',
+            'env_fps': 50,
+            'obs_fps': 50,
+            'noop_action': 0,
+            'registration_imports': ['outside_lagen'],
+        },
+        'policy': {
+            'type': 'custom',
+            'factory': 'outside_lagen:make_profiling_policy',
+        },
+        'executor': {
+            'mode': 'realtime',
+            'inference_devices': ['cpu', 'cpu'],
+            'sync_cuda': False,
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'evaluation': {
+            'episodes': 10,
+            'max_env_steps': 4,
+        },
+        'logging': {
+            'output_dir': str(user_project / 'profiling'),
+        },
+        'profiling': {
+            'model_id': 'outside',
+            'workload_id': 'counter',
+            'repeats': 2,
+        },
+        'factory_audit_path': str(user_project / 'profile_audit.jsonl'),
     }
     config_path = user_project / "profile.yaml"
     config_path.write_text(yaml.safe_dump(config))

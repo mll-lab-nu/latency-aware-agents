@@ -75,7 +75,7 @@ class EpisodeExecutor(Executor):
         self,
         episode_id: int,
         seed: int | None = None,
-        eval_max_steps: int = 10000,
+        max_env_steps: int = 10000,
     ) -> EpisodeMetrics:
         ...
 
@@ -88,7 +88,7 @@ class BatchedExecutor(Executor):
         *,
         episode_ids: Sequence[int],
         seeds: Sequence[int | None],
-        eval_max_steps: int = 10000,
+        max_env_steps: int = 10000,
         on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
         next_episode: Callable[[], dict[str, Any] | None] | None = None,
     ) -> list[EpisodeMetrics]:

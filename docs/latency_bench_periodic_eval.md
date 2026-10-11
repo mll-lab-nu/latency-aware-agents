@@ -19,29 +19,35 @@ python -m training.train --config configs/examples/flappy_periodic_latency_bench
 关键字段：
 
 ```yaml
+executor:
+  parallel_envs: 100
+policy:
+  deterministic: true
 evaluation:
   eval_interval_steps: 1000000
-  eval_episodes: 20
-  eval_parallel_envs: 100
-  eval_suites:
-    fixed:
-    - [0, 15]
-    normal:
-    - [2.0, 1.0, 0, 15]
-    - [4.0, 2.0, 0, 15]
-    uniform:
-    - [0, 5]
+  episodes: 20
+  suites:
+    - name: zero
+      latency: {method: zero}
+    - name: fixed_100ms
+      latency: {method: fixed, fixed_latency_ms: 100}
+    - name: normal_100ms
+      latency:
+        method: normal
+        mean_latency_ms: 100
+        std_latency_ms: 20
+        min_latency_ms: 0
+        max_latency_ms: 500
+        seed: 42
 ```
 
-语义：
+每个 suite 声明名称和完整的模拟延迟。延迟字段与单次运行相同，单位为 ms。
+`episodes` 表示每个条件的局数。`executor.parallel_envs` 表示同时运行的环境数量。
+`policy.deterministic` 控制动作选择。
 
-- `eval_interval_steps`: 训练中每隔多少 env steps 跑一次 latency_bench eval。删掉这个字段就回到原来的纯训练路径。
-- `fixed: [[0, 15]]`: inclusive sweep，也就是 eval latency raw frame `0..15`。
-- `fixed: [[0, 1, 2, 3, 4]]`: explicit sweep，只跑列表中写出的 raw frame latency。
-- `normal: [[mean, std, min, max], ...]`: 可以写多组 normal distribution，单位是 raw frames，运行时会按当前 env 的 `env_fps` 转成 ms。
-- `uniform: [[min, max], ...]`: 可以写多组 uniform distribution，单位同样是 raw frames。
-- final eval 不需要配置，训练结束后默认会再跑一次。
-- periodic eval 在后台进程执行；训练 loop 负责保存 checkpoint、提交 eval job、轮询结果。若上一轮 eval 还没结束，新的周期 eval 会进入无界 FIFO 队列，按提交顺序依次执行；final eval 会先等待正在运行和队列中的 periodic eval 全部结束，再跑最终 checkpoint。
+`eval_interval_steps` 指定周期评估间隔。删除该字段即可停用周期评估。
+训练结束后默认再评估一次。周期评估使用后台进程，任务按 FIFO 顺序执行。
+最终评估等待已提交的周期评估完成后运行。
 
 输出位置：
 

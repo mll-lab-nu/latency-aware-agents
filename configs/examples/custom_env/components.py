@@ -1,9 +1,11 @@
 """User-owned factories for the standalone CPU profiling example."""
 
 from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
+from latency_bench.envs.factory import register_env_adapter
 from latency_bench.policy.base import ConstantPolicyRunner
 
 
+@register_env_adapter("custom_mountain_car", env_id="MountainCar-v0")
 def make_env(config, noop_action):
     env = config["env"]
     return GymnasiumEnvAdapter(

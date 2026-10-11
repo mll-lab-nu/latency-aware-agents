@@ -21,24 +21,17 @@ latency:
 
 policy:
   type: starvla
-  checkpoint_path: ""
-  model_config_path: ""
   task_manifest_path: ""
-  device: cuda
   unnorm_key: new_embodiment
   prompt_mode: raw
 
+  source: local
+  root: .
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 10
-  latency_bench_env_backend: atlantis_gpu_batched
-  eval_max_steps: 5000
-  eval_deterministic: true
   eval_raw_reward: true
-  eval_suites:
-    fixed: []
-    normal: []
-    uniform: []
+  episodes: 100
+  max_env_steps: 5000
+  suites: []
 
 logging:
   output_dir: outputs/starvla_atlantis_zero_latency_eval
@@ -51,3 +44,8 @@ logging:
   wandb_project: null
   wandb_group: null
   wandb_job_type: null
+executor:
+  inference_devices:
+  - cuda
+  parallel_envs: 10
+  env_backend: atlantis_gpu_batched

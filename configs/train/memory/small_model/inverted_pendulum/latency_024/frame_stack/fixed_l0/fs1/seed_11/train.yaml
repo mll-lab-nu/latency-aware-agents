@@ -8,11 +8,10 @@ latency:
   fixed_latency_ms: 0.0
 
 evaluation:
-  eval_suites:
-    fixed:
-      - [0]
-    normal: []
-    uniform: []
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
 
 logging:
   output_dir: outputs/memory/small_model/inverted_pendulum/latency_024/train/frame_stack/fixed_l0/fs1/seed_11

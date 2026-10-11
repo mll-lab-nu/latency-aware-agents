@@ -56,8 +56,7 @@ def build_atlantis_probe_report(*, base_env_id: str, render_mode: str, base_make
 
 def build_atlantis_env_config(*, base_env_id: str, render_mode: str, screen_size: int, noop_max: int, base_make_kwargs: dict[str, Any]) -> dict[str, Any]:
     return {"env": {
-        "name": "gymnasium",
-        "task_name": "atlantis",
+        "name": "atlantis",
         "env_id": GYMNASIUM_ATLANTIS_ENV_ID,
         "registration_imports": ["latency_bench.envs.tasks.atlantis"],
         "make_kwargs": {"base_env_id": base_env_id, "render_mode": render_mode, "screen_size": screen_size, "noop_max": noop_max, "base_make_kwargs": base_make_kwargs},

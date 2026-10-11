@@ -24,14 +24,13 @@ def measure_config(
     if calibration is not None:
         config["env"]["env_fps"] = calibration["selected_env_fps"]
         config["env"]["obs_fps"] = calibration["selected_obs_fps"]
-    config["latency"].update(
+    config.setdefault("measurement", {}).update(
         model_id=config["profiling"]["model_id"],
         workload_id=config["profiling"]["workload_id"],
         gpu_class=deployment["gpu_class"],
         instance_id=deployment["instance_id"],
     )
     _enable_records(config, output_dir)
-    config["logging"]["realtime_pipeline_profile"] = True
     return config
 
 
@@ -69,7 +68,7 @@ def simulation_config(
     config["executor"].update(
         mode="simulated",
         simulated_worker_capacity=len(profile["per_slot_summary"]),
-        simulated_inference_pool=True,
+        inference_pool=True,
     )
     config["latency"] = {
         "method": method,
@@ -91,7 +90,7 @@ def write_generated_config(path: Path, config: dict[str, Any]) -> None:
 
 
 def evaluation_environment() -> dict[str, str]:
-    """Preserve the profiler's spawn default while honoring an explicit override."""
+    """Use the profiling subprocess start method selected by the caller."""
     environment = dict(os.environ)
     environment.setdefault(START_METHOD_ENV, "spawn")
     return environment

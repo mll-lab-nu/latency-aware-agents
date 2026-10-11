@@ -3,7 +3,6 @@ experiment:
   seed: 2222
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/half_cheetah
@@ -14,11 +13,9 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: half_cheetah
-  env_id: LatencyBench/HalfCheetahContinuous-v0
-  registration_imports: [latency_bench.envs.tasks.half_cheetah]
+  name: half_cheetah
   make_kwargs:
     base_env_id: HalfCheetah-v4
     render_mode: rgb_array
@@ -67,6 +64,7 @@ scheduler:
 policy:
   type: random
 
+  deterministic: true
 training:
   train_for_env_steps: 10000000
   num_workers: 8
@@ -121,11 +119,8 @@ training:
 
 evaluation:
   eval_interval_steps: null
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-
+  episodes: 10
+  max_env_steps: 1000
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/half_cheetah/small_model_train
   video:

@@ -4,6 +4,7 @@ from copy import deepcopy
 from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
+import os
 from typing import Any
 import yaml
 
@@ -57,3 +58,65 @@ def load_config(path: str | Path) -> dict:
         merged = merge_dicts(merged, load_config(base_path))
 
     return merge_dicts(merged, current)
+
+
+def resolve_runtime_config(config: dict[str, Any]) -> None:
+    """Resolve common run defaults and filesystem inputs before execution.
+
+    Mode-specific fields are read only by the corresponding execution path.
+    Artifact roots retain HF snapshot symlinks for checkpoint sibling metadata.
+    """
+    defaults = {
+        "evaluation": {"eval_raw_reward": False, "suites": []},
+        "executor": {
+            "parallel_envs": 1,
+            "inference_pool": False,
+            "simulated_worker_capacity": None,
+            "sync_cuda": True,
+            "env_backend": "auto",
+        },
+        "policy": {"deterministic": True},
+        "logging": {
+            "save_step_records": False,
+            "save_action_records": False,
+            "save_latency_records": False,
+        },
+    }
+    for section, fields in defaults.items():
+        for key, value in fields.items():
+            if key not in config[section]:
+                config[section][key] = deepcopy(value)
+    evaluation = config["evaluation"]
+    for key in ("episodes", "max_env_steps"):
+        if key in evaluation and evaluation[key] is not None:
+            evaluation[key] = int(evaluation[key])
+    executor = config["executor"]
+    executor["parallel_envs"] = int(executor["parallel_envs"])
+    if (
+        config["policy"]["type"] == "sample_factory"
+        and executor["mode"] != "realtime"
+        and not executor["inference_pool"]
+        and "inference_devices" not in executor
+    ):
+        executor["inference_devices"] = ["auto"]
+    if "video" not in config["logging"]:
+        config["logging"]["video"] = {"enabled": False}
+    if executor["mode"] != "realtime" and config["logging"]["video"]["enabled"]:
+        config["logging"]["save_step_records"] = True
+    path_fields = {
+        "policy": ("backbone_path",),
+        "logging": ("output_dir",),
+    }
+    if executor["mode"] == "simulated":
+        path_fields["latency"] = ("profile_path",)
+        for suite in evaluation["suites"]:
+            if "profile_path" in suite["latency"]:
+                suite["latency"]["profile_path"] = os.path.abspath(
+                    Path(suite["latency"]["profile_path"]).expanduser()
+                )
+    for section, fields in path_fields.items():
+        for key in fields:
+            if key in config[section] and config[section][key] is not None:
+                config[section][key] = os.path.abspath(
+                    Path(config[section][key]).expanduser()
+                )

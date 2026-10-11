@@ -409,8 +409,8 @@ def test_generic_rollout_runtime_replays_checkpoint_action_contract(monkeypatch,
         ),
     )
     monkeypatch.setattr(
-        teacher_runtime, "import_integration_module",
-        lambda config: integration_configs.append(config) or module,
+        teacher_runtime, "import_module",
+        lambda module_name: integration_configs.append(module_name) or module,
     )
     monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
     flat_cfg = _generic_flat_cfg()
@@ -432,7 +432,7 @@ def test_generic_rollout_runtime_replays_checkpoint_action_contract(monkeypatch,
     assert result_module is module
     assert result_cfg is parsed_cfg
     assert registered
-    assert integration_configs == [{"env": {"name": "gymnasium"}}]
+    assert integration_configs == ["training.gymnasium_sf.integration"]
     assert parser_args[parser_args.index("--gym-task-name") + 1] == "mountain_car"
     assert json.loads(parser_args[parser_args.index("--gym-action-space-json") + 1]) == json.loads(flat_cfg["gym_action_space_json"])
     assert json.loads(parser_args[parser_args.index("--gym-noop-action-json") + 1]) == json.loads(flat_cfg["gym_noop_action_json"])

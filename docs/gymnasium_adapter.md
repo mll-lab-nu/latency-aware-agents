@@ -47,7 +47,7 @@ native action or observation structure is not supported by that path. The
 framework does not silently discretize actions.
 
 The existing Flappy Bird, Demon Attack, and Deadly Corridor integrations remain
-separate. New tasks use `env.name: gymnasium` and are dispatched through
+separate. New tasks register their concrete `env.name` and use
 `GymnasiumEnvAdapter` and `training.gymnasium_sf`.
 
 ## Manual adaptation workflow
@@ -218,16 +218,18 @@ a later-stage manifest/checkpoint contract does not match the config.
 
 ## The environment contract
 
+Register the task with `register_env_adapter("example_task",
+env_id="Package/RegisteredEnv-v0", registration_imports=("package_that_registers_the_env",))`.
+The registry owns the native ID and registration imports.
+
 Every new task defines one `env` mapping and copies it unchanged into all four
 task configs:
 
 ```yaml
 env:
-  name: gymnasium
-  task_name: example_task
-  env_id: Package/RegisteredEnv-v0
+  name: example_task
   registration_imports:
-    - package_that_registers_the_env
+    - my_components
   make_kwargs:
     render_mode: rgb_array
   env_fps: 30

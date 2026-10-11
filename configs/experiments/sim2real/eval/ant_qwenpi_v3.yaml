@@ -2,7 +2,6 @@ experiment:
   name: pi05_ant_measured
   seed: 42
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/ant
@@ -12,13 +11,10 @@ executor:
   mode: realtime
   inference_devices:
   - cuda:0
-  inference_batch_size: 1
+  sync_cuda: true
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: ant
-  env_id: LatencyBench/AntContinuous-v0
-  registration_imports:
-  - latency_bench.envs.tasks.ant
+  name: ant
   make_kwargs:
     base_env_id: Ant-v4
     base_make_kwargs:
@@ -103,21 +99,19 @@ env:
   obs_resize:
   - 224
   - 224
-latency:
-  method: measured
-  sync_cuda: true
 scheduler:
   hold_policy: hold
   ordering_policy: issue_order_fifo
 policy:
   type: starvla
-  checkpoint_path: /dev/shm/lsb-ant-profile-f-20f7452d/ant/profile_latency/Pi05/checkpoints/model.pt
-  model_config_path: /dev/shm/lsb-ant-profile-f-20f7452d/ant/profile_latency/Pi05/config.yaml
   backbone_path: /workspace/models/Qwen3-VL-4B-Instruct
-  device: cuda:0
   task_manifest_path: /dev/shm/lsb-ant-profile-f-20f7452d/ant/profile_latency/Pi05/manifest.json
   latency_prompt_map_path: /dev/shm/lsb-ant-profile-f-20f7452d/ant/profile_latency/Pi05/latency_prompt_map.json
   latency_prompt_key: 1
+  source: local
+  root: /dev/shm/lsb-ant-profile-f-20f7452d/ant/profile_latency/Pi05
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
 training:
   train_for_env_steps: 10000000
   num_workers: 8
@@ -172,11 +166,8 @@ training:
   save_best_every_sec: 60
   save_best_after: 100000
 evaluation:
-  eval_episodes: 20
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-  eval_latency_values: null
+  episodes: 20
+  max_env_steps: 1000
 logging:
   output_dir: ${PI05_RUN_DIR}/F
   video:
@@ -185,4 +176,3 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  realtime_pipeline_profile: false

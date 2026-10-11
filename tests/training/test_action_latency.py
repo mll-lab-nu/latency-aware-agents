@@ -269,9 +269,9 @@ def test_training_scalar_and_batched_eval_apply_identical_command_trace():
             queue.submit((torch.arange(40, dtype=torch.float32).reshape(1, 40, 1) + frame * 100).expand(2, 40, 1))
             training_actions.append(queue.actions())
             queue.advance()
-        batched.run_episodes(episode_ids=[2 * batch, 2 * batch + 1], seeds=[0, 1], eval_max_steps=100)
+        batched.run_episodes(episode_ids=[2 * batch, 2 * batch + 1], seeds=[0, 1], max_env_steps=100)
         for slot in range(2):
-            evaluator.run_episode(2 * batch + slot, eval_max_steps=100)
+            evaluator.run_episode(2 * batch + slot, max_env_steps=100)
             expected = torch.stack(training_actions)[:, slot]
             torch.testing.assert_close(expected, torch.stack([a.value for a in env.applied_actions]))
             torch.testing.assert_close(expected, torch.stack([a.value for a in batch_envs[slot].applied_actions]))

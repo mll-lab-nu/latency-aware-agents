@@ -180,7 +180,7 @@ def _stage_config(
     config["backend"]["train_dir"] = str(output_root / "checkpoints")
     config["training"]["train_for_env_steps"] = int(budget.train_for_env_steps)
     config["evaluation"]["eval_interval_steps"] = None
-    config["evaluation"]["eval_episodes"] = int(budget.eval_episodes)
+    config["evaluation"]["episodes"] = int(budget.eval_episodes)
     config["logging"]["output_dir"] = str(output_root / "runs" / env_name / variant / f"repeat_{repeat_index}")
     config["logging"]["wandb_project"] = ""
     config["logging"]["wandb_tags"] = ""

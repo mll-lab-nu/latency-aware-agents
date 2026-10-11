@@ -20,7 +20,7 @@ from latency_bench.executors.env_step_backend import (
 
 ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
 _AUTO_SUBPROC_ENV_NAMES = {"deadly_corridor", "defend_the_line"}
-_AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES = {"flappy_sf", "starvla"}
+_AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES = {"sample_factory", "starvla"}
 
 
 def _build_serial_backend(*, config: dict[str, Any], noop_action: Action, num_slots: int) -> EnvStepBackend:
@@ -85,17 +85,17 @@ def build_env_step_backend(
     return _BACKEND_FACTORIES[backend_name](config=config, noop_action=noop_action, num_slots=num_slots)
 
 
-def resolve_latency_bench_env_backend(config: dict[str, Any], *, eval_parallel_envs: int) -> str:
+def resolve_latency_bench_env_backend(config: dict[str, Any], *, parallel_envs: int) -> str:
     configured = os.environ.get(ENV_BACKEND_DEBUG_ENV)
     if configured is None:
-        configured = config.get("evaluation", {}).get("latency_bench_env_backend", "auto")
+        configured = config["executor"]["env_backend"]
     backend = str(configured).strip().lower()
     if backend not in LATENCY_BENCH_ENV_BACKENDS:
         raise ValueError(
-            "evaluation.latency_bench_env_backend must be one of "
+            "executor.env_backend must be one of "
             f"{sorted(LATENCY_BENCH_ENV_BACKENDS)}; got {configured!r}"
         )
-    if int(eval_parallel_envs) <= 1:
+    if int(parallel_envs) <= 1:
         return "serial"
     if backend == "auto":
         return auto_latency_bench_env_backend(config)
@@ -111,7 +111,7 @@ def auto_latency_bench_env_backend(config: dict[str, Any]) -> str:
         # between the pygame and torch render paths
         # (tests/executors/test_flappy_cpu_vs_gpu_render_equivalence.py), so
         # batched GPU render is safe regardless of env.use_gpu_render. Other
-        # policies (flappy_sf) consume obs.data, whose resize provenance
+        # policies (sample_factory) consume obs.data, whose resize provenance
         # differs between the two paths, and keep the use_gpu_render gate.
         return "flappy_gpu_batched"
     if (
@@ -136,13 +136,13 @@ def raise_if_unsupported_batched_action_space(envs: list[EnvAdapter]) -> None:
             if all(isinstance(subspace, Discrete) for subspace in action_space.spaces):
                 continue
             raise ValueError(
-                "evaluation.eval_parallel_envs > 1 supports only flat Tuple(Discrete, ...) action spaces; "
+                "executor.parallel_envs > 1 supports only flat Tuple(Discrete, ...) action spaces; "
                 f"got unsupported or nested Tuple action space {action_space!r}"
             )
         if isinstance(action_space, MultiDiscrete):
             if np.asarray(action_space.nvec).ndim == 1:
                 continue
             raise ValueError(
-                "evaluation.eval_parallel_envs > 1 supports only one-dimensional MultiDiscrete action spaces; "
+                "executor.parallel_envs > 1 supports only one-dimensional MultiDiscrete action spaces; "
                 f"got nvec={action_space.nvec!r}"
             )

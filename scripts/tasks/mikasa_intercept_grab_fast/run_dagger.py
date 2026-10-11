@@ -393,7 +393,7 @@ def run(args) -> None:
         config_dir.mkdir(exist_ok=True)
         for latency in range(5):
             config = yaml.safe_load(args.eval_config.read_text())
-            config["latency"] = ({"method": "zero", "sync_cuda": False} if latency == 0 else
+            config["latency"] = ({"method": "zero"} if latency == 0 else
                                  {"method": "fixed", "fixed_latency_ms": latency * 50.0})
             path = config_dir / f"eval_{latency}.yaml"
             path.write_text(yaml.safe_dump(config, sort_keys=False))

@@ -330,7 +330,7 @@ def test_policy_input_comes_from_env_observe_not_step_history():
         clock=clock,
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=1)
+    executor.run_episode(episode_id=0, max_env_steps=1)
 
     assert env.observe_calls == 1
     assert policy.observations[0].data == {"source": "observe", "observe_calls": 1}
@@ -356,7 +356,7 @@ def test_observe_cadence_skips_raw_step_observations():
         clock=clock,
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=4)
+    executor.run_episode(episode_id=0, max_env_steps=4)
 
     assert [observation.env_step for observation in policy.observations] == [0, 3]
     assert [observation.data["observe_calls"] for observation in policy.observations] == [1, 2]
@@ -365,7 +365,7 @@ def test_observe_cadence_skips_raw_step_observations():
 def test_zero_latency_action_can_affect_same_frame():
     executor, env, _, _ = _executor(_zero_sampler(), max_steps=3)
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=3)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=3)
 
     assert env.applied_actions[0].value == "jump"
     applied = executor.action_scheduler.get_applied_events()
@@ -388,7 +388,7 @@ def test_raw_frame_latency_source_and_observation_stride_share_raw_timeline():
         ordering_policy=OrderingPolicy.ISSUE_ORDER_FIFO,
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=8)
+    executor.run_episode(episode_id=0, max_env_steps=8)
 
     events = executor.action_scheduler.get_applied_events() + executor.action_scheduler.get_pending_events()
     assert [event.obs_env_step for event in events] == [0, 6]
@@ -414,7 +414,7 @@ def test_policy_observation_includes_sampled_latency_for_latency_conditioning(de
 
     executor.action_scheduler.noop_action = Action([7.0])
     executor.action_prefix = {"mode": prefix_mode, "frames": 3, "action_horizon": 8, "action_dim": 1}
-    executor.run_episode(episode_id=0, eval_max_steps=6)
+    executor.run_episode(episode_id=0, max_env_steps=6)
 
     assert policy.observations[0].metadata["obs_id"] == 0
     assert policy.observations[0].metadata["latency_raw_frames"] == delay
@@ -443,7 +443,7 @@ def test_single_simulated_executor_adds_slot_id_to_policy_observation_and_latenc
         decision_scheduler=SelectedRawFrameDecisionScheduler({0}),
     )
 
-    executor.run_episode(episode_id=7, eval_max_steps=4)
+    executor.run_episode(episode_id=7, max_env_steps=4)
 
     assert policy.observations[0].metadata["slot_id"] == 0
     assert policy.observations[0].metadata["episode_id"] == 7
@@ -461,7 +461,7 @@ def test_simulated_worker_capacity_drops_observations_when_worker_is_busy():
         simulated_worker_capacity=1,
     )
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=5)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=5)
 
     events = executor.action_scheduler.get_applied_events() + executor.action_scheduler.get_pending_events()
     assert [event.obs_env_step for event in events] == [0, 3]
@@ -503,7 +503,7 @@ def test_prefix_requests_wait_for_both_worker_and_previous_result(
         "action_dim": 1,
     }
 
-    executor.run_episode(episode_id=0, eval_max_steps=6)
+    executor.run_episode(episode_id=0, max_env_steps=6)
 
     assert [call["raw_frame"] for call in latency_source.calls] == expected_submissions
 
@@ -519,7 +519,7 @@ def test_simulated_worker_capacity_uses_worker_service_frames_and_passes_drop_st
         simulated_worker_capacity=1,
     )
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=5)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=5)
 
     events = executor.action_scheduler.get_applied_events() + executor.action_scheduler.get_pending_events()
     assert [event.obs_env_step for event in events] == [0, 3]
@@ -557,7 +557,7 @@ def test_simulated_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_
         logger=logger,
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=1)
+    executor.run_episode(episode_id=0, max_env_steps=1)
     logger.flush()
 
     assert "env_raw_rgb_frame_stack" in policy.observations[0].metadata
@@ -572,7 +572,7 @@ def test_fixed_ms_latency_is_ceil_converted_to_raw_frames():
         FixedSampler(50.0, clock=EnvClock(env_fps=60, obs_fps=60)), max_steps=4, env_fps=60
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=4)
+    executor.run_episode(episode_id=0, max_env_steps=4)
 
     event = executor.action_scheduler.get_applied_events()[0]
     assert event.latency_raw_frames == 3
@@ -589,7 +589,7 @@ def test_one_frame_then_noop_applies_raw_frame_then_returns_to_noop():
         persistence_policy=OneFrameThenNoopPolicy(),
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=6)
+    executor.run_episode(episode_id=0, max_env_steps=6)
 
     assert [action.value for action in env.applied_actions] == [
         noop.value,
@@ -611,7 +611,7 @@ def test_hold_policy_keeps_action_after_raw_frame_arrival():
         persistence_policy=HoldPolicy(),
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=10)
+    executor.run_episode(episode_id=0, max_env_steps=10)
 
     assert [action.value for action in env.applied_actions] == [noop.value] * 3 + ["jump"] * 7
 
@@ -626,7 +626,7 @@ def test_fifo_raw_frame_blocking_waits_for_head_of_line_ready():
         persistence_policy=HoldPolicy(),
     )
 
-    executor.run_episode(episode_id=0, eval_max_steps=12)
+    executor.run_episode(episode_id=0, max_env_steps=12)
 
     assert env.applied_actions[7].value == noop.value
     assert env.applied_actions[10].value == "a0"
@@ -650,7 +650,7 @@ def test_late_stale_result_is_ignored_not_applied():
         persistence_policy=HoldPolicy(),
     )
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=8)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=8)
 
     assert [action.value for action in env.applied_actions] == [noop.value] * 3 + ["a1"] * 5
     assert [event.action.value for event in executor.action_scheduler.get_applied_events()] == ["a1"]
@@ -661,7 +661,7 @@ def test_fixed_two_frame_latency_applies_at_t_plus_two():
     clock = EnvClock(env_fps=30, obs_fps=30)
     executor, env, _, noop = _executor(FixedSampler(clock.frame_ms * 2, clock=clock), max_steps=4)
 
-    executor.run_episode(episode_id=0, eval_max_steps=4)
+    executor.run_episode(episode_id=0, max_env_steps=4)
 
     assert [action.value for action in env.applied_actions[:3]] == [noop.value, noop.value, "jump"]
 
@@ -675,7 +675,7 @@ def test_fixed_one_frame_latency_at_35_fps_does_not_drop_boundary_action():
         env_fps=35,
     )
 
-    metrics = executor.run_episode(episode_id=0, eval_max_steps=9)
+    metrics = executor.run_episode(episode_id=0, max_env_steps=9)
 
     assert [action.value for action in env.applied_actions] == [
         noop.value,
@@ -698,7 +698,7 @@ def test_simulated_executor_does_not_sleep(monkeypatch):
     monkeypatch.setattr(time, "sleep", fail_sleep)
     executor, env, _, _ = _executor(_zero_sampler(), max_steps=2)
 
-    executor.run_episode(episode_id=0, eval_max_steps=2)
+    executor.run_episode(episode_id=0, max_env_steps=2)
 
     assert len(env.applied_actions) == 2
 
@@ -712,7 +712,7 @@ def test_simulated_executor_logs_records_and_metrics(tmp_path: Path):
     )
     executor, _, _, _ = _executor(_zero_sampler(), max_steps=3, logger=logger)
 
-    metrics = executor.run_episode(episode_id=7, eval_max_steps=3)
+    metrics = executor.run_episode(episode_id=7, max_env_steps=3)
     logger.flush()
 
     assert metrics.episode_id == 7
@@ -731,8 +731,8 @@ def test_each_episode_resets_scheduler_to_noop_for_fixed_latency():
     clock = EnvClock(env_fps=30, obs_fps=30)
     executor, env, _, noop = _executor(FixedSampler(clock.frame_ms * 2, clock=clock), max_steps=3)
 
-    executor.run_episode(episode_id=0, eval_max_steps=3)
-    executor.run_episode(episode_id=1, eval_max_steps=3)
+    executor.run_episode(episode_id=0, max_env_steps=3)
+    executor.run_episode(episode_id=1, max_env_steps=3)
 
     assert env.applied_actions[0].value == noop.value
 
@@ -756,7 +756,7 @@ def test_soft_reset_continues_same_episode_and_clears_latency_state():
         clock=clock,
     )
 
-    metrics = executor.run_episode(episode_id=0, seed=5, eval_max_steps=10)
+    metrics = executor.run_episode(episode_id=0, seed=5, max_env_steps=10)
 
     assert metrics.survival_steps == 4
     assert metrics.episode_return == 4.0

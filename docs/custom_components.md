@@ -4,9 +4,9 @@ Custom components live in your own Python module. LAGEN constructs them through
 the existing environment and policy factories. Each side can independently use
 a built-in component or a custom factory.
 
-If your environment is already registered with Gymnasium, use `env.name:
-gymnasium` and its existing `registration_imports` configuration. Use a custom
-environment factory when you need to construct an `EnvAdapter` yourself.
+`env.name` selects one concrete task registered with `register_env_adapter`.
+The registration owns the Gymnasium ID and native framework integration.
+`env.registration_imports` loads a user module that registers that task.
 
 ## Factory contracts
 
@@ -40,8 +40,10 @@ policy demonstrates construction; replace its factory with your model adapter.
 ```python
 from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
 from latency_bench.policy.base import ConstantPolicyRunner
+from latency_bench.envs.factory import register_env_adapter
 
 
+@register_env_adapter("mountain_car", env_id="MountainCar-v0")
 def make_env(config, noop_action):
     env = config["env"]
     return GymnasiumEnvAdapter(
@@ -67,9 +69,8 @@ experiment:
   name: custom_mountain_car
   seed: 7
 env:
-  name: custom
-  factory: my_components:make_env
-  env_id: MountainCar-v0
+  name: mountain_car
+  registration_imports: [my_components]
   env_fps: 50
   obs_fps: 10
   noop_action: coast
@@ -87,8 +88,8 @@ scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
 evaluation:
-  eval_episodes: 2
-  eval_max_steps: 100
+  episodes: 2
+  max_env_steps: 100
 logging:
   output_dir: outputs/custom_mountain_car
   save_step_records: true
@@ -102,11 +103,11 @@ With LAGEN installed, run from your project directory:
 PYTHONPATH="$PWD" python -m latency_bench.run --config eval.yaml
 ```
 
-For realtime execution, set `executor.mode: realtime`,
-`latency.method: measured`, and `executor.inference_devices: [cpu]` for this CPU
-example. Remove `fixed_latency_ms`. For a GPU model, select the intended devices
+For realtime execution, set `executor.mode: realtime` and
+`executor.inference_devices: [cpu]` for this CPU example. Realtime measures actual
+latency automatically. The `latency` section only supplies simulated delays. For a GPU model, select the intended devices
 explicitly. Inference workers receive their assigned device in
-`config["policy"]["device"]` before calling the factory.
+`config["executor"]["inference_devices"][0]` before calling the factory.
 
 In realtime execution, the environment factory runs in the environment process.
 The policy factory runs in each inference process. Install your package in each
@@ -135,8 +136,8 @@ policy = build_policy(config, actions, factory=make_policy)
 The explicit `factory=` argument overrides factory selection from the config.
 Pass constructed components to `build_executor(config, env=env, policy=policy)`
 for single-environment simulated or paused execution. The executor closes its
-environment when it closes. Use importable factory strings for realtime or
-pooled inference, where live objects cannot cross the process boundary.
+environment when it closes. Use environment registration modules and importable policy factory strings for
+realtime or pooled inference. Each process constructs its own components.
 
 ## Collect teacher demonstrations
 

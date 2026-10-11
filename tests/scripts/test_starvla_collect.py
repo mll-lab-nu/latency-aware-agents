@@ -601,8 +601,8 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     for _ in range(5):
         main.step(np.full((8, 43), -5, dtype=np.float32))
     value, frame = main.unwrapped.value, main.env_step_idx
-    config = {"env": {"task_name": "g1_sonic_balance_simple", "env_fps": 50, "obs_fps": 50,
-                      "base_prompt": "balance"}, "evaluation": {"eval_max_steps": 1000}}
+    config = {"env": {"name": "g1_sonic_balance_simple", "env_fps": 50, "obs_fps": 50,
+                      "base_prompt": "balance"}, "evaluation": {"max_env_steps": 1000}}
     adapter = balance_dagger.BalanceDaggerCollector(config, Teacher(), tmp_path, [main], [branch])
     state = SimpleNamespace(episode_steps=[5], episode_ids=[0], seeds=[0],
                             outputs=[SimpleNamespace(action_chunk=np.full((8, 43), -5))])
@@ -623,7 +623,7 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
     assert main.unwrapped.value == -5
     assert main.env_step_idx == frame + 1
     main.unwrapped.terminate = True
-    config["evaluation"]["eval_max_steps"] = 7
+    config["evaluation"]["max_env_steps"] = 7
     state.episode_steps[0] = 6
     row = adapter._start_records(snapshot, [0], state)[0]
     if delay == 0:
@@ -635,7 +635,7 @@ def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path,
 
     # Exercise the real collector's odd budget and episode seed progression.
     envs, branches = [env(), env()], [env(), env()]
-    config["evaluation"]["eval_max_steps"] = 2 if delay == 0 else 12
+    config["evaluation"]["max_env_steps"] = 2 if delay == 0 else 12
     collector = balance_dagger.BalanceDaggerCollector(config, Teacher(), tmp_path, envs, branches)
     closed, resets = [], []
     pool = SimpleNamespace(
@@ -695,7 +695,7 @@ def test_balance_dagger_relabels_saved_absolute_actions_without_loading_models(t
     policy_config = tmp_path / "policy.yaml"
     policy_config.write_text(yaml.safe_dump({
         "env": {
-            "task_name": "g1_sonic_balance_simple",
+            "name": "g1_sonic_balance_simple",
             "env_id": "Balance-v0",
             "registration_imports": [],
             "make_kwargs": {"scene_path": "relative/scene.xml"},

@@ -1,21 +1,22 @@
 # Evaluation Parallelism
 
-This project uses `evaluation.eval_parallel_envs` to run multiple evaluation episode slots inside the same `latency_bench` simulated eval latency stage. It does not reduce the eval workload. For a generated Sample Factory checkpoint sweep, every available checkpoint kind still evaluates the configured eval runners, all eval latencies, and the configured number of episodes per latency.
+This project uses `executor.parallel_envs` to run multiple evaluation episode slots inside the same `latency_bench` simulated eval latency stage. It does not reduce the eval workload. For a generated Sample Factory checkpoint sweep, every available checkpoint kind still evaluates the configured eval runners, all eval latencies, and the configured number of episodes per latency.
 
 ## Config
 
 ```yaml
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 32
+  episodes: 100
+executor:
+  parallel_envs: 32
 ```
 
-`eval_parallel_envs` defaults to `1`. Values greater than `1` mean:
+`parallel_envs` defaults to `1`. Values greater than `1` mean:
 
-- start at most `min(eval_parallel_envs, eval_episodes)` active episode slots;
-- assign deterministic `episode_id` values `0..eval_episodes-1`;
+- start at most `min(parallel_envs, episodes)` active episode slots;
+- assign deterministic `episode_id` values `0..episodes-1`;
 - reset only the slot that finished;
-- stop only when exactly `eval_episodes` episodes completed.
+- stop only when exactly `episodes` episodes completed.
 
 This is episode-slot parallelism, not a workload reduction.
 
@@ -37,8 +38,8 @@ Then pass the generated evaluation YAML to `python -m latency_bench.run`.
 ```yaml
 executor:
   mode: simulated
-evaluation:
-  eval_parallel_envs: N
+executor:
+  parallel_envs: N
 ```
 
 The batched simulated executor supports zero, fixed, normal, uniform, IID, and
@@ -50,7 +51,7 @@ between replicas. Task entrypoints with an existing native
 vector simulator can inject that vector backend into the same executor instead of
 rebuilding one generic env per slot.
 
-When batched simulation uses `executor.simulated_inference_pool: true`, set
+When batched simulation uses `executor.inference_pool: true`, set
 `executor.inference_batch_size` explicitly. It limits physical batches, not
 simulated worker capacity. Episode and soft resets clear the affected slot's
 policy history on every inference worker.
@@ -58,8 +59,8 @@ policy history on every inference worker.
 Optional env stepping backend:
 
 ```yaml
-evaluation:
-  latency_bench_env_backend: serial  # serial | subproc | flappy_gpu_batched | demon_attack_gpu_batched | auto
+executor:
+  env_backend: serial  # serial | subproc | flappy_gpu_batched | demon_attack_gpu_batched | auto
 ```
 
 - `serial`: N env instances are stepped in a Python loop; policy inference can still be batched.
@@ -83,29 +84,28 @@ the affected slot's state before it receives new observations.
 
 ## Unsupported Paths
 
-These paths must not be parallelized with `eval_parallel_envs > 1`:
+These paths must not be parallelized with `parallel_envs > 1`:
 
 - `executor.mode: realtime`;
 - `executor.mode: paused`.
 
-Realtime and measured wall-clock execution depend on scheduling and wall time. Running multiple envs in parallel would contaminate the measurement. Use `eval_parallel_envs: 1` for those modes.
+Realtime and measured wall-clock execution depend on scheduling and wall time. Running multiple envs in parallel would contaminate the measurement. Use `parallel_envs: 1` for those modes.
 
 ## What Gets Faster
 
-`eval_parallel_envs` can help at three different layers:
+`parallel_envs` can help at three different layers:
 
 - Episode slots: multiple episodes are active inside one eval latency stage, so one long episode does not block the whole stage.
 - Policy batching: the main process can send one larger batch through the policy instead of many single-observation forwards.
 - Subprocess env stepping: CPU-bound envs can step in parallel across worker processes.
 - GPU env-step batching: supported GPU envs can advance all active slots in one backend call, and slots that finish are immediately refilled while pending episodes remain.
 
-These are separate. If CPU env stepping dominates and the backend is `serial`, GPU utilization can remain low even with many active episode slots. If IPC dominates, increasing `eval_parallel_envs` past the useful CPU core count may slow the run down.
+These are separate. If CPU env stepping dominates and the backend is `serial`, GPU utilization can remain low even with many active episode slots. If IPC dominates, increasing `parallel_envs` past the useful CPU core count may slow the run down.
 
 For DemonAttack StarVLA simulated eval, `demon_attack_gpu_batched` keeps the policy-facing observation contract locked to the CPU adapter: `Observation.data`, `env_step`, `sim_time_ms`, and `metadata["env_raw_rgb_frame_stack"]` must match the CPU path for the same seed/action trace. The GPU backend only changes how active slots are stepped.
 
 ## Profiling
 
-When `logging.simulated_pipeline_profile: true`, batched simulated eval writes `simulated_pipeline_summary.json` in the run output directory with `observe_slots_ms`, policy timing stages, `env_step_ms`, active slot count, and policy batch size. StarVLA reports separate `policy_build_example_ms`, `policy_wrapper_predict_action_ms`, and `policy_decode_ms` values, so the summary distinguishes model inference from image/example preparation and env stepping.
 
 ## Debug Overrides
 

@@ -13,6 +13,7 @@ import torch
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.envs.factory import resolve_env_config
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.tasks.contracts import (
     registration_module_name,
@@ -459,12 +460,13 @@ SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
 
 
 def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
+    resolve_env_config(config)
     env_cfg = config["env"]
     scheduler_cfg = config["scheduler"]
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
     if "algo" in config["backend"] and config["backend"]["algo"] == "PPO":
         append_cli_arg(args, "--mcppo", json.dumps(config["training"]["ppo"]))
-    append_cli_arg(args, "--gym-task-name", env_cfg["task_name"])
+    append_cli_arg(args, "--gym-task-name", env_cfg["name"])
     append_cli_arg(args, "--gym-env-id", env_cfg["env_id"])
     append_cli_arg(args, "--gym-make-kwargs-json", json.dumps(env_cfg["make_kwargs"]))
     append_cli_arg(

@@ -4,8 +4,7 @@ experiment:
   name: gymnasium_air_raid_qwenoft_rtx3090_profile_rollout_1ep
 
 evaluation:
-  eval_episodes: 1
-
+  episodes: 1
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/air_raid/rtx3090_profile_small_model_rollout
   video:

@@ -28,6 +28,7 @@ class RealtimeEnvProcess:
         child.close()
         try:
             metadata = self.receive()
+            config["env"].update(metadata["env_config"])
             self.env_fps = metadata["env_fps"]
             self.noop_action = metadata["noop_action"]
             self.action_space = metadata["action_space"]
@@ -56,9 +57,9 @@ class RealtimeEnvProcess:
         self.connection.send(("step", {"action": action}))
         return self.receive()["result"]
 
-    def start_episode(self, *, episode_id, seed, eval_max_steps):
+    def start_episode(self, *, episode_id, seed, max_env_steps):
         self.connection.send(("episode", {
-            "episode_id": episode_id, "seed": seed, "eval_max_steps": eval_max_steps,
+            "episode_id": episode_id, "seed": seed, "max_env_steps": max_env_steps,
         }))
         return self.receive()["episode_start_s"]
 

@@ -8,6 +8,7 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+from latency_bench.policy.model_source import set_model_files
 import shutil
 import subprocess
 import sys
@@ -44,12 +45,11 @@ def teacher_configs(task: str, model: str, profile: Path, output: Path) -> tuple
     evaluation["backend"]["run_mode"] = "eval"
     evaluation["env"].update(simulator="gpu", gpu_env_device="cuda:0", noop_max=30)
     evaluation["latency"]["seed"] = 271828
-    evaluation["policy"] = {"type": "gymnasium_sf", "checkpoint_path": "",
-                             "checkpoint_kind": "best", "device": "cuda:0", "deterministic": True}
-    evaluation["evaluation"].update(eval_episodes=100, eval_parallel_envs=32,
-                                     eval_max_steps=7200, eval_raw_reward=True,
-                                     episode_seed_offset=0, latency_bench_env_backend=f"{task}_gpu_batched",
-                                     eval_suites={"fixed": [], "normal": [], "uniform": []})
+    evaluation["policy"] = {"type": "sample_factory", "checkpoint_kind": "best", "deterministic": True, "source": "local", "root": str(Path(train["backend"]["train_dir"]) / run_id), "checkpoint": None}
+    evaluation["executor"]["inference_devices"] = ['cuda:0']
+    evaluation['evaluation'].update(episodes=100, max_env_steps=7200, eval_raw_reward=True, episode_seed_offset=0, suites=[])
+    evaluation["executor"]["parallel_envs"] = 32
+    evaluation["executor"]["env_backend"] = f"{task}_gpu_batched"
     evaluation["logging"].update(output_dir=str(output / "teacher_evals" / run_id),
                                  save_step_records=True, save_action_records=True, save_latency_records=True)
     return train, evaluation
@@ -83,7 +83,7 @@ def prepare(receipt: dict, output: Path) -> Path:
 def evaluate(directory: Path) -> None:
     config = load_config(directory / "eval.yaml")
     checkpoint = find_checkpoint(config["backend"]["train_dir"], config["experiment"]["name"], kind="best")
-    config["policy"]["checkpoint_path"] = str(checkpoint)
+    set_model_files(config, checkpoint=checkpoint)
     (directory / "eval.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
     subprocess.run([sys.executable, "-m", "latency_bench.run", "--config", str(directory / "eval.yaml")],
                    cwd=ROOT, check=True)

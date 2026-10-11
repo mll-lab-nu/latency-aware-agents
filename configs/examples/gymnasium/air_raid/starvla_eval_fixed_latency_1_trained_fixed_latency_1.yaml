@@ -6,20 +6,28 @@ experiment:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda:0
 env:
   obs_resize: [224, 224]
 
 policy:
-  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/air_raid_fixed_latency_1_return_gt2000_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: /mnt/checkpoints/latency-sensitive-bench/openvla_runs/air_raid_fixed_latency_1_return_gt2000_100ep_openvla_native_sft_5k/config.full.yaml
   task_manifest_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/air_raid_fixed_latency_1_return_gt2000_100ep/manifest.json
-  device: cuda:0
   latency_prompt_map_path: /mnt/data/latency-sensitive-bench/vla_datasets/rl_games/air_raid_fixed_latency_1_return_gt2000_100ep/latency_prompt_map.json
   latency_prompt_key: 1
 
+  source: local
+  root:
+    /mnt/checkpoints/latency-sensitive-bench/openvla_runs/air_raid_fixed_latency_1_return_gt2000_100ep_openvla_native_sft_5k
+  checkpoint: checkpoints/steps_5000_pytorch_model.pt
+  model_config: config.full.yaml
 evaluation:
-  eval_episodes: 20
-  eval_latency_values: [1]
+  episodes: 20
+  suites:
+  - name: eval_latency_1
+    latency:
+      method: fixed
+      fixed_latency_ms: 20.0
 
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/air_raid/fixed_latency_1_trained_starvla_fixed_latency_1_eval

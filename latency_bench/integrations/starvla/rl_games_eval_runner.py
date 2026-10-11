@@ -26,6 +26,7 @@ from copy import deepcopy
 import json
 import math
 from pathlib import Path
+from latency_bench.envs.factory import environment_integration
 import shutil
 import sys
 import time
@@ -37,6 +38,7 @@ from torch import distributed as dist
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
+from latency_bench.envs.tasks.contracts import canonical_gymnasium_contract
 from latency_bench.eval.config import _apply_eval_latency
 from latency_bench.eval.driver import run_from_config
 from latency_bench.envs.tasks.contracts import gymnasium_task_contract
@@ -116,7 +118,7 @@ def _starvla_latency_label_to_raw_frames(
 
 
 def _gymnasium_cross_task_action_dim(config: dict[str, Any], action_layout: str | None) -> int:
-    task_name = str(config["env"].get("task_name", ""))
+    task_name = str(config["env"].get("name", ""))
     layout = str(action_layout or "").strip().lower()
     if task_name == "asterix" and layout in {
         "factorized_6",
@@ -222,9 +224,9 @@ def build_latency_bench_config_for_rl_games(
     seed: int,
     image_size: int,
     num_episodes: int,
-    eval_max_steps: int,
+    max_env_steps: int,
     latency_steps: int,
-    eval_parallel_envs: int,
+    parallel_envs: int,
     unnorm_key: str | None,
     latency_prompt_map_path: str | None,
     image_transform_config: dict[str, Any] | None,
@@ -243,8 +245,9 @@ def build_latency_bench_config_for_rl_games(
     budgets, and disabled artifacts.
     """
     if env_name == "gymnasium":
-        task_contract = deepcopy(model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"])
-        env_config = {"name": "gymnasium", **task_contract}
+        task_contract = canonical_gymnasium_contract(model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"])
+        env_config = {**task_contract, "name": task_contract["task_name"]}
+        env_config.pop("task_name")
         env_config["make_kwargs"] = {
             **env_config["make_kwargs"],
             **dict(gymnasium_make_kwargs or {}),
@@ -323,10 +326,9 @@ def build_latency_bench_config_for_rl_games(
 
     policy: dict[str, Any] = {
         "type": "starvla",
-        "checkpoint_path": str(output_dir),  # metadata only; live model is injected
-        "device": "cuda",
+        "source": "local", "root": str(output_dir), "checkpoint": None,
     }
-    if str(config["env"].get("name", "")) == "gymnasium":
+    if environment_integration(config) == "gymnasium":
         data_cfg = model_cfg["datasets"]["vla_data"]
         if env_name == "gymnasium":
             task_contract = deepcopy(data_cfg["gymnasium_task_contract"])
@@ -366,18 +368,17 @@ def build_latency_bench_config_for_rl_games(
         policy["actions"] = list(actions)
     config["policy"] = policy
 
-    raw_frame_eval_max_steps = int(eval_max_steps) * _obs_stride_raw_frames(config["env"])
+    raw_frame_eval_max_steps = int(max_env_steps) * _obs_stride_raw_frames(config["env"])
     config["evaluation"] = {
         **config.get("evaluation", {}),
-        "eval_episodes": int(num_episodes),
-        "eval_parallel_envs": max(1, int(eval_parallel_envs)),
-        "eval_max_steps": int(raw_frame_eval_max_steps),
-        "eval_max_decision_steps": int(eval_max_steps),
-        "eval_deterministic": True,
+        "episodes": int(num_episodes),
+        "max_env_steps": int(raw_frame_eval_max_steps),
+        "eval_max_decision_steps": int(max_env_steps),
     }
     # We drive one fixed latency per call, so suites / sweeps must not re-expand.
-    config["evaluation"].pop("eval_suites", None)
-    config["evaluation"].pop("eval_latency_values", None)
+    config["evaluation"]["suites"] = []
+    config["executor"]["parallel_envs"] = max(1, int(parallel_envs))
+    config["executor"]["inference_devices"] = ["cuda"]
 
     logging_cfg = dict(config["logging"])
     logging_cfg["output_dir"] = str(output_dir)
@@ -395,7 +396,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         env_eval = self.cfg.rl_games.env_eval
         return int(getattr(env_eval, "image_size", 224) or 224)
 
-    def _eval_parallel_envs(self, stage: str, task: str | None = None) -> int:
+    def _parallel_envs(self, stage: str, task: str | None = None) -> int:
         # Number of envs evaluated in parallel (batched policy forward). Per-stage
         # override wins, else the global env_eval value, else 1 (sequential).
         # Settable from the launch script as rl_games.env_eval.eval_parallel_envs=N
@@ -608,9 +609,9 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 seed=eval_seed,
                 image_size=image_size,
                 num_episodes=num_episodes,
-                eval_max_steps=self._max_steps_per_episode(stage=stage, task=task_name),
+                max_env_steps=self._max_steps_per_episode(stage=stage, task=task_name),
                 latency_steps=int(latency),
-                eval_parallel_envs=self._eval_parallel_envs(stage=stage, task=task_name),
+                parallel_envs=self._parallel_envs(stage=stage, task=task_name),
                 unnorm_key=getattr(self.cfg.rl_games.env_eval, "unnorm_key", None),
                 latency_prompt_map_path=self._prompt_map_path(task_name),
                 image_transform_config=self._image_transform_config(stage=stage, task=task_name),
@@ -621,7 +622,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 action_layout=self._task_action_layout(task_name),
                 multibinary_threshold=self._deadly_multibinary_threshold(),
             )
-            if lb_config["env"]["name"] == "gymnasium" and normalization_statistics is None:
+            if environment_integration(lb_config) == "gymnasium" and normalization_statistics is None:
                 normalization_statistics = json.loads(
                     (Path(self.output_dir) / "dataset_statistics.json").read_text(encoding="utf-8")
                 )

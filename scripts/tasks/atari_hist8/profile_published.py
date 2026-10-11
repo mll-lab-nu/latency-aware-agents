@@ -22,25 +22,25 @@ def main() -> None:
     publication = json.loads(args.publication.read_text())
     task, model = publication["task"], publication["model"]
     config = load_config(f"configs/examples/profiling/{task}/{model}.yaml")
-    config["profiling"]["model_artifact"].update(hf_repo=publication["repo_id"], hf_path=publication["path"],
+    config["policy"].update(source="hf", hf_repo=publication["repo_id"], root=publication["path"],
                                   revision=publication["revision"])
     checkpoint = Path(hf_hub_download(
         publication["repo_id"],
-        (Path(publication["path"]) / config["profiling"]["model_artifact"]["checkpoint"]).as_posix(),
+        (Path(publication["path"]) / config["policy"]["checkpoint"]).as_posix(),
         revision=publication["revision"],
     ))
     if file_sha256(checkpoint) != publication["checkpoint_sha256"]:
         raise ValueError("Checkpoint does not match the model publication")
     result = run_profile(config, resume_run_id=args.resume)
-    result.update(publish_profile(result["RUN_DIR"], repo_id=config["profiling"]["hf_repo"]))
-    revision = HfApi().dataset_info(config["profiling"]["hf_repo"]).sha
+    result.update(publish_profile(result["RUN_DIR"], repo_id=config["profiling"]["publish_repo"]))
+    revision = HfApi().dataset_info(config["profiling"]["publish_repo"]).sha
     profile_path = "profiles/" + result["PROFILE_REF"] + "/profile.json"
-    remote = Path(hf_hub_download(config["profiling"]["hf_repo"], profile_path, repo_type="dataset", revision=revision))
+    remote = Path(hf_hub_download(config["profiling"]["publish_repo"], profile_path, repo_type="dataset", revision=revision))
     profile_sha = file_sha256(Path(result["PROFILE_PATH"]))
     assert file_sha256(remote) == profile_sha
     write_json_atomic(Path("outputs/tasks/atari_hist8_v1/profile_receipts") / f"{task}-{model}.json",
                       {"task": task, "model": model, "model_publication": publication, "profile": result,
-                       "profile_repo": config["profiling"]["hf_repo"], "profile_revision": revision,
+                       "profile_repo": config["profiling"]["publish_repo"], "profile_revision": revision,
                        "profile_path": profile_path, "profile_sha256": profile_sha})
     print(json.dumps(result, indent=2))
 

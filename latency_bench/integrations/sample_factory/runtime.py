@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 import torch
 
@@ -29,8 +30,6 @@ def load_sample_factory_policy_state_dict(
     device: torch.device,
     checkpoint_path: str | None,
 ) -> tuple[dict[str, Any], Path]:
-    from pathlib import Path
-
     from training.common.checkpoints import (
         load_sample_factory_checkpoint_from_paths,
         trusted_torch_load,

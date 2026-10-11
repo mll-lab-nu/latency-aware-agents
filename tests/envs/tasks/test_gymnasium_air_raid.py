@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
 from types import SimpleNamespace
 from typing import Any
 
@@ -156,6 +157,7 @@ def test_scaffold_reports_pal_clock_and_native_action_meanings(monkeypatch, caps
 ])
 def test_air_raid_configs_share_zero_latency_four_frame_contract(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 
@@ -177,19 +179,21 @@ def test_air_raid_configs_share_zero_latency_four_frame_contract(config_path):
 
 def test_air_raid_random_noop_eval_variant_is_explicit():
     config = load_config("configs/examples/gymnasium/air_raid/small_model_eval_random_noop.yaml")
+    resolve_env_config(config)
 
     assert config["env"]["make_kwargs"]["noop_max"] == 30
     assert config["env"]["make_kwargs"]["fire_reset"] is True
-    assert config["evaluation"]["eval_max_steps"] == 3600
+    assert config["evaluation"]["max_env_steps"] == 3600
     assert config["logging"]["output_dir"] == "outputs/examples/gymnasium_air_raid/eval_random_noop"
 
 
 def test_air_raid_starvla_eval_uses_random_noop_fire_reset():
     config = load_config("configs/examples/gymnasium/air_raid/starvla_eval.yaml")
+    resolve_env_config(config)
 
     assert config["env"]["make_kwargs"]["noop_max"] == 30
     assert config["env"]["make_kwargs"]["fire_reset"] is True
-    assert config["evaluation"]["eval_max_steps"] == 3600
+    assert config["evaluation"]["max_env_steps"] == 3600
 
 
 @pytest.mark.parametrize(
@@ -202,5 +206,6 @@ def test_air_raid_starvla_eval_uses_random_noop_fire_reset():
 )
 def test_air_raid_eval_budget_is_3600_raw_frames(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
 
-    assert config["evaluation"]["eval_max_steps"] == 3600
+    assert config["evaluation"]["max_env_steps"] == 3600

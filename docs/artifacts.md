@@ -134,8 +134,10 @@ artifact for the selected experiment:
 ```yaml
 __base__: /ABSOLUTE/CHECKOUT/configs/examples/gymnasium/inverted_pendulum/starvla_eval.yaml
 policy:
-  checkpoint_path: /ABSOLUTE/ARTIFACT/checkpoints/steps_2000_pytorch_model.pt
-  model_config_path: /ABSOLUTE/ARTIFACT/config.full.yaml
+  source: local
+  root: /ABSOLUTE/ARTIFACT
+  checkpoint: checkpoints/steps_2000_pytorch_model.pt
+  model_config: config.full.yaml
   task_manifest_path: /ABSOLUTE/DATASET/manifest.json
   latency_prompt_map_path: /ABSOLUTE/DATASET/latency_prompt_map.json
   backbone_path: /ABSOLUTE/HF_CACHE/snapshots/MODEL_COMMIT

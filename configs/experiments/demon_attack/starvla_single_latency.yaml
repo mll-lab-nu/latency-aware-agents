@@ -8,6 +8,9 @@ experiment:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 4
 env:
   env_fps: 60
   obs_fps: 15
@@ -16,8 +19,6 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: results/Checkpoints/openvla_demon_attack_single/final_model
-  device: cuda
   unnorm_key: new_embodiment
   latency_prompt_map_path: /mnt/data/latency_data/playground/Datasets/rl_games/demon_attack_train/latency_prompt_map.json
   actions:
@@ -28,18 +29,20 @@ policy:
     - RIGHTFIRE
     - LEFTFIRE
 
+  source: local
+  root: results/Checkpoints/openvla_demon_attack_single
+  checkpoint: final_model
 latency:
   method: fixed
   fixed_latency_ms: 33.333333333333336
 
 evaluation:
-  eval_parallel_envs: 4
-  eval_max_steps: 2000
-  eval_suites:
-    fixed:
-      - [2]
-    normal: []
-    uniform: []
+  max_env_steps: 2000
+  suites:
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
 
 logging:
   output_dir: outputs/starvla_openvla_demon_attack_single_raw2

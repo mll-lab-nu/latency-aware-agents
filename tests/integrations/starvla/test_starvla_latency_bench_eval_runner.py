@@ -46,9 +46,9 @@ def test_translation_flappy_fixed_latency(tmp_path):
         seed=42,
         image_size=224,
         num_episodes=5,
-        eval_max_steps=2000,
+        max_env_steps=2000,
         latency_steps=2,
-        eval_parallel_envs=8,
+        parallel_envs=8,
         unnorm_key="flappy",
         latency_prompt_map_path=None,
         image_transform_config=None,
@@ -61,9 +61,9 @@ def test_translation_flappy_fixed_latency(tmp_path):
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(2 * 1000.0 / 30.0)
     assert cfg["policy"]["type"] == "starvla"
     assert cfg["policy"]["unnorm_key"] == "flappy"
-    assert cfg["evaluation"]["eval_episodes"] == 5
-    assert cfg["evaluation"]["eval_parallel_envs"] == 8
-    assert cfg["evaluation"]["eval_max_steps"] == 2000
+    assert cfg["evaluation"]["episodes"] == 5
+    assert cfg["executor"]["parallel_envs"] == 8
+    assert cfg["evaluation"]["max_env_steps"] == 2000
     assert cfg["evaluation"]["eval_max_decision_steps"] == 2000
     assert "eval_suites" not in cfg["evaluation"]
     assert cfg["logging"]["video"]["enabled"] is False
@@ -89,9 +89,9 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
         seed=42,
         image_size=224,
         num_episodes=5,
-        eval_max_steps=2000,
+        max_env_steps=2000,
         latency_steps=2,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=env_name,
         latency_prompt_map_path=str(prompt_map_path),
         image_transform_config=None,
@@ -102,7 +102,7 @@ def test_translation_frame_skipped_tasks_use_observation_step_latency(tmp_path, 
     assert cfg["latency"]["method"] == "fixed"
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(2 * 1000.0 / obs_fps)
     assert cfg["policy"]["latency_prompt_key"] == 2
-    assert cfg["evaluation"]["eval_max_steps"] == pytest.approx(
+    assert cfg["evaluation"]["max_env_steps"] == pytest.approx(
         2000 * float(cfg["env"]["env_fps"]) / float(cfg["env"]["obs_fps"])
     )
     assert cfg["evaluation"]["eval_max_decision_steps"] == 2000
@@ -155,9 +155,9 @@ def test_translation_uses_prompt_map_raw_frame_latency(
         seed=42,
         image_size=224,
         num_episodes=1,
-        eval_max_steps=10,
+        max_env_steps=10,
         latency_steps=6,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=str(prompt_map_path),
         image_transform_config=None,
@@ -178,9 +178,9 @@ def test_translation_zero_latency_uses_zero_type(tmp_path):
         seed=0,
         image_size=224,
         num_episodes=1,
-        eval_max_steps=100,
+        max_env_steps=100,
         latency_steps=0,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
         image_transform_config=None,
@@ -224,9 +224,9 @@ def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
         seed=42,
         image_size=224,
         num_episodes=20,
-        eval_max_steps=3600,
+        max_env_steps=3600,
         latency_steps=2,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
         image_transform_config=None,
@@ -238,7 +238,7 @@ def test_translation_gymnasium_continuous_uses_training_contract(tmp_path):
     assert cfg["latency"]["fixed_latency_ms"] == pytest.approx(16.0)
     assert cfg["policy"]["gymnasium_training_task_contract"] == task_contract
     assert cfg["policy"]["gymnasium_active_action_dim"] == 2
-    assert cfg["evaluation"]["eval_episodes"] == 20
+    assert cfg["evaluation"]["episodes"] == 20
 
 
 def test_translation_gymnasium_discrete_restores_action_catalog(tmp_path):
@@ -282,9 +282,9 @@ def test_translation_gymnasium_discrete_restores_action_catalog(tmp_path):
         seed=42,
         image_size=224,
         num_episodes=20,
-        eval_max_steps=1000,
+        max_env_steps=1000,
         latency_steps=0,
-        eval_parallel_envs=5,
+        parallel_envs=5,
         unnorm_key=None,
         latency_prompt_map_path=None,
         image_transform_config=None,
@@ -342,9 +342,9 @@ def test_translation_multiframe_expands_eval_frame_stack_at_observation_stride(
         seed=0,
         image_size=224,
         num_episodes=1,
-        eval_max_steps=100,
+        max_env_steps=100,
         latency_steps=0,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
         image_transform_config=None,
@@ -361,9 +361,9 @@ def test_translation_multiframe_keeps_larger_base_frame_stack(tmp_path):
         seed=0,
         image_size=224,
         num_episodes=1,
-        eval_max_steps=100,
+        max_env_steps=100,
         latency_steps=0,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
         image_transform_config=None,
@@ -380,9 +380,9 @@ def test_translation_kv_memory_does_not_expand_eval_frame_stack(tmp_path):
         seed=0,
         image_size=224,
         num_episodes=1,
-        eval_max_steps=100,
+        max_env_steps=100,
         latency_steps=0,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
         image_transform_config=None,
@@ -411,9 +411,9 @@ def test_translation_ghost_history_is_not_expanded_by_multiframe_input(
         seed=0,
         image_size=224,
         num_episodes=1,
-        eval_max_steps=100,
+        max_env_steps=100,
         latency_steps=0,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
         image_transform_config={
@@ -449,9 +449,9 @@ def test_translation_wanoft_expands_raw_history_at_observation_stride(
         seed=0,
         image_size=224,
         num_episodes=1,
-        eval_max_steps=100,
+        max_env_steps=100,
         latency_steps=0,
-        eval_parallel_envs=1,
+        parallel_envs=1,
         unnorm_key=None,
         latency_prompt_map_path=None,
         image_transform_config=None,
@@ -476,9 +476,9 @@ def test_translation_wanoft_rejects_single_image_ghost_trail(tmp_path):
             seed=0,
             image_size=224,
             num_episodes=1,
-            eval_max_steps=100,
+            max_env_steps=100,
             latency_steps=0,
-            eval_parallel_envs=1,
+            parallel_envs=1,
             unnorm_key=None,
             latency_prompt_map_path=None,
             image_transform_config={
@@ -493,7 +493,7 @@ def test_translation_wanoft_rejects_single_image_ghost_trail(tmp_path):
 def _make_cfg(
     num_episodes=4,
     latencies=(0, 2),
-    eval_parallel_envs=None,
+    parallel_envs=None,
     num_obs_frames=1,
     image_mode="single",
     kv_memory_enabled=False,
@@ -505,8 +505,8 @@ def _make_cfg(
         "fixed_episode_seeds": True,
         "latency": {"values": list(latencies), "prompt_map_path": None},
     }
-    if eval_parallel_envs is not None:
-        env_eval["eval_parallel_envs"] = eval_parallel_envs
+    if parallel_envs is not None:
+        env_eval["parallel_envs"] = parallel_envs
     return OmegaConf.create(
         {
             "seed": 42,
@@ -565,7 +565,7 @@ def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
     captured = {}
 
     def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
-        captured["eval_parallel_envs"] = config["evaluation"]["eval_parallel_envs"]
+        captured["parallel_envs"] = config["executor"]["parallel_envs"]
         return [
             EpisodeMetrics(episode_id=i, episode_return=1.0, survival_steps=5) for i in episode_ids
         ]
@@ -576,14 +576,14 @@ def test_runner_threads_eval_parallel_envs_from_cfg(tmp_path, monkeypatch):
     # default (unset) -> 1
     runner = LatencyBenchRlGamesEvalRunner(cfg=_make_cfg(latencies=(0,)), output_dir=str(tmp_path))
     runner.run(model=object(), step=1, stage="mid_train", save=False)
-    assert captured["eval_parallel_envs"] == 1
+    assert captured["parallel_envs"] == 1
 
     # set on env_eval -> threaded into the synthesized lb config
     runner = LatencyBenchRlGamesEvalRunner(
-        cfg=_make_cfg(latencies=(0,), eval_parallel_envs=8), output_dir=str(tmp_path)
+        cfg=_make_cfg(latencies=(0,), parallel_envs=8), output_dir=str(tmp_path)
     )
     runner.run(model=object(), step=1, stage="mid_train", save=False)
-    assert captured["eval_parallel_envs"] == 8
+    assert captured["parallel_envs"] == 8
 
 
 def test_runner_applies_eval_only_gymnasium_reset_kwargs(tmp_path, monkeypatch):

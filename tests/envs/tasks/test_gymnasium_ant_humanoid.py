@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
 from types import SimpleNamespace
 
 import gymnasium as gym
@@ -221,11 +222,13 @@ def test_locomotion_configs_preserve_native_state_contract(
         f"configs/examples/gymnasium/{task}/starvla_eval.yaml",
     ]
     configs = [load_config(path) for path in config_paths]
+    for config in configs:
+        resolve_env_config(config)
     envs = [config["env"] for config in configs]
 
     assert envs[1:] == envs[:-1]
     env = envs[0]
-    assert env["task_name"] == task
+    assert env["name"] == task
     assert env["env_id"] == env_id
     assert env["make_kwargs"]["base_env_id"] == base_env_id
     assert env["env_fps"] == pytest.approx(fps)
@@ -241,6 +244,7 @@ def test_locomotion_configs_preserve_native_state_contract(
 @pytest.mark.parametrize("task", ["ant", "humanoid"])
 def test_locomotion_training_uses_vendored_sample_factory_mujoco_recipe(task):
     config = load_config(f"configs/examples/gymnasium/{task}/small_model_train.yaml")
+    resolve_env_config(config)
     cfg = build_train_cfg_from_config(config)
     contract = gymnasium_task_contract(config["env"])
 

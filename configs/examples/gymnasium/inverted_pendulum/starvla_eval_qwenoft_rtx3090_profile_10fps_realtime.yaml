@@ -6,11 +6,11 @@ executor:
   mode: realtime
   inference_devices: [cuda:0]
 
+  sync_cuda: true
+  parallel_envs: 1
+
 env:
-  name: gymnasium
-  task_name: inverted_pendulum
-  env_id: LatencyBench/InvertedPendulumDiscrete-v0
-  registration_imports: [latency_bench.envs.tasks.inverted_pendulum]
+  name: inverted_pendulum
   make_kwargs:
     base_env_id: InvertedPendulum-v4
     render_mode: rgb_array
@@ -39,11 +39,6 @@ env:
     Keep the pole upright by applying horizontal cart forces. Choose exactly one action from:
     push_left_hard, push_left_soft, zero_force, push_right_soft, push_right_hard.
 
-latency:
-  method: measured
-  device: cuda:0
-  sync_cuda: true
-
 scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
@@ -56,17 +51,17 @@ policy:
     - zero_force
     - push_right_soft
     - push_right_hard
-  checkpoint_path: /workspace/artifacts/extra-envs-checkpoints/OpenVLA/profile-latency/inverted_pendulum_rgb_state_qwenoft_rtx3090_profile_10fps_return_gt900_100ep_openvla_native_sft_2k/checkpoints/steps_2000_pytorch_model.pt
-  model_config_path: /workspace/artifacts/extra-envs-checkpoints/OpenVLA/profile-latency/inverted_pendulum_rgb_state_qwenoft_rtx3090_profile_10fps_return_gt900_100ep_openvla_native_sft_2k/config.full.yaml
   task_manifest_path: /workspace/runtime/inverted_pendulum_profile_latency_openvla_10fps/task_manifest.json
-  device: cuda:0
   prompt_mode: raw
 
+  source: local
+  root:
+    /workspace/artifacts/extra-envs-checkpoints/OpenVLA/profile-latency/inverted_pendulum_rgb_state_qwenoft_rtx3090_profile_10fps_return_gt900_100ep_openvla_native_sft_2k
+  checkpoint: checkpoints/steps_2000_pytorch_model.pt
+  model_config: config.full.yaml
 evaluation:
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-
+  episodes: 5
+  max_env_steps: 1000
 logging:
   output_dir: /workspace/runtime/inverted_pendulum_profile_latency_openvla_10fps/outputs
   video:
@@ -75,4 +70,3 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  realtime_pipeline_profile: true

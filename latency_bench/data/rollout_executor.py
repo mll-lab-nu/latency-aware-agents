@@ -106,7 +106,7 @@ class ExecutorCollectionExecution:
 
     def __init__(self, config, *, num_envs):
         self.config = deepcopy(config)
-        self.config["evaluation"]["eval_parallel_envs"] = num_envs
+        self.config["executor"]["parallel_envs"] = num_envs
         seed_everything(_evaluation_seed(self.config))
         env = self.config["env"]
         self.metadata = {"env_fps": env["env_fps"], "obs_fps": env["obs_fps"],
@@ -119,12 +119,12 @@ class ExecutorCollectionExecution:
         self.executor.run_warmup()
         if isinstance(self.executor, BatchedExecutor):
             self.executor.run_episodes(episode_ids=[], seeds=[],
-                eval_max_steps=session.options["max_steps_per_episode"],
+                max_env_steps=session.options["max_steps_per_episode"],
                 next_episode=session.next_episode, on_episode_complete=observer.finish_episode)
         else:
             while (spec := session.next_episode()) is not None:
                 metrics = self.executor.run_episode(episode_id=spec["episode_idx"], seed=spec["seed"],
-                                                     eval_max_steps=session.options["max_steps_per_episode"])
+                                                     max_env_steps=session.options["max_steps_per_episode"])
                 observer.finish_episode(metrics)
 
     def close(self):

@@ -158,7 +158,7 @@ def _build_executor(tmp_path: Path, *, pool: FakeInferencePool | None, horizon=1
 def _run_episodes(executor: SimulatedLatencyExecutor, n_episodes: int = 3):
     metrics = []
     for episode_id in range(n_episodes):
-        result = executor.run_episode(episode_id=episode_id, seed=episode_id, eval_max_steps=60)
+        result = executor.run_episode(episode_id=episode_id, seed=episode_id, max_env_steps=60)
         metrics.append(result)
     executor.logger.flush()
     return metrics

@@ -304,15 +304,8 @@ def policy_config(config, bundle, vla_python, batch_size, backbone):
     input_keys = runtime.TASK_INPUT_KEYS[task_spec("balance").name]
     result["experiment"]["seed"] = INFERENCE_SEED
     result["executor"]["inference_batch_size"] = batch_size
-    result["policy"] = {
-        "type": "starvla", "checkpoint_path": str(bundle / "checkpoints/model.pt"),
-        "action_prefix": config["policy"]["action_prefix"],
-        "task_contract_path": str(bundle / "task_contract.json"),
-        "backbone_path": str(backbone),
-        "state_info_key": input_keys["state_info_key"],
-        "image_views_info_key": input_keys["image_views_info_key"],
-        "worker_python_executable": str(vla_python), "device": "cuda:0",
-    }
+    result['policy'] = {'type': 'starvla', 'action_prefix': config['policy']['action_prefix'], 'task_contract_path': str(bundle / 'task_contract.json'), 'backbone_path': str(backbone), 'state_info_key': input_keys['state_info_key'], 'image_views_info_key': input_keys['image_views_info_key'], 'worker_python_executable': str(vla_python), 'checkpoint': str(Path(str(bundle / 'checkpoints/model.pt')).absolute()).lstrip('/'), 'source': 'local', 'root': '/'}
+    result["executor"]["inference_devices"] = ['cuda:0']
     return result
 
 

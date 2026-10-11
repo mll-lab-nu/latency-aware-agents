@@ -68,7 +68,7 @@ def test_published_profile_checks_checkpoint_before_measurement(tmp_path, monkey
         assert measured == []
         return
     module.main()
-    assert measured[0]["profiling"]["model_artifact"]["revision"] == "model-revision"
+    assert measured[0]["policy"]["revision"] == "model-revision"
     receipt = json.loads((tmp_path / "outputs/tasks/atari_hist8_v1/profile_receipts/atlantis-qwenoft.json").read_text())
     assert receipt["profile_revision"] == "profile-revision"
     assert receipt["profile_sha256"] == module.file_sha256(profile_path)
@@ -98,10 +98,10 @@ def test_profile_teacher_keeps_cpu_learning_and_independent_gpu_evaluation(tmp_p
     assert train["latency"]["profile_path"] == evaluation["latency"]["profile_path"]
     assert evaluation["env"]["simulator"] == "gpu"
     assert evaluation["experiment"]["seed"] + evaluation["evaluation"]["episode_seed_offset"] == 1_000_000
-    assert evaluation["evaluation"]["eval_episodes"] == 100
-    assert evaluation["evaluation"]["eval_parallel_envs"] == 32
-    assert evaluation["evaluation"]["eval_max_steps"] == 7200
-    assert evaluation["evaluation"]["latency_bench_env_backend"] == f"{task}_gpu_batched"
+    assert evaluation["evaluation"]["episodes"] == 100
+    assert evaluation["executor"]["parallel_envs"] == 32
+    assert evaluation["evaluation"]["max_env_steps"] == 7200
+    assert evaluation["executor"]["env_backend"] == f"{task}_gpu_batched"
     assert evaluation["logging"]["wandb_name"] == train["logging"]["wandb_name"]
     assert train["logging"]["wandb_project"] == "latency-sensitive-bench"
 
@@ -168,9 +168,9 @@ def test_atari_history_evaluation_uses_gpu_and_published_action_layout(tmp_path,
                             env_condition=condition)
     assert cfg["env"]["simulator"] == "gpu"
     assert cfg["env"]["action_history_decisions"] == 8
-    assert cfg["evaluation"]["latency_bench_env_backend"] == f"{task}_gpu_batched"
-    assert cfg["evaluation"]["eval_parallel_envs"] == 32
-    assert cfg["evaluation"]["eval_max_steps"] == 7200
+    assert cfg["executor"]["env_backend"] == f"{task}_gpu_batched"
+    assert cfg["executor"]["parallel_envs"] == 32
+    assert cfg["evaluation"]["max_env_steps"] == 7200
     assert cfg["policy"]["task_manifest_path"] == str(bundle / "manifest.json")
     assert cfg["latency"]["method"] == ("zero" if condition == "zero" else "temporal")
     if task == "asterix":
@@ -235,9 +235,9 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path, task)
     assert "step2877" in cfg["experiment"]["name"]
     assert cfg["policy"]["state_source"] == "transport"
     assert "state_normalization" not in cfg["policy"]
-    assert cfg["evaluation"]["eval_episodes"] == 100
-    assert cfg["evaluation"]["eval_parallel_envs"] == 32
-    assert cfg["evaluation"]["eval_max_steps"] == 7200
+    assert cfg["evaluation"]["episodes"] == 100
+    assert cfg["executor"]["parallel_envs"] == 32
+    assert cfg["evaluation"]["max_env_steps"] == 7200
     if task in {"atlantis", "asterix"}:
         from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
 
@@ -248,8 +248,8 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path, task)
                              device="cuda:0", episodes=100, env_condition="zero",
                              inference_devices=["cuda:0", "cuda:1"])
     assert zero["latency"] == {"method": "zero"}
-    assert zero["evaluation"]["eval_parallel_envs"] == 32
-    assert zero["evaluation"]["eval_max_steps"] == 3600
+    assert zero["executor"]["parallel_envs"] == 32
+    assert zero["evaluation"]["max_env_steps"] == 3600
     assert zero["executor"]["inference_batch_size"] == 16
     assert zero["executor"]["inference_devices"] == ["cuda:0", "cuda:1"]
 

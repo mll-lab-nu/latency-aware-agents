@@ -49,9 +49,9 @@ def test_task_checkpoint_uses_full_input_config_and_latency_prompt(tmp_path, mon
         baseframework=SimpleNamespace(from_pretrained=lambda path, **kwargs: framework)))
     monkeypatch.setitem(sys.modules, "starVLA.model.framework.share_tools", SimpleNamespace(
         read_mode_config=unused_partial_config, apply_config_compat=lambda cfg: cfg))
-    policy = build_task_starvla_policy({"policy": {
-        "checkpoint_path": str(tmp_path / "steps_5000_pytorch_model.pt"), "model_config_path": str(full_config),
-        "backbone_path": str(tmp_path / "backbone"), "device": "cpu", "task_contract_path": str(contract_path),
+    policy = build_task_starvla_policy({"executor": {"inference_devices": ["cpu"]}, "policy": {
+        "source": "local", "root": str(tmp_path), "checkpoint": "steps_5000_pytorch_model.pt", "model_config": full_config.name,
+        "backbone_path": str(tmp_path / "backbone"), "task_contract_path": str(contract_path),
         "state_info_key": "state", "image_views_info_key": "views",
         "latency_prompt_map_path": str(prompt_map), "prompt_mode": prompt_mode,
     }})
@@ -202,10 +202,10 @@ def test_task_policy_loads_contract_for_model_source(tmp_path, monkeypatch, mode
         from latency_bench.policy.starvla_tasks import build_task_starvla_policy
 
         config["policy"].update(
-            checkpoint_path=str(tmp_path / "checkpoint.pt"),
+            source="local", root=str(tmp_path), checkpoint="checkpoint.pt",
             backbone_path=str(tmp_path / "prepared_backbone"),
-            device="cpu",
         )
+        config["executor"] = {"inference_devices": ["cpu"]}
         loaded = {}
 
         def from_pretrained(checkpoint_path, *, backbone_path):
@@ -226,7 +226,7 @@ def test_task_policy_loads_contract_for_model_source(tmp_path, monkeypatch, mode
         )
         policy = build_task_starvla_policy(config)
         assert loaded == {
-            "checkpoint": config["policy"]["checkpoint_path"],
+            "checkpoint": str(tmp_path / config["policy"]["checkpoint"]),
             "backbone": config["policy"]["backbone_path"],
         }
 

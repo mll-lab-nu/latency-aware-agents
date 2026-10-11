@@ -12,7 +12,6 @@ from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
 from scripts.experiments.sim2real.replay import RunTrajectoryLogger
-from latency_bench.core.timing import current_profiler
 from latency_bench.core.types import Action, Observation, OrderingPolicy, PolicyOutput, StepResult
 from latency_bench.envs.atari import TRUE_EPISODE_END_INFO_KEY
 from latency_bench.envs.base import EnvAdapter
@@ -138,27 +137,6 @@ class MetadataCapturePolicy(PolicyRunner):
         ]
 
 
-class TimingBatchPolicy(PolicyRunner):
-    """Records fixed per-stage timings into the ambient profiler (like StarVla)."""
-
-    def predict(self, observation: Observation) -> PolicyOutput:
-        raise AssertionError("batched executor must call predict_batch")
-
-    def predict_batch(self, observations):
-        profiler = current_profiler()
-        if profiler.enabled:
-            profiler.timings.update(
-                {
-                    "policy_build_example_ms": 1.0,
-                    "policy_wrapper_predict_action_ms": 2.0,
-                    "policy_decode_ms": 3.0,
-                    "starvla_fake_internal_ms": 4.0,
-                }
-            )
-        return [
-            PolicyOutput(action=Action("jump", name="jump"))
-            for _observation in observations
-        ]
 
 
 class RawRgbShapeCapturePolicy(PolicyRunner):
@@ -383,7 +361,7 @@ class RawRgbMetadataSubprocEnvAdapter(EnvAdapter):
 def _build_subproc_failure_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return FailingStepEnvAdapter(
         env_fps=float(config["env"]["env_fps"]),
-        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        max_steps=int(config["evaluation"]["max_env_steps"]),
         noop_action=noop_action,
     )
 
@@ -392,7 +370,7 @@ def _build_subproc_failure_test_env(config: dict, noop_action: Action) -> EnvAda
 def _build_discrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return DiscreteSubprocEnvAdapter(
         env_fps=float(config["env"]["env_fps"]),
-        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        max_steps=int(config["evaluation"]["max_env_steps"]),
         noop_action=noop_action,
     )
 
@@ -401,7 +379,7 @@ def _build_discrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAd
 def _build_multidiscrete_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return MultiDiscreteSubprocEnvAdapter(
         env_fps=float(config["env"]["env_fps"]),
-        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        max_steps=int(config["evaluation"]["max_env_steps"]),
         noop_action=noop_action,
     )
 
@@ -410,7 +388,7 @@ def _build_multidiscrete_subproc_test_env(config: dict, noop_action: Action) -> 
 def _build_raw_rgb_metadata_subproc_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return RawRgbMetadataSubprocEnvAdapter(
         env_fps=float(config["env"]["env_fps"]),
-        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        max_steps=int(config["evaluation"]["max_env_steps"]),
         noop_action=noop_action,
     )
 
@@ -475,49 +453,49 @@ def _subproc_config(
     *,
     env_name: str = "dummy",
     num_episodes: int = 4,
-    eval_max_steps: int = 2,
+    max_env_steps: int = 2,
     noop_value="noop",
     jump_value="jump",
 ) -> dict:
     return {
-        "experiment": {
-            "name": "subproc_batched_test",
-            "seed": 0,
+        'experiment': {
+            'name': 'subproc_batched_test',
+            'seed': 0,
         },
-        "executor": {
-            "mode": "simulated",
+        'executor': {
+            'mode': 'simulated',
+            'env_backend': 'subproc',
         },
-        "env": {
-            "name": env_name,
-            "env_fps": 30,
-            "obs_fps": 30,
-            "noop_action": noop_value,
-            "action_map": {
-                "noop": noop_value,
-                "jump": jump_value,
+        'env': {
+            'name': env_name,
+            'env_fps': 30,
+            'obs_fps': 30,
+            'noop_action': noop_value,
+            'action_map': {
+                'noop': noop_value,
+                'jump': jump_value,
             },
         },
-        "latency": {
-            "method": "zero",
+        'latency': {
+            'method': 'zero',
         },
-        "scheduler": {
-            "hold_policy": "one_frame_then_noop",
-            "ordering_policy": "latest_ready",
+        'scheduler': {
+            'hold_policy': 'one_frame_then_noop',
+            'ordering_policy': 'latest_ready',
         },
-        "policy": {
-            "type": "constant",
-            "action": "jump",
+        'policy': {
+            'type': 'constant',
+            'action': 'jump',
         },
-        "evaluation": {
-            "eval_episodes": num_episodes,
-            "eval_max_steps": eval_max_steps,
-            "latency_bench_env_backend": "subproc",
+        'evaluation': {
+            'episodes': num_episodes,
+            'max_env_steps': max_env_steps,
         },
-        "logging": {
-            "output_dir": str(tmp_path),
-            "save_step_records": True,
-            "save_action_records": True,
-            "save_latency_records": True,
+        'logging': {
+            'output_dir': str(tmp_path),
+            'save_step_records': True,
+            'save_action_records': True,
+            'save_latency_records': True,
         },
     }
 
@@ -528,7 +506,7 @@ def _subproc_executor(
     num_slots: int = 2,
     env_name: str = "dummy",
     num_episodes: int = 4,
-    eval_max_steps: int = 2,
+    max_env_steps: int = 2,
     noop_value="noop",
     jump_value="jump",
     start_method: str | None = None,
@@ -540,7 +518,7 @@ def _subproc_executor(
         tmp_path,
         env_name=env_name,
         num_episodes=num_episodes,
-        eval_max_steps=eval_max_steps,
+        max_env_steps=max_env_steps,
         noop_value=noop_value,
         jump_value=jump_value,
     )
@@ -644,7 +622,7 @@ def test_batched_executor_completes_exact_episode_ids(tmp_path: Path):
         metrics = executor.run_episodes(
             episode_ids=range(5),
             seeds=[100, 101, 102, 103, 104],
-            eval_max_steps=3,
+            max_env_steps=3,
         )
     finally:
         executor.close()
@@ -661,7 +639,7 @@ def test_batched_executor_parallel_envs_gt_episodes_is_safe(tmp_path: Path):
         metrics = executor.run_episodes(
             episode_ids=range(2),
             seeds=[7, 8],
-            eval_max_steps=3,
+            max_env_steps=3,
         )
     finally:
         executor.close()
@@ -678,7 +656,7 @@ def test_batched_executor_zero_eval_max_steps_still_completes_all_episodes(tmp_p
         metrics = executor.run_episodes(
             episode_ids=range(5),
             seeds=[1, 2, 3, 4, 5],
-            eval_max_steps=0,
+            max_env_steps=0,
         )
     finally:
         executor.close()
@@ -696,7 +674,7 @@ def test_batched_executor_global_obs_and_action_ids_are_unique(tmp_path: Path):
         executor.run_episodes(
             episode_ids=range(4),
             seeds=[1, 2, 3, 4],
-            eval_max_steps=3,
+            max_env_steps=3,
         )
         # Records are flushed to disk (and cleared from memory) at episode end.
         action_rows = load_jsonl_records(tmp_path / "actions.jsonl")
@@ -721,7 +699,7 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
         executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
     finally:
         executor.close()
@@ -760,28 +738,6 @@ def test_batched_executor_adds_slot_id_to_policy_observation_metadata(tmp_path: 
     ] == [(0, 0.0), (1, 0.0)]
 
 
-def test_batched_executor_writes_simulated_pipeline_summary_when_enabled(tmp_path: Path):
-    executor, _envs = _executor(tmp_path, num_slots=2, env_max_steps=1, policy=TimingBatchPolicy())
-    executor.profile_pipeline = True
-
-    try:
-        executor.run_episodes(
-            episode_ids=[0, 1],
-            seeds=[0, 1],
-            eval_max_steps=1,
-        )
-    finally:
-        executor.close()
-
-    summary = json.loads((tmp_path / "simulated_pipeline_summary.json").read_text(encoding="utf-8"))
-    assert summary["num_profiled_batches"] == 1
-    assert summary["batch_size"]["mean"] == 2.0
-    assert summary["policy_build_example_ms"]["mean"] == 1.0
-    assert summary["policy_wrapper_predict_action_ms"]["mean"] == 2.0
-    assert summary["policy_decode_ms"]["mean"] == 3.0
-    assert summary["starvla_fake_internal_ms"]["mean"] == 4.0
-    assert summary["observe_slots_ms"]["count"] == 1
-    assert summary["env_step_ms"]["count"] == 1
 
 
 def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):
@@ -800,7 +756,7 @@ def test_batched_executor_keeps_slot_action_queues_independent(tmp_path: Path):
         executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=3,
+            max_env_steps=3,
         )
     finally:
         executor.close()
@@ -829,7 +785,7 @@ def test_batched_executor_ignores_late_stale_result_like_realtime(tmp_path: Path
     executor.decision_scheduler = TwoObservationScheduler()
 
     try:
-        metrics = executor.run_episodes(episode_ids=[0], seeds=[0], eval_max_steps=8)
+        metrics = executor.run_episodes(episode_ids=[0], seeds=[0], max_env_steps=8)
     finally:
         executor.close()
 
@@ -871,7 +827,7 @@ def test_batched_executor_soft_reset_continues_same_episode_and_clears_slot_late
         metrics = executor.run_episodes(
             episode_ids=[7],
             seeds=[5],
-            eval_max_steps=10,
+            max_env_steps=10,
         )
     finally:
         executor.close()
@@ -900,7 +856,7 @@ def test_batched_executor_keeps_slot_latency_sources_independent(tmp_path: Path)
         executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=2,
+            max_env_steps=2,
         )
         values_by_slot: dict[int, set[float]] = {}
         for row in load_jsonl_records(tmp_path / "latencies.jsonl"):
@@ -929,7 +885,7 @@ def test_batched_executor_worker_capacity_is_independent_per_slot(tmp_path: Path
     metrics = executor.run_episodes(
         episode_ids=[10, 11],
         seeds=[None, None],
-        eval_max_steps=5,
+        max_env_steps=5,
     )
 
     assert [[call["raw_frame"] for call in source.calls] for source in latency_sources] == [[0, 3], [0, 3]]
@@ -969,7 +925,7 @@ def test_decision_history_records_completed_four_frame_windows_and_drops():
         action_history_decisions=8,
     )
     try:
-        executor.run_episodes(episode_ids=[0], seeds=[0], eval_max_steps=9)
+        executor.run_episodes(episode_ids=[0], seeds=[0], max_env_steps=9)
     finally:
         executor.close()
 
@@ -987,7 +943,7 @@ def test_batched_executor_output_records_remain_schema_compatible(tmp_path: Path
         executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
         executor.logger.flush()
     finally:
@@ -1053,7 +1009,7 @@ def test_batched_executor_no_trace_does_not_retain_hot_path_records(tmp_path: Pa
         metrics = executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=3,
+            max_env_steps=3,
         )
         executor.logger.flush()
     finally:
@@ -1088,7 +1044,7 @@ def test_batched_executor_omits_raw_rgb_frame_stack_from_logged_step_info(tmp_pa
         executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
         executor.logger.flush()
     finally:
@@ -1108,7 +1064,7 @@ def test_batched_executor_steps_tuple_actions_and_serializes_schema_compatibly(t
         metrics = executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
         executor.logger.flush()
     finally:
@@ -1127,7 +1083,7 @@ def test_subproc_backend_step_omits_observation_payload_and_observe_reads_worker
 
     from latency_bench.executors.env_step_backend import SubprocEnvStepBackend
 
-    config = _subproc_config(tmp_path, num_episodes=1, eval_max_steps=3)
+    config = _subproc_config(tmp_path, num_episodes=1, max_env_steps=3)
     backend = SubprocEnvStepBackend(
         config=config,
         noop_action=Action("noop", name="noop", is_noop=True),
@@ -1171,7 +1127,7 @@ def test_subproc_batched_policy_receives_env_raw_rgb_metadata(tmp_path: Path):
         num_slots=1,
         env_name="raw_rgb_metadata_subproc_test",
         num_episodes=1,
-        eval_max_steps=1,
+        max_env_steps=1,
         start_method="fork",
         policy=policy,
     )
@@ -1180,7 +1136,7 @@ def test_subproc_batched_policy_receives_env_raw_rgb_metadata(tmp_path: Path):
         executor.run_episodes(
             episode_ids=[0],
             seeds=[123],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
         executor.logger.flush()
     finally:
@@ -1203,14 +1159,14 @@ def test_subproc_backend_prefers_fork_start_method_by_default(monkeypatch):
 
 
 def test_subproc_backend_completes_exact_episode_ids_and_uses_child_pids(tmp_path: Path):
-    executor = _subproc_executor(tmp_path, num_slots=3, num_episodes=5, eval_max_steps=2)
+    executor = _subproc_executor(tmp_path, num_slots=3, num_episodes=5, max_env_steps=2)
     worker_pids = executor.env_backend.worker_pids()
 
     try:
         metrics = executor.run_episodes(
             episode_ids=range(5),
             seeds=[10, 11, 12, 13, 14],
-            eval_max_steps=2,
+            max_env_steps=2,
         )
         step_worker_pids = {
             metadata["worker_pid"]
@@ -1231,13 +1187,13 @@ def test_subproc_backend_completes_exact_episode_ids_and_uses_child_pids(tmp_pat
 
 
 def test_subproc_backend_parallel_envs_gt_episodes_is_safe(tmp_path: Path):
-    executor = _subproc_executor(tmp_path, num_slots=5, num_episodes=2, eval_max_steps=1)
+    executor = _subproc_executor(tmp_path, num_slots=5, num_episodes=2, max_env_steps=1)
 
     try:
         metrics = executor.run_episodes(
             episode_ids=range(2),
             seeds=[7, 8],
-            eval_max_steps=3,
+            max_env_steps=3,
         )
     finally:
         executor.close()
@@ -1248,13 +1204,13 @@ def test_subproc_backend_parallel_envs_gt_episodes_is_safe(tmp_path: Path):
 
 
 def test_subproc_backend_output_records_remain_schema_compatible(tmp_path: Path):
-    executor = _subproc_executor(tmp_path, num_slots=2, num_episodes=3, eval_max_steps=1)
+    executor = _subproc_executor(tmp_path, num_slots=2, num_episodes=3, max_env_steps=1)
 
     try:
         executor.run_episodes(
             episode_ids=range(3),
             seeds=[1, 2, 3],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
         executor.logger.flush()
     finally:
@@ -1282,7 +1238,7 @@ def test_subproc_backend_worker_exception_does_not_hang_and_closes_workers(tmp_p
         num_slots=2,
         env_name="subproc_failure_test",
         num_episodes=2,
-        eval_max_steps=1,
+        max_env_steps=1,
         start_method="fork",
     )
     worker_pids = executor.env_backend.worker_pids()
@@ -1291,7 +1247,7 @@ def test_subproc_backend_worker_exception_does_not_hang_and_closes_workers(tmp_p
         executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
 
     assert executor.env_backend.closed
@@ -1299,13 +1255,13 @@ def test_subproc_backend_worker_exception_does_not_hang_and_closes_workers(tmp_p
 
 
 def test_subproc_backend_workers_close_cleanly_after_normal_completion(tmp_path: Path):
-    executor = _subproc_executor(tmp_path, num_slots=2, num_episodes=2, eval_max_steps=1)
+    executor = _subproc_executor(tmp_path, num_slots=2, num_episodes=2, max_env_steps=1)
     worker_pids = executor.env_backend.worker_pids()
 
     executor.run_episodes(
         episode_ids=range(2),
         seeds=[1, 2],
-        eval_max_steps=1,
+        max_env_steps=1,
     )
     executor.close()
 
@@ -1322,7 +1278,7 @@ def test_subproc_backend_discrete_action_path(tmp_path: Path):
         num_slots=2,
         env_name="discrete_subproc_test",
         num_episodes=2,
-        eval_max_steps=1,
+        max_env_steps=1,
         noop_value=0,
         jump_value=1,
         start_method="fork",
@@ -1332,7 +1288,7 @@ def test_subproc_backend_discrete_action_path(tmp_path: Path):
         metrics = executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
         executor.logger.flush()
     finally:
@@ -1352,7 +1308,7 @@ def test_subproc_backend_multidiscrete_action_path(tmp_path: Path):
         num_slots=2,
         env_name="multidiscrete_subproc_test",
         num_episodes=2,
-        eval_max_steps=1,
+        max_env_steps=1,
         noop_value=(0, 0),
         jump_value=(1, 2),
         start_method="fork",
@@ -1362,7 +1318,7 @@ def test_subproc_backend_multidiscrete_action_path(tmp_path: Path):
         metrics = executor.run_episodes(
             episode_ids=range(2),
             seeds=[1, 2],
-            eval_max_steps=1,
+            max_env_steps=1,
         )
         executor.logger.flush()
     finally:
@@ -1381,7 +1337,7 @@ def test_fixed_prefix_is_isolated_between_environment_slots(tmp_path):
     for index, slot in enumerate(executor.slots):
         slot.action_scheduler.noop_action = Action([10.0 + index])
     try:
-        executor.run_episodes(episode_ids=[0, 1], seeds=[1, 2], eval_max_steps=1)
+        executor.run_episodes(episode_ids=[0, 1], seeds=[1, 2], max_env_steps=1)
         metadata = policy.batches[0]
         for item in metadata:
             np.testing.assert_array_equal(item["action_prefix"][:2, 0], 10 + item["slot_id"])
@@ -1422,7 +1378,7 @@ def test_batched_prefix_requests_wait_for_worker_and_previous_result(
         "action_dim": 1,
     }
     try:
-        executor.run_episodes(episode_ids=[0], seeds=[1], eval_max_steps=6)
+        executor.run_episodes(episode_ids=[0], seeds=[1], max_env_steps=6)
     finally:
         executor.close()
 
@@ -1467,7 +1423,7 @@ def test_grouped_runs_keep_session_streams_and_seeds_when_slots_change(tmp_path,
             episode_ids=[eid for group in groups for eid in group],
             seeds=[2000000 + eid for group in groups for eid in group],
             episode_groups=groups, latency_sources_by_episode=sources,
-            eval_max_steps=4,
+            max_env_steps=4,
         )
         executor.logger.flush()
         assert delivered == ([5, 1, 3] if num_slots == 1 else [1, 3, 5])
@@ -1495,7 +1451,7 @@ def test_ten_run_slots_keep_repeated_run_ids_separate_across_settings(tmp_path):
     executor, _ = _executor(tmp_path / 'engine', num_slots=10, env_max_steps=4, policy=policy)
     jobs = [(run_id, tmp_path / setting / str(run_id),
              {'latency': {'method': 'fixed', 'fixed_latency_ms': delay, 'seed': 0},
-              'evaluation': {'eval_max_steps': 4}}, 1000 + run_id)
+              'evaluation': {'max_env_steps': 4}}, 1000 + run_id)
             for setting, delay in [('a', 0), ('b', _CLOCK.frame_ms)] for run_id in range(5, 10)]
     published = []
     try:
@@ -1538,7 +1494,7 @@ def test_episode_metrics_are_independent_of_record_retention(tmp_path, monkeypat
             return result
         monkeypatch.setattr(envs[0], "step", metadata_step)
         try:
-            result = executor.run_episodes(episode_ids=[0], seeds=[7], eval_max_steps=2)[0]
+            result = executor.run_episodes(episode_ids=[0], seeds=[7], max_env_steps=2)[0]
             results.append(asdict(result))
         finally:
             executor.close()

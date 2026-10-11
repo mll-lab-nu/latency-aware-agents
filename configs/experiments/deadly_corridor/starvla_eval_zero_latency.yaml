@@ -11,6 +11,9 @@ backend:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 4
 env:
   frame_stack: 4
   obs_resize: [224, 224]
@@ -27,9 +30,6 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: ""
-  model_config_path: ""
-  device: cuda
   unnorm_key: new_embodiment
   prompt_mode: raw
   action_layout: multibinary_7
@@ -43,20 +43,16 @@ policy:
     - TURN_RIGHT
     - ATTACK
 
+  source: local
+  root: .
 latency:
   method: zero
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 4
-  eval_latency_values: null
-  eval_max_steps: 30000
-  eval_deterministic: true
   eval_raw_reward: true
-  eval_suites:
-    fixed: []
-    normal: []
-    uniform: []
+  episodes: 100
+  max_env_steps: 30000
+  suites: []
 
 logging:
   output_dir: outputs/starvla_deadly_corridor_zero_latency_eval

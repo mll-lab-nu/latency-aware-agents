@@ -88,9 +88,9 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     if explicit_max_episode_steps > 0:
         maybe_set_cli_override(cfg, "max_episode_steps", explicit_max_episode_steps)
     else:
-        eval_max_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
-        if eval_max_steps > 0:
-            maybe_set_cli_override(cfg, "max_episode_steps", eval_max_steps)
+        max_env_steps = int(getattr(base_cfg, "eval_max_steps", 0) or 0)
+        if max_env_steps > 0:
+            maybe_set_cli_override(cfg, "max_episode_steps", max_env_steps)
 
     maybe_set_cli_override(cfg, "mode", "eval")
     maybe_set_cli_override(cfg, "latency_type", "zero")
@@ -108,7 +108,7 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
 
 def _requires_sample_factory_checkpoint_config(config: dict[str, Any]) -> bool:
     policy_type = str(config.get("policy", {}).get("type", "")).strip().lower()
-    return policy_type == "deadly_corridor_sf"
+    return policy_type == "sample_factory"
 
 
 def _seed_initialized_vizdoom_game(env: Any, seed: int) -> bool:
