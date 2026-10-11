@@ -20,16 +20,19 @@ from latency_bench.latency.hardware_info import (
     collect_hardware_fingerprint, describe_inference_deployment, public_hardware_projection,
 )
 from latency_bench.latency.profile_builder import build_profile_from_traces
-from latency_bench.profiling.artifacts import profile_dir, profile_ref, run_dir, run_ref, simulation_seed_dir
+from latency_bench.profiling.artifacts import profile_ref, simulation_seed_dir
 from latency_bench.profiling.calibration import calibrate_env_fps_from_saturated_latency
 from latency_bench.policy.model_source import resolve_model_source
 from latency_bench.eval.artifacts import read_runtime_snapshot
 from latency_bench.profiling.runtime_configs import (
-    eval_command, evaluation_environment, measure_config, simulation_config, write_generated_config,
+    eval_command,
+    evaluation_environment,
+    measure_config,
+    simulation_config,
 )
 from latency_bench.profiling.spec import path_segment, resolve_profile_config
 from latency_bench.profiling.sync import publish_run_and_profile, publish_simulation_dirs
-from latency_bench.utils.io import read_json, write_json
+from latency_bench.utils.io import read_json, write_json, write_yaml
 
 
 def run_profile(
@@ -46,7 +49,7 @@ def run_profile(
     deployment = describe_inference_deployment(fingerprint, config["executor"]["inference_devices"])
     ref = profile_ref(options["model_id"], deployment["gpu_class"], options["workload_id"], deployment["instance_id"])
     run_id = path_segment(resume_run_id) if resume_run_id is not None else _new_run_id()
-    source_dir = run_dir(config["logging"]["output_dir"], run_ref(ref, run_id))
+    source_dir = Path(config["logging"]["output_dir"]) / "runs" / ref / run_id
     if resume_run_id is None:
         source_dir.mkdir(parents=True)
         write_json(source_dir / "hardware.json", fingerprint)
@@ -60,7 +63,7 @@ def run_profile(
         _measure_session(config, deployment, calibration, source_dir, session_id,
                          resume=resume_run_id is not None)
     fit_profile(source_dir)
-    current_dir = profile_dir(config["logging"]["output_dir"], ref)
+    current_dir = Path(config["logging"]["output_dir"]) / "profiles" / ref
     with _profile_lock(current_dir):
         _replace_current(source_dir / "profile", current_dir)
         if publish:
@@ -131,7 +134,7 @@ def publish_profile(source_dir: str | Path, *, repo_id: str) -> dict[str, str]:
         "model_id", "gpu_class", "workload_id", "instance_id",
     )))
     publish_run_and_profile(repo_id, local_run_dir=source_dir, local_profile_dir=candidate,
-                            run_ref=run_ref(ref, path_segment(profile["source_run_id"])), profile_ref=ref)
+                            run_ref=ref / path_segment(profile["source_run_id"]), profile_ref=ref)
     return {"PROFILE_REF": ref.as_posix(), "RUN_ID": profile["source_run_id"], "PUBLICATION_STATUS": "published"}
 
 
@@ -158,7 +161,7 @@ def run_simulation(
         if output_dir.exists():
             shutil.rmtree(output_dir)
         generated = output_dir / "generated.yaml"
-        write_generated_config(generated, simulation_config(
+        write_yaml(generated, simulation_config(
             config, output_dir=output_dir, profile_path=profile_path, profile=profile,
             method=method, latency_seed=seed,
         ))
@@ -182,7 +185,7 @@ def _calibrate(
     if (source_dir / "calibration.DONE").exists():
         return read_json(calibration_path)
     generated = source_dir / "calibration.generated.yaml"
-    write_generated_config(generated, measure_config(config, deployment, source_dir / "calibration_probe"))
+    write_yaml(generated, measure_config(config, deployment, source_dir / "calibration_probe"))
     calibration = calibrate_env_fps_from_saturated_latency(config_path=generated, output=calibration_path, **options)
     (source_dir / "calibration.DONE").touch()
     return calibration
@@ -223,7 +226,7 @@ def _measure_session(
     if session.exists():
         shutil.rmtree(session)
     generated = session / "generated.yaml"
-    write_generated_config(generated, measure_config(config, deployment, session, calibration))
+    write_yaml(generated, measure_config(config, deployment, session, calibration))
     _run_evaluation(config, generated, session)
     done.touch()
 

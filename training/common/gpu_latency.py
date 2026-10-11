@@ -8,11 +8,11 @@ import torch
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.latency_distribution import (
+    LatencyDistributionSampler,
     LatencyDistributionSpec,
     derive_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
-    make_latency_distribution_sampler,
 )
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.latency_info import build_latency_info
@@ -612,7 +612,7 @@ class CudaLatencyScheduler:
                 int(self.base_latency_seeds[int(agent_idx)]),
                 episode_idx=int(self.episode_idx_cpu[int(agent_idx)]),
             )
-            return int(make_latency_distribution_sampler(self.latency_distribution_spec, seed=seed).sample_frame())
+            return int(LatencyDistributionSampler(self.latency_distribution_spec, seed=seed).sample_frame())
         return 0
 
     def _prepare_admission(self, active: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

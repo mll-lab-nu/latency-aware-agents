@@ -9,11 +9,12 @@ import subprocess
 import sys
 
 from latency_bench.profiling.runtime_configs import (
-    set_env_clock_preserving_observation_stride, apply_profile_latency_summary,
-    eval_command, write_generated_config,
+    set_env_clock_preserving_observation_stride,
+    apply_profile_latency_summary,
+    eval_command,
 )
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
-from latency_bench.utils.io import read_json, write_json, write_json_atomic
+from latency_bench.utils.io import read_json, write_json, write_json_atomic, write_yaml
 from latency_bench.utils.paths import REPO_ROOT
 from scripts.experiments.sim2real.assets import prepare_model_assets
 
@@ -89,7 +90,7 @@ def execute_stage(config, output, entry):
     if output.exists():
         shutil.rmtree(output)
     generated = output / "generated.yaml"
-    write_generated_config(generated, config)
+    write_yaml(generated, config)
     print(f"Running {output}; log: {output / 'stdout.log'}", flush=True)
     command = eval_command(entry, generated, output)
     with (output / "stdout.log").open("w") as log:

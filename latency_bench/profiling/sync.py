@@ -7,7 +7,8 @@ import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from latency_bench.latency.profile import load_profile_manifest
+from latency_bench.utils.io import read_json
+
 
 PROFILE_FILENAMES = (
     "profile.json",
@@ -106,7 +107,7 @@ def download_profile(
 
 
 def _profile_filenames(profile_dir: Path) -> tuple[str, ...]:
-    manifest = load_profile_manifest(profile_dir / "profile.json")
+    manifest = read_json(profile_dir / "profile.json")
     if "visualization_path" not in manifest:
         return PROFILE_FILENAMES
     return (*PROFILE_FILENAMES[:-1], manifest["visualization_path"], PROFILE_FILENAMES[-1])

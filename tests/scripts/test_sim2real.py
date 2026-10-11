@@ -22,7 +22,7 @@ from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.samplers import build_sampler
 from scripts.experiments.sim2real import budget, budget_report, study
 from scripts.experiments.sim2real import assets, publication as publication_module, replay as replay_engine, runtime
-from latency_bench.utils.io import read_json, write_json, write_jsonl
+from latency_bench.utils.io import read_json, write_json, write_jsonl, write_yaml
 from training.common.checkpoints import capture_rng_state, restore_rng_state
 
 
@@ -83,7 +83,7 @@ def test_asset_resolution_pins_profile_model_and_relocates_archive(tmp_path, mon
     assert downloads[1]["revision"] == registry["backbone"]["revision"]
     monkeypatch.setattr(assets, "hf_hub_download", lambda **_: pytest.fail("training profile unavailable"))
     frozen_eval = tmp_path / "eval_template.yaml"
-    study.write_generated_config(frozen_eval, original)
+    write_yaml(frozen_eval, original)
     replay_config = assets.prepare_model_assets(registry, entry, eval_config_path=frozen_eval)
     assert replay_config == config
     mikasa_entry, mikasa_archive = archived("mikasa_intercept_grab_fast", "qwenoft")

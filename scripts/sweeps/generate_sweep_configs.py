@@ -210,20 +210,8 @@ def _resolve_path(value: str | Path, *, base_dir: Path) -> Path:
     return (base_dir / path).resolve()
 
 
-def _frame_ms(config: dict[str, Any]) -> float:
-    return 1000.0 / float(config["env"]["env_fps"])
-
-
-def _env_name(config: dict[str, Any]) -> str:
-    return str(config["env"]["name"])
-
-
 def _env_slug(env_name: str) -> str:
     return str(env_name).replace("_", "-")
-
-
-def _number_label(value: int | float) -> str:
-    return format_number_label(value)
 
 
 def _parse_int_csv(value: str) -> list[int]:
@@ -249,7 +237,7 @@ def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed
 
     if kind == "fixed":
         latency_cfg["method"] = "fixed"
-        latency_cfg["fixed_latency_ms"] = float(setting["frames"]) * _frame_ms(config)
+        latency_cfg["fixed_latency_ms"] = float(setting["frames"]) * (1000.0 / float(config["env"]["env_fps"]))
     elif kind in {"iid", "temporal"}:
         latency_cfg.update(
             method=kind,
@@ -283,15 +271,15 @@ def _latency_manifest_fields(setting: dict[str, Any]) -> dict[str, str]:
         "latency_max_frames": "",
     }
     if row["latency_kind"] == "fixed":
-        row["latency_fixed_frames"] = _number_label(setting["frames"])
+        row["latency_fixed_frames"] = format_number_label(setting["frames"])
         return row
     if row["latency_kind"] in {"iid", "temporal"}:
         return row
     if row["latency_kind"] in {"normal", "mixed_normal"}:
-        row["latency_mean_frames"] = _number_label(setting["mean"])
-        row["latency_std_frames"] = _number_label(setting["std"])
-    row["latency_min_frames"] = _number_label(setting["min"])
-    row["latency_max_frames"] = _number_label(setting["max"])
+        row["latency_mean_frames"] = format_number_label(setting["mean"])
+        row["latency_std_frames"] = format_number_label(setting["std"])
+    row["latency_min_frames"] = format_number_label(setting["min"])
+    row["latency_max_frames"] = format_number_label(setting["max"])
     return row
 
 
@@ -344,8 +332,8 @@ def _run_axis_fragment(
     if sweep_name == "frame_stack":
         return f"fs{int(frame_stack)}"
     if sweep_name == "observation_stride":
-        return f"stride{_number_label(observation_stride)}"
-    return f"obs{_number_label(obs_fps)}"
+        return f"stride{format_number_label(observation_stride)}"
+    return f"obs{format_number_label(obs_fps)}"
 
 
 def _run_name(
@@ -495,8 +483,8 @@ def _build_manifest_row(
         "latency_label": latency_label,
         "seed": str(int(seed)),
         "frame_stack": str(int(frame_stack)),
-        "obs_fps": _number_label(obs_fps),
-        "observation_stride": _number_label(observation_stride),
+        "obs_fps": format_number_label(obs_fps),
+        "observation_stride": format_number_label(observation_stride),
         "train_config": str(train_path),
         "eval_kind": "latency_bench",
         "eval_config": str(eval_path),
@@ -588,7 +576,7 @@ def _build_full_train_config(
     experiment_family: str,
 ) -> dict[str, Any]:
     config = deepcopy(base_config)
-    env_name = _env_name(config)
+    env_name = str(config["env"]["name"])
     config.setdefault("experiment", {})["name"] = _run_name(
         env_name,
         sweep_name,
@@ -677,7 +665,7 @@ def _build_latency_bench_eval_config(
 ) -> dict[str, Any]:
     config = merge_dicts(base_config, full_train_config)
     config["evaluation"]["suites"] = deepcopy(full_train_config["evaluation"]["suites"])
-    env_name = _env_name(config)
+    env_name = str(config["env"]["name"])
     config["backend"]["run_mode"] = "eval"
     if ("env_backend" in config["executor"]
             and config["executor"]["env_backend"] in {"atlantis_gpu_batched", "asterix_gpu_batched"}):
@@ -869,7 +857,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         manifest_rows.append(
             _build_manifest_row(
                 experiment_family=experiment_family,
-                env_name=_env_name(train_config),
+                env_name=str(train_config["env"]["name"]),
                 sweep_name=sweep_name,
                 latency_label=latency_label,
                 latency_setting=latency_setting,

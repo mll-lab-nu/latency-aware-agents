@@ -33,12 +33,8 @@ def _wandb_tags_to_cli_values(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
-def normalize_checkpoint_kind(checkpoint_kind: str) -> str:
-    return str(checkpoint_kind).strip().lower()
-
-
 def apply_checkpoint_kind_override(backend_cfg: dict[str, Any], checkpoint_kind: str) -> None:
-    normalized = normalize_checkpoint_kind(checkpoint_kind)
+    normalized = str(checkpoint_kind).strip().lower()
     extra_args = list(backend_cfg.get("extra_args") or [])
     filtered_args: list[str] = []
     skip_next = False

@@ -12,7 +12,8 @@ from latency_bench.integrations.starvla.task_contracts import denormalize, norma
 from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy.model_source import model_file
-from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
+from latency_bench.policy.starvla_prompts import resolve_starvla_prompt
+from latency_bench.utils.io import read_json
 
 
 class TaskStarVlaPolicyRunner(PolicyRunner):
@@ -24,7 +25,7 @@ class TaskStarVlaPolicyRunner(PolicyRunner):
         self.model_config = model_config
         self.contract = contract
         self.latency_prompt_map = (
-            load_latency_prompt_map(policy_config["latency_prompt_map_path"])
+            read_json(policy_config["latency_prompt_map_path"])
             if "latency_prompt_map_path" in policy_config
             else None
         )

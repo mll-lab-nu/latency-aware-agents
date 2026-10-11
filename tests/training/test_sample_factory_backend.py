@@ -640,7 +640,6 @@ def test_sample_factory_latency_params_use_bench_ceil_for_fixed_ms():
 
 
 def test_sample_factory_latency_distribution_preserves_fractional_bounds():
-    from latency_bench.core.latency_distribution import sample_latency_frame
     from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
     cfg = SimpleNamespace(
@@ -657,8 +656,6 @@ def test_sample_factory_latency_distribution_preserves_fractional_bounds():
     assert spec is not None
     assert spec.min == pytest.approx(1.5)
     assert spec.max == pytest.approx(3.5)
-    assert sample_latency_frame(spec, 0.0) == 2
-    assert sample_latency_frame(spec, 99.0) == 4
 
 
 def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp_path):

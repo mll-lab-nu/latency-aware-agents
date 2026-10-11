@@ -30,7 +30,8 @@ from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.policy._starvla_input import observation_data_to_hwc_uint8_frames
 from latency_bench.policy import _starvla_input as model_input, _starvla_actions as action_decode
-from latency_bench.policy.starvla_prompts import load_latency_prompt_map, resolve_starvla_prompt
+from latency_bench.policy.starvla_prompts import resolve_starvla_prompt
+from latency_bench.utils.io import read_json
 
 
 class StarVlaPolicyRunner(PolicyRunner):
@@ -633,7 +634,7 @@ def _starvla_policy_inputs(
         action_resolver=action_resolver,
         action_refs=action_refs,
         latency_prompt_map=(
-            load_latency_prompt_map(policy_cfg["latency_prompt_map_path"])
+            read_json(policy_cfg["latency_prompt_map_path"])
             if "latency_prompt_map_path" in policy_cfg
             else None
         ),

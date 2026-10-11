@@ -9,18 +9,6 @@ def profile_ref(model_id: str, gpu_class: str, workload_id: str, instance_id: st
     return Path(model_id) / gpu_class / workload_id / instance_id
 
 
-def run_ref(profile: str | Path, run_id: str) -> Path:
-    return Path(profile) / run_id
-
-
-def run_dir(artifact_root: str | Path, run: str | Path) -> Path:
-    return Path(artifact_root) / "runs" / run
-
-
-def profile_dir(artifact_root: str | Path, profile: str | Path) -> Path:
-    return Path(artifact_root) / "profiles" / profile
-
-
 def simulation_seed_dir(
     artifact_root: str | Path,
     profile: str | Path,

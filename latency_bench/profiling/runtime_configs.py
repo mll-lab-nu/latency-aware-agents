@@ -8,8 +8,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from latency_bench.executors.env_step_backend import START_METHOD_ENV
 
 
@@ -81,12 +79,6 @@ def simulation_config(
     apply_profile_latency_summary(config["latency"], method, profile)
     _enable_records(config, output_dir)
     return config
-
-
-def write_generated_config(path: Path, config: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as stream:
-        yaml.safe_dump(config, stream, sort_keys=False)
 
 
 def evaluation_environment() -> dict[str, str]:

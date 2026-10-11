@@ -11,16 +11,15 @@ from latency_bench.envs.adapters.dummy import DummyEnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.eval import driver
 from latency_bench.latency.burst_profile import (
-    build_hidden_regime_burst_model,
+    build_hidden_regime_burst_model_from_sessions,
     build_worker_slot_distributions_from_sessions,
 )
-from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.eval.driver import run_from_config
 from latency_bench.eval.reporting import _summary_latency_label
 from latency_bench.logging.metrics import compute_episode_metrics
 from latency_bench.logging.summary import build_queue_eval_summary
 from latency_bench.logging.wandb_eval import eval_scalar_payload
-from latency_bench.utils.io import load_jsonl_records
+from latency_bench.utils.io import load_jsonl_records, write_json
 
 
 @register_env_adapter("raw_return_test")
@@ -134,21 +133,22 @@ def _write_profile(tmp_path: Path) -> Path:
         }
         for index, frames in enumerate([1, 1, 1, 1, 1, 1])
     ]
-    burst_model = build_hidden_regime_burst_model(burst_samples)
+    burst_model = build_hidden_regime_burst_model_from_sessions([burst_samples])
     (profile_dir / "latency_burst_model.json").write_text(
         json.dumps(burst_model, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    save_latency_distribution(
+    write_json(
+        profile_dir / "latency_distribution.json",
         build_worker_slot_distributions_from_sessions(
             [burst_samples],
             spike_threshold_ms_by_worker_slot=burst_model[
                 "spike_threshold_ms_by_worker_slot"
             ],
         ),
-        profile_dir / "latency_distribution.json",
     )
-    save_profile_manifest(
+    write_json(
+        profile_dir / "profile.json",
         {
             "model_id": "openvla",
             "gpu_class": "2x-test-gpu",
@@ -164,7 +164,6 @@ def _write_profile(tmp_path: Path) -> Path:
             "burst_model_path": "latency_burst_model.json",
             "summary": {},
         },
-        profile_dir / "profile.json",
     )
     return profile_dir
 

@@ -46,7 +46,7 @@ from latency_bench.eval.driver import run_from_config
 from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy._starvla_input import apply_starvla_model_input_config
 from latency_bench.policy.starvla import build_live_starvla_policy
-from latency_bench.policy.starvla_prompts import load_latency_prompt_map
+from latency_bench.utils.io import read_json
 from latency_bench.utils.paths import REPO_ROOT
 
 # eval_core lives in the vendored starVLA directory (editable-installed).
@@ -96,7 +96,7 @@ def _starvla_latency_label_to_raw_frames(
     latency_prompt_map_path: str | None,
 ) -> int:
     if latency_prompt_map_path is not None:
-        prompt_map = load_latency_prompt_map(latency_prompt_map_path)
+        prompt_map = read_json(latency_prompt_map_path)
         key = str(latency_steps)
         if key not in prompt_map:
             available = ", ".join(sorted(prompt_map.keys(), key=lambda x: int(x))[:20])
@@ -493,7 +493,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                     f"rl_games.env_eval.{stage}.latencies_from_prompt_map=true "
                     "but no latency prompt map path was configured"
                 )
-            prompt_map = load_latency_prompt_map(prompt_map_path)
+            prompt_map = read_json(prompt_map_path)
             if not prompt_map:
                 raise ValueError(f"Latency prompt map is empty: {prompt_map_path}")
             return sorted(int(key) for key in prompt_map.keys())

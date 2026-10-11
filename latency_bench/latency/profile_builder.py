@@ -10,10 +10,6 @@ from latency_bench.latency.burst_profile import (
     build_hidden_regime_burst_model_from_sessions,
     build_worker_slot_distributions_from_sessions,
 )
-from latency_bench.latency.profile import (
-    save_latency_distribution,
-    save_profile_manifest,
-)
 from latency_bench.utils.io import load_jsonl_records, write_json
 from latency_bench.utils.stats import mean, percentile_linear
 
@@ -78,7 +74,7 @@ def build_profile_from_traces(
         ],
     )
 
-    save_latency_distribution(distribution, paths["distribution"])
+    write_json(paths["distribution"], distribution)
     write_latency_distribution_plot(
         [sample["observation_to_action_latency_ms"] for sample in burst_samples],
         paths["visualization"],
@@ -119,7 +115,7 @@ def build_profile_from_traces(
         "provenance": metadata,
     }
     write_json(paths["burst_model"], burst_model)
-    save_profile_manifest(manifest, paths["profile"])
+    write_json(paths["profile"], manifest)
     return manifest
 
 

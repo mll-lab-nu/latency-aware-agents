@@ -17,15 +17,15 @@ from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
 from latency_bench.eval.driver import run_from_config
 from latency_bench.latency.burst_profile import (
-    build_hidden_regime_burst_model,
+    build_hidden_regime_burst_model_from_sessions,
     build_worker_slot_distributions_from_sessions,
 )
-from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.latency.samplers import JointBurstSampler
 from latency_bench.core.clock import EnvClock
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 from latency_bench.policy.action_prefix import prepare_action_prefix
 from latency_bench.policy.base import PolicyRunner
+from latency_bench.utils.io import write_json
 
 
 @pytest.mark.parametrize("mean_ms,fps,expected", [
@@ -137,21 +137,22 @@ def _write_latency_profile(tmp_path) -> str:
         }
         for index, frames in enumerate([1, 1, 1, 1, 1, 1])
     ]
-    burst_model = build_hidden_regime_burst_model(burst_samples)
-    save_latency_distribution(
+    burst_model = build_hidden_regime_burst_model_from_sessions([burst_samples])
+    write_json(
+        profile_dir / "latency_distribution.json",
         build_worker_slot_distributions_from_sessions(
             [burst_samples],
             spike_threshold_ms_by_worker_slot=burst_model[
                 "spike_threshold_ms_by_worker_slot"
             ],
         ),
-        profile_dir / "latency_distribution.json",
     )
     (profile_dir / "latency_burst_model.json").write_text(
         json.dumps(burst_model, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    save_profile_manifest(
+    write_json(
+        profile_dir / "profile.json",
         {
             "model_id": "openvla",
             "gpu_class": "2x-test-gpu",
@@ -167,7 +168,6 @@ def _write_latency_profile(tmp_path) -> str:
             "burst_model_path": "latency_burst_model.json",
             "summary": {},
         },
-        profile_dir / "profile.json",
     )
     return str(profile_dir)
 
@@ -531,11 +531,13 @@ def test_iid_latency_eval_is_parallel_invariant_and_loads_distribution_once(tmp_
     import latency_bench.latency.samplers as latency_samplers
 
     profile_dir = _write_latency_profile(tmp_path)
+    distribution_path = Path(profile_dir) / "latency_distribution.json"
     read_paths = []
     read_json = latency_samplers.read_json
 
     def record_read(path):
-        read_paths.append(Path(path))
+        if Path(path) == distribution_path:
+            read_paths.append(Path(path))
         return read_json(path)
 
     monkeypatch.setattr(latency_samplers, "read_json", record_read)

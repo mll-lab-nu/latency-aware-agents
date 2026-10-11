@@ -18,7 +18,6 @@ from huggingface_hub import HfApi
 
 from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.core.config import load_config
-from latency_bench.profiling.runtime_configs import write_generated_config
 from scripts.experiments.sim2real import runtime
 from scripts.experiments.sim2real.assets import prepare_assets, prepare_model_assets, portable_eval_config
 from scripts.experiments.sim2real.publication import DATASET_REPO, StudyPublication, download_real_experiment
@@ -27,7 +26,14 @@ from latency_bench.latency.hardware_info import (
     public_hardware_projection,
 )
 from latency_bench.latency.profile_builder import build_profile_from_traces
-from latency_bench.utils.io import load_jsonl_records, read_json, write_csv, write_json, write_json_atomic
+from latency_bench.utils.io import (
+    load_jsonl_records,
+    read_json,
+    write_csv,
+    write_json,
+    write_json_atomic,
+    write_yaml,
+)
 
 from latency_bench.utils.paths import REPO_ROOT
 
@@ -226,7 +232,7 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
         write_json_atomic(contract_path, contract)
         write_json(output / "hardware.json", fingerprint)
     protocol = contract["protocol"]
-    write_generated_config(output / "archived_eval.yaml", base)
+    write_yaml(output / "archived_eval.yaml", base)
     source_ref = (f"experiments/sim2real-calibration/runs/{deployment['gpu_class']}/"
                   f"{task}/{model}/{deployment['instance_id']}/{output.name}")
     public_hardware = public_hardware_projection(
@@ -241,7 +247,7 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
         **{key: registry[key] for key in ("model_repo", "model_revision", "backbone")},
     }
     write_json_atomic(output / "experiment.json", manifest)
-    write_generated_config(output / "eval_template.yaml", portable_eval_config(base, entry, registry))
+    write_yaml(output / "eval_template.yaml", portable_eval_config(base, entry, registry))
     publication = StudyPublication(output, source_ref)
     print(f"EXPERIMENT_ID={output.name}\nOUTPUT_DIR={output}", flush=True)
     publication.publish("context", [output / filename for filename in (

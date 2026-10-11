@@ -313,7 +313,7 @@ class LatencyBenchPeriodicEvalObserver:
             self.training_config["experiment"]["name"],
             policy_id=0,
         )
-        return _checkpoint_paths(root)[-1]
+        return checkpoint_paths(root)[-1]
 
     def _save_checkpoint_for_eval(self, runner) -> Path:
         root = checkpoint_dir(
@@ -321,11 +321,11 @@ class LatencyBenchPeriodicEvalObserver:
             self.training_config["experiment"]["name"],
             policy_id=0,
         )
-        before = _checkpoint_mtimes(root)
+        before = checkpoint_mtimes(root)
         runner.save_periodic.emit()
         deadline = time.monotonic() + self.checkpoint_timeout_sec
         while time.monotonic() <= deadline:
-            current = _checkpoint_mtimes(root)
+            current = checkpoint_mtimes(root)
             updated_paths = [
                 path
                 for path in current
@@ -377,14 +377,6 @@ def _runner_env_steps(runner) -> int:
 def _runner_step(runner, *, uses_optimizer_steps: bool) -> int:
     counters = runner.train_steps if uses_optimizer_steps else runner.env_steps
     return max(int(value) for value in counters.values())
-
-
-def _checkpoint_paths(root: Path) -> list[Path]:
-    return checkpoint_paths(root)
-
-
-def _checkpoint_mtimes(root: Path) -> dict[Path, int]:
-    return checkpoint_mtimes(root)
 
 
 def _log_eval_summaries(

@@ -14,7 +14,7 @@ import pytest
 
 from latency_bench.core.config import load_config
 from latency_bench.profiling import runner
-from latency_bench.profiling.artifacts import profile_dir, profile_ref, run_dir, run_ref, simulation_seed_dir
+from latency_bench.profiling.artifacts import profile_ref, simulation_seed_dir
 from latency_bench.profiling.profile_resolver import profile_refs_from_repo_files, resolve_remote_profile
 from latency_bench.profiling.cli import main
 from latency_bench.profiling.runner import _profile_lock, _replace_current
@@ -23,12 +23,9 @@ from latency_bench.profiling.spec import resolve_profile_config
 from latency_bench.profiling.sync import download_profile, publish_simulation_dirs
 
 
-def test_profile_coordinates_define_every_artifact_path(tmp_path):
+def test_profile_coordinates_define_profile_and_simulation_paths(tmp_path):
     profile = profile_ref("openvla", "2x-rtx4090", "flappy", "instance_abc")
-    run = run_ref(profile, "run_1")
-
-    assert profile_dir(tmp_path, profile) == tmp_path / "profiles" / profile
-    assert run_dir(tmp_path, run) == tmp_path / "runs" / run
+    assert profile == Path("openvla/2x-rtx4090/flappy/instance_abc")
     assert simulation_seed_dir(tmp_path, profile, "run_1", "temporal", 7) == (
         tmp_path / "simulations" / profile / "run_1" / "temporal" / "7"
     )
@@ -516,6 +513,10 @@ def test_completed_sessions_resume_and_fit_without_remeasurement(
     assert not (source / "DONE").exists()
     profile_config["profiling"]["publish_repo"] = "org/new-publication-target"
     result = runner.run_profile(profile_config, resume_run_id="run_1")
+    artifact_root = Path(profile_config["logging"]["output_dir"])
+    ref = Path(result["PROFILE_REF"])
+    assert Path(result["RUN_DIR"]) == artifact_root / "runs" / ref / "run_1"
+    assert Path(result["PROFILE_PATH"]) == artifact_root / "profiles" / ref / "profile.json"
     assert calls == ["0", "1", "1"]
     assert result["PUBLICATION_STATUS"] == "local"
     profile = json.loads(Path(result["PROFILE_PATH"]).read_text())

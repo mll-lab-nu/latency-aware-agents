@@ -14,7 +14,6 @@ from latency_bench.latency.config import (
     latency_type_from_config,
 )
 from latency_bench.latency.inverse_cdf import sample_inverse_cdf
-from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.latency.sample import LatencySample
 from latency_bench.utils.io import read_json
 
@@ -260,9 +259,7 @@ class HiddenRegimeSampler(LatencySampler):
         return switch / (switch + stay)
 
     def _sample_burst_dwell(self) -> int:
-        return self._sample_dwell(self.model["burst_dwell_distribution"])
-
-    def _sample_dwell(self, dwell: dict[str, Any]) -> int:
+        dwell = self.model["burst_dwell_distribution"]
         quantile = self.rng.random()
         # The dwell's length quantile seeds the severity copula draws of this
         # dwell's slot states.
@@ -521,7 +518,7 @@ def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySam
         )
     elif method == "temporal":
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
-        profile = load_profile_manifest(profile_path)
+        profile = read_json(profile_path)
         sampler = _build_temporal(profile, profile_path=profile_path, clock=clock, seed=seed)
         profile_metadata = _profile_metadata(profile)
     else:
@@ -567,7 +564,7 @@ def build_episode_sampler_factory(
 
     if method == "temporal":
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
-        profile = load_profile_manifest(profile_path)
+        profile = read_json(profile_path)
         _load_temporal_model(profile, profile_path=profile_path)
         return None
     elif method not in SEEDED_STOCHASTIC_METHODS or "seed" not in latency_cfg:
@@ -600,7 +597,7 @@ def _load_iid_profile(
     profile_path: str | Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     resolved_profile_path = _resolve_profile_manifest_path(profile_path)
-    profile = load_profile_manifest(resolved_profile_path)
+    profile = read_json(resolved_profile_path)
     distribution_path = _profile_relative_path(
         resolved_profile_path, profile["distribution_path"]
     )

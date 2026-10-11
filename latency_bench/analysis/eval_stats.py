@@ -49,15 +49,6 @@ def resolve_run_file(run_path: str | Path, candidates: Sequence[str]) -> Path:
     raise FileNotFoundError(f"Run path does not exist: {path}")
 
 
-def extract_episode_return(record: dict[str, Any], return_field: str = "episode_return_env") -> float:
-    return record[return_field]
-
-
-def extract_episode_length(record: dict[str, Any], length_field: str | None = None) -> float:
-    selected_field = DEFAULT_LENGTH_FIELD if length_field is None else length_field
-    return record[selected_field]
-
-
 def summarize_eval_run(
     episode_metrics_path_or_run_dir: str | Path,
     *,
@@ -67,10 +58,9 @@ def summarize_eval_run(
     metrics_path = resolve_run_file(episode_metrics_path_or_run_dir, EPISODE_METRICS_CANDIDATES)
     records = load_jsonl_records(metrics_path)
 
-    selected_return_field = return_field
     selected_length_field = DEFAULT_LENGTH_FIELD if length_field is None else length_field
-    returns = [extract_episode_return(record, selected_return_field) for record in records]
-    lengths = [extract_episode_length(record, selected_length_field) for record in records]
+    returns = [record[return_field] for record in records]
+    lengths = [record[selected_length_field] for record in records]
 
     return_values = np.asarray(returns, dtype=np.float64)
     length_values = np.asarray(lengths, dtype=np.float64)
@@ -84,7 +74,7 @@ def summarize_eval_run(
         "std_length": float(np.std(length_values, ddof=0)),
         "min_length": float(np.min(length_values)),
         "max_length": float(np.max(length_values)),
-        "return_field": selected_return_field,
+        "return_field": return_field,
         "length_field": selected_length_field,
     }
     summary.update(_summarize_metadata(records))

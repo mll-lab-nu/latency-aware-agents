@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 from latency_bench.data.prompts import BASE_PROMPTS, render_teacher_prompt
@@ -16,10 +14,6 @@ def _apply_prompt_mode(prompt: str, prompt_mode: str | None) -> str:
         head, found, _tail = str(prompt).partition(marker)
         return head.rstrip() if found else str(prompt)
     raise ValueError(f"Unsupported prompt_mode={prompt_mode!r}")
-
-
-def load_latency_prompt_map(path: str | Path) -> dict[str, Any]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def resolve_starvla_prompt(

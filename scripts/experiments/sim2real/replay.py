@@ -9,10 +9,9 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.samplers import build_episode_sampler_factory, build_sampler
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.profiling.runtime_configs import write_generated_config
 from latency_bench.executors.backend_selection import build_env_step_backend, resolve_latency_bench_env_backend
 from latency_bench.executors.factory import build_executor
-from latency_bench.utils.io import read_json, write_json
+from latency_bench.utils.io import read_json, write_json, write_yaml
 from scripts.experiments.sim2real import runtime
 
 
@@ -122,7 +121,7 @@ def replay_runs(executor, configs, run_paths, runtime_dir, on_run_complete, *, p
     for run_id, path in run_paths.items():
         if path.exists():
             shutil.rmtree(path)  # The caller supplies only incomplete runs.
-        write_generated_config(path / "generated.yaml", configs[run_id])
+        write_yaml(path / "generated.yaml", configs[run_id])
     executor.logger = RunTrajectoryLogger(
         runtime_dir, on_run_complete, run_paths=run_paths, protocol=protocol,
     )

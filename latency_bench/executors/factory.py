@@ -343,7 +343,10 @@ def _build_realtime_executor(
     if inference_devices is None:
         inference_devices = config["executor"]["inference_devices"]
 
-    video_output_dir = _video_output_dir(config) if config["logging"]["video"]["enabled"] else None
+    video_output_dir = (
+        os.path.join(str(config["logging"]["output_dir"]), "videos")
+        if config["logging"]["video"]["enabled"] else None
+    )
     clock = _build_clock(config)
     environment = RealtimeEnvProcess(
         config, video_output_dir=video_output_dir, video_fps=clock.env_fps,
@@ -375,7 +378,3 @@ def _build_clock(config: dict[str, Any]) -> EnvClock:
         env_fps=float(env_cfg["env_fps"]),
         obs_fps=float(env_cfg["obs_fps"]),
     )
-
-
-def _video_output_dir(config: dict[str, Any]) -> str:
-    return str(os.path.join(str(config["logging"]["output_dir"]), "videos"))

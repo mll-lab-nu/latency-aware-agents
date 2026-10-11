@@ -7,8 +7,6 @@ import pytest
 
 from latency_bench.analysis.eval_stats import (
     EPISODE_METRICS_CANDIDATES,
-    extract_episode_length,
-    extract_episode_return,
     extract_latency_samples_from_records,
     load_jsonl_records,
     resolve_run_file,
@@ -55,28 +53,41 @@ def test_resolve_run_file_supports_direct_file_and_run_directory(tmp_path: Path)
     assert resolve_run_file(run_dir, EPISODE_METRICS_CANDIDATES) == metrics_path
 
 
-def test_extract_episode_return_uses_the_requested_field():
-    record = {
+def test_summarize_eval_run_uses_requested_fields(tmp_path: Path):
+    """Long-lived analysis contract: the selected metric fields determine the summary."""
+    path = tmp_path / "episode_metrics.jsonl"
+    _write_jsonl(path, [{
         "episode_return_env": 3.0,
-        "episode_return": 4.0,
         "return_raw": 30.0,
-    }
+        "survival_steps": 12,
+        "steps": 7,
+        "metadata": {},
+    }])
 
-    assert extract_episode_return(record) == pytest.approx(3.0)
-    assert extract_episode_return(record, return_field="return_raw") == pytest.approx(30.0)
-    with pytest.raises(KeyError, match="episode_return_env"):
-        extract_episode_return({"return_raw": 30.0})
-    with pytest.raises(KeyError, match="missing"):
-        extract_episode_return(record, return_field="missing")
+    summary = summarize_eval_run(path, return_field="return_raw", length_field="steps")
+
+    assert summary["mean_return"] == 30.0
+    assert summary["mean_length"] == 7.0
+    assert summary["return_field"] == "return_raw"
+    assert summary["length_field"] == "steps"
 
 
-def test_extract_episode_length_uses_survival_steps_by_default():
-    assert extract_episode_length({"survival_steps": 12}) == 12
-    assert extract_episode_length({"steps": 7}, length_field="steps") == 7
-    with pytest.raises(KeyError, match="survival_steps"):
-        extract_episode_length({"episode_length": 10})
-    with pytest.raises(KeyError, match="missing"):
-        extract_episode_length({"survival_steps": 12}, length_field="missing")
+@pytest.mark.parametrize(
+    "record,fields,missing",
+    [
+        ({}, {}, "episode_return_env"),
+        ({"episode_return_env": 3.0}, {}, "survival_steps"),
+        ({"episode_return_env": 3.0}, {"return_field": "missing"}, "missing"),
+        ({"episode_return_env": 3.0}, {"length_field": "missing"}, "missing"),
+    ],
+)
+def test_summarize_eval_run_requires_selected_fields(tmp_path: Path, record, fields, missing):
+    """Long-lived analysis contract: missing selected fields fail without substitution."""
+    path = tmp_path / "episode_metrics.jsonl"
+    _write_jsonl(path, [record])
+
+    with pytest.raises(KeyError, match=missing):
+        summarize_eval_run(path, **fields)
 
 
 def test_summarize_eval_run_computes_population_stats_and_metadata(tmp_path: Path):
