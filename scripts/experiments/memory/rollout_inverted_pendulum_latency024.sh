@@ -67,7 +67,7 @@ _ip_prepare_output_roots() {
 }
 
 _ip_need_repo_root() {
-  if [[ ! -f scripts/rollout_data/export_sf_teacher_dataset.py ]]; then
+  if [[ ! -f scripts/bash_scripts/run_sf_teacher_dataset_export.sh ]]; then
     echo "[error] run this from the latency-sensitive-bench repo root." >&2
     return 1
   fi
@@ -269,75 +269,19 @@ _ip_rollout_one() {
   echo "[steps] MAX_EPISODES=${max_episodes} MAX_STEPS=${MAX_STEPS:-7200}"
   echo "[gate] FILTER_PRESET=${FILTER_PRESET:-none} EPISODE_RETURN_GT=${episode_return_gt}"
 
-  local export_wrapper
-  export_wrapper='
-import os
-import sys
-from importlib import metadata
+  DISABLE_GYM_PLUGINS=1 MUJOCO_GL="${ROLLOUT_MUJOCO_GL:-glfw}" \
+  LATENCY_CONFIG="${latency_config}" GYM_MAKE_KWARGS_JSON="${gym_make_kwargs}" \
+  MAX_EPISODES="${max_episodes}" MAX_STEPS="${MAX_STEPS:-7200}" VAL_FRACTION="${VAL_FRACTION:-0.01}" \
+  NUM_ENVS="${NUM_ENVS:-32}" REPLAY_NUM_ENVS="${REPLAY_NUM_ENVS:-32}" \
+  DEVICE="${DEVICE:-cuda}" FILTER_PRESET="${FILTER_PRESET:-none}" \
+  CONTEXT_WINDOW="${CONTEXT_WINDOW:-1}" IMAGE_TRANSFORM="${IMAGE_TRANSFORM:-raw_rgb}" \
+  IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}" EPISODE_RETURN_GT="${episode_return_gt}" \
+  MAX_ATTEMPTS="${MAX_ATTEMPTS:-}" EXPORT_IMAGE_SIZE="${EXPORT_IMAGE_SIZE:-}" PROBE_ONLY="${PROBE_ONLY:-0}" \
+  HF_REPO_ID="$(if [[ "${PUSH_TO_HUB:-1}" == "1" || "${PUSH_TO_HUB:-1}" == "true" ]]; then echo "${HF_ROLLOUT_REPO}"; fi)" \
+  HF_CONFIG_NAME="${config_name}" HF_PRIVATE="${HF_PRIVATE:-0}" \
+  bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh "${ckpt}" "${out_dir}"
 
-# Gymnasium plugin discovery can import shimmy/dm_control and crash on machines
-# with partial GL stacks. Filter third-party Gymnasium plugin autoload here; our
-# task registers explicitly through registration_imports. Rendering backend is
-# selected by the shell command before Python starts.
-_entry_points = metadata.entry_points
 
-def _entry_points_without_gym_plugins(*args, **kwargs):
-    group = kwargs.get("group")
-    if group is None and args:
-        group = args[0]
-    if group == "gymnasium.envs":
-        return ()
-    return _entry_points(*args, **kwargs)
-
-metadata.entry_points = _entry_points_without_gym_plugins
-import gymnasium  # noqa: F401
-
-from scripts.rollout_data.export_sf_teacher_dataset import main
-
-raise SystemExit(main(sys.argv[1:]))
-'
-
-  local cmd=(
-    env
-    MUJOCO_GL="${ROLLOUT_MUJOCO_GL:-glfw}"
-    python -c "${export_wrapper}"
-    --checkpoint-root "${ckpt}"
-    --output-dir "${out_dir}"
-    --latency-config "${latency_config}"
-    --gym-make-kwargs-json "${gym_make_kwargs}"
-    --max-episodes "${max_episodes}"
-    --max-steps-per-episode "${MAX_STEPS:-7200}"
-    --val-fraction "${VAL_FRACTION:-0.01}"
-    --num-envs "${NUM_ENVS:-32}"
-    --replay-num-envs "${REPLAY_NUM_ENVS:-32}"
-    --device "${DEVICE:-cuda}"
-    --context-window "${CONTEXT_WINDOW:-1}"
-    --image-transform "${IMAGE_TRANSFORM:-raw_rgb}"
-    --image-writer-workers "${IMAGE_WRITER_WORKERS:-16}"
-    --filter-preset "${FILTER_PRESET:-none}"
-  )
-
-  if [[ -n "${MAX_ATTEMPTS:-}" ]]; then
-    cmd+=(--max-attempts "${MAX_ATTEMPTS}")
-  fi
-  if [[ -n "${EXPORT_IMAGE_SIZE:-}" ]]; then
-    cmd+=(--export-image-size "${EXPORT_IMAGE_SIZE}")
-  fi
-  if [[ -n "${episode_return_gt}" && "${episode_return_gt}" != "none" && "${episode_return_gt}" != "NONE" ]]; then
-    cmd+=(--episode-return-gt "${episode_return_gt}")
-  fi
-  if [[ "${PROBE_ONLY:-0}" == "1" || "${PROBE_ONLY:-0}" == "true" ]]; then
-    cmd+=(--probe-only)
-  fi
-  if [[ "${PUSH_TO_HUB:-1}" == "1" || "${PUSH_TO_HUB:-1}" == "true" ]]; then
-    cmd+=(--push-to-hub --hf-repo-id "${HF_ROLLOUT_REPO}" --hf-token "${HF_TOKEN:-}")
-    if [[ "${HF_PRIVATE:-0}" == "1" || "${HF_PRIVATE:-0}" == "true" ]]; then
-      cmd+=(--hf-private)
-    fi
-    cmd+=(--hf-config-name "${config_name}")
-  fi
-
-  "${cmd[@]}"
 }
 
 rollout_inverted_pendulum_l0() { _ip_rollout_one 0; }

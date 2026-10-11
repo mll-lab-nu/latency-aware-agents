@@ -377,40 +377,21 @@ python -m training.train \
 Evaluate a saved small-model checkpoint:
 
 ```bash
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/examples/gymnasium/<task>/small_model_eval.yaml \
   --checkpoint-path <checkpoint.pth>
 ```
 
-Export teacher data from the checkpoint:
+Collect teacher data using the task's ordinary run configuration:
 
 ```bash
-python scripts/rollout_data/export_sf_teacher_dataset.py \
-  --checkpoint-root <sample_factory_run> \
-  --output-dir <teacher_output> \
-  --max-episodes 200 \
-  --val-fraction 0.1 \
-  --num-envs 1 \
-  --replay-num-envs 1 \
-  --device cuda \
-  --deterministic \
-  --filter-preset none \
-  --context-window 1 \
-  --export-image-size 224,224
+python -m latency_bench collect --config collect.yaml
+python -m latency_bench convert --config convert.yaml
 ```
 
-Do not pass `--env-name` for a generic Gymnasium checkpoint. The exporter reads
-the task identity and complete contract from the checkpoint.
-
-Convert canonical rows to the LeRobot format:
-
-```bash
-python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
-  <teacher_output> \
-  third_party/starVLA/playground/Datasets/rl_games \
-  <dataset_name> \
-  --action-carrier native
-```
+Declare the checkpoint under `policy`, budgets under `evaluation`, parallelism
+under `executor`, and student inputs under `collection`. See
+[collection configuration](rollout_collection.md) for the canonical handoff.
 
 Discrete Gymnasium tasks keep the existing StarVLA handoff and categorical
 carrier. Continuous Gymnasium tasks preserve the native Box vector in LeRobot
@@ -431,7 +412,7 @@ Run final evaluation after filling the four StarVLA artifact paths in
 `starvla_eval.yaml`:
 
 ```bash
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/examples/gymnasium/<task>/starvla_eval.yaml
 ```
 

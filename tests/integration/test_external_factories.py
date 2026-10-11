@@ -100,12 +100,9 @@ def _run_user_project(project, mode, policy_factory="make_policy", *, collection
         "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
         "MPLBACKEND": "Agg", "LATENCY_BENCH_ENV_BACKEND_START_METHOD": "spawn",
     }
-    command = [sys.executable, "-m", "latency_bench.run", "--config", str(config_path)]
+    command = [sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path)]
     if collection:
-        command = [sys.executable, "-c",
-                   "from latency_bench.core.config import load_config; "
-                   "from latency_bench.data.rollout import collect_rollouts; "
-                   "import sys; collect_rollouts(load_config(sys.argv[1]))", str(config_path)]
+        command = [sys.executable, "-m", "latency_bench", "collect", "--config", str(config_path)]
     result = subprocess.run(
         command,
         cwd=project, env=env, capture_output=True, text=True, timeout=60,
@@ -274,7 +271,7 @@ def test_external_profile_reaches_simulation_and_training_wrapper(user_project):
            "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
            "MPLBACKEND": "Agg"}
     env.pop("LATENCY_BENCH_ENV_BACKEND_START_METHOD", None)
-    command = [sys.executable, "-m", "latency_bench.profiling.cli"]
+    command = [sys.executable, "-m", "latency_bench", "profile"]
     measured = subprocess.run(command + ["run", "--config", str(config_path)], cwd=user_project,
                               env=env, capture_output=True, text=True, timeout=120)
     assert measured.returncode == 0, measured.stdout + measured.stderr
@@ -291,11 +288,14 @@ def test_external_profile_reaches_simulation_and_training_wrapper(user_project):
         assert {row["worker_id"] for row in admitted} == {0, 1}
         assert all(row["worker_service_time_ms"] > 0 for row in admitted)
         assert [row["obs_id"] for row in attempts] == sorted(row["obs_id"] for row in attempts)
-    replay = subprocess.run(command + ["simulate", "--config", str(config_path), "--profile-path", str(profile_path),
-                                       "--method", "iid", "--seeds", "11"], cwd=user_project,
-                            env=env, capture_output=True, text=True, timeout=60)
+    config["executor"].update(mode="simulated", inference_pool=True, simulated_worker_capacity=2)
+    config["latency"] = {"method": "iid", "profile_path": str(profile_path), "seed": 11}
+    config["logging"]["output_dir"] = str(user_project / "replay")
+    config_path.write_text(yaml.safe_dump(config))
+    replay = subprocess.run([sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path)],
+                            cwd=user_project, env=env, capture_output=True, text=True, timeout=60)
     assert replay.returncode == 0, replay.stdout + replay.stderr
-    assert len(list((user_project / "profiling/simulations").rglob("DONE"))) == 1
+    assert (user_project / "replay/episode_metrics.jsonl").is_file()
     wrapper = subprocess.run([sys.executable, "-c", """
 import sys
 import gymnasium as gym

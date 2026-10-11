@@ -10,7 +10,7 @@ the repository root. The task cookbooks define the required inputs:
 
 ## Train a task
 
-Each task directory provides `train_qwenoft.sh`, `train_qwenpi_v3.sh`,
+The MIKASA task directory provides `train_qwenoft.sh`, `train_qwenpi_v3.sh`,
 `train_qwengr00t.sh`, and `train_wanoft.sh`. These scripts call
 `python -m scripts.starvla.train_task`.
 
@@ -24,19 +24,18 @@ CUDA_VISIBLE_DEVICES=0,1 \
 ```
 
 For a full local run, replace `--smoke` with `--no-publish` and use a new run ID.
-Balance additionally requires a matching H8 teacher checkpoint and training
-config. Use the explicit command in its cookbook.
+Balance uses the task-specific H1 teacher → H8/H16 DAgger recipe.
+Use the explicit command in its cookbook.
 
 The current shared runner uses these budgets:
 
 | Task | SFT updates | DAgger | Global batch | Final evaluation |
 | --- | ---: | --- | ---: | --- |
-| Balance | 5,000 | 10 rounds × 500 updates | 128 | 100 episodes, seeds 0–99 |
 | MIKASA H1 | 5,000 | None in this runner | 128 | 100 episodes, seeds 4242424242–4242424341 |
 
 These are current defaults, not the settings of every published experiment.
-A smoke uses two SFT updates and two evaluation episodes. Balance also uses
-one DAgger round with two updates. Smoke results do not establish policy quality.
+A MIKASA smoke uses two SFT updates and two evaluation episodes.
+Smoke results do not establish policy quality.
 
 The runner uses two training GPUs by default. It starts at microbatch 64 per GPU.
 On CUDA OOM, it halves the microbatch and adjusts accumulation to preserve the
@@ -48,13 +47,12 @@ Useful arguments:
 
 | Argument | Input or effect |
 | --- | --- |
-| `--teacher-checkpoint`, `--teacher-config` | Matching teacher weights and resolved training configuration |
+| `--teacher-checkpoint` | Teacher weights |
 | `--dataset-dir` | Prepared parent directory containing `lerobot/` and `lerobot__val/` |
 | `--vla-python`, `--task-python` | Absolute interpreter paths for model and simulator environments |
 | `--simulator-device`, `--inference-device` | Default `cuda:0` and `cuda:1` for task evaluation |
 | `--output-dir` | Local run directory |
 | `--eval-episodes`, `--eval-seed` | Episode count and first seed for final evaluation |
-| `--dagger-rounds 0` | Stop Balance training after SFT |
 | `--resume --run-id ID` | Continue the matching run from its saved state |
 | `--no-publish` | Keep a full run local |
 
@@ -65,36 +63,26 @@ Use `python -m scripts.starvla.train_task --help` for the complete argument list
 The teacher supplies the action labels. Select the teacher using the task's
 independent evaluation protocol before generating a new training dataset.
 
-Balance collects closed-loop teacher trajectories into a new bootstrap dataset
-unless `--dataset-dir` supplies one. Each label contains the actions selected
-across eight physical frames, with a mask for valid targets. Formal collection
-uses 90 training episodes and 10 validation episodes.
-
 MIKASA H1 reuses the published teacher dataset and its fixed 250/25 split.
 The shared runner prepares its task contract and normalization metadata.
 MIKASA H8 uses a separate suffix-label conversion. Its conditioned variant
 requires an explicitly prepared dataset. See the task cookbook for those contracts.
 
-Balance DAgger labels branches from student states with the fixed teacher.
-Half of the sampling weight remains on bootstrap data. The other half is
-shared across accumulated DAgger rounds. Validation data remain separate.
-The optimizer continues across rounds with one cosine schedule for the phase.
-MIKASA DAgger uses task-specific entrypoints, not this shared runner.
-
-An interrupted partial collection restarts that round. A completed training
-state supports `--resume`. Preserve its run ID, inputs, configuration, and data.
+Balance and MIKASA DAgger use their task-specific experiment entrypoints.
+The shared training helpers build model configs and export inference bundles.
+Preserve each run's inputs, configuration, and data when resuming.
 
 ## Evaluate and profile
 
 The shared runner evaluates the final bundle at zero latency. Use that bundle
 in an ordinary profiling config. For MIKASA, inherit
-`configs/examples/profiling/mikasa_intercept_grab_fast/qwenoft.yaml` and set
+`configs/examples/mikasa_intercept_grab_fast/profile_qwenoft.yaml` and set
 `policy.source: local` plus `policy.root` to the inference
 bundle directory. The example names `checkpoints/model.pt` inside that directory.
 Set `policy.backbone_path` when the bundle has no explicit backbone metadata.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench.profiling.cli run --config my_profile.yaml
+CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench profile run --config my_profile.yaml
 ```
 
 `profiling.repeats` selects the total measurement repetitions, including the first.
@@ -107,7 +95,7 @@ establish realtime inference throughput.
 ## Artifacts and publication
 
 Formal training publishes data and the final model unless you pass `--no-publish`.
-Smoke runs stay local. Profiling uploads only with `--publish`.
+Profiling writes local measurements and fitted profiles.
 Use local runs to reproduce results without organization write access.
 
 Model and dataset destinations are `MLL-Lab/LAGEN-models` and

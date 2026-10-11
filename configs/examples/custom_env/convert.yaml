@@ -1,0 +1,5 @@
+conversion:
+  format: lerobot
+  input_dir: outputs/custom_mountain_car/dataset
+  output_dir: outputs/custom_mountain_car/lerobot
+  action_carrier: native

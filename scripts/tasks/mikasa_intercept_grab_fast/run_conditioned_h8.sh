@@ -24,16 +24,35 @@ collect() {
     --condition "$CONDITION" --model "$MODEL" --output "$DATASET_DIR/latency.yaml"
   local collection_model="$MODEL"
   if [[ "$CONDITION" == fixed-* ]]; then collection_model=shared; fi
+  "$TASK_PY" - "$DATASET_DIR" "$TEACHER_CHECKPOINT" "$CONDITION" "$collection_model" <<'PYCFG'
+import sys
+from pathlib import Path
+import yaml
+from latency_bench.core.config import load_config
+root, checkpoint = map(Path, sys.argv[1:3])
+condition, model = sys.argv[3:5]
+config = load_config(root / "latency.yaml")
+prefix = ({"mode": "profile_p95", "profile_path": config["latency"]["profile_path"],
+           "profile_revision": config["profile_source"]["revision"]} if condition == "profile-latency"
+          else {"mode": "fixed_frames", "frames": int(condition.split("-")[1])})
+config.update(experiment={"name": "mikasa_h8_collection", "seed": 0},
+    policy={"type": "mikasa_ppo", "source": "local", "root": str(checkpoint.resolve().parent),
+            "checkpoint": checkpoint.name, "action_prefix": prefix},
+    evaluation={"max_env_steps": 60}, logging={"output_dir": str(root / "raw")},
+    collection={"label_mode": "prefix_h8", "condition": condition, "model": model,
+                "train_targets": 64288, "validation_targets": 6884})
+config["env"].update(name="mikasa_intercept_grab_fast", env_fps=20, obs_fps=20, simulator_device="gpu")
+config["executor"].update(mode="simulated", parallel_envs=128, inference_devices=["cuda:0"])
+(root / "collect.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+(root / "convert.yaml").write_text(yaml.safe_dump({"conversion": {
+    "format": "lerobot", "input_dir": str(root / "raw"), "output_dir": str(root / "lerobot")}}))
+PYCFG
   if [[ ! -f "$DATASET_DIR/raw/collection.json" ]]; then
-    "$TASK_PY" -m scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 \
-      --condition "$CONDITION" --model "$collection_model" --latency-config "$DATASET_DIR/latency.yaml" \
-      --checkpoint "$TEACHER_CHECKPOINT" --output "$DATASET_DIR/raw" \
-      --train-targets 64288 --validation-targets 6884 --num-envs 128
+    "$TASK_PY" -m latency_bench collect --config "$DATASET_DIR/collect.yaml"
   fi
   if [[ ! -f "$DATASET_DIR/lerobot/task_contract.json" ]]; then
     "$UV" run --frozen --project "$ROOT/third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot" python \
-      -m scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset \
-      --raw-root "$DATASET_DIR/raw" --output-train "$DATASET_DIR/lerobot"
+      -m latency_bench convert --config "$DATASET_DIR/convert.yaml"
   fi
   "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.audit_conditioned_h8_dataset \
     --condition "$CONDITION" --raw-root "$DATASET_DIR/raw" --dataset "$DATASET_DIR/lerobot"

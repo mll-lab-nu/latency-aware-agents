@@ -4,12 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 import yaml
 
-from scripts.starvla import balance_dagger
+from latency_bench.envs.tasks.humanoidbench import profile_collection
 
 
 def test_balance_dagger_model_geometry_and_latency_recipes(tmp_path):
@@ -60,7 +58,7 @@ def test_profile_teacher_suffix_stops_loss_mask_at_termination():
     from collections import Counter
 
     import torch
-    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import VLAProfileRollout
+    from latency_bench.envs.tasks.humanoidbench.profile_collection import VLAProfileRollout
 
     class Physics:
         frames = 0
@@ -100,7 +98,7 @@ def test_balance_profile_row_reuses_the_async_image_path(tmp_path):
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
     config = profile.vla_experiment_config("qwenpi_v3", "zero_full", horizon=16)["env"]
-    row = balance_dagger._balance_row_for_image_path(
+    row = profile_collection._balance_row_for_image_path(
         config, Path("/tmp/profile-frame.png"), np.zeros(198), np.zeros(43),
         episode=7, step=11, seed=17, split="train")
 
@@ -114,7 +112,8 @@ def test_profile_inference_uses_the_explicit_local_backbone(tmp_path):
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
     config = profile.vla_experiment_config("qwenpi_v3", "zero_full", horizon=16)
-    result = profile.policy_config(
+    from latency_bench.envs.tasks.humanoidbench.profile_collection import policy_config
+    result = policy_config(
         config, tmp_path / "bundle", tmp_path / "env/bin/python", 8,
         tmp_path / "Qwen3-VL-4B-Instruct")
 
@@ -152,7 +151,7 @@ def test_profile_publish_records_the_selected_checkpoint_and_revision(tmp_path, 
 
 
 def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_path, monkeypatch):
-    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+    from latency_bench.envs.tasks.humanoidbench import profile_collection as profile
 
     rows = [{"episode_idx": 7, "decision_step": step,
              "action_prefix_mask": [False], "action_loss_mask": [True]}
@@ -478,7 +477,7 @@ def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path
 def test_profile_cohorts_keep_action_ownership_and_finish_episode_budget(tmp_path, cohort_size, collecting):
     """Profile collector contract: overlap preserves slot actions and complete-episode selection."""
     from threading import Event
-    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import _collect_requests
+    from latency_bench.envs.tasks.humanoidbench.profile_collection import _collect_requests
 
     inference_entered, simulation_entered = Event(), Event()
 
@@ -539,7 +538,7 @@ def test_profile_cohorts_keep_action_ownership_and_finish_episode_budget(tmp_pat
 def test_profile_worker_startup_failure_propagates_and_reaps_children(tmp_path, monkeypatch):
     """Profile process ownership: a failed child must not strand sibling samplers."""
     import multiprocessing as mp
-    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import _ProfileEnvPool
+    from latency_bench.envs.tasks.humanoidbench.profile_collection import _ProfileEnvPool
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "6,7")
     before = {process.pid for process in mp.active_children()}
@@ -551,175 +550,8 @@ def test_profile_worker_startup_failure_propagates_and_reaps_children(tmp_path, 
     assert {process.pid for process in mp.active_children()} == before
 
 
-@pytest.mark.parametrize("delay", [0, 2])
-def test_balance_dagger_labels_teacher_branch_without_changing_student(tmp_path, delay):
-    """Long-lived collector contract: future expert frames, inherited-request and tail masks."""
-    import copy
-    import gymnasium as gym
-    from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
-
-    class Native(gym.Env):
-        action_space = gym.spaces.Box(-10000, 10000, (43,), dtype=np.float32)
-        observation_space = gym.spaces.Box(-10000, 10000, (198,), dtype=np.float32)
-
-        def reset(self, *, seed):
-            super().reset(seed=seed)
-            self.value = 0.0
-            self.terminate = False
-            return self._policy_observation(), {}
-
-        def render(self):
-            return np.zeros((2, 2, 3), dtype=np.uint8)
-
-        def _policy_observation(self):
-            return np.full(198, self.value, dtype=np.float32)
-
-        def g1_absolute_request_from_raw_action(self, action):
-            return action
-
-        def copy_balance_state_from(self, source):
-            self.__dict__.update(copy.deepcopy(source.__dict__))
-
-        def step(self, action):
-            self.value = action[0]
-            return self._policy_observation(), 1.0, self.terminate, False, {}
-
-    class Teacher:
-        def predict_batch(self, observations):
-            return [SimpleNamespace(raw_output=np.stack([
-                np.full(43, obs.data[0] + 1 + head * 100, dtype=np.float32)
-                for head in range(8)])) for obs in observations]
-
-    def env():
-        return ActionLatencyWrapper(
-            Native(), fixed_latency_raw_frames=delay, env_fps=50, obs_fps=50, seed=0,
-            simulated_worker_capacity=1, add_latency_info=True, noop_action=[0.0] * 43,
-            hold_policy="hold", ordering_policy="latest_ready", hold_last_chunk_action=True)
-
-    main, branch = env(), env()
-    main.reset(seed=0)
-    for _ in range(5):
-        main.step(np.full((8, 43), -5, dtype=np.float32))
-    value, frame = main.unwrapped.value, main.env_step_idx
-    config = {"env": {"name": "g1_sonic_balance_simple", "env_fps": 50, "obs_fps": 50,
-                      "base_prompt": "balance"}, "evaluation": {"max_env_steps": 1000}}
-    adapter = balance_dagger.BalanceDaggerCollector(config, Teacher(), tmp_path, [main], [branch])
-    state = SimpleNamespace(episode_steps=[5], episode_ids=[0], seeds=[0],
-                            outputs=[SimpleNamespace(action_chunk=np.full((8, 43), -5))])
-    snapshot = {"images": {0: np.zeros((2, 2, 3), dtype=np.uint8)},
-                "states": {0: main.unwrapped._policy_observation().copy()}}
-    row = adapter._start_records(snapshot, [0], state)[0]
-    mask = np.asarray(row["action_loss_mask"])
-    chunk = np.asarray(row["issued_command_chunk"])
-    assert main.unwrapped.value == value
-    assert main.env_step_idx == frame
-    if delay == 0:
-        np.testing.assert_array_equal(mask, np.ones(8, dtype=bool))
-        np.testing.assert_array_equal(chunk[:, 0], np.arange(-4, 4))
-    else:
-        np.testing.assert_array_equal(mask, [False, False, False, True, True, True, True, True])
-        np.testing.assert_array_equal(chunk[:, 0], [0, 0, 0, 196, 296, 196, 296, 497])
-    adapter._step([0], state)
-    assert main.unwrapped.value == -5
-    assert main.env_step_idx == frame + 1
-    main.unwrapped.terminate = True
-    config["evaluation"]["max_env_steps"] = 7
-    state.episode_steps[0] = 6
-    row = adapter._start_records(snapshot, [0], state)[0]
-    if delay == 0:
-        assert row["action_loss_mask"] == [True] + [False] * 7
-        np.testing.assert_array_equal(np.asarray(row["issued_command_chunk"])[1:], 0)
-    else:
-        assert row is None
-    main.close(); branch.close()
-
-    # Exercise the real collector's odd budget and episode seed progression.
-    envs, branches = [env(), env()], [env(), env()]
-    config["evaluation"]["max_env_steps"] = 2 if delay == 0 else 12
-    collector = balance_dagger.BalanceDaggerCollector(config, Teacher(), tmp_path, envs, branches)
-    closed, resets = [], []
-    pool = SimpleNamespace(
-        reset_state=resets.append,
-        predict_batch=lambda observations: [
-            SimpleNamespace(action_chunk=np.full((8, 43), -5)) for _ in observations
-        ],
-        close=lambda: closed.append(True),
-    )
-    try:
-        assert collector.collect(pool, row_budget=5, seed=900) == 5
-        assert len(collector.train_rows) == 5
-        assert collector.student_raw_frames == 5
-        assert [row["seed"] for row in collector.train_rows] == [900, 901, 900, 901, 902 if delay == 0 else 900]
-        assert [row["decision_step"] for row in collector.train_rows] == [0, 0, 1, 1, 0 if delay == 0 else 2]
-        assert all(Path(row["image"]).exists() for row in collector.train_rows)
-        assert closed == [True]
-        assert resets == ([0, 1, 0, 1] if delay == 0 else [0, 1])
-    finally:
-        for item in (*envs, *branches):
-            item.close()
 
 
-def test_balance_dagger_relabels_saved_absolute_actions_without_loading_models(tmp_path, monkeypatch):
-    source = tmp_path / "source"
-    output = tmp_path / "output"
-    source.mkdir()
-    state = np.linspace(-0.5, 0.5, 198)
-    image_type = pa.struct([("bytes", pa.binary()), ("path", pa.string())])
-    source_table = pa.table({
-        "image": pa.array([{"bytes": b"png", "path": None}], type=image_type),
-        "env_name": ["g1_sonic_balance_simple"],
-        "episode_idx": [0],
-        "decision_step": [0],
-        "split": ["train"],
-        "seed": [0],
-        "prompt": ["balance"],
-        "latency_raw_frames": [0],
-        "latency_ms": [0.0],
-        "raw_reward": [1.0],
-        "action": [list(np.arange(43, dtype=np.float32))],
-        "action_text": ["old"],
-        "state": [state.tolist()],
-    })
-    pq.write_table(source_table, source / "train.parquet")
-    pq.write_table(source_table.slice(0, 0), source / "val.parquet")
-    (source / "metadata.json").write_text(
-        json.dumps({"train_rows": 1, "val_rows": 0, "keep": "metadata"}),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        balance_dagger,
-        "load_config",
-        lambda path: (_ for _ in ()).throw(AssertionError("teacher model loaded")),
-    )
-    policy_config = tmp_path / "policy.yaml"
-    policy_config.write_text(yaml.safe_dump({
-        "env": {
-            "name": "g1_sonic_balance_simple",
-            "env_id": "Balance-v0",
-            "registration_imports": [],
-            "make_kwargs": {"scene_path": "relative/scene.xml"},
-        },
-    }))
-
-    balance_dagger.collect_balance_dagger(
-        policy_config,
-        tmp_path / "unused-teacher.pth",
-        output,
-        tmp_path / "unused-teacher.yaml",
-        row_budget=1,
-        num_envs=1,
-        round_number=0,
-        relabel_from=source,
-    )
-
-    relabeled = pq.read_table(output / "train.parquet")
-    expected = np.arange(43, dtype=np.float32)
-    np.testing.assert_allclose(relabeled["action"][0].as_py(), expected)
-    assert relabeled["action_text"][0].as_py().startswith("[0.000000, 1.000000, 2.000000")
-    assert relabeled["image"][0].as_py() == source_table["image"][0].as_py()
-    assert relabeled.schema == source_table.schema
-    assert (output / "metadata.json").read_bytes() == (source / "metadata.json").read_bytes()
 
 
 @pytest.mark.parametrize("frames", [None, 3])
@@ -729,7 +561,7 @@ def test_eval_request_does_not_read_future_latency_or_results(frames):
     from latency_bench.core.types import Action, OrderingPolicy
     from latency_bench.scheduler.action_queue import ActionScheduler
     from latency_bench.scheduler.persistence import HoldPolicy
-    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import VLAProfileRollout
+    from latency_bench.envs.tasks.humanoidbench.profile_collection import VLAProfileRollout
 
     def forbidden(*args, **kwargs):
         pytest.fail("Evaluation read a future outcome")
@@ -781,7 +613,7 @@ def test_fixed_k_collection_aligns_student_teacher_and_export(tmp_path, monkeypa
     from latency_bench.core.types import Action, OrderingPolicy
     from latency_bench.scheduler.action_queue import ActionScheduler
     from latency_bench.scheduler.persistence import HoldPolicy
-    from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
+    from latency_bench.envs.tasks.humanoidbench import profile_collection as profile
 
     class Physics:
         steps = 0
@@ -853,75 +685,33 @@ def test_legacy_training_run_cannot_reuse_cached_evaluations(tmp_path, monkeypat
         profile.main()
 
 
-def test_prepare_starvla_lerobot_dataset_converts_from_raw_export(monkeypatch, tmp_path):
-    from scripts.rollout_data import prepare_starvla_lerobot_dataset as prepare
+@pytest.mark.parametrize("prefix_mode", ["fixed_frames", "profile_mean"])
+def test_public_balance_collection_resolves_action_prefix(tmp_path, monkeypatch, prefix_mode):
+    """Long-lived collection boundary: user prefix config fixes the H16 label contract."""
+    from latency_bench.data.rollout import collect_rollouts
+    from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import vla_experiment_config
 
-    raw_export = tmp_path / "raw"
-    raw_export.mkdir()
-    (raw_export / "metadata.json").write_text(json.dumps({"env_name": "demon_attack"}), encoding="utf-8")
-    (raw_export / "train.parquet").write_bytes(b"train")
-    (raw_export / "val.parquet").write_bytes(b"val")
-
-    calls = []
-
-    def fake_convert(raw_export_dir, output_dir, **kwargs):
-        calls.append((raw_export_dir, output_dir, kwargs))
-        (output_dir / "meta").mkdir(parents=True)
-        (output_dir / "meta" / "info.json").write_text("{}", encoding="utf-8")
-        (output_dir.with_name(f"{output_dir.name}__val") / "meta").mkdir(parents=True)
-        return {"dataset_name": output_dir.name}
-
-    monkeypatch.setattr(prepare, "convert_canonical_rollout_to_lerobot", fake_convert)
-
-    result = prepare.main([
-        str(raw_export),
-        str(tmp_path / "lerobot"),
-        "demon_attack_train",
-    ])
-
-    assert result == 0
-    assert calls == [
-        (
-            raw_export,
-            tmp_path / "lerobot" / "demon_attack_train",
-            {"force": True, "action_carrier": "native"},
-        )
-    ]
-
-
-def test_prepare_starvla_lerobot_dataset_uploads_converted_root(monkeypatch, tmp_path):
-    from scripts.rollout_data import prepare_starvla_lerobot_dataset as prepare
-
-    lerobot_root = tmp_path / "lerobot"
-    (lerobot_root / "demon_attack_train").mkdir(parents=True)
-    (lerobot_root / "demon_attack_train__val").mkdir()
-
-    created = {}
-    uploaded = {}
-
-    class FakeApi:
-        def create_repo(self, **kwargs):
-            created.update(kwargs)
-
-        def upload_folder(self, **kwargs):
-            uploaded.update(kwargs)
-
-    monkeypatch.setattr(prepare, "HfApi", lambda: FakeApi())
-    monkeypatch.setenv("HF_TOKEN", "env-token")
-
-    prepare.push_lerobot_dataset(
-        lerobot_root=lerobot_root,
-        data_mix="demon_attack_train",
-        repo_id="user/demon_attack_train_lerobot",
-        private=True,
-    )
-
-    for request in (created, uploaded):
-        assert request["repo_id"] == "user/demon_attack_train_lerobot"
-        assert request["repo_type"] == "dataset"
-        assert request["token"] == "env-token"
-    assert created["private"] is True
-    assert uploaded["folder_path"] == str(lerobot_root)
-    assert set(uploaded["allow_patterns"]) == {
-        "demon_attack_train/**", "demon_attack_train__val/**",
+    config = vla_experiment_config("qwenoft", "zero_full", horizon=16)
+    (tmp_path / "checkpoint.pth").write_bytes(b"teacher fixture")
+    (tmp_path / "teacher.yaml").write_text("{}\n")
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"summary": {"mean_ms": 40}}))
+    config["policy"] = {
+        "type": "sample_factory", "source": "local", "root": str(tmp_path),
+        "checkpoint": "checkpoint.pth", "model_config": "teacher.yaml",
+        "action_prefix": ({"mode": "fixed_frames", "frames": 2} if prefix_mode == "fixed_frames"
+                          else {"mode": "profile_mean", "profile_path": str(profile)}),
     }
+    config["executor"].update(inference_devices=["cpu"], rollout_workers=1,
+                               inference_batch_size=1, rollout_overlap=False)
+    config["logging"]["output_dir"] = str(tmp_path)
+    config["collection"] = {"label_mode": "profile_conditioned", "action_horizon": 16,
+                            "row_budget": 1, "teacher_revision": "fixture", "teacher_sha256": "fixture"}
+
+    def collect_batch(args, resolved, output, **kwargs):
+        prefix = resolved["policy"]["action_prefix"]
+        assert (prefix["frames"], prefix["action_horizon"], prefix["action_dim"]) == (2, 16, 43)
+        (output / "metadata.json").write_text('{"train_rows": 1}')
+
+    monkeypatch.setattr(profile_collection, "rollout_batch", collect_batch)
+    assert collect_rollouts(config)["metadata"]["train_rows"] == 1

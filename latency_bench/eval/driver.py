@@ -2,7 +2,7 @@
 
 This is the core ``run_from_config`` and its episode-side helpers. Sweep/suite
 orchestration lives in :mod:`latency_bench.eval.sweeps`; the CLI in
-:mod:`latency_bench.run`.
+:mod:`latency_bench.eval.cli`.
 """
 from __future__ import annotations
 

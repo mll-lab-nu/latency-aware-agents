@@ -1,4 +1,0 @@
-__base__: wanoft.yaml
-env:
-  simulator: cpu
-  use_gpu_render: false

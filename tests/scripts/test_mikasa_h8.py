@@ -16,19 +16,18 @@ from latency_bench.core.types import Action, Observation
 from latency_bench.policy.action_prefix import encode_prefix_state, resolve_action_prefix, with_action_prefix
 from scripts.starvla import runtime, train_task
 from scripts.tasks.mikasa_intercept_grab_fast import fixed_latency_grid as grid
-from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
+from latency_bench.envs.tasks.mikasa_collection import (
     _copy_branch_state,
-    _prefix_settings,
     _save_episode,
     _selected_slots,
     _teacher_chunks,
 )
 from mikasa_robo_suite.seed_reset import reset_seeded_slot, reset_seeded_slots
 from scripts.tasks.mikasa_intercept_grab_fast.diagnose_conditioned_h8 import suffix_errors
-from scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset import (
+from latency_bench.integrations.starvla.mikasa_h8_export import (
     _features as conditioned_h8_features,
 )
-from scripts.tasks.mikasa_intercept_grab_fast.prepare_h8_dataset import prepare_mikasa_h8
+from latency_bench.integrations.starvla.mikasa_history_export import prepare_mikasa_h8
 
 
 def _write_h1_split(root: Path, episode_lengths: list[int], *, split_at: int | None = None) -> None:
@@ -216,7 +215,7 @@ def test_mikasa_conditioned_h8_contract_is_63d_and_exports_both_masks(tmp_path):
 @pytest.mark.parametrize("frames", [1, 2, 3, 4])
 def test_prefix_state_is_observation_relative_and_excludes_teacher_suffix(frames):
     """Long-lived MIKASA contract: offline labels and live requests encode identical causal input."""
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import _conditioned_observation
+    from latency_bench.envs.tasks.mikasa_collection import _conditioned_observation
 
     proprio = np.arange(7, dtype=np.float32)
     chunk = np.arange(56, dtype=np.float32).reshape(8, 7) / 56
@@ -472,7 +471,6 @@ def test_naive_dagger_labels_full_h8_without_prefix():
         Teacher(), main, private, prefixes, mask, np.asarray([True]),
     )
 
-    assert _prefix_settings("zero-latency", {}) == {"mode": "none"}
     assert conditioned_h8_features("mikasa_h8")["observation.state"]["shape"] == (7,)
     assert "action_prefix_mask" not in conditioned_h8_features("mikasa_h8")
     np.testing.assert_array_equal(loss_masks, np.ones((1, 8), dtype=bool))
@@ -1240,13 +1238,15 @@ def test_conditioned_entry_runs_shared_stages_with_explicit_inputs(tmp_path, mod
         capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     commands = [json.loads(line) for line in calls.read_text().splitlines()]
+    commands = [command for command in commands if "-m" in command]
     modules = [command[command.index("-m") + 1] for command in commands]
     assert [module.rsplit(".", 1)[-1] for module in modules] == [
-        "write_conditioned_latency_config", "collect_conditioned_h8", "prepare_conditioned_h8_dataset",
+        "write_conditioned_latency_config", "latency_bench", "latency_bench",
         "audit_conditioned_h8_dataset", "train_task", "evaluate_h8_checkpoint",
     ]
     collect, train, evaluate = commands[1], commands[4], commands[5]
-    assert collect[collect.index("--model") + 1] == ("shared" if condition == "fixed-2" else model)
+    assert collect[collect.index("latency_bench") + 1] == "collect"
+    assert collect[collect.index("--config") + 1] == str(tmp_path / "data/collect.yaml")
     assert train[train.index("--dataset-dir") + 1] == str(tmp_path / "data")
     assert train[train.index("--model") + 1] == model
     assert train[train.index("--teacher-checkpoint") + 1] == "/teacher.pt"

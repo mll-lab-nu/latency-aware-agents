@@ -19,7 +19,7 @@ HF_CONFIG_NAME=flappy_fixed_latency_2_200ep_7k2steps
 
 # ---- paths / knobs (override via env) ----
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-PYTHON="${PYTHON:-python}"
+export PYTHON="${PYTHON:-python}"
 FILTER_PRESET="${FILTER_PRESET:-contiguous_v1}"   # KV-memory needs contiguous rows
 
 # Fixed canonical checkpoint for the published context-window teacher.
@@ -39,23 +39,7 @@ huggingface-cli download "$CKPT_HF_REPO" \
   --local-dir "$CKPT_SNAPSHOT_ROOT"
 
 # ---- step 2: export teacher rollouts ----
-PUSH_ARGS=()
-if [ -n "$HF_REPO_ID" ]; then
-  PUSH_ARGS=(--push-to-hub --hf-repo-id "$HF_REPO_ID")
-  if [ -n "${HF_CONFIG_NAME:-}" ]; then
-    PUSH_ARGS+=(--hf-config-name "$HF_CONFIG_NAME")
-  fi
-fi
-
-"$PYTHON" "$REPO_ROOT/scripts/rollout_data/export_sf_teacher_dataset.py" \
-  --checkpoint-root "$CHECKPOINT_ROOT" \
-  --env-name flappy \
-  --output-dir "$OUTPUT_DIR" \
-  --max-episodes "$MAX_EPISODES" \
-  --max-steps-per-episode "$MAX_STEPS" \
-  --num-envs "$NUM_ENVS" \
-  --replay-num-envs "$REPLAY_NUM_ENVS" \
-  --device "$DEVICE" \
-  --image-writer-workers "$IMAGE_WRITER_WORKERS" \
-  --filter-preset "$FILTER_PRESET" \
-  "${PUSH_ARGS[@]}"
+MAX_EPISODES="$MAX_EPISODES" MAX_STEPS="$MAX_STEPS" NUM_ENVS="$NUM_ENVS" \
+REPLAY_NUM_ENVS="$REPLAY_NUM_ENVS" DEVICE="$DEVICE" IMAGE_WRITER_WORKERS="$IMAGE_WRITER_WORKERS" \
+FILTER_PRESET="$FILTER_PRESET" VAL_FRACTION=0.1 HF_REPO_ID="$HF_REPO_ID" HF_CONFIG_NAME="$HF_CONFIG_NAME" \
+bash "$REPO_ROOT/scripts/bash_scripts/run_sf_teacher_dataset_export.sh" "$CHECKPOINT_ROOT" "$OUTPUT_DIR"

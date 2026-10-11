@@ -1,0 +1,19 @@
+env:
+  name: mikasa_intercept_grab_fast
+  env_fps: 20
+  obs_fps: 20
+  frame_stack: 1
+  noop_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  base_prompt: Intercept the rolling ball and grasp it to stop it.
+  simulator_device: cuda:0
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+  hold_last_chunk_action: true

@@ -9,7 +9,6 @@ import fcntl
 import json
 import os
 from pathlib import Path
-from latency_bench.policy.model_source import model_file
 import re
 import shutil
 import subprocess
@@ -20,7 +19,7 @@ import yaml
 from latency_bench.core.config import load_config
 from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.analysis.eval_stats import summarize_eval_run
-from latency_bench.integrations.starvla.task_contracts import TASK_SPECS, read_task_contract, task_spec
+from latency_bench.integrations.starvla.task_contracts import read_task_contract, task_spec
 from latency_bench.eval.reporting import _log_corrected_eval_summaries_to_wandb, _summary_latency_label
 from latency_bench.utils.hf import resolve_token
 from scripts.starvla import artifacts, runtime
@@ -51,7 +50,6 @@ _MIKASA_RTX3090_PROFILE_CONFIGS = {
 }
 TASK_SETTINGS = {
     'balance': {
-        'teacher': 'fasttd3-h8-v1/checkpoint.pth', 'conda_env': 'latency',
         'eval_config': 'configs/examples/gymnasium/g1_sonic_balance_simple/starvla_profile.yaml',
         'global_batch': 128, 'sft_steps': 5000,
         'max_episode_steps': 1000, 'seed': 0,
@@ -147,8 +145,6 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
               f'teacher-rollouts-h{task_spec(args.task).action_horizon}-state-v1')
     if args.task == 'mikasa_conditioned_h8' or args.dataset_dir is not None:
         shared = args.dataset_dir.resolve()
-    if args.task == 'balance' and args.dataset_dir is None:
-        shared = args.output_dir / 'bootstrap'
     if args.force and args.dataset_dir is None and shared.exists():
         shutil.rmtree(shared)
     shared.parent.mkdir(parents=True, exist_ok=True)
@@ -157,32 +153,12 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
         ref = dataset_reference(args.task, shared, condition=args.condition)
         contract_file = shared / 'lerobot/task_contract.json'
         if args.task == 'mikasa_h8' and args.dataset_dir is None and not contract_file.exists():
-            from scripts.tasks.mikasa_intercept_grab_fast.prepare_h8_dataset import prepare_mikasa_h8_from_hub
+            from latency_bench.integrations.starvla.mikasa_history_export import prepare_mikasa_h8_from_hub
 
             provenance = prepare_mikasa_h8_from_hub(shared / 'lerobot')
             provenance['kind'] = 'bootstrap'
             provenance['code_revisions'] = code_revisions(args.task)
             write_json(shared / 'provenance.json', provenance)
-        if args.task == 'balance' and not contract_file.exists():
-            from scripts.starvla.prepare_dataset import prepare_balance_bootstrap
-            policy_path = args.output_dir / 'bootstrap_policy.yaml'
-            policy_path.write_text(yaml.safe_dump(eval_config(args, args.output_dir / 'inference', shared), sort_keys=False))
-            command = [task_python, '-m', 'scripts.starvla.balance_dagger', '--bootstrap',
-                       '--policy-config', policy_path, '--teacher-config', args.teacher_config,
-                       '--teacher-checkpoint', teacher, '--output-dir', shared / 'raw']
-            if args.smoke:
-                command.append('--smoke')
-            runtime.run_command(command, args.output_dir / 'bootstrap_collect.log')
-            prepare_balance_bootstrap(shared / 'raw', shared / 'lerobot')
-            raw_metadata = json.loads((shared / 'raw/metadata.json').read_text())
-            write_json(shared / 'provenance.json', {'teacher': teacher_reference,
-                       'label_provenance': raw_metadata['label_provenance'],
-                       'teacher_raw_frames': raw_metadata['teacher_raw_frames'],
-                       'teacher_config': load_config(args.teacher_config), 'code_revisions': code_revisions(args.task),
-                       'condition': args.condition, 'action_horizon': 8, 'seed': 0,
-                       'train_episodes': 2 if args.smoke else 90, 'val_episodes': 1 if args.smoke else 10,
-                       'label': 'expert closed-loop selected absolute request windows'})
-            (shared / 'README.md').write_text('Balance closed-loop H8 teacher data with valid-frame mask; per-arm bootstrap statistics frozen.\n')
         if args.task == 'mikasa' and not contract_file.exists() and args.dataset_dir is None:
             hub = HfApi(token=resolve_token(''))
             remote_exists = not args.smoke and hub.file_exists(
@@ -195,7 +171,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                 shutil.copytree(snapshot / ref['path'], shared)
                 ref['revision'] = revision
             else:
-                from latency_bench.integrations.starvla.task_contracts import prepare_lerobot
+                from latency_bench.data.conversion import convert_dataset
 
                 provenance = {'task': task_spec(args.task).name, 'kind': 'bootstrap',
                               'code_revisions': code_revisions(args.task)}
@@ -205,8 +181,10 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                     allow_patterns=[f'{source_path}/lerobot/**', f'{source_path}/lerobot__val/**'],
                     token=resolve_token(''),
                 ))
-                prepare_lerobot(args.task, snapshot / source_path / 'lerobot',
-                                snapshot / source_path / 'lerobot__val', shared / 'lerobot')
+                convert_dataset({'conversion': {'format': 'lerobot', 'task': args.task,
+                    'input_dir': str(snapshot / source_path / 'lerobot'),
+                    'input_val': str(snapshot / source_path / 'lerobot__val'),
+                    'output_dir': str(shared / 'lerobot')}})
                 provenance['source_dataset'] = {'repo_id': artifacts.DATASET_REPO_ID,
                                                 'path': source_path}
                 write_json(shared / 'provenance.json', provenance)
@@ -313,7 +291,7 @@ def train(args, config: dict) -> tuple[Path, Path]:
         env['WANDB_RUN_ID'] = f'{args.task}-{args.model}-{args.run_id}-{run_id}'
     if 'WANDB_RESUME' not in env:
         env['WANDB_RESUME'] = 'allow' if (
-            args.resume or trainer['is_resume'] or (run_id == 'dagger' and args.eval_every_round)
+            args.resume or trainer['is_resume']
         ) else 'never'
     env['WANDB_MODE'] = 'disabled' if args.smoke else 'online'
     while True:
@@ -417,18 +395,8 @@ def eval_config(args, bundle: Path, output_dir: Path, *,
             config['policy']['action_prefix'] = json.loads(
                 (bundle / 'task_contract.json').read_text()
             )['action_prefix']
-    elif args.task == 'balance':
-        teacher_config = load_config(args.teacher_config)
-        config['latency'] = deepcopy(teacher_config['latency'])
-        config['scheduler'] = deepcopy(teacher_config['scheduler'])
-        config['executor']['simulated_worker_capacity'] = 1
-        config['executor']['parallel_envs'] = 1
     config['logging'] = {'output_dir': str(output_dir), 'video': {'enabled': False, 'num_bins': 10},
                           'save_step_records': True, 'save_action_records': True, 'save_latency_records': True}
-    if args.task == 'balance' and not args.smoke:
-        config['logging'].update({'wandb_entity': os.environ['WANDB_ENTITY'],
-                                  'wandb_project': 'starvla_tasks',
-                                  'wandb_group': os.environ['WANDB_RUN_GROUP']})
     return config
 
 
@@ -573,86 +541,10 @@ def mikasa_h8_execution_audit(evaluation: Path) -> dict:
     return audit
 
 
-def _evaluate_dagger_checkpoint(args, bundle: Path, step: int) -> Path:
-    output = args.output_dir / 'evals' / f'steps_{step}'
-    completion = output / 'complete.json'
-    if not completion.exists():
-        evaluate(args, bundle, label=f'steps_{step}',
-                 wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-dagger', step))
-        write_json(completion, {'checkpoint': str(bundle / 'checkpoints/model.pt'),
-                                'seed': args.eval_seed, 'episodes': args.eval_episodes})
-    return output
 
 
-def _balance_dagger_collection(args, teacher, policy_path, directory, round_number):
-    command = [args.task_python, '-m', 'scripts.starvla.balance_dagger',
-        '--policy-config', policy_path, '--teacher-checkpoint', teacher, '--teacher-config', args.teacher_config,
-        '--output-dir', directory / 'raw', '--row-budget', 4 if args.smoke else 64000,
-        '--num-envs', 2 if args.smoke else 8, '--round', round_number]
-    collection = {'collector': 'scripts.starvla.balance_dagger',
-                  'seeds': [10_000_000 + round_number * 1_000_000],
-                  'row_budget': 4 if args.smoke else 64000,
-                  'num_envs': 2 if args.smoke else 8,
-                  'inference_batch_size': 2 if args.smoke else 8,
-                  'vla_cadence': 1, 'action_horizon': 8,
-                  'label': 'expert closed-loop selected absolute request windows'}
-    if args.dagger_relabel_from is not None:
-        command.extend(['--relabel-from', args.dagger_relabel_from.resolve()])
-        collection = {'collector': 'scripts.starvla.balance_dagger',
-                      'relabel_from': str(args.dagger_relabel_from.resolve())}
-    return [(command, directory / 'collect.log')], collection
 
 
-def collect_dagger(args, *, teacher: Path, teacher_reference: dict, policy: dict,
-                   round_number: int, bootstrap: Path, bootstrap_reference: dict) -> Path:
-    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
-    from latency_bench.integrations.starvla.task_contracts import prepare_lerobot
-
-    directory = args.output_dir / 'dagger' / f'round-{round_number:02d}'
-    directory.mkdir(parents=True, exist_ok=True)
-    policy_path = directory / 'policy.yaml'
-    policy_path.write_text(yaml.safe_dump(policy, sort_keys=False))
-    commands, collection = _balance_dagger_collection(args, teacher, policy_path, directory, round_number)
-    for command, log in commands:
-        runtime.run_command(command, log)
-    metadata = json.loads((directory / 'raw/metadata.json').read_text())
-    collection.update({key: metadata[key] for key in
-                       ('label_provenance', 'student_raw_frames', 'teacher_branch_raw_frames')})
-    converted = directory / '_converted'
-    convert_canonical_rollout_to_lerobot(
-        directory / 'raw', converted, force=True, action_carrier='native',
-        write_starvla_handoff=False,
-    )
-
-    converted_val = converted.with_name(f'{converted.name}__val')
-    prepare_lerobot(
-        args.task,
-        converted,
-        converted_val if converted_val.exists() else None,
-        directory / 'lerobot',
-        normalization_source=bootstrap / 'lerobot',
-    )
-    shutil.rmtree(converted)
-    if converted_val.exists():
-        shutil.rmtree(converted_val)
-
-    write_json(directory / 'provenance.json', {
-        'task': task_spec(args.task).name, 'model': args.model, 'run_id': args.run_id,
-        'round': round_number, 'kind': 'dagger', 'teacher': teacher_reference,
-        'bootstrap': {key: value for key, value in bootstrap_reference.items() if key != 'local_dir'},
-        'policy_source': {
-            'checkpoint_path': model_file(policy['policy'], 'checkpoint'),
-            'phase': ('initial' if args.dagger_from is not None else 'bootstrap')
-                     if round_number == 0 else 'dagger',
-            'optimizer_step': ((0 if args.dagger_from is not None else
-                                2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps'])
-                               if round_number == 0 else
-                               round_number * (2 if args.smoke else 500)),
-        },
-        'collection': collection,
-    })
-    (directory / 'README.md').write_text(f'# {args.task} {args.model} DAgger round {round_number}\n')
-    return directory
 
 
 def _training_record(args, config, *, steps: int, dagger_updates: int, has_deltas: bool) -> dict:
@@ -713,23 +605,14 @@ def publish_run(output_dir: Path) -> str:
 
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--task', choices=TASK_SPECS, required=True)
+    parser.add_argument('--task', choices=['mikasa', 'mikasa_h8', 'mikasa_conditioned_h8'], required=True)
     parser.add_argument('--model', choices=['qwenoft', 'qwenpi_v3', 'qwengr00t', 'wanoft'], required=True)
     parser.add_argument('--run-id')
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--dataset-dir', type=Path)
     parser.add_argument('--teacher-checkpoint', type=Path)
-    parser.add_argument('--teacher-config', type=Path)
     parser.add_argument('--condition', choices=['zero-latency', 'latency-aware', 'profile-latency', *FIXED_LATENCIES], default='zero-latency')
     parser.add_argument('--force', action='store_true', help='Replace corresponding local artifacts')
-    parser.add_argument('--dagger-from', type=Path,
-                        help='Start DAgger from an existing inference bundle instead of training bootstrap')
-    parser.add_argument('--dagger-relabel-from', type=Path,
-                        help='Relabel saved Balance raw DAgger data using the pre-action command state')
-    parser.add_argument('--dagger-rounds', type=int,
-                        help='DAgger rounds; defaults to 1 for smoke and 10 for formal training')
-    parser.add_argument('--eval-every-round', action='store_true',
-                        help='Preserve and evaluate the initial policy and every DAgger round checkpoint')
     parser.add_argument('--vla-python', type=Path)
     parser.add_argument('--task-python', type=Path)
     parser.add_argument('--num-gpus', type=int, default=2)
@@ -755,16 +638,12 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     if args.smoke:
         os.environ['WANDB_MODE'] = 'disabled'
-    if args.dagger_rounds is None:
-        args.dagger_rounds = 1 if args.smoke else 10
     if args.eval_seed is None:
         args.eval_seed = TASK_SETTINGS[args.task]['seed']
     if args.eval_episodes is None:
         args.eval_episodes = 2 if args.smoke else 100
     if args.resume and args.run_id is None:
         parser.error('--resume requires --run-id')
-    if args.dagger_from is not None and args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8'):
-        parser.error('--dagger-from requires a DAgger task')
     if args.run_id is None:
         args.run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')
     args.output_dir = (args.output_dir.resolve() if args.output_dir is not None else
@@ -787,18 +666,15 @@ def main(argv=None) -> None:
             raise ValueError('--resume task, model, condition, and run-id must match run.json')
         if args.train_only and (args.output_dir / 'inference/provenance.json').is_file():
             return
-        if args.dagger_from is None:
-            states = _training_states(args.output_dir / 'training/bootstrap/checkpoints')
-            if not states:
-                raise FileNotFoundError('No complete bootstrap training state found for --resume')
-            _, bootstrap_state = states[-1]
+        states = _training_states(args.output_dir / 'training/bootstrap/checkpoints')
+        if not states:
+            raise FileNotFoundError('No complete bootstrap training state found for --resume')
+        _, bootstrap_state = states[-1]
     args.vla_python = (args.vla_python.absolute() if args.vla_python is not None else
                        conda_python('starvla_rl_games_openvla'))
     args.task_python = (args.task_python.absolute() if args.task_python is not None else
-                        runtime.ROOT / 'third_party/MIKASA-Robo/.venv/bin/python' if args.task in ('mikasa', 'mikasa_h8', 'mikasa_conditioned_h8') else
-                        conda_python(TASK_SETTINGS[args.task]['conda_env']))
-    teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint,
-                                           args.condition if args.task == "balance" else "zero-latency")
+                        runtime.ROOT / 'third_party/MIKASA-Robo/.venv/bin/python')
+    teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint)
     backbone_path, backbone_ref = resolve_backbone(args.model, args.task)
     args.backbone_path = backbone_path
     if run is None:
@@ -811,25 +687,16 @@ def main(argv=None) -> None:
         run = {'task': args.task, 'model': args.model, 'run_id': args.run_id, 'smoke': args.smoke,
                'teacher': teacher_ref, 'backbone': backbone_ref, 'code_revisions': code_revisions(args.task),
                'datasets': [bootstrap_ref], 'seed': 0, 'condition': args.condition}
-        if args.dagger_from is not None:
-            run['initial_model'] = json.loads((args.dagger_from / 'provenance.json').read_text())
     run['no_publish'] = args.no_publish
-    run['dagger_rounds'] = args.dagger_rounds
-    run['evaluation'] = {'seed': args.eval_seed, 'episodes': args.eval_episodes,
-                         'every_round': args.eval_every_round}
+    run['evaluation'] = {'seed': args.eval_seed, 'episodes': args.eval_episodes}
     write_json(args.output_dir / 'run.json', run)
-    if args.dagger_from is None:
-        steps = 2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps']
-        config = training_config(args, bootstrap=bootstrap, deltas=[], backbone=backbone_path,
-                    run_id='bootstrap', steps=steps, stop_step=steps,
-                    pretrained=bootstrap_state, resume=args.resume)
-        trained, checkpoint = train(args, config)
-        bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
-                                   bootstrap=bootstrap, backbone=backbone_ref)
-    else:
-        steps = 0
-        bundle = args.dagger_from.resolve()
-        checkpoint = bundle / 'checkpoints/model.pt'
+    steps = 2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps']
+    config = training_config(args, bootstrap=bootstrap, deltas=[], backbone=backbone_path,
+                run_id='bootstrap', steps=steps, stop_step=steps,
+                pretrained=bootstrap_state, resume=args.resume)
+    trained, checkpoint = train(args, config)
+    bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
+                               bootstrap=bootstrap, backbone=backbone_ref)
     if args.train_only:
         run['training'] = _training_record(args, config, steps=steps, dagger_updates=0, has_deltas=False)
         write_json(args.output_dir / 'run.json', run)
@@ -839,73 +706,10 @@ def main(argv=None) -> None:
             f'H{task_spec(args.task).action_horizon}; SFT complete. Formal evaluation runs separately.\n')
         print(f'MODEL_PATH={bundle / "checkpoints/model.pt"}')
         return
-    deltas = [Path(ref['local_dir']) for ref in run['datasets'][1:]]
     evaluation = None
-    if args.task == 'balance':
-        rounds = args.dagger_rounds
-        updates = 2 if args.smoke else 500
-        if args.eval_every_round:
-            evaluate(args, bundle, label=f'sft_{steps}',
-                     wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-bootstrap', steps))
-        dagger_states = _training_states(args.output_dir / 'training/dagger/checkpoints') if args.resume else []
-        dagger_step, dagger_state = dagger_states[-1] if dagger_states else (0, None)
-        if dagger_state is not None:
-            trained = args.output_dir / 'training/dagger'
-            checkpoint = trained / 'checkpoints' / f'steps_{dagger_step}_pytorch_model.pt'
-            bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
-                                       bootstrap=bootstrap, backbone=backbone_ref)
-        for round_number in range(rounds):
-            if round_number < len(deltas):
-                delta = deltas[round_number]
-                ref = run['datasets'][round_number + 1]
-            else:
-                partial = args.output_dir / 'dagger' / f'round-{round_number:02d}'
-                if args.resume and partial.exists():
-                    shutil.rmtree(partial)
-                delta = collect_dagger(args, teacher=teacher, teacher_reference=teacher_ref,
-                                        policy=eval_config(args,
-                                            args.output_dir / 'rounds' / f'steps_{round_number * updates}'
-                                            if args.eval_every_round and round_number else bundle,
-                                            args.output_dir / 'evals'),
-                                        round_number=round_number, bootstrap=bootstrap,
-                                        bootstrap_reference=bootstrap_ref)
-                deltas.append(delta)
-                ref = dataset_reference(args.task, delta, model=args.model, run_id=args.run_id,
-                                        round_number=round_number, condition=args.condition)
-                run['datasets'].append(ref)
-                write_json(args.output_dir / 'run.json', run)
-            if not args.smoke and not args.no_publish and ref['revision'] is None:
-                publish_data(ref, task=args.task, model=args.model, run_id=args.run_id, round_number=round_number)
-                write_json(args.output_dir / 'run.json', run)
-            stop_step = (round_number + 1) * updates
-            config = training_config(args, bootstrap=bootstrap, deltas=deltas, backbone=backbone_path,
-                        run_id='dagger', steps=rounds * updates,
-                        stop_step=stop_step, pretrained=dagger_state or checkpoint,
-                        resume=dagger_state is not None)
-            if dagger_step < stop_step:
-                trained, checkpoint = train(args, config)
-                dagger_step = stop_step
-                dagger_state = trained / 'checkpoints' / f'steps_{stop_step}_state'
-                bundle = inference_bundle(trained, checkpoint, args.output_dir / 'inference',
-                                           bootstrap=bootstrap, backbone=backbone_ref)
-                if args.eval_every_round:
-                    shutil.copyfile(args.output_dir / 'dagger.log',
-                                    args.output_dir / f'dagger-steps-{stop_step}.log')
-                    shutil.copyfile(args.output_dir / 'dagger.yaml', delta / 'training.yaml')
-                    shutil.copyfile(args.output_dir / 'dagger_mixture.json', delta / 'mixture.json')
-            if args.eval_every_round:
-                round_bundle = args.output_dir / 'rounds' / f'steps_{stop_step}'
-                # The contract is the last bundle file written. Completed round
-                # bundles retain their weight hardlink after old states are pruned.
-                if not (round_bundle / 'task_contract.json').exists():
-                    inference_bundle(
-                        trained, trained / 'checkpoints' / f'steps_{stop_step}_pytorch_model.pt',
-                        round_bundle, bootstrap=bootstrap, backbone=backbone_ref,
-                    )
-                evaluation = _evaluate_dagger_checkpoint(args, round_bundle, stop_step)
     if args.task in ('mikasa_h8', 'mikasa_conditioned_h8'):
-        phase = 'dagger' if deltas else 'bootstrap'
-        eval_step = len(deltas) * (2 if args.smoke else 500) if deltas else steps
+        phase = 'bootstrap'
+        eval_step = steps
         run['evaluation_matrix'] = {}
         run['acceptance_matrix'] = {}
         if 'evaluation' in run:
@@ -976,15 +780,15 @@ def main(argv=None) -> None:
             evaluations[setting] = evaluation
         evaluation = evaluations[args.condition if args.condition in FIXED_LATENCIES else 'profile']
     elif evaluation is None:
-        phase = 'dagger' if deltas else 'bootstrap'
-        eval_step = len(deltas) * (2 if args.smoke else 500) if deltas else steps
+        phase = 'bootstrap'
+        eval_step = steps
         evaluation = evaluate(args, bundle, label='final',
                               wandb_checkpoint=(f'{args.task}-{args.model}-{args.run_id}-{phase}', eval_step))
     if args.task not in ('mikasa_h8', 'mikasa_conditioned_h8'):
         summary = evaluation_summary(evaluation)
         write_json(bundle / ('eval_profile.json' if args.condition == 'latency-aware' else 'eval_l0.json'), summary)
     run['training'] = _training_record(args, config, steps=steps,
-        dagger_updates=len(deltas) * (2 if args.smoke else 500), has_deltas=bool(deltas))
+        dagger_updates=0, has_deltas=False)
     write_json(args.output_dir / 'run.json', run)
     (bundle / 'README.md').write_text(
         f'# {args.model} — {task_spec(args.task).name}\n\n'

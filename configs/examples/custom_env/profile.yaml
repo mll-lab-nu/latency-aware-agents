@@ -1,25 +1,9 @@
-experiment:
-  name: custom_mountain_car_profile
-  seed: 7
-env:
-  name: custom_mountain_car
-  env_fps: 50
-  obs_fps: 10
-  noop_action: coast
-  action_map: {left: 0, coast: 1, right: 2}
-  registration_imports:
-  - components
-policy:
-  type: custom
-  factory: components:make_policy
-  action: right
+__base__: task.yaml
 executor:
   mode: realtime
-  inference_devices: [cpu]
+  inference_devices:
+  - cpu
   sync_cuda: false
-scheduler:
-  hold_policy: hold
-  ordering_policy: latest_ready
 evaluation:
   episodes: 3
   max_env_steps: 50

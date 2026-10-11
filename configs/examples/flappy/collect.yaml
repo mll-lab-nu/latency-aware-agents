@@ -1,0 +1,39 @@
+experiment:
+  name: flappy_teacher_collection
+  seed: 42
+env:
+  name: flappy
+  env_fps: 10
+  obs_fps: 10
+policy:
+  type: sample_factory
+  source: hf
+  hf_repo: MLL-Lab/LAGEN-models
+  revision: af125bd372c22c5b00e326d9af1af64ea3751b56
+  root: latency-aware/flappy/small-policy/sample-factory-qwenoft-rtx3090-temporal-hist8-capacity1-s42-v1
+  checkpoint: best_000047872_24543232_reward_1331.159.pth
+  deterministic: true
+executor:
+  mode: simulated
+  inference_devices: [gpu]
+  parallel_envs: 16
+  simulated_worker_capacity: 1
+scheduler:
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
+latency:
+  method: fixed
+  fixed_latency_ms: 0
+evaluation:
+  episodes: 20
+  max_env_steps: 3600
+logging:
+  output_dir: outputs/flappy/dataset
+collection:
+  two_pass: true
+  replay_num_envs: 16
+  val_fraction: 0.1
+  split_seed: 0
+  filter_preset: none
+  image_writer_workers: 1
+  row_buffer_size: 256

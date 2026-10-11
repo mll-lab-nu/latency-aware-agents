@@ -112,3 +112,18 @@ If you use LAGEN in your research, please cite:
   year={2026}
 }
 ```
+
+
+Use the same entrypoint for evaluation, collection, conversion and latency measurement:
+
+```bash
+python -m latency_bench eval --config eval.yaml
+python -m latency_bench collect --config collect.yaml
+python -m latency_bench convert --config convert.yaml
+python -m latency_bench profile run --config profile.yaml
+python -m latency_bench profile fit --run-dir /path/to/measurement
+```
+
+Task examples use flat filenames under `configs/examples/<task>/`. See
+[collection](docs/rollout_collection.md), [configuration](docs/configuration.md),
+and [profiling](docs/profiling/cookbook.md) for the input and artifact contracts.

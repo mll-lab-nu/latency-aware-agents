@@ -11,7 +11,7 @@ these same runtime fields.
 | `latency` | Simulated action delay | `method` and sampler parameters |
 | `evaluation` | Episode budget and named simulated conditions | `episodes`, `max_env_steps`, `suites` |
 | `logging` | Saved records, output location and video | `output_dir`, `save_step_records`, `save_action_records`, `save_latency_records`, `video` |
-| `profiling` | Measurement repetitions and publication coordinates | `repeats`, `model_id`, `workload_id`, `calibration`, `publish_repo` |
+| `profiling` | Measurement repetitions and artifact labels | `repeats`, `model_id`, `workload_id`, `calibration` |
 
 ## Execution and timing
 
@@ -109,7 +109,7 @@ sample populations.
 `profiling.repeats` counts independent measurement processes. Each process loads
 the model, performs warmup, and measures `evaluation.episodes` episodes.
 `model_id` and `workload_id` label artifacts. They do not choose implementations.
-`publish_repo` selects the publication repository. See the
+See the
 [profiling guide](profiling/cookbook.md).
 
 Native trainer arguments, checkpoint contracts, dataset fields and stored

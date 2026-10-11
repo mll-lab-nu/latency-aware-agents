@@ -42,9 +42,9 @@ def capture(args: argparse.Namespace) -> None:
     from latency_bench.core.clock import EnvClock
     from latency_bench.scheduler.factory import build_action_scheduler
     from latency_bench.core.types import Action
-    from scripts.mikasa.evaluate import _PpoPolicy
+    from latency_bench.policy.mikasa_ppo import MikasaPpoPolicy
     from latency_bench.envs.tasks.mikasa import make_ppo_env, make_vla_env
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
+    from latency_bench.envs.tasks.mikasa_collection import (
         _conditioned_observation,
         _teacher_chunks,
         _uint8_rgb,
@@ -62,7 +62,7 @@ def capture(args: argparse.Namespace) -> None:
     episodes_dir.mkdir()
     rgb_env = make_vla_env(num_envs=1, simulator_device=args.device)
     branch_env = make_ppo_env(num_envs=1, simulator_device=args.device)
-    teacher = _PpoPolicy(branch_env, args.teacher)
+    teacher = MikasaPpoPolicy(branch_env, args.teacher)
     try:
         branch_env.reset(seed=args.seed_start)
         for seed in range(args.seed_start, args.seed_start + args.episodes):
@@ -100,9 +100,9 @@ def capture_batch_first(args: argparse.Namespace) -> None:
     from latency_bench.core.types import Action
     from latency_bench.scheduler.factory import build_action_scheduler
     from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
-    from scripts.mikasa.evaluate import _PpoPolicy
+    from latency_bench.policy.mikasa_ppo import MikasaPpoPolicy
     from latency_bench.envs.tasks.mikasa import make_ppo_env
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
+    from latency_bench.envs.tasks.mikasa_collection import (
         _conditioned_observation,
         _teacher_chunks,
     )
@@ -113,7 +113,7 @@ def capture_batch_first(args: argparse.Namespace) -> None:
     (args.output / "episodes").mkdir()
     backend = MikasaEnvStepBackend(config=config, num_slots=slots)
     branch = make_ppo_env(num_envs=slots, simulator_device=config["env"]["simulator_device"])
-    teacher = _PpoPolicy(branch, args.teacher)
+    teacher = MikasaPpoPolicy(branch, args.teacher)
     scheduler = build_action_scheduler(
         config["scheduler"], clock=EnvClock(env_fps=20, obs_fps=20),
         noop_action=Action(np.zeros(7, dtype=np.float32), name="noop", is_noop=True),
@@ -355,7 +355,7 @@ def oracle(args: argparse.Namespace) -> None:
     from PIL import Image
 
     from latency_bench.envs.tasks.mikasa import make_vla_env
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import _uint8_rgb
+    from latency_bench.envs.tasks.mikasa_collection import _uint8_rgb
 
     env = make_vla_env(num_envs=1, simulator_device=args.device)
     rows = []
@@ -525,9 +525,9 @@ def rollout_relabel(args: argparse.Namespace) -> None:
     from latency_bench.core.types import Action, ActionEvent, LatencyRecord
     from latency_bench.scheduler.factory import build_action_scheduler
     from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
-    from scripts.mikasa.evaluate import _PpoPolicy
+    from latency_bench.policy.mikasa_ppo import MikasaPpoPolicy
     from latency_bench.envs.tasks.mikasa import make_ppo_env
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
+    from latency_bench.envs.tasks.mikasa_collection import (
         _conditioned_observation,
         _teacher_chunks,
     )
@@ -550,7 +550,7 @@ def rollout_relabel(args: argparse.Namespace) -> None:
     }
     backend = MikasaEnvStepBackend(config=config, num_slots=slots)
     branch = make_ppo_env(num_envs=slots, simulator_device=config["env"]["simulator_device"])
-    teacher = _PpoPolicy(branch, args.teacher)
+    teacher = MikasaPpoPolicy(branch, args.teacher)
     clock = EnvClock(env_fps=20, obs_fps=20)
     schedulers = [
         build_action_scheduler(

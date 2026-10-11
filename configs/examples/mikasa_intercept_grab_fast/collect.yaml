@@ -1,0 +1,41 @@
+experiment:
+  name: mikasa_h8_collection
+  seed: 0
+env:
+  name: mikasa_intercept_grab_fast
+  env_fps: 20
+  obs_fps: 20
+  simulator_device: gpu
+policy:
+  type: mikasa_ppo
+  source: hf
+  hf_repo: MLL-Lab/LAGEN-models
+  revision: e3fea81529fd98b5d5782db38803fe4062215dda
+  root: zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1
+  checkpoint: checkpoint.pt
+  action_prefix:
+    mode: fixed_frames
+    frames: 2
+executor:
+  mode: simulated
+  parallel_envs: 4
+  inference_devices:
+  - cuda:0
+latency:
+  method: fixed
+  fixed_latency_ms: 100
+  seed: 0
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+  hold_last_chunk_action: true
+evaluation:
+  max_env_steps: 60
+logging:
+  output_dir: outputs/mikasa/dataset
+collection:
+  label_mode: prefix_h8
+  condition: fixed-2
+  model: shared
+  train_targets: 64288
+  validation_targets: 6884

@@ -851,7 +851,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         write_yaml(latency_bench_eval_path, latency_bench_eval_config)
 
         train_cmd = f"python -m training.train --config {shlex.quote(str(train_path))}"
-        eval_cmd = f"python -m latency_bench.run --config {shlex.quote(str(latency_bench_eval_path))}"
+        eval_cmd = f"python -m latency_bench eval --config {shlex.quote(str(latency_bench_eval_path))}"
         train_commands.append(train_cmd)
         eval_commands.append(eval_cmd)
         manifest_rows.append(

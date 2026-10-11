@@ -10,55 +10,53 @@ The zero-latency student uses `g1_sonic_balance_simple` at 50 Hz, a 198D state,
 The SONIC name identifies the scene assets and joint order. The policy acts
 on joint targets and does not load a SONIC policy.
 
-The shared runner accepts `qwenoft`, `qwenpi_v3`, `qwengr00t`, and `wanoft`.
-Its current Balance recipe uses 5,000 SFT updates and ten DAgger rounds of
-500 updates each, with global batch 128.
+## Collect and train the student
 
-Supply an accepted H8 FastTD3 checkpoint and its resolved training config.
-The runner's default `fasttd3-h8-v1/checkpoint.pth` path is unavailable in the
-public model repository. The published `fasttd3-v1` teacher and the default
-`train_small_policy.sh` recipe are H1 inputs, not replacements for this H8 recipe.
+The current recipe uses an H1 FastTD3 teacher to label H8 or H16 private
+rollouts from student states. `zero_full` labels the full chunk.
+`profile_conditioned` fixes the returned action prefix and labels its suffix.
 
-An H8 training recipe is available at
-[`balance_fasttd3_chunk_h8_zero.yaml`](../../configs/training/latency/balance_fasttd3_chunk_h8_zero.yaml).
-It has a six-million-frame budget. It does not reproduce the later
-25-million-frame paper teacher without that experiment's resolved configuration.
-
-## Train the student
-
-Run from the repository root. Replace both teacher paths with matching inputs:
+For standalone collection, edit the model and asset paths in
+`configs/examples/g1_sonic_balance_simple/collect.yaml`, then run:
 
 ```bash
-conda activate latency
-CUDA_VISIBLE_DEVICES=0,1 \
-  bash scripts/tasks/humanoidbench_balance_simple/train_qwenoft.sh \
-  --teacher-checkpoint /ABSOLUTE/TEACHER/checkpoint.pth \
-  --teacher-config /ABSOLUTE/TEACHER/resolved_config.yaml \
-  --smoke --run-id balance-qwenoft-smoke
+python -m latency_bench collect --config my_collect.yaml
+python -m latency_bench convert --config my_convert.yaml
 ```
 
-The smoke collects a small bootstrap dataset, runs two SFT updates and one
-DAgger round with two updates, then evaluates two episodes. It stays local.
+The task experiment owns the SFT/DAgger schedule. Run a local smoke with
+matching teacher weights, the resolved teacher config, and a downloaded backbone:
 
-For a full local run, replace `--smoke` with `--no-publish` and use a new run ID.
-Omitting `--no-publish` enables automatic artifact publication.
-Use `--dagger-rounds 0` for SFT only. Use `--resume --run-id ID` to continue
-an existing run with the same inputs. Model suffixes select the other three models.
+```bash
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl CUDA_VISIBLE_DEVICES=0,1 \
+  python -m scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger \
+  --output outputs/balance-smoke \
+  --vla-python /ABSOLUTE/VLA/bin/python \
+  --backbone /ABSOLUTE/BACKBONE \
+  --teacher /ABSOLUTE/TEACHER/checkpoint.pth \
+  --teacher-config /ABSOLUTE/TEACHER/fasttd3_train.yaml \
+  --model qwenoft --horizon 8 --label-mode zero_full \
+  --gradient-checkpointing --smoke
+```
+
+Use `--label-mode profile_conditioned --profile-path /ABSOLUTE/PROFILE/profile.json`
+for conditioned labels. Use `--horizon 16` for H16. The recipe stays local unless
+`--publish` is supplied. `--resume` continues its recorded experiment.
 
 ## Profile a checkpoint
 
-Inherit `configs/examples/profiling/g1_sonic_balance_simple/qwenoft.yaml` in
+Inherit `configs/examples/g1_sonic_balance_simple/profile_qwenoft.yaml` in
 `my_profile.yaml`. Select `policy.source: local` and set
 `policy.root` to the training run's inference bundle.
 The example uses `checkpoints/model.pt` inside that bundle. Configure the
 matching backbone through `policy.backbone_path` when needed.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python -m latency_bench.profiling.cli run --config my_profile.yaml
+CUDA_VISIBLE_DEVICES=0 python -m latency_bench profile run --config my_profile.yaml
 ```
 
 The ordinary config defines the workload and inference device. The
-[profiling cookbook](../profiling/cookbook.md) describes resume and publication.
+[profiling cookbook](../profiling/cookbook.md) describes measurement and fitting.
 
 ## Evaluate profile-conditioned bundles
 

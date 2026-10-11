@@ -20,7 +20,7 @@ from scripts.tasks.decision_history.collect_vla_hist8 import audit_atari_history
 
 
 @pytest.mark.parametrize("matching_checkpoint", [True, False])
-def test_published_profile_checks_checkpoint_before_measurement(tmp_path, monkeypatch, matching_checkpoint):
+def test_profiling_checks_published_model_before_measurement(tmp_path, monkeypatch, matching_checkpoint):
     """Long-lived H8 publication contract owned by the history recipe suite."""
     from scripts.tasks.atari_hist8 import profile_published as module
     from latency_bench.core.config import load_config
@@ -40,7 +40,7 @@ def test_published_profile_checks_checkpoint_before_measurement(tmp_path, monkey
 
     def run_profile(config, **kwargs):
         measured.append(config)
-        return {"PROFILE_PATH": str(profile_path), "PROFILE_REF": "m/g/w/i", "RUN_DIR": str(tmp_path)}
+        return {"PROFILE_PATH": str(profile_path), "PROFILE_REF": "m/g/w/i", "RUN_DIR": str(tmp_path), "RUN_ID": "run-1"}
 
     def download(repo, filename, **kwargs):
         if kwargs.get("repo_type") == "dataset":
@@ -56,10 +56,8 @@ def test_published_profile_checks_checkpoint_before_measurement(tmp_path, monkey
     monkeypatch.setattr(module, "load_config", lambda path: load_config(root / path))
     monkeypatch.setattr(module, "hf_hub_download", download)
     monkeypatch.setattr(module, "run_profile", run_profile)
-    monkeypatch.setattr(module, "publish_profile", lambda *args, **kwargs: {"PUBLICATION_STATUS": "published"})
     monkeypatch.setattr(module, "HfApi", lambda: SimpleNamespace(
-        dataset_info=lambda repo: SimpleNamespace(sha="profile-revision"),
-    ))
+        create_commit=lambda **kwargs: SimpleNamespace(oid="profile-revision")))
     monkeypatch.setattr(sys, "argv",
                         ["profile_published", "--publication", str(publication_path)])
     if not matching_checkpoint:
@@ -70,7 +68,6 @@ def test_published_profile_checks_checkpoint_before_measurement(tmp_path, monkey
     module.main()
     assert measured[0]["policy"]["revision"] == "model-revision"
     receipt = json.loads((tmp_path / "outputs/tasks/atari_hist8_v1/profile_receipts/atlantis-qwenoft.json").read_text())
-    assert receipt["profile_revision"] == "profile-revision"
     assert receipt["profile_sha256"] == module.file_sha256(profile_path)
 
 

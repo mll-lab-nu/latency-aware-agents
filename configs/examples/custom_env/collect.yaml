@@ -1,0 +1,30 @@
+__base__: task.yaml
+experiment:
+  name: custom_mountain_car_collection
+executor:
+  mode: simulated
+  inference_devices:
+  - cpu
+  sync_cuda: false
+latency:
+  method: fixed
+  fixed_latency_ms: 100
+env:
+  make_kwargs:
+    render_mode: rgb_array
+  base_prompt: Drive the car up the hill.
+  action_order:
+  - left
+  - coast
+  - right
+logging:
+  output_dir: outputs/custom_mountain_car/dataset
+collection:
+  student_observation:
+    image_key: null
+    state_key: null
+  val_fraction: 0.3333333333333333
+  split_seed: 7
+evaluation:
+  episodes: 3
+  max_env_steps: 50

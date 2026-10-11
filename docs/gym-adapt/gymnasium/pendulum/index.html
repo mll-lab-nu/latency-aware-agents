@@ -224,19 +224,8 @@ checkpoint_000001984_1015808.pth \
         <p class="section-kicker">09 · Optional continuation</p>
         <h2>Rollout and VLA remain intentionally unexecuted</h2>
         <div class="callout warning"><strong>NOT RUN by request:</strong> teacher rollout, canonical parquet export, LeRobot conversion, OpenVLA SFT, and StarVLA evaluation. The checked-in <code>starvla_eval.yaml</code> is a contract template, not evidence of a model.</div>
-        <details><summary>Commands if a future user authorizes rollout and conversion</summary><pre><code>python scripts/rollout_data/export_sf_teacher_dataset.py \
-  --checkpoint-root outputs/examples/gymnasium_pendulum/checkpoints/\
-gymnasium_pendulum_discrete_fixed_l1 \
-  --output-dir outputs/teacher_datasets/pendulum_discrete_fixed_l1 \
-  --max-episodes 200 --val-fraction 0.1 \
-  --num-envs 1 --replay-num-envs 1 --device cuda \
-  --deterministic --filter-preset none --context-window 1 \
-  --export-image-size 224,224
-
-python scripts/rollout_data/prepare_starvla_lerobot_dataset.py \
-  outputs/teacher_datasets/pendulum_discrete_fixed_l1 \
-  third_party/starVLA/playground/Datasets/rl_games \
-  pendulum_discrete_fixed_l1 --action-carrier native</code></pre><p>Do not pass <code>--env-name</code> for a generic Gymnasium checkpoint. The five-way categorical carrier is not the original continuous torque vector.</p></details>
+        <details><summary>Collection and conversion</summary><p>Prepare collection and conversion YAML files using the <a href="../../../rollout_collection.md">collection guide</a>. Select the checkpoint under <code>outputs/examples/gymnasium_pendulum/checkpoints/gymnasium_pendulum_discrete_fixed_l1</code> and the native action carrier.</p><pre><code>python -m latency_bench collect --config my_collect.yaml
+python -m latency_bench convert --config my_convert.yaml</code></pre></details>
       </section>
 
       <section id="limits">

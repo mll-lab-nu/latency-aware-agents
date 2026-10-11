@@ -106,34 +106,6 @@ def _env_raw_rgb_frame_stack(value: int = 5, *, frames: int = 1, height: int = 2
     )
 
 
-def test_export_cli_accepts_flappy_ghost_trail_image_transform():
-    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
-
-    args = build_parser().parse_args(
-        [
-            "--checkpoint-root",
-            "ckpt",
-            "--output-dir",
-            "out",
-            "--max-episodes",
-            "1",
-            "--max-steps-per-episode",
-            "10",
-            "--image-transform",
-            "flappy_ghost_trail",
-            "--ghost-trail-history-frames",
-            "5",
-            "--ghost-trail-gamma",
-            "1.3",
-            "--hf-data-dir",
-            "latency-aware/flappy/ghost-trail",
-        ]
-    )
-
-    assert args.image_transform == "flappy_ghost_trail"
-    assert args.ghost_trail_history_frames == 5
-    assert args.ghost_trail_gamma == 1.3
-    assert args.hf_data_dir == "latency-aware/flappy/ghost-trail"
 
 
 def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
@@ -2440,11 +2412,7 @@ def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_p
     from latency_bench.data.ghost_trail import GhostTrailConfig
     from latency_bench.data.hf_parquet import write_episode_row_shard, load_parquet_splits
     from latency_bench.data.rollout_probe import write_probe_state
-    from datasets import DatasetDict
 
-    uploads = []
-    monkeypatch.setattr(DatasetDict, "push_to_hub", lambda self, **kwargs: uploads.append(kwargs))
-    monkeypatch.setattr(sf_teacher_export, "resolve_token", lambda token: None)
 
     output = tmp_path / "export"
     output.mkdir()
@@ -2467,13 +2435,14 @@ def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_p
     descriptor = _rollout_descriptor("flappy") | {"flat_cfg": {}}
     monkeypatch.setattr(sf_teacher_export, "load_rollout_training_config",
                         lambda *args, **kwargs: (descriptor, {"latency_source": "checkpoint"}))
-    metadata = sf_teacher_export.export_sample_factory_teacher_dataset(
-        checkpoint_root=tmp_path / "checkpoint", output_dir=output, latency_config_path=None,
-        env_name="", max_episodes=1, max_attempts=3, max_steps_per_episode=10,
-        val_fraction=0.0, split_seed=0, num_envs=1, replay_num_envs=1, device="cpu",
+    metadata = sf_teacher_export._export_dataset(
+            *sf_teacher_export.load_rollout_training_config(tmp_path),
+        output_dir=output,
+        max_episodes=1, max_attempts=3, max_steps_per_episode=10,
+        val_fraction=0.0, split_seed=0, num_envs=1, replay_num_envs=1,
         deterministic=True, export_image_size=None, image_writer_workers=0, row_buffer_size=2,
-        push_to_hub=True, hf_repo_id="organization/data", hf_private=False, hf_token="", hf_max_shard_size="500MB",
-        hf_config_name="flappy", hf_data_dir="latency-aware/flappy/teacher-rollouts",
+
+
         filter_preset="none", context_window=4, episode_return_gt=0.0, probe_only=probe_only,
         export_zero_action_history=8,
         image_transform_config=GhostTrailConfig(image_transform="flappy_ghost_trail"),
@@ -2481,7 +2450,6 @@ def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_p
     assert metadata["env_name"] == "flappy"
     assert metadata["episode_return_gate"] == {"field": "episode_raw_return", "operator": ">", "threshold": 0.0}
     if probe_only:
-        assert uploads == []
         assert metadata["probe_only"] is True
         assert metadata["accepted_episodes"] == 1
         assert metadata["attempted_episodes"] == 3
@@ -2490,9 +2458,6 @@ def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_p
         assert (output / "probe_state.json").exists()
         assert not (output / "train.parquet").exists()
         return
-    assert uploads[0]["repo_id"] == "organization/data"
-    assert uploads[0]["config_name"] == "flappy"
-    assert uploads[0]["data_dir"] == "latency-aware/flappy/teacher-rollouts"
     assert json.loads((output / "metadata.json").read_text()) == metadata
     report = json.loads((output / "filter_report.json").read_text())
     assert metadata["filter_report"] == report

@@ -170,7 +170,7 @@ EOF
         latency_bench
         "${eval_cfg}"
         "python -m training.train --config ${train_cfg}"
-        "python -m latency_bench.run --config ${eval_cfg}"
+        "python -m latency_bench eval --config ${eval_cfg}"
         "${run}"
         "inverted-pendulum-fs1-${label}"
         "inverted-pendulum-fs1-${label}-s${seed}"

@@ -1,4 +1,4 @@
-"""Build measurement and replay configs from the user's evaluation configuration."""
+"""Build measurement configs from the user's evaluation configuration."""
 
 from __future__ import annotations
 
@@ -32,55 +32,6 @@ def measure_config(
     return config
 
 
-def set_env_clock_preserving_observation_stride(
-    config: dict[str, Any], env_fps: float,
-) -> None:
-    """Change the simulation rate while keeping the configured observation stride."""
-    observation_stride = config["env"]["env_fps"] / config["env"]["obs_fps"]
-    config["env"]["env_fps"] = env_fps
-    config["env"]["obs_fps"] = env_fps / observation_stride
-
-
-def apply_profile_latency_summary(
-    latency_config: dict[str, Any], method: str, profile: dict[str, Any],
-) -> None:
-    """Add fixed or normal latency parameters from the selected profile summary."""
-    if method == "fixed":
-        latency_config["fixed_latency_ms"] = profile["summary"]["mean_ms"]
-    elif method == "normal":
-        latency_config["mean_latency_ms"] = profile["summary"]["mean_ms"]
-        latency_config["std_latency_ms"] = profile["summary"]["std_ms"]
-
-
-def simulation_config(
-    config: dict[str, Any],
-    *,
-    output_dir: Path,
-    profile_path: Path,
-    profile: dict[str, Any],
-    method: str,
-    latency_seed: int,
-) -> dict[str, Any]:
-    """Replay measured timing at the target task's explicitly configured clock."""
-    config = deepcopy(config)
-    config["executor"].update(
-        mode="simulated",
-        simulated_worker_capacity=len(profile["per_slot_summary"]),
-        inference_pool=True,
-    )
-    config["latency"] = {
-        "method": method,
-        "profile_path": str(profile_path),
-        "seed": latency_seed,
-        **{key: profile[key] for key in (
-            "model_id", "gpu_class", "workload_id", "instance_id", "source_run_id",
-        )},
-    }
-    apply_profile_latency_summary(config["latency"], method, profile)
-    _enable_records(config, output_dir)
-    return config
-
-
 def evaluation_environment() -> dict[str, str]:
     """Use the profiling subprocess start method selected by the caller."""
     environment = dict(os.environ)
@@ -92,7 +43,7 @@ def eval_command(options: dict[str, Any], config_path: Path, output_dir: Path) -
     """Use the normal evaluator or an explicitly configured task entrypoint."""
     if "eval_entrypoint" in options:
         return [sys.executable, options["eval_entrypoint"], "latency-eval", "--eval-config", str(config_path)]
-    command = [sys.executable, "-m", "latency_bench.run", "--config", str(config_path),
+    command = [sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path),
                "--output-dir", str(output_dir)]
     if "checkpoint_kind" in options:
         command.extend(["--checkpoint-kind", options["checkpoint_kind"]])

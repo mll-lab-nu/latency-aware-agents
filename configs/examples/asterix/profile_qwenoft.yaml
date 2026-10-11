@@ -1,0 +1,102 @@
+__base__: task.yaml
+experiment:
+  name: starvla_asterix_zero_latency_eval
+  seed: 42
+backend:
+  algo: APPO
+  device: cuda
+  train_dir: results/sample_factory
+  restart_behavior: resume
+  run_mode: eval
+  extra_args:
+  - --encoder_conv_architecture
+  - convnet_simple
+executor:
+  mode: realtime
+  simulated_worker_capacity: null
+  parallel_envs: 1
+  inference_devices:
+  - cuda:0
+  env_backend: serial
+  sync_cuda: true
+policy:
+  type: starvla
+  actions:
+  - noop
+  - up
+  - right
+  - left
+  - down
+  - upright
+  - upleft
+  - downright
+  - downleft
+  deterministic: true
+  task_manifest_path: manifest.json
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  action_layout: discrete_9
+  source: hf
+  root: zero-latency/asterix/vla/starvla-qwenoft-h1/asterix-qwenoft-hist8-zero-s42-v1
+  state_source: transport
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
+  hf_repo: MLL-Lab/LAGEN-models
+training:
+  train_for_env_steps: 1000000
+  num_workers: 4
+  num_envs_per_worker: 16
+  worker_num_splits: 1
+  num_policies: 1
+  batch_size: 1024
+  rollout: 64
+  recurrence: 32
+  num_epochs: 2
+  num_batches_per_epoch: 8
+  max_policy_lag: 300
+  learning_rate: 0.000303
+  lr_schedule: constant
+  nonlinearity: elu
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  exploration_loss: entropy
+  exploration_loss_coeff: 0.003
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.0
+  adam_eps: 1.0e-06
+  obs_scale: 1.0
+  adaptive_stddev: false
+  with_vtrace: false
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_interval_steps: null
+  episodes: 10
+  max_env_steps: 7200
+  suites: []
+  eval_raw_reward: true
+logging:
+  output_dir: outputs/profiling
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  wandb_project: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_tags: ''
+profiling:
+  model_id: qwenoft
+  workload_id: asterix
+  repeats: 5
+  calibration: null

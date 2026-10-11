@@ -1,0 +1,5 @@
+conversion:
+  format: lerobot
+  task: balance_profile_h8
+  input_dir: outputs/balance/dataset
+  output_dir: outputs/balance/lerobot

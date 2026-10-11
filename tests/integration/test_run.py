@@ -12,11 +12,11 @@ from latency_bench.core.types import EpisodeMetrics
 from latency_bench.executors.base import BatchedExecutor, EpisodeExecutor
 from latency_bench.eval.config import apply_runtime_overrides
 from latency_bench.policy.model_source import model_file
-import latency_bench.run as latency_run
+import latency_bench.eval.cli as latency_run
 import latency_bench.eval.driver as evaluation
 import latency_bench.eval.sweeps as eval_sweeps
 import latency_bench.eval.reporting as reporting
-from latency_bench.run import main
+from latency_bench.eval.cli import main
 
 
 def _write_dummy_config(path: Path, output_dir: Path, num_episodes: int = 1) -> None:

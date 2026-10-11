@@ -32,7 +32,7 @@ Tests mirror the source tree. A test lives in the subdirectory that matches the
 | `tests/training/gpu/` | `training/{flappy_sf,demon_attack_sf}` and anything needing a CUDA GPU |
 | `tests/scripts/test_sim2real.py` | `scripts/experiments/sim2real/` (frozen protocols, resume/publication and statistical reports) |
 | `tests/scripts/` | `scripts/` (sweeps, manifest jobs, bash scripts, bench harnesses) |
-| `tests/integration/` | end-to-end runs (`latency_bench/run.py`) |
+| `tests/integration/` | end-to-end runs (`python -m latency_bench eval`) |
 
 When a new test protects a distinct required behavior, put it in the matching
 directory. A new source module does not require a new test file. Don't add new

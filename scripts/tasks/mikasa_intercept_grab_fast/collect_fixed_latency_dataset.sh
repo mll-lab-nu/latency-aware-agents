@@ -103,32 +103,36 @@ Path(sys.argv[2]).write_text(
 PY
 
 printf '[collect] InterceptGrabFast L%s, physical GPU %s, %s train + %s validation successes\n' "${LATENCY}" "${GPU_ID}" "${TRAIN_EPISODES}" "${VAL_EPISODES}"
-"${TASK_PY}" - "${MIKASA_ROOT}" "${CHECKPOINT}" "${DATA_ROOT}" "${TOTAL_EPISODES}" "${LATENCY_CONFIG}" <<'PY'
-import importlib.util
+"${TASK_PY}" - "${CHECKPOINT}" "${DATA_ROOT}" "${TOTAL_EPISODES}" "${LATENCY_CONFIG}" <<'PYCFG'
 import sys
 from pathlib import Path
-
-source = Path(sys.argv[1]) / 'mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets.py'
-spec = importlib.util.spec_from_file_location('mikasa_successful_h1_collector', source)
-collector = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = collector
-spec.loader.exec_module(collector)
-# Remove the native collector's minimum-length gate in both collection and unbatching.
-collector.MIN_EPISODE_LENGTH_TO_SAVE = 0
-collector.collect_for_env(
-    env_id='InterceptGrabFast-VLA-v0', checkpoint=sys.argv[2],
-    path_to_save_data=sys.argv[3], num_train_data=int(sys.argv[4]),
-    latency_config=sys.argv[5], keep_failed=False, num_envs=1,
-)
-PY
+import yaml
+from latency_bench.core.config import load_config
+from latency_bench.data.rollout import collect_rollouts
+checkpoint = Path(sys.argv[1])
+config = load_config(sys.argv[4])
+config.update(experiment={"name": "mikasa_h1_collection", "seed": 0},
+    policy={"type": "mikasa_ppo", "source": "local", "root": str(checkpoint.parent), "checkpoint": checkpoint.name},
+    evaluation={"episodes": int(sys.argv[3]), "max_env_steps": 60},
+    logging={"output_dir": sys.argv[2]}, collection={"label_mode": "successful_h1"})
+config["env"].update(name="mikasa_intercept_grab_fast", simulator_device="gpu")
+config["executor"].update(mode="simulated", parallel_envs=1, inference_devices=["cuda:0"])
+collect_rollouts(config)
+PYCFG
 else
   printf '[package] Reusing collected episodes in %s/data_npz\n' "${DATA_ROOT}"
 fi
 
-"${LEROBOT_CMD[@]}" -m scripts.tasks.mikasa_intercept_grab_fast.prepare_successful_h1_dataset \
-  --raw-root "${DATA_ROOT}/data_npz/intercept_grab_fast_vla_v0" \
-  --output-root "${DATA_ROOT}" \
-  --train-episodes "${TRAIN_EPISODES}" --val-episodes "${VAL_EPISODES}"
+"${TASK_PY}" - "${DATA_ROOT}" "${TRAIN_EPISODES}" "${VAL_EPISODES}" <<'PYCFG'
+import sys
+from pathlib import Path
+import yaml
+root = Path(sys.argv[1])
+(root / "convert.yaml").write_text(yaml.safe_dump({"conversion": {
+    "format": "lerobot", "task": "mikasa", "input_dir": str(root / "data_npz/intercept_grab_fast_vla_v0"),
+    "output_dir": str(root / "lerobot"), "train_episodes": int(sys.argv[2]), "val_episodes": int(sys.argv[3])}}))
+PYCFG
+"${LEROBOT_CMD[@]}" -m latency_bench convert --config "${DATA_ROOT}/convert.yaml"
 
 "${LEROBOT_CMD[@]}" - "${DATA_ROOT}" "${CHECKPOINT}" "${LATENCY}" "${GPU_ID}" "${TRAIN_EPISODES}" "${VAL_EPISODES}" "${HF_REPO_ID}" "${HF_PATH_PREFIX}" "${HF_PRIVATE:-0}" <<'PY'
 import json

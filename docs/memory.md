@@ -51,8 +51,8 @@ These are experiment recipes, not installation commands.
 Existing evaluation configurations:
 
 ```bash
-python -m latency_bench.run --config configs/experiments/flappy/starvla_flappy_multiframe.yaml
-python -m latency_bench.run --config configs/experiments/flappy/starvla_flappy_kv_memory.yaml
+python -m latency_bench eval --config configs/experiments/flappy/starvla_flappy_multiframe.yaml
+python -m latency_bench eval --config configs/experiments/flappy/starvla_flappy_kv_memory.yaml
 ```
 
 Supply the intended checkpoint and dataset metadata as described in the

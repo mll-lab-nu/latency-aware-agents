@@ -189,39 +189,16 @@ export_one_latency() {
 
   download_model_artifact "${repo_path}"
 
-  cmd=(
-    conda run --no-capture-output -n "${CONDA_ENV}"
-    python scripts/rollout_data/export_sf_teacher_dataset.py
-    --checkpoint-root "${checkpoint_root}"
-    --output-dir "${output_dir}"
-    --latency-config "${BENCH_DIR}/${eval_config}"
-    --max-episodes "${EPISODES_PER_LATENCY}"
-    --max-steps-per-episode "${MAX_STEPS}"
-    --val-fraction "${VAL_FRACTION}"
-    --split-seed "${SPLIT_SEED}"
-    --num-envs "${NUM_ENVS}"
-    --replay-num-envs "${REPLAY_NUM_ENVS}"
-    --device "${DEVICE}"
-    --export-image-size "${EXPORT_IMAGE_SIZE}"
-    --image-writer-workers "${IMAGE_WRITER_WORKERS}"
-    --context-window "${CONTEXT_WINDOW}"
-    --filter-preset "${FILTER_PRESET}"
-    --push-to-hub
-    --hf-repo-id "${repo_id}"
-    --hf-config-name "task-transfer--${hf_config_name}"
-    --hf-data-dir "${hf_data_dir}"
-    --hf-max-shard-size "${HF_MAX_SHARD_SIZE}"
-    --hf-token "${HF_TOKEN:-${HUGGINGFACE_HUB_TOKEN:-}}"
-  )
+  MAX_EPISODES="${EPISODES_PER_LATENCY}" MAX_STEPS="${MAX_STEPS}" \
+  LATENCY_CONFIG="${BENCH_DIR}/${eval_config}" VAL_FRACTION="${VAL_FRACTION}" SPLIT_SEED="${SPLIT_SEED}" \
+  NUM_ENVS="${NUM_ENVS}" REPLAY_NUM_ENVS="${REPLAY_NUM_ENVS}" DEVICE="${DEVICE}" \
+  EXPORT_IMAGE_SIZE="${EXPORT_IMAGE_SIZE}" IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS}" \
+  CONTEXT_WINDOW="${CONTEXT_WINDOW}" FILTER_PRESET="${FILTER_PRESET}" EPISODE_RETURN_GT="${return_gt}" \
+  HF_REPO_ID="${repo_id}" HF_CONFIG_NAME="task-transfer--${hf_config_name}" HF_DATA_DIR="${hf_data_dir}" \
+  HF_MAX_SHARD_SIZE="${HF_MAX_SHARD_SIZE}" HF_PRIVATE="${HF_PRIVATE}" HF_TOKEN="${HF_TOKEN:-${HUGGINGFACE_HUB_TOKEN:-}}" \
+  conda run --no-capture-output -n "${CONDA_ENV}" \
+    bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh "${checkpoint_root}" "${output_dir}"
 
-  if [[ "${HF_PRIVATE}" == "1" || "${HF_PRIVATE}" == "true" ]]; then
-    cmd+=(--hf-private)
-  fi
-  if [[ -n "${return_gt}" ]]; then
-    cmd+=(--episode-return-gt "${return_gt}")
-  fi
-
-  "${cmd[@]}"
 }
 
 echo "==> Small-model rollout plan"

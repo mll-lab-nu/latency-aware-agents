@@ -442,69 +442,7 @@ def test_generic_rollout_runtime_replays_checkpoint_action_contract(monkeypatch,
         assert parser_args[parser_args.index("--gym-noop-action-id") + 1] == "1"
 
 
-def test_teacher_export_cli_infers_task_and_accepts_return_gate():
-    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
 
-    args = build_parser().parse_args(
-        [
-            "--checkpoint-root",
-            "checkpoint",
-            "--output-dir",
-            "out",
-            "--max-episodes",
-            "100",
-            "--max-steps-per-episode",
-            "1000",
-            "--episode-return-gt",
-            "3000",
-        ]
-    )
-
-    assert args.env_name == ""
-    assert args.episode_return_gt == pytest.approx(3000.0)
-
-
-def test_generic_teacher_export_rejects_task_identity_override(monkeypatch, tmp_path):
-    from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
-    from latency_bench.integrations.sample_factory import teacher_export as sf_teacher_export
-
-    monkeypatch.setattr(
-        sf_teacher_export,
-        "load_rollout_training_config",
-        lambda *args, **kwargs: (
-            {
-                "env_name": "mountain_car",
-                "integration_name": "gymnasium",
-                "action_spec": gymnasium_discrete_action_spec(ACTION_LABELS),
-                "base_prompt": "Drive the car up the hill.",
-            },
-            {},
-        ),
-    )
-
-    with pytest.raises(ValueError, match="fixed by the teacher checkpoint"):
-        sf_teacher_export.export_sample_factory_teacher_dataset(
-            checkpoint_root=tmp_path / "checkpoint",
-            output_dir=tmp_path / "output",
-            latency_config_path=None,
-            env_name="renamed_task",
-            max_episodes=1,
-            max_steps_per_episode=10,
-            val_fraction=0.1,
-            split_seed=0,
-            num_envs=1,
-            replay_num_envs=1,
-            device="",
-            deterministic=True,
-            export_image_size=None,
-            image_writer_workers=1,
-            row_buffer_size=1,
-            push_to_hub=False,
-            hf_repo_id="",
-            hf_private=False,
-            hf_token="",
-            hf_max_shard_size="500MB",
-        )
 
 
 def _replay_existing_specs(monkeypatch, runtime, driver, *, cfg, env_name, output_dir,
@@ -559,3 +497,20 @@ def test_box_teacher_command_is_not_replaced_by_delayed_applied_action():
     )
     assert issued == [[0.75, -0.25]]
     assert result[0].info["applied_action"] == [-0.5, 0.5]
+
+
+def test_checkpoint_symlink_keeps_its_sibling_task_config(tmp_path):
+    """Long-lived model-source boundary: HF snapshots keep checkpoint config ownership."""
+    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
+
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    blob = tmp_path / "weights"
+    blob.write_bytes(b"model")
+    checkpoint = snapshot / "model.pth"
+    checkpoint.symlink_to(blob)
+    (snapshot / "config.json").write_text(json.dumps(_generic_flat_cfg()))
+    descriptor, _ = load_rollout_training_config(checkpoint)
+    assert descriptor["env_name"] == "mountain_car"
+    assert descriptor["checkpoint_experiment_dir"] == str(snapshot)
+    assert descriptor["checkpoint_path"] == str(checkpoint)

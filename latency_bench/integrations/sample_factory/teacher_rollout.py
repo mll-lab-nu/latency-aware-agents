@@ -48,7 +48,7 @@ class TeacherCollectionExecution:
                    or env_name in teacher_runtime._GYMNASIUM_ATARI_GPU_ENVS) and getattr(cfg, "action_history_decisions", None) is not None
         zero_history = None
         if self.capture and "export_zero_action_history" in self.config:
-            if cfg.latency_type != "fixed" or cfg.fixed_latency_ms != 0:
+            if cfg.latency_type != "zero" and not (cfg.latency_type == "fixed" and cfg.fixed_latency_ms == 0):
                 raise ValueError("Export-only zero action history requires fixed latency 0 ms")
             zero_history = DecisionActionHistory(driver.action_space, num_envs=driver.slot_count,
                                                 decisions=self.config["export_zero_action_history"])
@@ -192,7 +192,7 @@ def collection_task(config):
 
 
 def collect_teacher_dataset(config, *, output_dir: Path, deterministic, rollout_seed_offset=0,
-                            image_transform_config=None, **options):
+                            image_transform_config=None, two_pass=True, **options):
     """Translate SF runtime construction into the shared collection pipeline."""
     transform = GhostTrailConfig() if image_transform_config is None else image_transform_config
     options.setdefault("filter_preset", "clean_v1")
@@ -210,5 +210,5 @@ def collect_teacher_dataset(config, *, output_dir: Path, deterministic, rollout_
                                           image_transform_config=transform, rollout_seed_offset=rollout_seed_offset)
 
     return collect_dataset(execution_factory=factory, task=task, output_dir=output_dir,
-                           base_seed=None, two_pass=True, preserve_replay_slots=preserve_slots,
+                           base_seed=None, two_pass=two_pass, preserve_replay_slots=preserve_slots,
                            image_transform_config=transform, **options)

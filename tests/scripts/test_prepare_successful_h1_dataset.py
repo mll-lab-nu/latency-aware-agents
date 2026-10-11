@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 
 def test_direct_h1_packaging_preserves_successful_episodes_cameras_and_labels(tmp_path, monkeypatch):
     """Long-lived H1 packaging contract: successful issued labels and training statistics."""
-    from scripts.tasks.mikasa_intercept_grab_fast.prepare_successful_h1_dataset import prepare
+    from latency_bench.integrations.starvla.mikasa_h1_export import prepare
 
     datasets = []
 
@@ -65,7 +65,7 @@ def test_direct_h1_packaging_preserves_successful_episodes_cameras_and_labels(tm
                  reward=np.full(length, 9999 if episode_index == 1 else -1, dtype=np.float32),
                  language_instruction=np.array("Intercept and grasp the ball."))
 
-    report = prepare(raw, tmp_path / "dataset", train_episodes=2, val_episodes=1)
+    report = prepare(raw, tmp_path / "dataset/lerobot", train_episodes=2, val_episodes=1)
     assert report["train_episode_indices"] == [0, 2]
     assert report["validation_episode_indices"] == [3]
     assert report["counts"] == {"train": {"episodes": 2, "frames": 12},

@@ -138,13 +138,12 @@ def _delta(args, round_number: int, checkpoint: Path,
     if not (lerobot / "task_contract.json").is_file():
         if lerobot.exists():
             shutil.rmtree(lerobot)
-        command = [
-            args.uv, "run", "--frozen", "--project", PACKAGER_PROJECT, "python",
-            "-m", "scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset",
-            "--raw-root", raw, "--output-train", lerobot,
-            "--normalization-source", args.bootstrap / "lerobot",
-            "--task", args.task,
-        ]
+        conversion = {"conversion": {"format": "lerobot", "input_dir": str(raw), "output_dir": str(lerobot),
+            "normalization_source": str(args.bootstrap / "lerobot"), "task": args.task}}
+        conversion_path = directory / "convert.json"
+        _write_json(conversion_path, conversion)
+        command = [args.uv, "run", "--frozen", "--project", PACKAGER_PROJECT, "python",
+                   "-m", "latency_bench", "convert", "--config", conversion_path]
         package_env = os.environ | {"PYTHONPATH": str(ROOT)}
         _run(command, directory / "package.log", env=package_env)
     result = json.loads((raw / "collection.json").read_text(encoding="utf-8"))

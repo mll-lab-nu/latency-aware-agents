@@ -94,21 +94,21 @@ profiles, action chunks, state/delay inputs, or online RL.
 
 ## Profile the final VLA
 
-Inherit `configs/examples/profiling/mikasa_intercept_grab_fast/qwenoft.yaml`
+Inherit `configs/examples/mikasa_intercept_grab_fast/profile_qwenoft.yaml`
 and select your inference bundle with `policy.source: local`
 and `policy.root`. The example names
 `checkpoints/model.pt` inside the bundle. Set `policy.backbone_path` when needed.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench.profiling.cli run --config my_profile.yaml
+CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench profile run --config my_profile.yaml
 ```
 
 The example uses logical `cuda:0` for MIKASA and `cuda:1` for inference.
 It describes a state-based H1 bundle. Use the image-only recipe's input
 configuration when measuring an image-only checkpoint. Select additional
 inference workers explicitly in `executor.inference_devices`.
-Add `--resume RUN_ID` to continue a partial run. Add `--publish` to upload
-the completed run and profile to the configured `profiling.publish_repo`.
+Add `--resume RUN_ID` to continue a partial run. The command returns the local
+measurement directory and fitted profile path.
 
 ## Original baseline result
 

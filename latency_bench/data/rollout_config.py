@@ -25,16 +25,7 @@ def resolve_collection(config):
     env = config["env"]
     validate_clock_rates(env["env_fps"], env["obs_fps"])
     collection = config["collection"]
-    defaults = {
-        "val_fraction": 0.0, "split_seed": 0, "max_attempts": None,
-        "two_pass": False, "replay_num_envs": config["executor"]["parallel_envs"],
-        "filter_preset": "none", "episode_return_gt": None, "episode_acceptance": None,
-        "demon_episode_threshold": None, "context_window": 1, "probe_only": False,
-        "export_image_size": None, "image_writer_workers": 0, "row_buffer_size": 256,
-    }
-    for key, value in defaults.items():
-        if key not in collection:
-            collection[key] = value
+    options = resolve_collection_options(config)
     student = collection["student_observation"]
     for key, value in {"image_key": None, "state_key": None, "state_source": "metadata"}.items():
         if key not in student:
@@ -79,11 +70,26 @@ def resolve_collection(config):
     source.update(teacher_source=deepcopy(config["policy"]), student_observation=student,
                   latency=deepcopy(config["latency"]) if config["executor"]["mode"] == "simulated" else {"method": "zero"}, scheduler=deepcopy(config["scheduler"]),
                   prompt_source="task:base_prompt")
-    options = {key: collection[key] for key in defaults}
     options.update(max_episodes=config["evaluation"]["episodes"],
                    max_steps_per_episode=config["evaluation"]["max_env_steps"],
                    num_envs=config["executor"]["parallel_envs"], base_seed=_episode_seed(config, 0),
-                   image_transform_config=GhostTrailConfig())
+                   image_transform_config=GhostTrailConfig(**collection.get("image_transform", {})))
     if options["probe_only"] and not options["two_pass"]:
         raise ValueError("probe_only requires two_pass collection")
     return config, task, options, source
+
+
+def resolve_collection_options(config):
+    """Resolve shared collection defaults once for generic and native execution."""
+    collection = config["collection"]
+    defaults = {
+        "val_fraction": 0.0, "split_seed": 0, "max_attempts": None,
+        "two_pass": False, "replay_num_envs": config["executor"]["parallel_envs"],
+        "filter_preset": "none", "episode_return_gt": None, "episode_acceptance": None,
+        "demon_episode_threshold": None, "context_window": 1, "probe_only": False,
+        "export_image_size": None, "image_writer_workers": 0, "row_buffer_size": 256,
+    }
+    for key, value in defaults.items():
+        if key not in collection:
+            collection[key] = value
+    return {key: collection[key] for key in defaults}

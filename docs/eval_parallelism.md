@@ -27,11 +27,11 @@ This is episode-slot parallelism, not a workload reduction.
 After generating the corresponding sweep configuration:
 
 ```bash
-python -m latency_bench.run --config configs/train/demon_attack/latency_0/seed_0/latency_bench_eval.yaml
+python -m latency_bench eval --config configs/train/demon_attack/latency_0/seed_0/latency_bench_eval.yaml
 ```
 
 Generate sweep configurations with the [experiment entrypoints](experiment_runner.md).
-Then pass the generated evaluation YAML to `python -m latency_bench.run`.
+Then pass the generated evaluation YAML to `python -m latency_bench eval`.
 
 `latency_bench` batched eval is only for:
 

@@ -49,7 +49,7 @@ def main() -> None:
         path = paths[control]
         print(f"{control}: {path}", flush=True)
         if not args.prepare_only:
-            subprocess.run([sys.executable, "-m", "latency_bench.run", "--config", str(path)], check=True)
+            subprocess.run([sys.executable, "-m", "latency_bench", "eval", "--config", str(path)], check=True)
 
 
 if __name__ == "__main__":

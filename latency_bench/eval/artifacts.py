@@ -17,6 +17,8 @@ from latency_bench.envs.tasks.contracts import canonical_gymnasium_contract
 def read_runtime_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Translate archived run inputs while leaving the stored artifact unchanged."""
     config = deepcopy(snapshot)
+    if "profiling" in config:
+        config["profiling"].pop("publish_repo", None)
     provenance = deepcopy(config["provenance"]) if "provenance" in config else None
     evaluation = config["evaluation"]
     if "eval_episodes" not in evaluation:
@@ -131,8 +133,7 @@ def read_runtime_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         config["logging"].pop(key, None)
     if "profiling" in config:
         options = config["profiling"]
-        if "hf_repo" in options:
-            options["publish_repo"] = options.pop("hf_repo")
+        options.pop("hf_repo", None)
         if "session_count" in options:
             options["repeats"] = options.pop("session_count")
         artifact = options.pop("model_artifact", None)

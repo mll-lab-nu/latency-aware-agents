@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -139,7 +140,8 @@ def _resolve_checkpoint_root(checkpoint_root: str | Path) -> tuple[Path, Path | 
     Returns:
         Experiment directory with optional explicit checkpoint path.
     """
-    path = Path(checkpoint_root).expanduser().resolve()
+    # HF checkpoints can be symlinks; the config belongs to the snapshot directory.
+    path = Path(os.path.abspath(Path(checkpoint_root).expanduser()))
     if path.is_file():
         if path.parent.name.startswith("checkpoint_p"):
             return (path.parent.parent, path)

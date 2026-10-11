@@ -1,0 +1,53 @@
+env:
+  name: asterix
+  make_kwargs:
+    base_env_id: ALE/Asterix-v5
+    render_mode: rgb_array
+    screen_size: 84
+    noop_max: 30
+    base_make_kwargs:
+      obs_type: rgb
+      frameskip: 1
+      repeat_action_probability: 0.0
+      full_action_space: false
+      mode: 0
+      difficulty: 0
+      max_num_frames_per_episode: 108000
+  env_fps: 60
+  obs_fps: 15
+  frame_stack: 1
+  simulator: cpu
+  terminal_on_life_loss: false
+  clip_reward: false
+  noop_action: noop
+  action_map:
+    noop: 0
+    up: 1
+    right: 2
+    left: 3
+    down: 4
+    upright: 5
+    upleft: 6
+    downright: 7
+    downleft: 8
+  action_order:
+  - noop
+  - up
+  - right
+  - left
+  - down
+  - upright
+  - upleft
+  - downright
+  - downleft
+  base_prompt: 'Collect useful objects and avoid lyres. Choose exactly one action
+    from: noop, up, right, left, down, upright, upleft, downright, downleft.'
+  obs_resize:
+  - 224
+  - 224
+  gpu_env_device: auto
+  noop_max: 30
+  action_history_decisions: 8
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo

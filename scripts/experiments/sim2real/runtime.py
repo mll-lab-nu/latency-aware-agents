@@ -8,11 +8,7 @@ import shutil
 import subprocess
 import sys
 
-from latency_bench.profiling.runtime_configs import (
-    set_env_clock_preserving_observation_stride,
-    apply_profile_latency_summary,
-    eval_command,
-)
+from latency_bench.profiling.runtime_configs import eval_command
 from latency_bench.latency.hardware_info import collect_hardware_fingerprint
 from latency_bench.utils.io import read_json, write_json, write_json_atomic, write_yaml
 from latency_bench.utils.paths import REPO_ROOT
@@ -24,7 +20,9 @@ def run_config(base, output, *, inference_device, simulator_device, env_fps,
                protocol):
     """Change execution coordinates while retaining the archived task contract."""
     config = deepcopy(base)
-    set_env_clock_preserving_observation_stride(config, env_fps)
+    observation_stride = config["env"]["env_fps"] / config["env"]["obs_fps"]
+    config["env"]["env_fps"] = env_fps
+    config["env"]["obs_fps"] = env_fps / observation_stride
     if simulator_device is not None:
         config["env"]["simulator_device"] = simulator_device
     config["executor"].update(
@@ -45,7 +43,11 @@ def run_config(base, output, *, inference_device, simulator_device, env_fps,
             "method": method, "profile_path": str(profile_path), "seed": latency_seed,
             "profile_worker_slot": 0,
         }
-        apply_profile_latency_summary(config["latency"], method, profile)
+        if method == "fixed":
+            config["latency"]["fixed_latency_ms"] = profile["summary"]["mean_ms"]
+        elif method == "normal":
+            config["latency"].update(mean_latency_ms=profile["summary"]["mean_ms"],
+                                     std_latency_ms=profile["summary"]["std_ms"])
     if method != "measured" and "add_latency_info" in base.get("latency", {}):
         config["latency"]["add_latency_info"] = base["latency"]["add_latency_info"]
     config["experiment"]["seed"] = protocol["seed"] + protocol["seed_stride"] * run_id

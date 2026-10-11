@@ -102,7 +102,7 @@ Complete diagnostic traces are optional and follow the existing logging settings
 
 ## Sample Factory reference adapter
 
-The existing SF export CLI parses the checkpoint and constructs the SF execution
+The public collection entrypoint loads the checkpoint and constructs the SF execution
 adapter. It calls the same `collect_dataset` and `finalize_dataset` implementation
 as the generic entrypoint. The common collector owns split assignment, acceptance,
 probe/replay state, sample construction and writing. SF owns inference, recurrent
@@ -112,7 +112,7 @@ collector does not add another latency wrapper.
 SF probe/replay retains fixed GPU batch shapes, inactive slots, raw RGB disabled
 during probe, existing image/history recipes and its GPU-history resume restriction.
 Use the same probe and replay batch size for fixed-batch GPU history collection.
-The existing CLI arguments and publication controls remain available.
+Reference recipes express their settings in the common run configuration.
 
 New datasets record `label_provenance.semantics: teacher_issued_command`.
 The previous ordinary continuous-action SF path could replace the teacher command
@@ -181,3 +181,50 @@ reuse the specified training contract. Their existing multi-view, chunk and mask
 recipes still define the labels. Generic conversion does not generate those labels.
 
 Canonical data remains usable by external training code without StarVLA.
+
+## Public commands and task collection
+
+```bash
+python -m latency_bench collect --config collect.yaml
+python -m latency_bench convert --config convert.yaml
+```
+
+The collection command calls `collect_rollouts(config)`. It returns `output_dir`
+and `metadata`, or `probe_state` for a completed probe-only phase. The CLI prints
+the output directory and phase. A failed collection exits with a nonzero status.
+
+Native Sample Factory collection uses `policy.type: sample_factory` and the same
+model source, executor, evaluation, logging and collection sections. It retains
+fixed GPU batches, recurrent state, history labels and the shared probe/replay
+pipeline. Set `collection.two_pass: true` to use probe/replay. Common defaults are
+shared with generic collection; reference YAMLs explicitly retain recipe settings.
+
+Task-specific label generation is selected by `env.name` and `collection.label_mode`:
+
+| Task | Label mode | Budget |
+| --- | --- | --- |
+| Balance | `zero_full`, `profile_conditioned` | `row_budget`, with `action_horizon` 8 or 16 |
+| MIKASA | `successful_h1` | `evaluation.episodes` successful episodes |
+| MIKASA | `closed_loop_h8`, `prefix_h8` | `train_targets`/`validation_targets` valid action heads |
+
+Student-controlled collection declares the student under `policy` and the teacher
+under `collection.teacher`, using the normal model source fields. Existing resident
+inference and task-specific masks remain owned by the task implementation.
+MIKASA keeps its native NPZ episode files and `collection.json`; Balance and the
+common collector retain their existing Parquet formats.
+
+Conversion config:
+
+```yaml
+conversion:
+  format: lerobot
+  input_dir: outputs/my_task/raw
+  output_dir: outputs/my_task/lerobot
+  action_carrier: native
+```
+
+The converter uses the input artifact format. Task-specific LeRobot contracts use
+`conversion.task` with the existing contract name. `normalization_source` selects
+an existing training contract when required by the task. Existing output fails
+unless `--force` is explicit. Source and destination must not cause replacement
+of input data. Ordinary conversion retains the Python converter's defaults.

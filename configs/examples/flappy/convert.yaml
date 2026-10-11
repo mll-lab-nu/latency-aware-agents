@@ -1,0 +1,4 @@
+conversion:
+  format: lerobot
+  input_dir: outputs/flappy/dataset
+  output_dir: outputs/flappy/lerobot

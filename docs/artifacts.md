@@ -148,7 +148,7 @@ logging:
 Run it in the installed benchmark environment:
 
 ```bash
-python -m latency_bench.run --config /ABSOLUTE/PATH/local_eval.yaml
+python -m latency_bench eval --config /ABSOLUTE/PATH/local_eval.yaml
 ```
 
 The overlay changes artifact locations only. Preserve the base recipe's model,

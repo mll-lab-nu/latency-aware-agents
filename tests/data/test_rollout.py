@@ -1,6 +1,7 @@
 """Long-lived data contracts: source-time teacher labels, canonical handoff and failure recovery."""
 import io
 import json
+from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
@@ -218,3 +219,42 @@ def test_dropped_observation_has_no_label_and_is_not_counted_as_row_filtering(co
     assert [row["action"] for row in rows] == [[1.0]]
     report = result["metadata"]["filter_report"]
     assert report["train_rows_before_row_filter"] == report["train_rows_after_row_filter"] == 1
+
+
+def test_public_collection_and_conversion_commands(config, tmp_path, capsys):
+    """Long-lived data CLI contract: canonical handoff and explicit overwrite."""
+    import yaml
+    from latency_bench.cli import main
+
+    config_path = tmp_path / "collect.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    main(["collect", "--config", str(config_path)])
+    assert "COLLECTION_STATUS=complete" in capsys.readouterr().out
+    raw = Path(config["logging"]["output_dir"])
+    output = tmp_path / "converted"
+    conversion_path = tmp_path / "convert.yaml"
+    conversion_path.write_text(yaml.safe_dump({"conversion": {
+        "format": "lerobot", "input_dir": str(raw), "output_dir": str(output),
+    }}))
+    main(["convert", "--config", str(conversion_path)])
+    assert "CONVERSION_STATUS=complete" in capsys.readouterr().out
+    before = (output / "meta/info.json").read_bytes()
+    with pytest.raises(FileExistsError):
+        main(["convert", "--config", str(conversion_path)])
+    assert (output / "meta/info.json").read_bytes() == before
+
+
+def test_forced_conversion_preserves_validation_source(tmp_path):
+    """Long-lived conversion boundary: force cannot delete an input split."""
+    from latency_bench.data.conversion import convert_dataset
+
+    train = tmp_path / "source"
+    train.mkdir()
+    validation = tmp_path / "converted__val"
+    validation.mkdir()
+    evidence = validation / "data.parquet"
+    evidence.write_bytes(b"validation source")
+    with pytest.raises(ValueError, match="input or normalization"):
+        convert_dataset({"conversion": {"format": "lerobot", "input_dir": str(train),
+            "input_val": str(validation), "output_dir": str(tmp_path / "converted"), "force": True}})
+    assert evidence.read_bytes() == b"validation source"

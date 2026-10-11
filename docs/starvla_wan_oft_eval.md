@@ -18,7 +18,7 @@ conda activate starvla_rl_games_wan_oft
 Run an evaluation by overriding the generated checkpoint and prompt-map paths:
 
 ```bash
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/experiments/flappy/starvla_wan_oft.yaml \
   --checkpoint-path third_party/starVLA/results/Checkpoints/<run_id>/checkpoints/steps_<N>_pytorch_model.pt \
   --model-config-path third_party/starVLA/results/Checkpoints/<run_id>/config.full.yaml \
@@ -37,7 +37,7 @@ For a short checkpoint smoke test, keep the training pipeline at 50 steps and
 limit the rollout:
 
 ```bash
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/experiments/demon_attack/starvla_wan_oft.yaml \
   --checkpoint-path third_party/starVLA/results/Checkpoints/<run_id>/checkpoints/steps_50_pytorch_model.pt \
   --model-config-path third_party/starVLA/results/Checkpoints/<run_id>/config.full.yaml \

@@ -32,8 +32,8 @@ HF_CONFIG_NAME="${HF_CONFIG_NAME:-flappy_fixed_latency_2_200ep_7k2steps}"
 
 # ---- paths / knobs ----
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-PYTHON="${PYTHON:-python}"
-EXPORT_PY="$REPO_ROOT/scripts/rollout_data/export_sf_teacher_dataset.py"
+export PYTHON="${PYTHON:-python}"
+EXPORT_RECIPE="$REPO_ROOT/scripts/bash_scripts/run_sf_teacher_dataset_export.sh"
 MERGE_PY="$REPO_ROOT/scripts/rollout_data/merge_probe_shards.py"
 
 # Fixed canonical checkpoint for the published context-window teacher.
@@ -71,20 +71,10 @@ for ((k=0; k<NUM_SHARDS; k++)); do
   offset=$(( k * SEED_STRIDE ))
   log="$LOG_DIR/probe_shard_$k.log"
   echo "[probe] shard $k offset=$offset -> $shard_dir (log: $log)"
-  "$PYTHON" "$EXPORT_PY" \
-    --checkpoint-root "$CHECKPOINT_ROOT" \
-    --env-name flappy \
-    --output-dir "$shard_dir" \
-    --max-episodes "$SHARD_EPISODES" \
-    --max-steps-per-episode "$MAX_STEPS" \
-    --num-envs "$SHARD_NUM_ENVS" \
-    --device "$DEVICE" \
-    --val-fraction "$VAL_FRACTION" \
-    --split-seed "$SPLIT_SEED" \
-    --filter-preset "$FILTER_PRESET" \
-    --rollout-seed-offset "$offset" \
-    --probe-only \
-    > "$log" 2>&1 &
+  MAX_EPISODES="$SHARD_EPISODES" MAX_STEPS="$MAX_STEPS" NUM_ENVS="$SHARD_NUM_ENVS" \
+  DEVICE="$DEVICE" VAL_FRACTION="$VAL_FRACTION" SPLIT_SEED="$SPLIT_SEED" \
+  FILTER_PRESET="$FILTER_PRESET" ROLLOUT_SEED_OFFSET="$offset" PROBE_ONLY=1 \
+  bash "$EXPORT_RECIPE" "$CHECKPOINT_ROOT" "$shard_dir" > "$log" 2>&1 &
   pids+=("$!")
 done
 
@@ -110,27 +100,10 @@ for d in "${SHARD_DIRS[@]}"; do MERGE_ARGS+=(--shard-dir "$d"); done
   --split-seed "$SPLIT_SEED"
 
 # ---- step 4: single-process replay from the merged state (skips probe), then push ----
-PUSH_ARGS=()
-if [ -n "$HF_REPO_ID" ]; then
-  PUSH_ARGS=(--push-to-hub --hf-repo-id "$HF_REPO_ID")
-  if [ -n "${HF_CONFIG_NAME:-}" ]; then
-    PUSH_ARGS+=(--hf-config-name "$HF_CONFIG_NAME")
-  fi
-fi
-
-"$PYTHON" "$EXPORT_PY" \
-  --checkpoint-root "$CHECKPOINT_ROOT" \
-  --env-name flappy \
-  --output-dir "$FINAL_DIR" \
-  --max-episodes "$MAX_EPISODES" \
-  --max-steps-per-episode "$MAX_STEPS" \
-  --num-envs "$SHARD_NUM_ENVS" \
-  --replay-num-envs "$REPLAY_NUM_ENVS" \
-  --device "$DEVICE" \
-  --image-writer-workers "$IMAGE_WRITER_WORKERS" \
-  --val-fraction "$VAL_FRACTION" \
-  --split-seed "$SPLIT_SEED" \
-  --filter-preset "$FILTER_PRESET" \
-  "${PUSH_ARGS[@]}"
+MAX_EPISODES="$MAX_EPISODES" MAX_STEPS="$MAX_STEPS" NUM_ENVS="$SHARD_NUM_ENVS" \
+REPLAY_NUM_ENVS="$REPLAY_NUM_ENVS" DEVICE="$DEVICE" IMAGE_WRITER_WORKERS="$IMAGE_WRITER_WORKERS" \
+VAL_FRACTION="$VAL_FRACTION" SPLIT_SEED="$SPLIT_SEED" FILTER_PRESET="$FILTER_PRESET" \
+HF_REPO_ID="$HF_REPO_ID" HF_CONFIG_NAME="$HF_CONFIG_NAME" \
+bash "$EXPORT_RECIPE" "$CHECKPOINT_ROOT" "$FINAL_DIR"
 
 echo "[sharded] done -> $FINAL_DIR"

@@ -1,0 +1,150 @@
+experiment:
+  name: starvla_deadly_corridor_profile
+  seed: 42
+backend:
+  algo: APPO
+  device: cpu
+  train_dir: results/sample_factory
+  restart_behavior: resume
+  run_mode: eval
+executor:
+  mode: realtime
+  simulated_worker_capacity: null
+  parallel_envs: 1
+  inference_devices:
+  - cuda:0
+  sync_cuda: true
+env:
+  name: deadly_corridor
+  env_id: doom_deadly_corridor
+  env_fps: 60
+  obs_fps: 15
+  noop_action:
+  - 0
+  - 0
+  - 0
+  - 0
+  frame_stack: 4
+  res_w: 128
+  res_h: 72
+  wide_aspect_ratio: false
+  simulator: cpu
+  obs_resize:
+  - 224
+  - 224
+  action_map:
+    noop:
+    - 0
+    - 0
+    - 0
+    - 0
+    move_forward:
+    - 0
+    - 1
+    - 0
+    - 0
+    move_backward:
+    - 0
+    - 2
+    - 0
+    - 0
+    move_left:
+    - 0
+    - 0
+    - 1
+    - 0
+    move_right:
+    - 0
+    - 0
+    - 2
+    - 0
+    turn_left:
+    - 1
+    - 0
+    - 0
+    - 0
+    turn_right:
+    - 2
+    - 0
+    - 0
+    - 0
+    attack:
+    - 0
+    - 0
+    - 0
+    - 1
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+policy:
+  type: starvla
+  actions:
+  - MOVE_FORWARD
+  - MOVE_BACKWARD
+  - MOVE_LEFT
+  - MOVE_RIGHT
+  - TURN_LEFT
+  - TURN_RIGHT
+  - ATTACK
+  deterministic: true
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  latency_prompt_map_path: /mnt/data/latency_data/playground/Datasets/rl_games/deadly_corridor_train_factorized11/latency_prompt_map.json
+  source: hf
+  root: .
+  checkpoint: checkpoints/steps_500_pytorch_model.pt
+  model_config: config.full.yaml
+  hf_repo: talha15032/gr00t_bridge_deadly_corridor_single_latency_clean_data_bce_exp2
+training:
+  train_for_env_steps: 25000000
+  num_workers: 32
+  num_envs_per_worker: 4
+  worker_num_splits: 2
+  num_policies: 1
+  batch_size: 1024
+  rollout: 128
+  recurrence: 128
+  num_epochs: 2
+  num_batches_per_epoch: 2
+  learning_rate: 0.0001
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  exploration_loss: symmetric_kl
+  exploration_loss_coeff: 0.001
+  value_loss_coeff: 0.5
+  max_grad_norm: 4.0
+  async_rl: true
+  use_rnn: true
+  rnn_type: gru
+  rnn_size: 512
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_interval_steps: 1000000
+  eval_raw_reward: true
+  episodes: 10
+  max_env_steps: 3600
+  suites: []
+logging:
+  output_dir: outputs/profiling
+  video:
+    enabled: false
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  wandb_project: latency-sensitive-bench
+  wandb_group: deadly_corridor-new(remove training episode limit)
+  wandb_job_type: sample_factory
+  wandb_tags: ''
+profiling:
+  model_id: gr00t
+  workload_id: deadly_corridor
+  repeats: 5
+  calibration: null

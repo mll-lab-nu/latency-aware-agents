@@ -57,9 +57,8 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
     def export(probe_only):
         command = _export_command(checkpoint=checkpoint, output_dir=raw, episodes=episodes,
                                   horizon=horizon, probe_envs=probe_envs, replay_envs=replay_envs,
-                                  device=device, probe_only=probe_only)
-        if args.task not in {"atlantis", "asterix"}:
-            command.extend(["--export-zero-action-history", "8"])
+                                  device=device, probe_only=probe_only,
+                                  export_zero_action_history=8 if args.task not in {"atlantis", "asterix"} else None)
         subprocess.run(command, cwd=ROOT, env=env, check=True)
 
     while True:

@@ -100,7 +100,7 @@ logging:
 With LAGEN installed, run from your project directory:
 
 ```bash
-PYTHONPATH="$PWD" python -m latency_bench.run --config eval.yaml
+PYTHONPATH="$PWD" python -m latency_bench eval --config eval.yaml
 ```
 
 For realtime execution, set `executor.mode: realtime` and

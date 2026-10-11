@@ -1,4 +1,0 @@
-__base__: gr00t.yaml
-env:
-  simulator: cpu
-  use_gpu_render: false

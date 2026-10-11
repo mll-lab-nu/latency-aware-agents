@@ -10,13 +10,14 @@ from pathlib import Path
 import torch
 import yaml
 
+from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation, PolicyOutput
 from latency_bench.eval.driver import run_from_config
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.integrations.starvla.resident_dagger import ResidentInferencePool
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
-from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import collect
+from latency_bench.envs.tasks.mikasa_collection import collect_h8
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
 
 
@@ -128,8 +129,17 @@ def run(args: argparse.Namespace) -> None:
             validation_targets=0,
             num_envs=args.parallel_envs,
         )
-        result = collect(
-            collection_args, student_pool=pool,
+        collection_config = load_config(args.latency_config)
+        if args.condition == "zero-latency":
+            prefix = {"mode": "none"}
+        elif args.condition == "profile-latency":
+            prefix = {"mode": "profile_p95", "profile_path": collection_config["latency"]["profile_path"],
+                      "profile_revision": collection_config["profile_source"]["revision"]}
+        else:
+            prefix = {"mode": "fixed_frames", "frames": FIXED_LATENCIES[args.condition]}
+        collection_config["policy"] = {"action_prefix": prefix}
+        result = collect_h8(
+            collection_args, config=collection_config, student_pool=pool,
             seed_start=args.seed,
             simulator_device=f"cuda:{args.simulator_gpu}",
             student_source=str(args.checkpoint),

@@ -19,7 +19,7 @@ third-party sources in one checkout. Installation and simulator setup live in
 | `scripts/experiments/sim2real` | Held-out and fit-budget research protocols, experiment replay and reports |
 
 The profiling package accepts ordinary run configs through
-`python -m latency_bench.profiling.cli run --config ...`.
+`python -m latency_bench profile run --config ...`.
 It depends on runtime, evaluation and latency primitives. Experiment scripts
 consume those capabilities; profiling never imports the experiment scripts.
 Physical GPU/topology identity belongs to `latency.hardware_info` and retains
@@ -114,7 +114,7 @@ remain inside the construction/reset functions so inference-worker spawn does
 not require ManiSkill. The existing `scripts/mikasa/evaluate.py` CLI still owns
 PPO evaluation and explicitly injects the batched backend for simulated runs.
 Realtime uses the factory's existing single-slot backend adapter. Automatic
-backend selection through `latency_bench.run` is unchanged.
+backend selection through `python -m latency_bench eval` is unchanged.
 
 Current configs and Python callers use these paths. Saved checkpoint and dataset
 contracts can still contain the former flat registration module names. The

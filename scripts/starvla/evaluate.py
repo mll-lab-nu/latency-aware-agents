@@ -55,9 +55,10 @@ def main():
         "latency_balance_profile_h8", "latency_balance_profile_h16"
     ):
         # This optional adapter owns Balance's augmented state and teacher wrapper.
-        from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import (
-            INFERENCE_SEED, TEACHER, TEACHER_CONFIG, policy_config, rollout_batch,
+        from latency_bench.envs.tasks.humanoidbench.profile_collection import (
+            INFERENCE_SEED, policy_config, rollout_batch,
         )
+        from scripts.tasks.humanoidbench_balance_simple.vla_profile_dagger import TEACHER, TEACHER_CONFIG
         config = policy_config(config, args.bundle, args.vla_python, 8, args.backbone)
         config["training"]["ppo"]["chunk_horizon"] = contract["action_horizon"]
         config["training"]["ppo"]["active_heads"] = [0, contract["action_horizon"]]

@@ -1,178 +1,94 @@
 #!/usr/bin/env bash
+# Reference dataset recipe: materialize its settings, collect, then optionally upload.
 set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-cd "${REPO_ROOT}"
-
-usage() {
-    cat >&2 <<'EOF'
-Usage:
-  bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh <checkpoint-root> <output-dir>
-
-Example:
-  bash scripts/bash_scripts/run_sf_teacher_dataset_export.sh \
-    results/checkpoints/flappy_sf_frame_stack_4_seed0 \
-    /tmp/flappy_teacher_export_smoke
-
-Optional environment variables:
-  MAX_EPISODES        Number of episodes to collect. Default: 1k.
-  MAX_STEPS           Max raw environment frames per episode. Default: 1k.
-  VAL_FRACTION        Validation split fraction. Default: 0.01.
-  NUM_ENVS            Number of probe rollout envs. Default: 12.
-  REPLAY_NUM_ENVS     Number of replay rollout envs. Default: 16.
-  DEVICE              Sample Factory device override. Default: cpu.
-  LATENCY_CONFIG      YAML file with a training-compatible latency: section.
-  EXPORT_IMAGE_SIZE   Optional saved image size, e.g. 512,288.
-  IMAGE_TRANSFORM     Observation image transform: raw_rgb, flappy_ghost_trail, or demon_attack_ghost_trail. Default: raw_rgb.
-  GHOST_TRAIL_HISTORY_FRAMES  flappy_ghost_trail: past decision-step frames (default 5). demon_attack_ghost_trail: total consecutive raw frames in the trail window (use 30 for the validated continuous_30 ablation).
-  GHOST_TRAIL_GAMMA   For flappy_ghost_trail, alpha decay gamma. Default: 1.3.
-  GHOST_TRAIL_MIN_ALPHA  For flappy_ghost_trail, oldest ghost opacity floor. Default: 35.
-  GHOST_TRAIL_SCROLL_PX_PER_STEP  For flappy_ghost_trail, Flappy world-scroll pixels per decision step. Default: 4.0.
-  GHOST_TRAIL_GROUND_FRACTION  For flappy_ghost_trail, bottom-frame occlusion band. Default: 0.22.
-  IMAGE_WRITER_WORKERS Optional async PNG writer threads. Default: exporter default.
-  CONTEXT_WINDOW      Total image window. 0 or 1 keeps only the current image; N>1 writes N-1 context_images.
-  HF_REPO_ID          If set, upload the export to this Hugging Face dataset repo.
-  HF_PRIVATE          Set to 1 to upload as private. Default: 1.
-  HF_TOKEN            Hugging Face token used when HF_REPO_ID is set.
-  HF_CONFIG_NAME      HF dataset config name for multi-config repos.
-  FILTER_PRESET       Filter preset: none or clean_v1. Default: clean_v1.
-  DEMON_EPISODE_THRESHOLD  Override Demon Attack episode clipped return threshold.
-  EPISODE_RETURN_GT  Accept only episodes with canonical return strictly greater than this value.
-  PROBE_ONLY          Set to 1 to persist accepted seeds without RGB replay/parquet materialization.
-
-Notes:
-  By default the exporter parses *_same_latency_lN_* checkpoint names when present,
-  otherwise it uses the latency config saved in checkpoint config.json.
-  The exported images are env raw RGB frames.
-  Dataset row prompts are fixed in latency_bench/data/prompts.py.
-EOF
-}
-
 if [[ $# -ne 2 ]]; then
-    usage
+    echo "Usage: $0 <checkpoint-root> <output-dir>" >&2
     exit 2
 fi
+"${PYTHON:-python}" - "$1" "$2" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+import yaml
+if os.environ.get("DISABLE_GYM_PLUGINS") == "1":
+    from importlib import metadata
+    entry_points = metadata.entry_points
+    def explicit_gym_registration(*args, **kwargs):
+        group = kwargs.get("group", args[0] if args else None)
+        return () if group == "gymnasium.envs" else entry_points(*args, **kwargs)
+    metadata.entry_points = explicit_gym_registration
+from latency_bench.data.rollout import collect_rollouts
+from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
-CHECKPOINT_ROOT="$1"
-OUTPUT_DIR="$2"
-
-MAX_EPISODES="${MAX_EPISODES:-1000}"
-MAX_STEPS="${MAX_STEPS:-1000}"
-VAL_FRACTION="${VAL_FRACTION:-0.01}"
-NUM_ENVS="${NUM_ENVS:-12}"
-REPLAY_NUM_ENVS="${REPLAY_NUM_ENVS:-16}"
-DEVICE="${DEVICE:-cpu}"
-HF_PRIVATE="${HF_PRIVATE:-0}"
-IMAGE_WRITER_WORKERS="${IMAGE_WRITER_WORKERS:-16}"
-CONTEXT_WINDOW="${CONTEXT_WINDOW:-1}"
-IMAGE_TRANSFORM="${IMAGE_TRANSFORM:-raw_rgb}"
-GHOST_TRAIL_HISTORY_FRAMES="${GHOST_TRAIL_HISTORY_FRAMES:-5}"
-GHOST_TRAIL_GAMMA="${GHOST_TRAIL_GAMMA:-1.3}"
-GHOST_TRAIL_MIN_ALPHA="${GHOST_TRAIL_MIN_ALPHA:-35}"
-GHOST_TRAIL_SCROLL_PX_PER_STEP="${GHOST_TRAIL_SCROLL_PX_PER_STEP:-4.0}"
-GHOST_TRAIL_GROUND_FRACTION="${GHOST_TRAIL_GROUND_FRACTION:-0.22}"
-
-CMD=(
-    python scripts/rollout_data/export_sf_teacher_dataset.py
-    --checkpoint-root "${CHECKPOINT_ROOT}"
-    --output-dir "${OUTPUT_DIR}"
-    --max-episodes "${MAX_EPISODES}"
-    --max-steps-per-episode "${MAX_STEPS}"
-    --val-fraction "${VAL_FRACTION}"
-    --num-envs "${NUM_ENVS}"
-    --replay-num-envs "${REPLAY_NUM_ENVS}"
-    --device "${DEVICE}"
-    --context-window "${CONTEXT_WINDOW}"
-    --image-transform "${IMAGE_TRANSFORM}"
-)
-
-if [[ "${IMAGE_TRANSFORM}" == "flappy_ghost_trail" || "${IMAGE_TRANSFORM}" == "demon_attack_ghost_trail" ]]; then
-    CMD+=(
-        --ghost-trail-history-frames "${GHOST_TRAIL_HISTORY_FRAMES}"
-        --ghost-trail-gamma "${GHOST_TRAIL_GAMMA}"
-        --ghost-trail-min-alpha "${GHOST_TRAIL_MIN_ALPHA}"
-        --ghost-trail-scroll-px-per-step "${GHOST_TRAIL_SCROLL_PX_PER_STEP}"
-        --ghost-trail-ground-fraction "${GHOST_TRAIL_GROUND_FRACTION}"
-    )
-fi
-
-if [[ -n "${LATENCY_CONFIG:-}" ]]; then
-    CMD+=(--latency-config "${LATENCY_CONFIG}")
-fi
-
-if [[ -n "${EXPORT_IMAGE_SIZE:-}" ]]; then
-    CMD+=(--export-image-size "${EXPORT_IMAGE_SIZE}")
-fi
-
-if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
-    CMD+=(--image-writer-workers "${IMAGE_WRITER_WORKERS}")
-fi
-
-if [[ -n "${FILTER_PRESET:-}" ]]; then
-    CMD+=(--filter-preset "${FILTER_PRESET}")
-fi
-
-if [[ -n "${DEMON_EPISODE_THRESHOLD:-}" ]]; then
-    CMD+=(--demon-episode-threshold "${DEMON_EPISODE_THRESHOLD}")
-fi
-
-if [[ -n "${EPISODE_RETURN_GT:-}" ]]; then
-    CMD+=(--episode-return-gt "${EPISODE_RETURN_GT}")
-fi
-
-if [[ "${PROBE_ONLY:-0}" == "1" || "${PROBE_ONLY:-0}" == "true" ]]; then
-    CMD+=(--probe-only)
-fi
-
-if [[ -n "${HF_REPO_ID:-}" ]]; then
-    CMD+=(--push-to-hub --hf-repo-id "${HF_REPO_ID}" --hf-token "${HF_TOKEN:-}")
-    if [[ "${HF_PRIVATE}" == "1" || "${HF_PRIVATE}" == "true" ]]; then
-        CMD+=(--hf-private)
-    fi
-    if [[ -n "${HF_CONFIG_NAME:-}" ]]; then
-        CMD+=(--hf-config-name "${HF_CONFIG_NAME}")
-    fi
-    if [[ -v HF_DATA_DIR ]]; then
-        CMD+=(--hf-data-dir "${HF_DATA_DIR}")
-    fi
-fi
-
-printf '==> Running teacher dataset export\n'
-printf '    checkpoint: %s\n' "${CHECKPOINT_ROOT}"
-printf '    output:     %s\n' "${OUTPUT_DIR}"
-printf '    probe envs: %s\n' "${NUM_ENVS}"
-printf '    replay envs: %s\n' "${REPLAY_NUM_ENVS}"
-printf '    image transform: %s\n' "${IMAGE_TRANSFORM}"
-if [[ "${IMAGE_TRANSFORM}" == "flappy_ghost_trail" || "${IMAGE_TRANSFORM}" == "demon_attack_ghost_trail" ]]; then
-    printf '    ghost history frames: %s\n' "${GHOST_TRAIL_HISTORY_FRAMES}"
-    printf '    ghost gamma: %s\n' "${GHOST_TRAIL_GAMMA}"
-    printf '    ghost min alpha: %s\n' "${GHOST_TRAIL_MIN_ALPHA}"
-    printf '    ghost scroll px/step: %s\n' "${GHOST_TRAIL_SCROLL_PX_PER_STEP}"
-    printf '    ghost ground fraction: %s\n' "${GHOST_TRAIL_GROUND_FRACTION}"
-fi
-if [[ -n "${LATENCY_CONFIG:-}" ]]; then
-    printf '    latency:    %s\n' "${LATENCY_CONFIG}"
-else
-    printf '    latency:    checkpoint name if *_same_latency_lN_* else config.json\n'
-fi
-if [[ -n "${HF_REPO_ID:-}" ]]; then
-    printf '    upload:     %s\n' "${HF_REPO_ID}"
-fi
-if [[ -n "${IMAGE_WRITER_WORKERS:-}" ]]; then
-    printf '    image writer workers: %s\n' "${IMAGE_WRITER_WORKERS}"
-fi
-printf '    context window: %s\n' "${CONTEXT_WINDOW}"
-printf '    filter preset: %s\n' "${FILTER_PRESET:-clean_v1}"
-if [[ -n "${DEMON_EPISODE_THRESHOLD:-}" ]]; then
-    printf '    demon threshold: %s\n' "${DEMON_EPISODE_THRESHOLD}"
-fi
-if [[ -n "${EPISODE_RETURN_GT:-}" ]]; then
-    printf '    episode return > %s\n' "${EPISODE_RETURN_GT}"
-fi
-printf '    probe only: %s\n' "${PROBE_ONLY:-0}"
-if [[ -n "${HF_CONFIG_NAME:-}" ]]; then
-    printf '    hf config name: %s\n' "${HF_CONFIG_NAME}"
-fi
-
-"${CMD[@]}"
+checkpoint, output = map(Path, sys.argv[1:])
+device = os.environ.get("DEVICE", "cpu")
+latency_path = os.environ.get("LATENCY_CONFIG")
+descriptor, _ = load_rollout_training_config(checkpoint, latency_config_path=latency_path, device_override=device)
+flat = descriptor["flat_cfg"]
+latency = descriptor["latency_override"]
+if latency is None:
+    methods = {"zero": "zero", "fixed": "fixed", "normal_distribution": "normal",
+               "uniform_distribution": "uniform", "profile_sample": "temporal", "iid": "iid"}
+    latency = {"method": methods[flat["latency_type"]]}
+    for key in ("fixed_latency_ms", "mean_latency_ms", "std_latency_ms", "min_latency_ms", "max_latency_ms"):
+        if key in flat and flat[key] is not None: latency[key] = flat[key]
+    for old, new in (("latency_profile_path", "profile_path"), ("latency_seed", "seed"), ("latency_profile_worker_slot", "profile_worker_slot")):
+        if old in flat and flat[old] is not None: latency[new] = flat[old]
+collection = {
+    "two_pass": True,
+    "val_fraction": float(os.environ.get("VAL_FRACTION", "0.01")),
+    "split_seed": int(os.environ.get("SPLIT_SEED", "0")),
+    "replay_num_envs": int(os.environ.get("REPLAY_NUM_ENVS", "16")),
+    "image_writer_workers": int(os.environ.get("IMAGE_WRITER_WORKERS", "16")),
+    "row_buffer_size": int(os.environ.get("ROW_BUFFER_SIZE", "8192")),
+    "context_window": int(os.environ.get("CONTEXT_WINDOW", "1")),
+    "filter_preset": os.environ.get("FILTER_PRESET", "clean_v1"),
+    "probe_only": os.environ.get("PROBE_ONLY", "0").lower() in {"1", "true"},
+    "image_transform": {
+        "image_transform": os.environ.get("IMAGE_TRANSFORM", "raw_rgb"),
+        "history_frames": int(os.environ.get("GHOST_TRAIL_HISTORY_FRAMES", "5")),
+        "gamma": float(os.environ.get("GHOST_TRAIL_GAMMA", "1.3")),
+        "min_alpha": int(os.environ.get("GHOST_TRAIL_MIN_ALPHA", "35")),
+        "ground_fraction": float(os.environ.get("GHOST_TRAIL_GROUND_FRACTION", "0.22")),
+        "scroll_px_per_step": float(os.environ.get("GHOST_TRAIL_SCROLL_PX_PER_STEP", "4.0")),
+    },
+}
+for field, variable, convert in (
+    ("max_attempts", "MAX_ATTEMPTS", int),
+    ("episode_return_gt", "EPISODE_RETURN_GT", float),
+    ("demon_episode_threshold", "DEMON_EPISODE_THRESHOLD", float),
+    ("export_zero_action_history", "EXPORT_ZERO_ACTION_HISTORY", int),
+):
+    if variable in os.environ and os.environ[variable].lower() not in {"", "none"}:
+        collection[field] = convert(os.environ[variable])
+if os.environ.get("EXPORT_IMAGE_SIZE"):
+    collection["export_image_size"] = list(map(int, os.environ["EXPORT_IMAGE_SIZE"].split(",")))
+config = {
+    "experiment": {"name": "teacher_collection", "seed": int(flat["seed"]) + int(os.environ.get("ROLLOUT_SEED_OFFSET", "0"))},
+    "env": {"name": descriptor["env_name"], "env_fps": flat["env_fps"], "obs_fps": flat["obs_fps"]},
+    "policy": {"type": "sample_factory", "source": "local", "root": descriptor["checkpoint_experiment_dir"],
+        "checkpoint": str(Path(descriptor["checkpoint_path"]).relative_to(descriptor["checkpoint_experiment_dir"])) if descriptor["checkpoint_path"] is not None else None,
+        "deterministic": os.environ.get("DETERMINISTIC", "true").lower() in {"1", "true"}},
+    "executor": {"mode": "simulated", "parallel_envs": int(os.environ.get("NUM_ENVS", "12")), "inference_devices": [device],
+        "simulated_worker_capacity": flat["simulated_worker_capacity"]},
+    "scheduler": {"hold_policy": flat["hold_policy"], "ordering_policy": flat["ordering_policy"]},
+    "latency": latency,
+    "evaluation": {"episodes": int(os.environ.get("MAX_EPISODES", "1000")), "max_env_steps": int(os.environ.get("MAX_STEPS", "1000"))},
+    "logging": {"output_dir": str(output)}, "collection": collection,
+}
+if "GYM_MAKE_KWARGS_JSON" in os.environ:
+    config["env"]["make_kwargs"] = json.loads(os.environ["GYM_MAKE_KWARGS_JSON"])
+config_path = output.with_name(output.name + ".collect.yaml")
+config_path.parent.mkdir(parents=True, exist_ok=True)
+config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+result = collect_rollouts(config)
+if "metadata" in result and os.environ.get("HF_REPO_ID"):
+    from latency_bench.data.hf_parquet import load_parquet_splits
+    options = {"repo_id": os.environ["HF_REPO_ID"], "private": os.environ.get("HF_PRIVATE", "0").lower() in {"1", "true"},
+               "max_shard_size": os.environ.get("HF_MAX_SHARD_SIZE", "500MB")}
+    for variable, field in (("HF_TOKEN", "token"), ("HF_CONFIG_NAME", "config_name"), ("HF_DATA_DIR", "data_dir")):
+        if os.environ.get(variable): options[field] = os.environ[variable]
+    load_parquet_splits(output).push_to_hub(**options)
+print(json.dumps(result, default=str))
+PY

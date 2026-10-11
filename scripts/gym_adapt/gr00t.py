@@ -284,7 +284,7 @@ def main():
         from latency_bench.profiling.runner import run_profile
 
         config = profiling_config(args.task, args.config.resolve(), args.bundle.resolve(), args.output.resolve())
-        print(json.dumps(run_profile(config, resume_run_id=args.resume, publish=False)))
+        print(json.dumps(run_profile(config, resume_run_id=args.resume)))
 
 
 if __name__ == "__main__":

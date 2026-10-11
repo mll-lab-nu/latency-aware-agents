@@ -22,6 +22,6 @@ EVAL_ARGS=()
 if [[ -n "${BALANCE_TRAIN_RUN_NAME:-}" ]]; then
   EVAL_ARGS+=(--run-name "${BALANCE_TRAIN_RUN_NAME}" --checkpoint-kind latest)
 fi
-exec uv run --project . python -m latency_bench.run \
+exec uv run --project . python -m latency_bench eval \
   --config "${EVAL_CONFIG}" \
   "${EVAL_ARGS[@]}"

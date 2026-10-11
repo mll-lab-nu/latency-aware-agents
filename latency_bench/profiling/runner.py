@@ -20,23 +20,19 @@ from latency_bench.latency.hardware_info import (
     collect_hardware_fingerprint, describe_inference_deployment, public_hardware_projection,
 )
 from latency_bench.latency.profile_builder import build_profile_from_traces
-from latency_bench.profiling.artifacts import profile_ref, simulation_seed_dir
+from latency_bench.profiling.artifacts import profile_ref
 from latency_bench.profiling.calibration import calibrate_env_fps_from_saturated_latency
 from latency_bench.policy.model_source import resolve_model_source
 from latency_bench.eval.artifacts import read_runtime_snapshot
 from latency_bench.profiling.runtime_configs import (
-    eval_command,
-    evaluation_environment,
-    measure_config,
-    simulation_config,
+    eval_command, evaluation_environment, measure_config,
 )
 from latency_bench.profiling.spec import path_segment, resolve_profile_config
-from latency_bench.profiling.sync import publish_run_and_profile, publish_simulation_dirs
 from latency_bench.utils.io import read_json, write_json, write_yaml
 
 
 def run_profile(
-    config: dict[str, Any], *, resume_run_id: str | None = None, publish: bool = False,
+    config: dict[str, Any], *, resume_run_id: str | None = None,
 ) -> dict[str, str]:
     """Measure and fit one deployment using the ordinary realtime evaluation path."""
     set_thread_env_defaults()
@@ -44,7 +40,6 @@ def run_profile(
     if config["executor"]["mode"] != "realtime":
         raise ValueError("Profiling requires executor.mode: realtime")
     options = config["profiling"]
-    publish_repo = options["publish_repo"] if publish else None
     fingerprint = collect_hardware_fingerprint()
     deployment = describe_inference_deployment(fingerprint, config["executor"]["inference_devices"])
     ref = profile_ref(options["model_id"], deployment["gpu_class"], options["workload_id"], deployment["instance_id"])
@@ -66,14 +61,11 @@ def run_profile(
     current_dir = Path(config["logging"]["output_dir"]) / "profiles" / ref
     with _profile_lock(current_dir):
         _replace_current(source_dir / "profile", current_dir)
-        if publish:
-            publish_profile(source_dir, repo_id=publish_repo)
     return {
         "PROFILE_REF": ref.as_posix(), "PROFILE_PATH": str(current_dir / "profile.json"),
         "RUN_DIR": str(source_dir), "RUN_ID": run_id,
         "GPU_CLASS": deployment["gpu_class"], "INSTANCE_ID": deployment["instance_id"],
         "MEASUREMENT_STATUS": "complete", "FIT_STATUS": "complete",
-        "PUBLICATION_STATUS": "published" if publish else "local",
     }
 
 
@@ -123,58 +115,6 @@ def fit_profile(source_dir: str | Path) -> dict[str, str]:
     return {"PROFILE_PATH": str(candidate / "profile.json"), "RUN_DIR": str(source_dir), "FIT_STATUS": "complete"}
 
 
-def publish_profile(source_dir: str | Path, *, repo_id: str) -> dict[str, str]:
-    """Publish a completed local run by its artifact address, on any machine."""
-    source_dir = Path(source_dir).expanduser().absolute()
-    (source_dir / "DONE").read_bytes()
-    candidate = source_dir / "profile"
-    (candidate / "DONE").read_bytes()
-    profile = read_json(candidate / "profile.json")
-    ref = profile_ref(*(path_segment(profile[key]) for key in (
-        "model_id", "gpu_class", "workload_id", "instance_id",
-    )))
-    publish_run_and_profile(repo_id, local_run_dir=source_dir, local_profile_dir=candidate,
-                            run_ref=ref / path_segment(profile["source_run_id"]), profile_ref=ref)
-    return {"PROFILE_REF": ref.as_posix(), "RUN_ID": profile["source_run_id"], "PUBLICATION_STATUS": "published"}
-
-
-def run_simulation(
-    config: dict[str, Any], *, profile_path: str | Path, method: str,
-    latency_seeds: list[int], publish: bool = False,
-) -> dict[str, str]:
-    """Replay local profiles using their recorded artifact sources."""
-    profile_path = Path(profile_path).expanduser().absolute()
-    profile = read_json(profile_path)
-    config = resolve_profile_config(resolve_model_source(config, profile=profile))
-    options = config["profiling"]
-    publish_repo = options["publish_repo"] if publish else None
-    ref = profile_ref(*(path_segment(profile[key]) for key in (
-        "model_id", "gpu_class", "workload_id", "instance_id",
-    )))
-    run_id = path_segment(profile["source_run_id"])
-    output_dirs = [simulation_seed_dir(config["logging"]["output_dir"], ref, run_id, path_segment(method), seed)
-                   for seed in latency_seeds]
-    for output_dir in output_dirs:
-        if (output_dir / "DONE").exists():
-            raise FileExistsError(output_dir / "DONE")
-    for seed, output_dir in zip(latency_seeds, output_dirs):
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
-        generated = output_dir / "generated.yaml"
-        write_yaml(generated, simulation_config(
-            config, output_dir=output_dir, profile_path=profile_path, profile=profile,
-            method=method, latency_seed=seed,
-        ))
-        _run_evaluation(config, generated, output_dir)
-        (output_dir / "DONE").touch()
-    if publish:
-        publish_simulation_dirs(publish_repo, local_dirs=output_dirs,
-                                remote_dirs=[Path("simulations") / ref / run_id / method / str(seed)
-                                             for seed in latency_seeds])
-    return {"PROFILE_REF": ref.as_posix(), "RUN_ID": run_id, "SIMULATION_STATUS": "complete",
-            "PUBLICATION_STATUS": "published" if publish else "local"}
-
-
 def _calibrate(
     config: dict[str, Any], deployment: dict[str, Any], source_dir: Path,
 ) -> dict[str, Any] | None:
@@ -205,10 +145,8 @@ def _assert_run_contract(
 ) -> None:
     path = source_dir / "run_contract.json"
     actual = read_json(path)
+    actual["config"] = read_runtime_snapshot(actual["config"])
     expected = deepcopy(_run_contract(config, deployment))
-    # Publication targets do not change the measurement protocol.
-    actual["config"]["profiling"].pop("publish_repo", None)
-    expected["config"]["profiling"].pop("publish_repo", None)
     if actual != expected:
         raise ValueError(f"Profile run contract does not match: {path}")
 

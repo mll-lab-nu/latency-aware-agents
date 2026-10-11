@@ -165,6 +165,8 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
         argv.extend(["--load_checkpoint_kind", str(flat_cfg["load_checkpoint_kind"])])
     cfg = module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(argv)
     cfg = load_from_checkpoint(cfg)
+    for key, value in config.get("runtime_overrides", {}).items():
+        maybe_set_cli_override(cfg, key, value)
     if config["latency_override"] is not None:
         _apply_latency_to_flat_cfg(cfg, config["latency_override"])
     maybe_set_cli_override(cfg, "add_latency_info", True)

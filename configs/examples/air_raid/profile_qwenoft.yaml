@@ -1,0 +1,127 @@
+experiment:
+  name: gymnasium_air_raid_starvla_profile
+  seed: 42
+backend:
+  algo: APPO
+  device: cuda
+  train_dir: outputs/examples/gymnasium_air_raid/checkpoints
+  restart_behavior: overwrite
+  run_mode: eval
+  extra_args:
+  - --encoder_conv_architecture
+  - convnet_atari
+executor:
+  mode: realtime
+  simulated_worker_capacity: null
+  parallel_envs: 1
+  inference_devices:
+  - cuda:0
+  sync_cuda: true
+env:
+  name: air_raid
+  make_kwargs:
+    base_env_id: ALE/AirRaid-v5
+    render_mode: rgb_array
+    screen_size: 84
+    noop_max: 30
+    base_make_kwargs:
+      obs_type: rgb
+      frameskip: 1
+      repeat_action_probability: 0.0
+      full_action_space: false
+      mode: 1
+      difficulty: 0
+      max_num_frames_per_episode: 108000
+    fire_reset: true
+  env_fps: 50
+  obs_fps: 12.5
+  frame_stack: 4
+  noop_action: noop
+  action_map:
+    noop: 0
+    fire: 1
+    right: 2
+    left: 3
+    rightfire: 4
+    leftfire: 5
+  action_order:
+  - noop
+  - fire
+  - right
+  - left
+  - rightfire
+  - leftfire
+  base_prompt: 'Protect both buildings from flying saucers. Choose exactly one action
+    from: noop, fire, right, left, rightfire, leftfire.'
+scheduler:
+  hold_policy: hold
+  ordering_policy: issue_order_fifo
+policy:
+  type: starvla
+  actions:
+  - noop
+  - fire
+  - right
+  - left
+  - rightfire
+  - leftfire
+  deterministic: true
+  task_manifest_path: /home/lixinyuan/latency-sensitive-bench/docs/gym-adapt/gymnasium/air_raid/assets/air_raid/vla_dataset/manifest.json
+  latency_prompt_map_path: /home/lixinyuan/latency-sensitive-bench/docs/gym-adapt/gymnasium/air_raid/assets/air_raid/vla_dataset/latency_prompt_map.json
+  latency_prompt_key: 0
+  source: hf
+  root: OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
+  checkpoint: checkpoints/steps_5000_pytorch_model.pt
+  model_config: config.full.yaml
+  hf_repo: latency-sensitive-bench/extra-envs-checkpoints
+training:
+  train_for_env_steps: 10000000
+  num_workers: 16
+  num_envs_per_worker: 8
+  worker_num_splits: 2
+  num_policies: 1
+  batch_size: 1024
+  rollout: 32
+  recurrence: 1
+  env_framestack: 4
+  num_epochs: 4
+  num_batches_per_epoch: 4
+  max_policy_lag: 300
+  learning_rate: 0.00025
+  lr_schedule: linear_decay
+  nonlinearity: relu
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  value_loss_coeff: 0.5
+  max_grad_norm: 0.5
+  exploration_loss: entropy
+  exploration_loss_coeff: 0.01
+  obs_scale: 255.0
+  adam_eps: 1.0e-05
+  adaptive_stddev: false
+  with_vtrace: false
+  async_rl: true
+  use_rnn: false
+  normalize_input: true
+  normalize_returns: true
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_interval_steps: null
+  episodes: 10
+  max_env_steps: 3600
+logging:
+  output_dir: outputs/profiling
+  video:
+    enabled: false
+    num_bins: 1
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+profiling:
+  model_id: qwenoft
+  workload_id: air_raid
+  repeats: 5
+  calibration: null

@@ -85,7 +85,7 @@ def evaluate(directory: Path) -> None:
     checkpoint = find_checkpoint(config["backend"]["train_dir"], config["experiment"]["name"], kind="best")
     set_model_files(config, checkpoint=checkpoint)
     (directory / "eval.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
-    subprocess.run([sys.executable, "-m", "latency_bench.run", "--config", str(directory / "eval.yaml")],
+    subprocess.run([sys.executable, "-m", "latency_bench", "eval", "--config", str(directory / "eval.yaml")],
                    cwd=ROOT, check=True)
     evidence = Path(config["logging"]["output_dir"])
     records = [json.loads(line) for line in (evidence / "episode_metrics.jsonl").read_text().splitlines()]

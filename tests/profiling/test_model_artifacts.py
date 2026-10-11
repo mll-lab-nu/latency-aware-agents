@@ -88,11 +88,6 @@ def test_explicit_hf_source_downloads_exact_artifact(
     assert origin["revision"] == "b" * 40
     # Resolved local inputs retain their original pinned identity.
     assert resolve_model_source(resolved)["provenance"] == resolved["provenance"]
-    replay = resolve_model_source(
-        config, profile={"provenance": {"model_artifact": origin}}
-    )
-    assert model_file(replay["policy"], "checkpoint") == str(checkpoint)
-    assert calls[-1]["revision"] == "b" * 40
 
 
 def test_root_hf_artifact_downloads_from_snapshot_root(tmp_path, monkeypatch):
@@ -136,21 +131,6 @@ def test_profile_artifact_paths_must_stay_under_the_snapshot_root(tmp_path):
     config["policy"]["checkpoint"] = "../outside.pt"
     with pytest.raises(ValueError, match="escapes"):
         resolve_model_source(config)
-
-
-def test_local_replay_resolves_relocated_artifact(tmp_path):
-    original = tmp_path / "original"
-    relocated = tmp_path / "relocated"
-    _model(original)
-    _model(relocated)
-    first = resolve_model_source(_config(original))
-    replay = resolve_model_source(
-        _config(relocated), profile={"provenance": first["provenance"]}
-    )
-    assert model_file(replay["policy"], "checkpoint") == str(
-        relocated / "checkpoints/model.pt"
-    )
-    assert replay["provenance"]["model_artifact"]["local_root"] == str(relocated)
 
 
 @pytest.mark.parametrize("source", ["local", "hf"])

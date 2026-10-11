@@ -52,7 +52,7 @@ def set_model_files(
 
 
 def resolve_model_source(
-    config: dict[str, Any], *, profile: dict[str, Any] | None = None
+    config: dict[str, Any]
 ) -> dict[str, Any]:
     """Resolve the one model declaration used by evaluation, collection and profiling."""
     config = deepcopy(config)
@@ -62,22 +62,6 @@ def resolve_model_source(
         return config
     if policy["type"] == "sample_factory":
         policy.setdefault("checkpoint", None)
-    recorded = profile["provenance"] if profile is not None else None
-    origin = recorded.get("model_artifact") if recorded is not None else None
-    if origin is not None:
-        policy["checkpoint"] = origin["checkpoint"]
-        if "model_config" in origin:
-            policy["model_config"] = origin["model_config"]
-        if policy["source"] == "hf":
-            if origin["source"] != "hf":
-                raise ValueError(
-                    "A locally measured model requires an explicit local copy for replay"
-                )
-            policy.update(
-                hf_repo=origin["repo_id"],
-                root=origin["path_in_repo"],
-                revision=origin["revision"],
-            )
     source = policy["source"]
     if source == "local":
         root = Path(policy["root"]).expanduser().absolute()
@@ -106,9 +90,7 @@ def resolve_model_source(
             path_in_repo=policy["root"],
             revision=snapshot.name,
         )
-    if origin is not None:
-        artifact = dict(origin)
-    elif "model_artifact" in provenance:
+    if "model_artifact" in provenance:
         artifact = {
             key: value
             for key, value in provenance["model_artifact"].items()
@@ -127,10 +109,7 @@ def resolve_model_source(
             policy[key] = str(
                 _contained_path(root, policy[key], allow_hf_cache_symlink=True)
             )
-    _prepare_backbone(
-        config,
-        recorded=recorded.get("backbone_artifact") if recorded is not None else None,
-    )
+    _prepare_backbone(config)
     return config
 
 
@@ -171,7 +150,7 @@ def _is_hf_blob_path(root: Path, lexical: Path, resolved: Path) -> bool:
 
 
 def _prepare_backbone(
-    config: dict[str, Any], *, recorded: dict[str, Any] | None = None
+    config: dict[str, Any]
 ) -> None:
     """Bind the actual StarVLA model and processor inputs before workers start."""
     policy = config["policy"]
@@ -185,19 +164,12 @@ def _prepare_backbone(
         return
     if policy["type"] != "starvla":
         return
-    if recorded is not None:
-        if recorded["source"] == "local":
-            raise ValueError(
-                "This profile used a local backbone; configure policy.backbone_path for replay"
-            )
-        backbone = recorded
-    else:
-        if "model_config" not in policy or policy["model_config"] is None:
-            return
-        model_config = load_config(model_file(policy, "model_config"))
-        if "backbone" not in model_config:
-            return
-        backbone = model_config["backbone"]
+    if "model_config" not in policy or policy["model_config"] is None:
+        return
+    model_config = load_config(model_file(policy, "model_config"))
+    if "backbone" not in model_config:
+        return
+    backbone = model_config["backbone"]
     from huggingface_hub import snapshot_download
 
     download_args = {"repo_id": backbone["repo_id"]}

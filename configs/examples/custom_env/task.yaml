@@ -1,0 +1,21 @@
+experiment:
+  name: custom_mountain_car_profile
+  seed: 7
+env:
+  name: custom_mountain_car
+  env_fps: 50
+  obs_fps: 10
+  noop_action: coast
+  action_map:
+    left: 0
+    coast: 1
+    right: 2
+  registration_imports:
+  - components
+policy:
+  type: custom
+  factory: components:make_policy
+  action: right
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready

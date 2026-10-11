@@ -254,7 +254,7 @@ def main() -> None:
     run_env["CUDA_HOME"] = str(cuda_home)
     run_env["CXX"] = str(compiler)
     run_env["NVCC_PREPEND_FLAGS"] = f"-ccbin={compiler}"
-    subprocess.run([sys.executable, "-m", "latency_bench.run", "--config", str(config_path)],
+    subprocess.run([sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path)],
                    cwd=ROOT, env=run_env, check=True)
     audit_evaluation(output_dir, args.episodes)
     if args.episodes == 100:

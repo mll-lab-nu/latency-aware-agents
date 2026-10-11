@@ -81,7 +81,7 @@ uv pip install --python "$MIKASA_PY" \
 当前共享 H1 使用已发布的 LeRobot 数据。
 当前 conditioned H8 和 DAgger 将采集的 NPZ 直接打包成 LeRobot，只需要下面的打包环境。
 环境目录沿用 `convert_rlds_to_lerobot` 名称，实际运行的是
-`scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset`。
+`latency_bench.integrations.starvla.mikasa_h8_export`。
 `scripts/mikasa/install.sh` 不会安装该打包环境：
 
 ```bash
@@ -147,6 +147,6 @@ Balance 的输入要求见 [Balance cookbook](humanoidbench/cookbook.md)；不�
 
 将 `--smoke` 替换为 `--no-publish` 可运行完整预算并保留本地产物。省略 `--no-publish` 会自动发布。详细命令和预算见[标准流程](standard_pipeline.md)。
 
-Balance/MIKASA 的 `train_{qwenoft,qwenpi_v3,qwengr00t,wanoft}.sh` 都调用 `scripts/starvla/train_task.py`；通过 `--task-python` 显式指向对应模拟器环境。
+MIKASA 的 `train_{qwenoft,qwenpi_v3,qwengr00t,wanoft}.sh` 调用 `scripts/starvla/train_task.py`；通过 `--task-python` 显式指向对应模拟器环境。
 
 Atari / ViZDoom / Flappy 的依赖由根安装脚本处理；无需把 Isaac 或 ManiSkill 安装进去。
