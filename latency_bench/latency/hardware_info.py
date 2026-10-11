@@ -600,19 +600,6 @@ def _slug(key: str) -> str:
     )
 
 
-def visible_cuda_device_count() -> int:
-    import torch
-
-    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if visible_devices is None:
-        smi_gpus = _nvidia_smi_gpus()
-        if smi_gpus:
-            return len(smi_gpus)
-        return int(torch.cuda.device_count())
-    stripped = visible_devices.strip()
-    return 0 if stripped in {"", "-1"} else len([item for item in stripped.split(",") if item.strip()])
-
-
 def instance_id_from_gpu_deployment(deployment: dict[str, Any]) -> str:
     """Identify the participating physical GPUs and topology, independent of ordering."""
     topology_links = [

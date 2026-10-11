@@ -18,6 +18,8 @@ from typing import Any
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval.config import (
+    has_eval_suites,
+    parse_eval_suites,
     _evaluation_seed,
     _is_sample_factory_policy,
     _selected_episode_count,
@@ -28,7 +30,6 @@ from latency_bench.eval.reporting import (
     _progress_latency_label,
     _summary_latency_label,
 )
-from latency_bench.eval.suites import has_eval_suites, parse_eval_suites
 from latency_bench.eval.driver import run_from_config
 from latency_bench.logging.summary import write_queue_eval_summary
 from latency_bench.policy.factory import build_policy

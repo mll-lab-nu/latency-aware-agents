@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.core.types import EpisodeMetrics
-from latency_bench.logging.records import to_jsonable
+from latency_bench.utils.io import to_jsonable
 from latency_bench.utils.stats import mean as _mean, std as _std
 
 LatencyLabel = int | str

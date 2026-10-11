@@ -10,10 +10,9 @@ import numpy as np
 import pytest
 
 from latency_bench.core.types import Action, ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
-from latency_bench.logging.latency_traces import e2e_latency_rows
-from latency_bench.logging.records import step_record_info, to_jsonable
+from latency_bench.logging.records import e2e_latency_rows, step_record_info
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
-from latency_bench.utils.io import write_jsonl
+from latency_bench.utils.io import to_jsonable, write_jsonl
 
 
 

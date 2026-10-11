@@ -13,7 +13,7 @@ from typing import Any
 from latency_bench.core.config import load_config, merge_dicts
 from latency_bench.eval.driver import run_from_config
 from latency_bench.eval.reporting import _summary_payloads_for_printing
-from latency_bench.eval.suites import has_eval_suites
+from latency_bench.eval.config import has_eval_suites
 from latency_bench.logging.wandb_eval import eval_scalar_payload
 from latency_bench.eval.sweeps import run_eval_suites_from_config
 from latency_bench.utils.paths import REPO_ROOT

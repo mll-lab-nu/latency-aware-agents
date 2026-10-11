@@ -178,27 +178,15 @@ def _load_latency_override(path: str | Path) -> dict[str, Any]:
     return deepcopy(payload["latency"])
 
 
-def _env_fps(flat_cfg: Mapping[str, Any], env_name: str) -> float:
-    value = flat_cfg.get("env_fps")
-    if value is not None:
-        return float(value)
-    return DEFAULT_ENV_FPS_BY_BENCH_ENV[env_name]
-
-
-def _obs_fps(flat_cfg: Mapping[str, Any], env_name: str) -> float:
-    value = flat_cfg.get("obs_fps")
-    if value is not None:
-        return float(value)
-    return DEFAULT_OBS_FPS_BY_BENCH_ENV[env_name]
-
-
 def _legacy_same_latency_config(flat_cfg: Mapping[str, Any], *, env_name: str, experiment_dir: Path) -> dict[str, Any] | None:
     for name in (experiment_dir.name, str(flat_cfg["experiment"])):
         match = LEGACY_SAME_LATENCY_RE.search(name)
         if match is not None:
             latency_obs_steps = int(match.group("frames"))
-            env_fps = _env_fps(flat_cfg, env_name)
-            obs_fps = _obs_fps(flat_cfg, env_name)
+            env_fps = flat_cfg.get("env_fps")
+            env_fps = DEFAULT_ENV_FPS_BY_BENCH_ENV[env_name] if env_fps is None else float(env_fps)
+            obs_fps = flat_cfg.get("obs_fps")
+            obs_fps = DEFAULT_OBS_FPS_BY_BENCH_ENV[env_name] if obs_fps is None else float(obs_fps)
             obs_stride_raw_frames = int(round(env_fps / obs_fps))
             return {
                 "method": "fixed",

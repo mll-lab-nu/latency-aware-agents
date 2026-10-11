@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.core.config import load_config
-from latency_bench.eval.suites import has_eval_suites
+from latency_bench.eval.config import has_eval_suites
 from latency_bench.eval.sweeps import run_eval_suites_from_config, run_eval_sweep_from_config
 from training.common.checkpoints import find_checkpoint
 from training.common.config_adapter import import_integration_module

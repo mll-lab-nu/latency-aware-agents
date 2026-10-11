@@ -71,7 +71,7 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         connection.send(("ready", {"worker_id": int(worker_id), "device": device}))
 
         def predict_from_attached_observation(attached_observation):
-            local_observation = observation_localizer.localize(attached_observation.observation)
+            local_observation = observation_localizer.localize(attached_observation)
             policy_output = policy.predict(local_observation)
             return policy_output
 
@@ -99,14 +99,11 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
             if command == "predict":
                 task = payload["task"]
                 attached_observation = attachment_cache.attach(task.observation)
-                try:
-                    policy_output, latency_record = measurer.run_and_measure(
-                        predict_from_attached_observation,
-                        attached_observation,
-                        obs_id=task.obs_id,
-                    )
-                finally:
-                    attached_observation.close()
+                policy_output, latency_record = measurer.run_and_measure(
+                    predict_from_attached_observation,
+                    attached_observation,
+                    obs_id=task.obs_id,
+                )
                 latency_record.metadata = {
                     **latency_record.metadata,
                     **runtime_metadata,

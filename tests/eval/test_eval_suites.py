@@ -8,7 +8,7 @@ import pytest
 
 from latency_bench.core.config import resolve_runtime_config
 from latency_bench.core.types import EpisodeMetrics
-from latency_bench.eval.suites import has_eval_suites, parse_eval_suites
+from latency_bench.eval.config import has_eval_suites, parse_eval_suites
 
 
 def _config(tmp_path):

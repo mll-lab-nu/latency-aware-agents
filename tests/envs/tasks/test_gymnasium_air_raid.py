@@ -69,7 +69,7 @@ class _AirRaidProbeEnv(gym.Env):
 def test_air_raid_wrapper_exposes_chw_policy_obs_and_native_rgb_render(monkeypatch):
     native_env = _AirRaidProbeEnv()
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(gymnasium_air_raid, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_air_raid, "register_ale", lambda: None)
 
     def fake_make(env_id: str, **kwargs: Any):
         captured["env_id"] = env_id
@@ -98,7 +98,7 @@ def test_air_raid_wrapper_exposes_chw_policy_obs_and_native_rgb_render(monkeypat
 
 def test_l1_scheduler_advances_four_raw_frames_and_delays_first_action(monkeypatch):
     native_env = _AirRaidProbeEnv()
-    monkeypatch.setattr(gymnasium_air_raid, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_air_raid, "register_ale", lambda: None)
     monkeypatch.setattr(gymnasium_air_raid.gym, "make", lambda *args, **kwargs: native_env)
     task_env = gymnasium_air_raid.make_latency_sensitive_air_raid_env(
         base_env_id="ALE/AirRaid-v5", render_mode="rgb_array", screen_size=84, noop_max=0, base_make_kwargs={}
@@ -114,7 +114,7 @@ def test_l1_scheduler_advances_four_raw_frames_and_delays_first_action(monkeypat
 
 def test_air_raid_fire_reset_starts_game_with_fire_actions(monkeypatch):
     native_env = _AirRaidProbeEnv()
-    monkeypatch.setattr(gymnasium_air_raid, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_air_raid, "register_ale", lambda: None)
     monkeypatch.setattr(gymnasium_air_raid.gym, "make", lambda *args, **kwargs: native_env)
     env = gymnasium_air_raid.make_latency_sensitive_air_raid_env(
         base_env_id="ALE/AirRaid-v5",

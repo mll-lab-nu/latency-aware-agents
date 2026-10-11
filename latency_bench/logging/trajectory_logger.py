@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from latency_bench.core.types import ActionEvent, EpisodeMetrics, LatencyRecord, StepRecord
-from latency_bench.logging.latency_traces import e2e_latency_rows
+from latency_bench.logging.records import e2e_latency_rows
 from latency_bench.utils.io import append_jsonl, write_jsonl
 
 _OUTPUT_FILENAMES = (

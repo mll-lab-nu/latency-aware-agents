@@ -35,7 +35,7 @@ from latency_bench.executors.realtime.messages import (
     _action_event_from_dispatch_payload,
 )
 from latency_bench.executors.realtime.pool import ProcessInferencePool
-from latency_bench.executors.realtime.shared_observation import ObservationSlotPool, attach_observation_arrays
+from latency_bench.executors.realtime.shared_observation import ObservationSlotPool, ObservationAttachmentCache
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
@@ -1104,15 +1104,16 @@ def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatc
             start_method="spawn",
         )
 
-        attached = attach_observation_arrays(shared_observation)
+        cache = ObservationAttachmentCache(blocks={})
         try:
-            np.testing.assert_array_equal(attached.observation.data, observation.data)
+            attached = cache.attach(shared_observation)
+            np.testing.assert_array_equal(attached.data, observation.data)
             np.testing.assert_array_equal(
-                attached.observation.metadata["env_raw_rgb_frame_stack"],
+                attached.metadata["env_raw_rgb_frame_stack"],
                 observation.metadata["env_raw_rgb_frame_stack"],
             )
         finally:
-            attached.close()
+            cache.close()
     finally:
         owner.close()
 
@@ -1642,13 +1643,14 @@ def test_realtime_warmup_writes_separate_artifacts(monkeypatch, tmp_path, histor
     submit = pool.submit
 
     def capture_warmup(task):
-        attached = attach_observation_arrays(task.observation)
+        cache = ObservationAttachmentCache(blocks={})
         try:
+            attached = cache.attach(task.observation)
             if history:
-                history_snapshots.append(attached.observation.data["transport"].copy())
+                history_snapshots.append(attached.data["transport"].copy())
             return submit(task)
         finally:
-            attached.close()
+            cache.close()
 
     pool.submit = capture_warmup
     formal_logger = TrajectoryLogger(
@@ -1746,11 +1748,12 @@ def test_realtime_pipeline_warmup_keeps_steps_out_of_formal_episodes(monkeypatch
     original_submit = pool.submit
 
     def capture(task):
-        attached = attach_observation_arrays(task.observation)
+        cache = ObservationAttachmentCache(blocks={})
         try:
-            snapshots.append(attached.observation.metadata["action_prefix"].copy())
+            attached = cache.attach(task.observation)
+            snapshots.append(attached.metadata["action_prefix"].copy())
         finally:
-            attached.close()
+            cache.close()
         return original_submit(task)
 
     monkeypatch.setattr(pool, "submit", capture)
@@ -1944,12 +1947,13 @@ def test_environment_worker_freezes_prefix_before_shared_memory(monkeypatch):
             if tag == "error":
                 pytest.fail(payload["traceback"] if isinstance(payload, dict) else payload)
             if tag == "observation":
-                attached = attach_observation_arrays(payload["task"].observation)
+                cache = ObservationAttachmentCache(blocks={})
                 try:
-                    self.snapshot = attached.observation.metadata["action_prefix"].copy()
-                    self.mask = attached.observation.metadata["action_prefix_mask"].copy()
+                    attached = cache.attach(payload["task"].observation)
+                    self.snapshot = attached.metadata["action_prefix"].copy()
+                    self.mask = attached.metadata["action_prefix_mask"].copy()
                 finally:
-                    attached.close()
+                    cache.close()
 
     env = DummyEnvAdapter(env_fps=50, max_steps=1, noop_action=Action([7.0]))
     monkeypatch.setattr(env_factory, "build_env_adapter", lambda *args: env)

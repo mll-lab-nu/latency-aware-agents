@@ -50,7 +50,7 @@ class _AsterixProbeEnv(gym.Env):
 
 def test_asterix_wrapper_exposes_chw_obs_and_native_rgb(monkeypatch):
     native=_AsterixProbeEnv(); captured:dict[str,Any]={}
-    monkeypatch.setattr(gymnasium_asterix,"_register_ale",lambda:None)
+    monkeypatch.setattr(gymnasium_asterix,"register_ale",lambda:None)
     def fake_make(env_id:str,**kwargs:Any): captured.update(env_id=env_id,kwargs=kwargs); return native
     monkeypatch.setattr(gymnasium_asterix.gym,"make",fake_make)
     env=gymnasium_asterix.make_latency_sensitive_asterix_env(base_env_id="ALE/Asterix-v5",render_mode="rgb_array",screen_size=84,noop_max=0,base_make_kwargs={"frameskip":1})
@@ -63,7 +63,7 @@ def test_asterix_wrapper_exposes_chw_obs_and_native_rgb(monkeypatch):
 
 def test_asterix_random_noop_reset_uses_native_noop(monkeypatch):
     native=_AsterixProbeEnv()
-    monkeypatch.setattr(gymnasium_asterix,"_register_ale",lambda:None)
+    monkeypatch.setattr(gymnasium_asterix,"register_ale",lambda:None)
     monkeypatch.setattr(gymnasium_asterix.gym,"make",lambda *args,**kwargs:native)
     env=gymnasium_asterix.make_latency_sensitive_asterix_env(base_env_id="ALE/Asterix-v5",render_mode="rgb_array",screen_size=84,noop_max=30,base_make_kwargs={})
     env.reset(seed=3)
@@ -73,7 +73,7 @@ def test_asterix_random_noop_reset_uses_native_noop(monkeypatch):
 
 def test_l1_scheduler_advances_four_raw_frames(monkeypatch):
     native=_AsterixProbeEnv()
-    monkeypatch.setattr(gymnasium_asterix,"_register_ale",lambda:None)
+    monkeypatch.setattr(gymnasium_asterix,"register_ale",lambda:None)
     monkeypatch.setattr(gymnasium_asterix.gym,"make",lambda *args,**kwargs:native)
     task=gymnasium_asterix.make_latency_sensitive_asterix_env(base_env_id="ALE/Asterix-v5",render_mode="rgb_array",screen_size=84,noop_max=0,base_make_kwargs={})
     env=GymnasiumActionCatalogWrapper(task,list(range(9)))

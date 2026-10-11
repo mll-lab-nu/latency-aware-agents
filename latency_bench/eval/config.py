@@ -127,3 +127,25 @@ def _apply_eval_latency(config: dict[str, Any], latency_steps: int, latency_ms: 
         return
     latency_cfg["method"] = "fixed"
     latency_cfg["fixed_latency_ms"] = latency_ms
+
+
+def has_eval_suites(config: dict[str, Any]) -> bool:
+    return bool(parse_eval_suites(config))
+
+
+def parse_eval_suites(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Resolve simulated evaluation conditions; other modes run their own timing."""
+    if config["executor"]["mode"] != "simulated":
+        return []
+    suites = config["evaluation"].get("suites", [])
+    names = set()
+    for suite in suites:
+        name = suite["name"]
+        if Path(name).name != name or name in {".", "..", ""}:
+            raise ValueError(
+                f"Evaluation suite name must be one path segment: {name!r}"
+            )
+        if name in names:
+            raise ValueError(f"Duplicate evaluation suite name: {name}")
+        names.add(name)
+    return suites

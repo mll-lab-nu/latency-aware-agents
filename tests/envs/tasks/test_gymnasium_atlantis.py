@@ -69,7 +69,7 @@ class _AtlantisProbeEnv(gym.Env):
 def test_atlantis_wrapper_exposes_chw_obs_and_native_rgb(monkeypatch):
     native = _AtlantisProbeEnv()
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(gymnasium_atlantis, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_atlantis, "register_ale", lambda: None)
 
     def fake_make(env_id: str, **kwargs: Any):
         captured.update(env_id=env_id, kwargs=kwargs)
@@ -95,7 +95,7 @@ def test_atlantis_wrapper_exposes_chw_obs_and_native_rgb(monkeypatch):
 
 def test_atlantis_random_noop_reset_uses_native_noop(monkeypatch):
     native = _AtlantisProbeEnv()
-    monkeypatch.setattr(gymnasium_atlantis, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_atlantis, "register_ale", lambda: None)
     monkeypatch.setattr(gymnasium_atlantis.gym, "make", lambda *args, **kwargs: native)
     env = gymnasium_atlantis.make_latency_sensitive_atlantis_env(
         base_env_id="ALE/Atlantis-v5",
@@ -112,7 +112,7 @@ def test_atlantis_random_noop_reset_uses_native_noop(monkeypatch):
 
 def test_l1_scheduler_advances_four_raw_frames(monkeypatch):
     native = _AtlantisProbeEnv()
-    monkeypatch.setattr(gymnasium_atlantis, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_atlantis, "register_ale", lambda: None)
     monkeypatch.setattr(gymnasium_atlantis.gym, "make", lambda *args, **kwargs: native)
     task = gymnasium_atlantis.make_latency_sensitive_atlantis_env(
         base_env_id="ALE/Atlantis-v5",

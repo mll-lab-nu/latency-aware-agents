@@ -28,7 +28,10 @@ def measure_config(
         gpu_class=deployment["gpu_class"],
         instance_id=deployment["instance_id"],
     )
-    _enable_records(config, output_dir)
+    config["logging"].update(
+        output_dir=str(output_dir), save_step_records=True,
+        save_action_records=True, save_latency_records=True,
+    )
     return config
 
 
@@ -48,9 +51,3 @@ def eval_command(options: dict[str, Any], config_path: Path, output_dir: Path) -
     if "checkpoint_kind" in options:
         command.extend(["--checkpoint-kind", options["checkpoint_kind"]])
     return command
-
-
-def _enable_records(config: dict[str, Any], output_dir: Path) -> None:
-    logging = config["logging"]
-    logging.update(output_dir=str(output_dir), save_step_records=True,
-                   save_action_records=True, save_latency_records=True)

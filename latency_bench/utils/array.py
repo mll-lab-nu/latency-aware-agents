@@ -17,7 +17,7 @@ def to_numpy(value: Any) -> np.ndarray:
     Returns:
         NumPy array view or copy.
     """
-    if torch is not None and isinstance(value, torch.Tensor):
+    if isinstance(value, torch.Tensor):
         value = value.detach().cpu().numpy()
     return np.asarray(value)
 

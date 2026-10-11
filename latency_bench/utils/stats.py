@@ -15,16 +15,6 @@ def percentile_linear(values: Sequence[float], percentile: float) -> float:
     return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
 
 
-def series_stats(values: Sequence[float]) -> dict[str, float | int]:
-    return {
-        "count": len(values),
-        "mean": float(mean(values)),
-        "p50": percentile_linear(values, 50.0),
-        "p90": percentile_linear(values, 90.0),
-        "max": float(max(values)),
-    }
-
-
 def mean(values: Sequence[float]) -> float:
     if not values:
         return math.nan

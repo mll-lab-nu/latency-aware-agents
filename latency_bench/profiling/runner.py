@@ -20,7 +20,6 @@ from latency_bench.latency.hardware_info import (
     collect_hardware_fingerprint, describe_inference_deployment, public_hardware_projection,
 )
 from latency_bench.latency.profile_builder import build_profile_from_traces
-from latency_bench.profiling.artifacts import profile_ref
 from latency_bench.profiling.calibration import calibrate_env_fps_from_saturated_latency
 from latency_bench.policy.model_source import resolve_model_source
 from latency_bench.eval.artifacts import read_runtime_snapshot
@@ -42,7 +41,10 @@ def run_profile(
     options = config["profiling"]
     fingerprint = collect_hardware_fingerprint()
     deployment = describe_inference_deployment(fingerprint, config["executor"]["inference_devices"])
-    ref = profile_ref(options["model_id"], deployment["gpu_class"], options["workload_id"], deployment["instance_id"])
+    ref = (
+        Path(options["model_id"]) / deployment["gpu_class"]
+        / options["workload_id"] / deployment["instance_id"]
+    )
     run_id = path_segment(resume_run_id) if resume_run_id is not None else _new_run_id()
     source_dir = Path(config["logging"]["output_dir"]) / "runs" / ref / run_id
     if resume_run_id is None:

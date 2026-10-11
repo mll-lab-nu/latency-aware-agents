@@ -15,13 +15,15 @@ from typing import Any
 
 import latency_bench.eval.sweeps as eval_sweeps
 from latency_bench.core.config import load_config
-from latency_bench.eval.config import apply_runtime_overrides as _apply_runtime_overrides
-from latency_bench.eval.config import _is_sample_factory_policy
+from latency_bench.eval.config import (
+    _is_sample_factory_policy,
+    apply_runtime_overrides as _apply_runtime_overrides,
+    has_eval_suites,
+)
 from latency_bench.eval.reporting import (
     _log_corrected_eval_summaries_to_wandb,
     _summary_payloads_for_printing,
 )
-from latency_bench.eval.suites import has_eval_suites
 
 
 def _has_explicit_sample_factory_checkpoint_selection(config: dict[str, Any]) -> bool:
