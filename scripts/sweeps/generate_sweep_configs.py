@@ -228,8 +228,6 @@ def _number_label(value: int | float) -> str:
 
 def _parse_int_csv(value: str) -> list[int]:
     text = str(value).strip()
-    if not text:
-        return []
     return [int(item.strip()) for item in text.split(",") if item.strip()]
 
 

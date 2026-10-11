@@ -40,7 +40,7 @@ def make_latency_sensitive_asterix_env(
     from stable_baselines3.common.atari_wrappers import NoopResetEnv, WarpFrame
 
     env = gym.make(base_env_id, render_mode=render_mode, **base_make_kwargs)
-    if noop_max > 0:
+    if noop_max != 0:
         env = NoopResetEnv(env, noop_max=noop_max)
     env = WarpFrame(env, width=screen_size, height=screen_size)
     return AtariChannelFirstObservation(env)

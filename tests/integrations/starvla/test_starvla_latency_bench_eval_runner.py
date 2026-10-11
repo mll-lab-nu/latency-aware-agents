@@ -539,8 +539,11 @@ def _make_cfg(
     )
 
 
-def test_runner_folds_episode_metrics(tmp_path, monkeypatch):
+@pytest.mark.parametrize("eval_seed", [0, 42])
+def test_runner_folds_episode_metrics(tmp_path, monkeypatch, eval_seed):
+    """Long-lived StarVLA runner contract: preserve seeds and aggregate episode metrics."""
     def fake_run_from_config(config, *, write_summary, episode_ids, policy, on_episode_complete=None):
+        assert config["experiment"]["seed"] == eval_seed
         return [
             EpisodeMetrics(episode_id=i, episode_return=float(i), survival_steps=10 + i)
             for i in episode_ids
@@ -549,7 +552,9 @@ def test_runner_folds_episode_metrics(tmp_path, monkeypatch):
     monkeypatch.setattr(runner_mod, "run_from_config", fake_run_from_config)
     monkeypatch.setattr(runner_mod, "build_live_starvla_policy", lambda **kwargs: object())
 
-    runner = LatencyBenchRlGamesEvalRunner(cfg=_make_cfg(), output_dir=str(tmp_path))
+    cfg = _make_cfg()
+    cfg.rl_games.env_eval.seed = eval_seed
+    runner = LatencyBenchRlGamesEvalRunner(cfg=cfg, output_dir=str(tmp_path))
     result = runner.run(model=object(), step=100, stage="mid_train", save=False)
 
     assert set(result.per_latency) == {"flappy/latency_0", "flappy/latency_2"}
@@ -557,6 +562,7 @@ def test_runner_folds_episode_metrics(tmp_path, monkeypatch):
     assert metrics["num_episodes"] == 4
     assert metrics["episode_rewards"] == [0.0, 1.0, 2.0, 3.0]
     assert metrics["mean_reward"] == pytest.approx(1.5)
+    assert metrics["eval_seed"] == eval_seed
     assert result.aggregate["total_episodes"] == 8
     assert result.aggregate["task"] == "flappy"
 

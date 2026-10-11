@@ -19,8 +19,6 @@ def _noop_action_from_space(space) -> Any:
     if isinstance(space, Tuple):
         return tuple(_noop_action_from_space(subspace) for subspace in space.spaces)
     if isinstance(space, Box):
-        import numpy as np
-
         return np.zeros(space.shape, dtype=space.dtype)
     raise TypeError(f"Unsupported action space for Deadly Corridor no-op action: {space}")
 
@@ -28,13 +26,9 @@ def _noop_action_from_space(space) -> Any:
 def _coerce_noop_action_for_space(value: Any, space) -> Any:
     if isinstance(space, Tuple):
         if isinstance(value, (list, tuple)):
-            if len(value) != len(space.spaces):
-                raise ValueError(
-                    f"Deadly Corridor no-op action length {len(value)} does not match action space {space}"
-                )
             return tuple(
                 _coerce_noop_action_for_space(item, subspace)
-                for item, subspace in zip(value, space.spaces)
+                for item, subspace in zip(value, space.spaces, strict=True)
             )
         if value == 0:
             return _noop_action_from_space(space)
@@ -49,17 +43,6 @@ def _spec_with_reward_scaling(spec: Any, disable_reward_scaling: bool) -> Any:
     return spec_to_use
 
 
-def _synchronous_eval_fps_from_config(config: dict[str, Any], default: int = 35) -> int:
-    env_cfg = config.get("env", {})
-    try:
-        fps = int(float(env_cfg.get("env_fps", default)))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("env_fps must be positive") from exc
-    if fps <= 0:
-        raise ValueError("env_fps must be positive")
-    return fps
-
-
 def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     from training.deadly_corridor_sf import integration
     from training.common.utils import maybe_set_cli_override
@@ -68,7 +51,7 @@ def _build_sample_factory_eval_cfg(config: dict[str, Any]) -> Any:
     base_cfg = integration.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(
         integration.build_cli_args_from_config(config)
     )
-    eval_fps = _synchronous_eval_fps_from_config(config)
+    eval_fps = int(float(config["env"]["env_fps"]))
     cfg = copy.deepcopy(base_cfg)
     if _requires_sample_factory_checkpoint_config(config):
         from sample_factory.cfg.arguments import load_from_checkpoint
@@ -135,7 +118,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         env_cfg = config["env"]
         env_id = str(env_cfg.get("env_id", "doom_deadly_corridor"))
         env_fps = float(env_cfg.get("env_fps", 35))
-        self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
+        self.frame_stack = int(env_cfg.get("frame_stack", 1))
 
         from sample_factory.utils.attr_dict import AttrDict
         from sf_examples.vizdoom.doom.doom_utils import DOOM_ENVS, make_doom_env_from_spec
@@ -191,7 +174,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         else:
             obs, info = self.gym_env.reset()
         self._last_frame = obs
-        self._last_info = dict(info or {})
+        self._last_info = dict(info)
         self._reset_frame_stack(obs)
         if self.export_env_raw_rgb_frames:
             self._reset_raw_rgb_frame_stack()
@@ -202,7 +185,7 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         obs, reward, terminated, truncated, info = self.gym_env.step(gym_action)
         self.env_step += 1
         self._last_frame = obs
-        self._last_info = dict(info or {})
+        self._last_info = dict(info)
         self._append_frame(obs)
         if self.export_env_raw_rgb_frames and not bool(terminated or truncated):
             self._append_raw_rgb_frame()
@@ -226,8 +209,6 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
         )
 
     def observe(self) -> Observation:
-        if self._last_frame is None:
-            raise RuntimeError("DeadlyCorridorEnvAdapter has no current observation; call reset() first")
         metadata = self._metadata(self._last_info)
         return Observation(
             data=self._policy_frame_stack(),
@@ -251,8 +232,6 @@ class DeadlyCorridorEnvAdapter(EnvAdapter):
 
     def _policy_frame_stack(self) -> np.ndarray:
         frames = list(self._observed_frames)
-        if not frames:
-            raise RuntimeError("Deadly Corridor observe() has no current frame; call reset() first")
         if len(frames) < self.frame_stack:
             frames = [frames[0]] * (self.frame_stack - len(frames)) + frames
         frames = [np.asarray(frame, dtype=np.uint8) for frame in frames[-self.frame_stack :]]
@@ -349,7 +328,7 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
 
         env_cfg = config["env"]
         self.env_fps = float(env_cfg.get("env_fps", 35))
-        self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
+        self.frame_stack = int(env_cfg.get("frame_stack", 1))
         # The raw teacher view is part of the policy's observation contract.
         render_options = {
             key: env_cfg[key]
@@ -399,7 +378,7 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
         except TypeError:
             obs, info = self.gym_env.reset()
         self._last_frame = obs
-        self._last_info = dict(info or {})
+        self._last_info = dict(info)
         if self.export_env_raw_rgb_frames:
             self._reset_raw_rgb_frame_stack()
         return self._make_observation(info=self._last_info)
@@ -422,7 +401,7 @@ class DeadlyCorridorVlaEnvAdapter(EnvAdapter):
         obs, reward, terminated, truncated, info = self.gym_env.step(gym_action)
         self.env_step += 1
         self._last_frame = obs
-        self._last_info = dict(info or {})
+        self._last_info = dict(info)
         if self.export_env_raw_rgb_frames and not bool(terminated or truncated):
             self._append_raw_rgb_frame()
         observation = self._make_observation(info=self._last_info)

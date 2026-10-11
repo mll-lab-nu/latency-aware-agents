@@ -11,7 +11,6 @@ from typing import Any
 
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.eval.config import (
-    _episodes,
     _evaluation_seed,
     _latency_steps_from_config,
 )
@@ -22,7 +21,7 @@ from latency_bench.logging.wandb_eval import eval_scalar_payload, normalize_wand
 
 def _print_progress_start(config: dict[str, Any], *, num_sweeps: int, num_episodes: int | None = None) -> None:
     if num_episodes is None:
-        num_episodes = _episodes(config)
+        num_episodes = config["evaluation"]["episodes"]
     print(
         f"[bench] run={config['experiment'].get('name', 'latency_bench')} "
         f"sweeps={num_sweeps} "

@@ -30,16 +30,10 @@ def resolve_profile_config(config: dict[str, Any]) -> dict[str, Any]:
     options = config["profiling"]
     for name in ("model_id", "workload_id"):
         path_segment(options[name])
-    if options["repeats"] < 1:
-        raise ValueError("profiling.repeats must be positive")
     if "calibration" not in options:
         options["calibration"] = None
-    if "video" not in config["logging"]:
-        config["logging"]["video"] = {"enabled": False}
     if "eval_entrypoint" in options:
         options["eval_entrypoint"] = os.path.abspath(Path(options["eval_entrypoint"]).expanduser())
-    if not config["executor"]["inference_devices"]:
-        raise ValueError("executor.inference_devices must select at least one worker")
     if config["executor"]["parallel_envs"] != 1:
         raise ValueError("Profiling requires executor.parallel_envs: 1")
     if config["evaluation"]["suites"]:

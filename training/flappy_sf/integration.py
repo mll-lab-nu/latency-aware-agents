@@ -52,20 +52,10 @@ _ENVS_REGISTERED = False
 _TIMELIMIT_DIAGNOSTICS_PRINTED: set[tuple[int, int, int]] = set()
 
 
-def parse_obs_resize(value: Any) -> tuple[int, int] | None:
+def parse_obs_resize(value: str | None) -> tuple[int, int] | None:
     if value in (None, ""):
         return None
-    if isinstance(value, str):
-        parts = [item.strip() for item in value.split(",") if item.strip()]
-    elif isinstance(value, (list, tuple)):
-        parts = list(value)
-    else:
-        raise ValueError("obs_resize must be [height, width] or a 'height,width' string")
-    if len(parts) != 2:
-        raise ValueError("obs_resize must contain exactly two positive integers: height,width")
-    height, width = int(parts[0]), int(parts[1])
-    if height <= 0 or width <= 0:
-        raise ValueError("obs_resize height and width must be positive")
+    height, width = map(int, value.split(","))
     return height, width
 
 
@@ -76,7 +66,7 @@ def _format_shape(shape: tuple[int, ...]) -> str:
 def log_flappy_sf_resolved_config(cfg: Any, final_obs_shape: tuple[int, int, int]) -> None:
     if not bool(getattr(cfg, "debug_timelimit_diagnostics", False)):
         return
-    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    frame_stack = int(getattr(cfg, "frame_stack", 1))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
     single_frame_shape = (3, int(final_obs_shape[1]), int(final_obs_shape[2]))
     stacked_shape = (3 * frame_stack, int(final_obs_shape[1]), int(final_obs_shape[2]))
@@ -147,25 +137,21 @@ def _maybe_log_flappy_timelimit_diagnostics(
         f"wrapper_chain={'->'.join(_wrapper_chain(representative_env))} "
         f"resolved_max_episode_steps={_time_limit_max_episode_steps(representative_env)} "
         f"use_gpu_render={bool(getattr(cfg, 'use_gpu_render', False))} "
-        f"gpu_render_batch_size={int(getattr(cfg, 'gpu_render_batch_size', 1) or 1)} "
-        f"num_agents={int(getattr(env, 'num_agents', 1) or 1)} "
+        f"gpu_render_batch_size={int(getattr(cfg, 'gpu_render_batch_size', 1))} "
+        f"num_agents={int(getattr(env, 'num_agents', 1))} "
         f"obs_shape={_format_shape(final_obs_shape)}"
     )
 
 
 def _flappy_final_obs_shape(space: gym.Space) -> tuple[int, int, int]:
     if isinstance(space, GymDict):
-        obs_space = space.spaces.get("obs")
-        if not isinstance(obs_space, Box):
-            raise TypeError("Flappy Sample Factory Dict observation space must contain Box space at key 'obs'")
-        shape = obs_space.shape
+        shape = space.spaces["obs"].shape
     elif isinstance(space, Box):
         shape = space.shape
     else:
         raise TypeError(f"Unsupported Flappy observation space: {space!r}")
-    if shape is None or len(shape) != 3:
-        raise ValueError(f"Expected Flappy CHW observation shape, got {shape!r}")
-    return tuple(int(dim) for dim in shape)
+    channels, height, width = shape
+    return int(channels), int(height), int(width)
 
 
 def log_flappy_sf_training_summary(config: dict) -> None:
@@ -220,19 +206,13 @@ class FlappyImageObsWrapper(gym.Wrapper):
                 image = Image.fromarray(frame).convert("RGB")
                 image = image.resize((width, height), Image.BILINEAR)
                 frame = np.asarray(image, dtype=np.uint8)
-            if frame.shape[:2] != (height, width):
-                frame = np.asarray(frame, dtype=np.uint8)
-                if frame.shape[:2] != (height, width):
-                    raise RuntimeError(
-                        f"Flappy obs_resize expected HWC frame {(height, width, 3)}, got {frame.shape!r}"
-                    )
         return np.transpose(frame, (2, 0, 1))
 
     def reset(self, **kwargs):
         numeric_obs, info = self.env.reset(**kwargs)
         self._last_numeric_obs = numeric_obs
         raw_frame = self.render_game_frame()
-        info = dict(info or {})
+        info = dict(info)
         info["numeric_obs"] = numeric_obs
         if self.export_raw_rgb_frames:
             info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack([raw_frame], axis=0)
@@ -242,7 +222,7 @@ class FlappyImageObsWrapper(gym.Wrapper):
         numeric_obs, reward, terminated, truncated, info = self.env.step(action)
         self._last_numeric_obs = numeric_obs
         raw_frame = self.render_game_frame()
-        info = dict(info or {})
+        info = dict(info)
         info["numeric_obs"] = numeric_obs
         if self.export_raw_rgb_frames:
             info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = np.stack([raw_frame], axis=0)
@@ -285,7 +265,7 @@ class FlappyFrameStackWrapper(gym.Wrapper):
             if self.export_raw_rgb_frames:
                 self._raw_rgb_frames.append(raw_frame.copy())
         if self.export_raw_rgb_frames:
-            info = dict(info or {})
+            info = dict(info)
             info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._stack_raw_rgb_frames()
         return self._stack_frames(), info
 
@@ -296,7 +276,7 @@ class FlappyFrameStackWrapper(gym.Wrapper):
         self._frames.append(np.array(obs, copy=True))
         if self.export_raw_rgb_frames:
             self._raw_rgb_frames.append(raw_frame.copy())
-            info = dict(info or {})
+            info = dict(info)
             info[ENV_RAW_RGB_FRAME_STACK_INFO_KEY] = self._stack_raw_rgb_frames()
         return self._stack_frames(), reward, terminated, truncated, info
 
@@ -314,7 +294,7 @@ def make_flappy_sf_env(
     force_sample_factory_raw_frame_step_cfg(cfg)
     use_gpu_render = bool(getattr(cfg, "use_gpu_render", False))
     obs_resize = parse_obs_resize(getattr(cfg, "obs_resize", None))
-    frame_stack = int(getattr(cfg, "frame_stack", 1) or 1)
+    frame_stack = cfg.frame_stack
     clock = EnvClock(
         env_fps=cfg.env_fps,
         obs_fps=cfg.obs_fps,
@@ -329,9 +309,9 @@ def make_flappy_sf_env(
             obs_resize=obs_resize,
             frame_stack=frame_stack,
             gpu_render_device=getattr(cfg, "gpu_render_device", "auto"),
-            gpu_render_batch_size=int(getattr(cfg, "gpu_render_batch_size", 1) or 1),
+            gpu_render_batch_size=cfg.gpu_render_batch_size,
             gpu_render_profile=bool(getattr(cfg, "gpu_render_profile", False)),
-            gpu_render_profile_interval=int(getattr(cfg, "gpu_render_profile_interval", 1000) or 1000),
+            gpu_render_profile_interval=cfg.gpu_render_profile_interval,
         )
         final_obs_shape = _flappy_final_obs_shape(env.observation_space)
         log_flappy_sf_resolved_config(cfg, final_obs_shape)
@@ -546,9 +526,7 @@ SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
 
 def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
-    scheduler_cfg = config.get("scheduler")
-    if not isinstance(scheduler_cfg, dict):
-        raise ValueError("scheduler must be a mapping for Flappy Sample Factory")
+    scheduler_cfg = config["scheduler"]
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
     append_cli_arg(args, "--gym_id", env_cfg.get("gym_id", "FlappyBird-v0"))
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
@@ -566,7 +544,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
     append_cli_arg(args, "--simulator", env_cfg["simulator"])
     append_cli_arg(args, "--gpu-render-device", env_cfg.get("gpu_render_device", "auto"))
     append_cli_arg(args, "--gpu-render-profile", env_cfg.get("gpu_render_profile", False))
-    append_cli_arg(args, "--gpu-render-profile-interval", env_cfg.get("gpu_render_profile_interval", 1000))
+    append_cli_arg(args, "--gpu-render-profile-interval", env_cfg.get("gpu_render_profile_interval"))
     append_cli_arg(args, "--mask-unadmitted-actor", config["training"].get("mask_unadmitted_actor", False))
     if "action_history_decisions" in env_cfg:
         append_cli_arg(args, "--action-history-decisions", env_cfg["action_history_decisions"])
@@ -588,7 +566,7 @@ def build_cli_args_from_config(config: dict) -> list[str]:
 def run_from_config(config: dict) -> int:
     register_flappy_envs()
     cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
-    logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
+    logging_cfg = config["logging"]
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()

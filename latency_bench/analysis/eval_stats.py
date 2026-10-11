@@ -66,8 +66,6 @@ def summarize_eval_run(
 ) -> dict[str, Any]:
     metrics_path = resolve_run_file(episode_metrics_path_or_run_dir, EPISODE_METRICS_CANDIDATES)
     records = load_jsonl_records(metrics_path)
-    if not records:
-        raise ValueError(f"Episode metrics file is empty: {metrics_path}")
 
     selected_return_field = return_field
     selected_length_field = DEFAULT_LENGTH_FIELD if length_field is None else length_field
@@ -149,8 +147,6 @@ def extract_latency_samples_from_records(records: Iterable[dict[str, Any]]) -> l
     for record in records:
         if "latency_ms" in record and record["latency_ms"] is not None:
             samples.append(record["latency_ms"])
-    if not samples:
-        raise ValueError("No valid latency samples found")
     return samples
 
 

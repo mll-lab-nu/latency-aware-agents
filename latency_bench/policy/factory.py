@@ -48,7 +48,5 @@ def _build_constant_policy(config: dict[str, Any], action_resolver: ActionResolv
     if "action" in policy_cfg:
         action_ref = policy_cfg["action"]
     else:
-        if not default_action_refs:
-            raise ValueError("policy.action is required when no default actions are available")
         action_ref = default_action_refs[0]
     return ConstantPolicyRunner(action=action_resolver.resolve(action_ref))

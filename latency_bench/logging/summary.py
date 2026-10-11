@@ -142,10 +142,7 @@ def write_queue_eval_summary(
 def _latency_payload_value(latency: LatencyLabel) -> int | str:
     if isinstance(latency, int) and not isinstance(latency, bool):
         return int(latency)
-    label = str(latency).strip()
-    if not label:
-        raise ValueError("latency label must not be empty")
-    return label
+    return str(latency).strip()
 
 
 def _latency_filename_fragment(latency: int | str) -> str:
@@ -155,10 +152,7 @@ def _latency_filename_fragment(latency: int | str) -> str:
         char if char.isalnum() or char in {"-", "_", "."} else "_"
         for char in str(latency)
     )
-    fragment = fragment.strip("._-")
-    if not fragment:
-        raise ValueError("latency label must contain at least one filename-safe character")
-    return fragment
+    return fragment.strip("._-")
 
 
 def _latency_metadata(

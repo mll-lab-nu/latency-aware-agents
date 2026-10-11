@@ -85,20 +85,9 @@ def _episode_seed(config: dict[str, Any], episode_id: int) -> int:
     return seed + episode_id
 
 
-def _max_env_steps(config: dict[str, Any]) -> int:
-    evaluation_cfg = config.get("evaluation")
-    if isinstance(evaluation_cfg, dict) and evaluation_cfg.get("max_env_steps") is not None:
-        return int(evaluation_cfg["max_env_steps"])
-    raise ValueError("evaluation.max_env_steps is required for latency_bench episode limits")
-
-
-def _episodes(config: dict[str, Any]) -> int:
-    return config["evaluation"]["episodes"]
-
-
 def _selected_episode_count(config: dict[str, Any], episode_ids: Sequence[int] | None) -> int:
     if episode_ids is None:
-        return _episodes(config)
+        return config["evaluation"]["episodes"]
     return len(episode_ids)
 
 

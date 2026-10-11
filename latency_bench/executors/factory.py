@@ -26,10 +26,7 @@ from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor, R
 from latency_bench.executors.realtime.env_process import RealtimeEnvProcess
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.simulated import SimulatedLatencyExecutor
-from latency_bench.latency.config import (
-    BATCHED_SIMULATED_METHODS,
-    resolve_latency_method,
-)
+from latency_bench.latency.config import BATCHED_SIMULATED_METHODS
 from latency_bench.latency.samplers import (
     build_episode_sampler_factory,
     build_sampler,
@@ -61,7 +58,7 @@ def build_executor(
     if inference_devices is None and "inference_devices" in executor_cfg:
         inference_devices = executor_cfg["inference_devices"]
     mode = ExecutorMode(executor_cfg["mode"])
-    parallel_envs = _parallel_envs(config)
+    parallel_envs = executor_cfg["parallel_envs"]
     if parallel_envs > 1 and mode in {ExecutorMode.PAUSED, ExecutorMode.REALTIME}:
         raise ValueError(
             "executor.parallel_envs > 1 is only supported for executor.mode=simulated; "
@@ -167,7 +164,7 @@ def _build_simulated_executor(
     env_backend: EnvStepBackend | None = None,
     inference_devices: list[str] | None = None,
 ) -> SimulatedLatencyExecutor | BatchedSimulatedLatencyExecutor:
-    parallel_envs = _parallel_envs(config)
+    parallel_envs = config["executor"]["parallel_envs"]
     num_episodes = int(config["evaluation"]["episodes"])
     if (
         (
@@ -176,7 +173,7 @@ def _build_simulated_executor(
             or config["env"].get("action_history_decisions") is not None
         )
         and num_episodes > 0
-        and resolve_latency_method(config["latency"]) in BATCHED_SIMULATED_METHODS
+        and config["latency"]["method"] in BATCHED_SIMULATED_METHODS
     ):
         return _build_batched_simulated_executor(
             config,
@@ -346,7 +343,7 @@ def _build_realtime_executor(
     if inference_devices is None:
         inference_devices = config["executor"]["inference_devices"]
 
-    video_output_dir = _video_output_dir(config) if _video_enabled(config) else None
+    video_output_dir = _video_output_dir(config) if config["logging"]["video"]["enabled"] else None
     clock = _build_clock(config)
     environment = RealtimeEnvProcess(
         config, video_output_dir=video_output_dir, video_fps=clock.env_fps,
@@ -380,16 +377,5 @@ def _build_clock(config: dict[str, Any]) -> EnvClock:
     )
 
 
-def _video_enabled(config: dict[str, Any]) -> bool:
-    return "video" in config["logging"] and config["logging"]["video"]["enabled"]
-
-
 def _video_output_dir(config: dict[str, Any]) -> str:
     return str(os.path.join(str(config["logging"]["output_dir"]), "videos"))
-
-
-def _parallel_envs(config: dict[str, Any]) -> int:
-    parallel_envs = config["executor"]["parallel_envs"]
-    if parallel_envs <= 0:
-        raise ValueError("executor.parallel_envs must be positive")
-    return parallel_envs

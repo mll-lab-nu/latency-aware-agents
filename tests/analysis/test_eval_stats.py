@@ -136,8 +136,3 @@ def test_extract_latency_samples_from_records_uses_latency_ms():
     ]
 
     assert extract_latency_samples_from_records(records) == [10.0, 20.0, 30.0]
-
-
-def test_extract_latency_samples_from_records_raises_when_no_valid_samples():
-    with pytest.raises(ValueError, match="No valid latency samples"):
-        extract_latency_samples_from_records([{"other": 1}])

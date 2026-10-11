@@ -146,8 +146,6 @@ class RemoteEnvSlotHandle(EnvAdapter):
 class SerialEnvStepBackend:
     def __init__(self, envs: Sequence[EnvAdapter]):
         self.slot_handles = list(envs)
-        if not self.slot_handles:
-            raise ValueError("SerialEnvStepBackend requires at least one env slot")
         self.last_step_metadata_by_slot: dict[int, dict[str, Any]] = {}
         self.collection_frames: dict[int, Any] = {}
         self.closed = False
@@ -225,8 +223,6 @@ class SubprocEnvStepBackend:
         start_method: str | None = None,
         timeout_sec: float | None = None,
     ):
-        if int(num_slots) <= 0:
-            raise ValueError("SubprocEnvStepBackend requires at least one env slot")
         set_thread_env_defaults()
         self.config = config
         self.noop_action = noop_action
@@ -519,10 +515,7 @@ def _worker_timeout_sec() -> float:
     raw_value = os.environ.get(WORKER_TIMEOUT_ENV)
     if raw_value is None:
         return 60.0
-    timeout_sec = float(raw_value)
-    if timeout_sec <= 0:
-        raise ValueError(f"{WORKER_TIMEOUT_ENV} must be positive")
-    return timeout_sec
+    return float(raw_value)
 
 
 def resolve_start_method(start_method: str | None = None) -> str:

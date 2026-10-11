@@ -65,7 +65,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
             self.gym_env = self._build_gym_env()
         frame, info = self.gym_env.reset(seed=seed)
         self._last_frame = frame
-        self._last_info = dict(info or {})
+        self._last_info = dict(info)
         self._reset_frame_stack(frame)
         if self.export_env_raw_rgb_frames:
             self._reset_raw_rgb_frame_stack()
@@ -76,7 +76,7 @@ class DemonAttackEnvAdapter(EnvAdapter):
         frame, reward, terminated, truncated, info = self.gym_env.step(gym_action)
         self.env_step += 1
         self._last_frame = frame
-        self._last_info = dict(info or {})
+        self._last_info = dict(info)
         true_episode_end = _is_true_episode_end(
             self.gym_env,
             terminated=bool(terminated),
@@ -142,8 +142,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
         )
 
     def observe(self) -> Observation:
-        if self._last_frame is None:
-            raise RuntimeError("DemonAttackEnvAdapter has no current observation; call reset() first")
         metadata = self._metadata(self._last_info)
         return Observation(
             data=self._policy_frame_stack(),
@@ -172,8 +170,6 @@ class DemonAttackEnvAdapter(EnvAdapter):
 
     def _policy_frame_stack(self) -> np.ndarray:
         frames = list(self._observed_frames)
-        if not frames:
-            raise RuntimeError("DemonAttack observe() has no current frame; call reset() first")
         if len(frames) < self.frame_stack:
             frames = [frames[0]] * (self.frame_stack - len(frames)) + frames
         frames = [_single_frame_data(frame) for frame in frames[-self.frame_stack :]]
@@ -275,7 +271,7 @@ def make_demon_attack_benchmark_env(
         render_mode=None,
     )
     mode = reset_mode
-    if mode in {"noop", "fire"} and noop_max > 0:
+    if mode in {"noop", "fire"} and noop_max != 0:
         env = NoopResetEnv(env, noop_max=noop_max)
     if terminal_on_life_loss:
         env = EpisodicLifeEnv(env)

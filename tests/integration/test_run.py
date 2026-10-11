@@ -495,23 +495,6 @@ def test_run_from_config_requires_video_num_bins_when_enabled(tmp_path: Path):
         evaluation.run_from_config(config, write_summary=False)
 
 
-def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_path: Path):
-    class FakeEnv:
-        def close(self):
-            pass
-
-    class FakeExecutor(EpisodeExecutor):
-        logger = None
-        env = FakeEnv()
-
-    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
-    config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
-    config.pop("evaluation")
-
-    with pytest.raises(ValueError, match="evaluation.max_env_steps is required"):
-        evaluation.run_from_config(config)
-
-
 def test_run_from_config_is_quiet_by_default(tmp_path: Path, capsys):
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
 

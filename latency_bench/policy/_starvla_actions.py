@@ -47,7 +47,7 @@ def action_from_starvla_payload(
             is_oneshot=False,
         ), {"continuous_action": values}
     if str(env_name) == "demon_attack":
-        return demon_attack_action_from_id(int(np.asarray(payload).reshape(-1)[0]))
+        return demon_attack_action_from_id(int(np.asarray(payload).item()))
     if str(env_name) == "deadly_corridor":
         # Multibinary heads emit an already-thresholded 7-dim button vector in
         # fixed semantic order; the env adapter re-orders it to the live ViZDoom
@@ -75,7 +75,7 @@ def action_from_starvla_payload(
             action_value=[int(item) for item in np.asarray(payload).reshape(-1).tolist()],
             metadata={"action_layout": "deadly_corridor_tuple"},
         )
-    raw_action_id = int(np.asarray(payload).reshape(-1)[0])
+    raw_action_id = int(np.asarray(payload).item())
     return action_by_raw_id[raw_action_id], {"raw_action_id": raw_action_id}
 
 

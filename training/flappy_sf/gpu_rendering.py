@@ -51,7 +51,7 @@ class _GpuRenderProfiler:
         env_id: int,
     ):
         self.enabled = bool(enabled)
-        self.interval = max(1, int(interval))
+        self.interval = interval
         self.device = torch.device(device)
         self.worker_index = int(worker_index)
         self.vector_index = int(vector_index)
@@ -298,8 +298,8 @@ class FlappyGpuRenderedObsWrapper(gym.Wrapper):
         return self._raw_rgb_frame(self._last_raw_rgb)
 
     @staticmethod
-    def _with_numeric_obs(info: dict[str, Any] | None, numeric_obs: Any) -> dict[str, Any]:
-        out = dict(info or {})
+    def _with_numeric_obs(info: dict[str, Any], numeric_obs: Any) -> dict[str, Any]:
+        out = dict(info)
         out["numeric_obs"] = numeric_obs
         return out
 

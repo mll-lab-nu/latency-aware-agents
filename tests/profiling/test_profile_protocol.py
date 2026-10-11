@@ -428,9 +428,8 @@ def test_measurement_preserves_user_deployment_and_clock(profile_config, tmp_pat
     assert measured["logging"]["save_latency_records"] is True
 
 
-@pytest.mark.parametrize("field,value", [("repeats", 0), ("model_id", "../escape")])
-def test_invalid_profile_config_is_rejected(profile_config, field, value):
-    profile_config["profiling"][field] = value
+def test_profile_coordinates_reject_path_traversal(profile_config):
+    profile_config["profiling"]["model_id"] = "../escape"
     with pytest.raises(ValueError):
         resolve_profile_config(profile_config)
 

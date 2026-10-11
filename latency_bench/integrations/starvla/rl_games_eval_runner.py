@@ -34,9 +34,11 @@ from typing import Any
 from collections.abc import Mapping
 
 import numpy as np
+from omegaconf import OmegaConf
 from torch import distributed as dist
 
 from latency_bench.core.actions import ActionResolver
+from latency_bench.core.clock import EnvClock
 from latency_bench.core.config import load_config
 from latency_bench.envs.tasks.contracts import canonical_gymnasium_contract
 from latency_bench.eval.config import _apply_eval_latency
@@ -65,23 +67,16 @@ BASE_CONFIGS = {
 def _plain_mapping(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
-    try:
-        from omegaconf import OmegaConf
-
-        if OmegaConf.is_config(value):
-            converted = OmegaConf.to_container(value, resolve=True)
-            return dict(converted or {}) if isinstance(converted, Mapping) else {}
-    except Exception:
-        pass
-    return dict(value) if isinstance(value, Mapping) else {}
+    if OmegaConf.is_config(value):
+        value = OmegaConf.to_container(value, resolve=True)
+    return dict(value)
 
 
 def _obs_stride_raw_frames(env_cfg: Mapping[str, Any]) -> int:
-    env_fps = float(env_cfg["env_fps"])
-    obs_fps = float(env_cfg["obs_fps"])
-    if obs_fps <= 0:
-        raise ValueError(f"obs_fps must be positive, got {obs_fps}")
-    return max(1, int(round(env_fps / obs_fps)))
+    return EnvClock(
+        env_fps=float(env_cfg["env_fps"]),
+        obs_fps=float(env_cfg["obs_fps"]),
+    ).obs_stride_raw_frames
 
 
 def _cfg_get(container: Any, key: str, default_value: Any = None) -> Any:
@@ -299,15 +294,15 @@ def build_latency_bench_config_for_rl_games(
         if image_transform == "flappy_ghost_trail":
             if env_name != "flappy":
                 raise ValueError("image_transform=flappy_ghost_trail is only supported for env=flappy")
-            history_frames = max(0, int(transform_cfg.get("history_frames", 5)))
+            history_frames = int(transform_cfg.get("history_frames", 5))
         elif image_transform == "demon_attack_ghost_trail":
             if env_name != "demon_attack":
                 raise ValueError("image_transform=demon_attack_ghost_trail is only supported for env=demon_attack")
-            history_frames = max(0, int(transform_cfg.get("history_frames", 30)))
+            history_frames = int(transform_cfg.get("history_frames", 30))
         else:
             raise ValueError(f"Unsupported rl_games.env_eval.image_transform={image_transform!r}")
         frame_stack_min = history_frames if image_transform == "demon_attack_ghost_trail" else history_frames + 1
-        config["env"]["frame_stack"] = max(int(config["env"].get("frame_stack", 1) or 1), frame_stack_min)
+        config["env"]["frame_stack"] = max(int(config["env"].get("frame_stack", 1)), frame_stack_min)
     apply_starvla_model_input_config(config, model_cfg=model_cfg, image_transform=image_transform)
 
     # Single fixed latency for this rollout. Prompt maps carry exact source
@@ -377,7 +372,7 @@ def build_latency_bench_config_for_rl_games(
     }
     # We drive one fixed latency per call, so suites / sweeps must not re-expand.
     config["evaluation"]["suites"] = []
-    config["executor"]["parallel_envs"] = max(1, int(parallel_envs))
+    config["executor"]["parallel_envs"] = parallel_envs
     config["executor"]["inference_devices"] = ["cuda"]
 
     logging_cfg = dict(config["logging"])
@@ -394,17 +389,14 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
     """eval_core-compatible runner that evaluates via latency_bench in-process."""
     def _image_size(self) -> int:
         env_eval = self.cfg.rl_games.env_eval
-        return int(getattr(env_eval, "image_size", 224) or 224)
+        return int(getattr(env_eval, "image_size", 224))
 
     def _parallel_envs(self, stage: str, task: str | None = None) -> int:
-        # Number of envs evaluated in parallel (batched policy forward). Per-stage
-        # override wins, else the global env_eval value, else 1 (sequential).
-        # Settable from the launch script as rl_games.env_eval.eval_parallel_envs=N
-        # (or per-stage rl_games.env_eval.{mid_train,post_train}.eval_parallel_envs).
+        # Stage overrides take precedence over the global setting.
         stage_cfg = self._task_stage_cfg(task, stage)
         if stage_cfg is not None and getattr(stage_cfg, "eval_parallel_envs", None) is not None:
-            return max(1, int(stage_cfg.eval_parallel_envs))
-        return max(1, int(getattr(self.cfg.rl_games.env_eval, "eval_parallel_envs", 1) or 1))
+            return int(stage_cfg.eval_parallel_envs)
+        return int(getattr(self.cfg.rl_games.env_eval, "eval_parallel_envs", 1))
 
     def _image_transform_config(self, stage: str, task: str | None = None) -> dict[str, Any] | None:
         env_eval = self.cfg.rl_games.env_eval
@@ -508,8 +500,6 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         return super()._get_latency_values(stage=stage, task=task)
 
     def _model_cfg_from_training_cfg(self) -> dict[str, Any]:
-        from omegaconf import OmegaConf
-
         return OmegaConf.to_container(self.cfg, resolve=True)
 
     def _base_actions(self, env_name: str) -> list[Any] | None:
@@ -536,17 +526,17 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         ordered = sorted(metrics_list, key=lambda m: int(m.episode_id))
         rewards = [float(m.episode_return) for m in ordered]
         lengths = [
-            int(math.ceil(int(m.survival_steps) / max(1, int(obs_stride_raw_frames))))
+            int(math.ceil(int(m.survival_steps) / obs_stride_raw_frames))
             for m in ordered
         ]
         indices = [int(m.episode_id) for m in ordered]
         return {
             "latency": int(latency),
             "num_episodes": len(rewards),
-            "mean_reward": float(np.mean(rewards)) if rewards else 0.0,
-            "mean_length": float(np.mean(lengths)) if lengths else 0.0,
-            "std_reward": float(np.std(rewards)) if rewards else 0.0,
-            "std_length": float(np.std(lengths)) if lengths else 0.0,
+            "mean_reward": float(np.mean(rewards)),
+            "mean_length": float(np.mean(lengths)),
+            "std_reward": float(np.std(rewards)),
+            "std_length": float(np.std(lengths)),
             "episode_rewards": rewards,
             "episode_lengths": lengths,
             "decoded_action_hist": {},
@@ -572,7 +562,7 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
         model_cfg = self._model_cfg_from_training_cfg()
         normalization_statistics = None
         env_eval = self.cfg.rl_games.env_eval
-        eval_seed = int(getattr(env_eval, "seed", getattr(self.cfg, "seed", 42)) or 42)
+        eval_seed = int(getattr(env_eval, "seed", getattr(self.cfg, "seed", 42)))
 
         per_latency: dict[str, dict] = {}
         rollout_plan = [
@@ -590,14 +580,14 @@ class LatencyBenchRlGamesEvalRunner(RlGamesEvalRunner):
                 for task_name, _latency in rollout_plan
             ),
             shard_rank=int(shard_rank),
-            shard_count=max(1, int(shard_count)),
+            shard_count=shard_count,
         )
         for task_name, latency in rollout_plan:
             num_episodes = self._num_episodes(stage=stage, task=task_name)
             episode_indices = [
                 episode
                 for episode in range(num_episodes)
-                if episode % max(1, int(shard_count)) == int(shard_rank)
+                if episode % shard_count == shard_rank
             ]
             if not episode_indices:
                 continue

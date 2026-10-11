@@ -65,10 +65,7 @@ def get_registered_env_names() -> list[str]:
 
 
 def _normalize_env_name(name: str) -> str:
-    normalized = str(name).strip().lower()
-    if not normalized:
-        raise ValueError("env.name cannot be empty")
-    return normalized
+    return str(name).strip().lower()
 
 
 def _find_key_path(value: Any, target_key: str, prefix: str = "") -> str | None:
@@ -203,12 +200,12 @@ def _build_flappy_env(config: dict[str, Any], noop_action: Action) -> EnvAdapter
         background=env_cfg.get("background", "day"),
         score_limit=env_cfg.get("score_limit"),
         obs_resize=obs_resize,
-        frame_stack=int(env_cfg.get("frame_stack", 1) or 1),
+        frame_stack=int(env_cfg.get("frame_stack", 1)),
         use_gpu_render=bool(env_cfg.get("use_gpu_render", False)),
         gpu_render_device=str(env_cfg.get("gpu_render_device", "auto")),
         gpu_render_profile=bool(env_cfg.get("gpu_render_profile", False)),
         gpu_render_profile_interval=int(
-            env_cfg.get("gpu_render_profile_interval", 1000) or 1000
+            env_cfg.get("gpu_render_profile_interval", 1000)
         ),
         policy_observation_layout="chw" if policy_type == "sample_factory" else "hwc",
         export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
@@ -244,7 +241,7 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
         repeat_action_probability=float(env_cfg.get("repeat_action_probability", 0.0)),
         full_action_space=bool(env_cfg.get("full_action_space", False)),
         expected_action_meanings=env_cfg.get("expected_action_meanings"),
-        frame_stack=int(env_cfg.get("frame_stack", 1) or 1),
+        frame_stack=int(env_cfg.get("frame_stack", 1)),
         export_env_raw_rgb_frames=_exports_raw_rgb_frames(config),
     )
 

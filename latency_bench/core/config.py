@@ -35,12 +35,14 @@ def merge_dicts(base: dict, override: dict) -> dict:
 def load_config(path: str | Path) -> dict:
     path = Path(path).expanduser().resolve()
     with path.open("r", encoding="utf-8") as f:
-        current = yaml.safe_load(f) or {}
+        current = yaml.safe_load(f)
+    if current is None:
+        current = {}
     if not isinstance(current, dict):
         raise ValueError(f"Config must be a mapping: {path}")
 
     base_ref = current.get("__base__")
-    if not base_ref:
+    if base_ref is None:
         return {k: v for k, v in current.items() if k != "__base__"}
 
     if isinstance(base_ref, (str, Path)):

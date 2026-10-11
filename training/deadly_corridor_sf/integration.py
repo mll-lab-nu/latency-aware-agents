@@ -310,10 +310,8 @@ SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
 
 def build_cli_args_from_config(config: dict) -> list[str]:
     env_cfg = config["env"]
-    evaluation_cfg = config.get("evaluation", {})
-    scheduler_cfg = config.get("scheduler")
-    if not isinstance(scheduler_cfg, dict):
-        raise ValueError("scheduler must be a mapping for VizDoom Sample Factory")
+    evaluation_cfg = config["evaluation"]
+    scheduler_cfg = config["scheduler"]
     args = build_common_sf_args(config, sf_env_name=env_cfg.get("env_id", SF_ENV_NAME))
     append_cli_arg(args, "--env-fps", env_cfg["env_fps"])
     append_cli_arg(args, "--obs-fps", env_cfg["obs_fps"])
@@ -340,7 +338,7 @@ def run_from_config(config: dict) -> int:
 
     register_deadly_corridor_components()
     cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
-    logging_cfg = config.get("logging", {}) if isinstance(config.get("logging"), dict) else {}
+    logging_cfg = config["logging"]
     apply_runtime_logging_config(cfg, logging_cfg)
     seed_everything(int(cfg.seed or 0))
     patch_sample_factory_wandb()

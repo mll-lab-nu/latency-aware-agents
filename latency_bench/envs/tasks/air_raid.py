@@ -48,7 +48,7 @@ def make_latency_sensitive_air_raid_env(
     from stable_baselines3.common.atari_wrappers import FireResetEnv, NoopResetEnv, WarpFrame
 
     env = gym.make(base_env_id, render_mode=render_mode, **base_make_kwargs)
-    if noop_max > 0:
+    if noop_max != 0:
         env = NoopResetEnv(env, noop_max=noop_max)
     if fire_reset:
         env = FireResetEnv(env)

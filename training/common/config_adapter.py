@@ -90,30 +90,27 @@ def _parse_actor_worker_gpus_config(value: Any) -> list[int] | None:
     if value is None:
         return None
     if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return []
-        parts = stripped.replace(",", " ").split()
+        parts = value.replace(",", " ").split()
     else:
         parts = list(value)
     return [int(item) for item in parts]
 
 
 def estimate_optimizer_steps_per_1m_env_steps(training_cfg: dict[str, Any]) -> float:
-    batch_size = int(training_cfg.get("batch_size", 0) or 0)
-    num_epochs = int(training_cfg.get("num_epochs", 0) or 0)
+    batch_size = int(training_cfg["batch_size"])
+    num_epochs = int(training_cfg["num_epochs"])
     return 1_000_000.0 * float(num_epochs) / float(batch_size)
 
 
 def sample_factory_training_summary(config: dict[str, Any]) -> dict[str, Any]:
-    training_cfg = config.get("training", {})
-    num_workers = int(training_cfg.get("num_workers", 0) or 0)
-    num_envs_per_worker = int(training_cfg.get("num_envs_per_worker", 0) or 0)
+    training_cfg = config["training"]
+    num_workers = int(training_cfg["num_workers"])
+    num_envs_per_worker = int(training_cfg["num_envs_per_worker"])
     return {
         "effective_envs": num_workers * num_envs_per_worker,
-        "batch_size": int(training_cfg.get("batch_size", 0) or 0),
-        "num_epochs": int(training_cfg.get("num_epochs", 0) or 0),
-        "num_batches_per_epoch": int(training_cfg.get("num_batches_per_epoch", 0) or 0),
+        "batch_size": int(training_cfg["batch_size"]),
+        "num_epochs": int(training_cfg["num_epochs"]),
+        "num_batches_per_epoch": int(training_cfg["num_batches_per_epoch"]),
         "optimizer_steps_per_1m_env_steps": estimate_optimizer_steps_per_1m_env_steps(training_cfg),
         "async_rl": bool(training_cfg.get("async_rl", True)),
     }
@@ -185,9 +182,9 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     backend_cfg = config["backend"]
     experiment_cfg = config["experiment"]
     training_cfg = config["training"]
-    latency_cfg = config.get("latency", {})
-    evaluation_cfg = config.get("evaluation", {})
-    logging_cfg = config.get("logging", {})
+    latency_cfg = config["latency"]
+    evaluation_cfg = config["evaluation"]
+    logging_cfg = config["logging"]
 
     args: list[str] = []
     append_cli_arg(args, "--mode", backend_cfg.get("run_mode", "train"))
@@ -198,7 +195,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--restart_behavior", backend_cfg.get("restart_behavior", "overwrite"))
     append_cli_arg(args, "--initial_model_path", backend_cfg.get("initial_model_path"))
     append_cli_arg(args, "--device", resolve_sample_factory_device(backend_cfg.get("device", "cpu")))
-    env_cfg = config.get("env", {})
+    env_cfg = config["env"]
     use_gpu_render = env_cfg.get("use_gpu_render", False)
     gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
     simulator = env_cfg.get("simulator")

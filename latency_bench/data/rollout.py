@@ -188,10 +188,6 @@ def collect_dataset(
     """Run shared collection phases; adapters only construct and execute environments."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    if not 0 <= val_fraction <= 1:
-        raise ValueError("val_fraction must be between 0 and 1")
-    if max_episodes < 1 or max_steps_per_episode < 1 or num_envs < 1 or replay_num_envs < 1:
-        raise ValueError("episode, step and environment counts must be positive")
     options = dict(
         max_episodes=max_episodes, max_steps_per_episode=max_steps_per_episode,
         val_fraction=val_fraction, split_seed=split_seed, num_envs=num_envs,

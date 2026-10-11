@@ -66,7 +66,7 @@ class StarVlaPolicyRunner(PolicyRunner):
         self._obs_fps = obs_fps
         self._wrapper = wrapper
         self._action_noise_seeded = action_noise_seeded
-        self._obs_resize = tuple(obs_resize) if obs_resize else None
+        self._obs_resize = tuple(obs_resize) if obs_resize is not None else None
         self._checkpoint_path = checkpoint_path
         self._device = device
         self._unnorm_key = unnorm_key
@@ -268,8 +268,8 @@ class StarVlaPolicyRunner(PolicyRunner):
             # frames[-0:] == frames, so env_step=0 falls back to the full reset-fill buffer.
             valid_count = min(len(frames), int(observation.env_step))
         else:
-            max_frames = max(1, int(config.history_frames) + 1)
-            valid_count = min(len(frames), max(1, int(observation.env_step) + 1), max_frames)
+            max_frames = config.history_frames + 1
+            valid_count = min(len(frames), observation.env_step + 1, max_frames)
         window = [np.asarray(frame, dtype=np.uint8) for frame in frames[-valid_count:]]
 
         if self._image_transform == "demon_attack_ghost_trail":
@@ -640,7 +640,7 @@ def _starvla_policy_inputs(
         base_prompt=base_prompt,
         latency_prompt_key=policy_cfg.get("latency_prompt_key"),
         prompt_mode=policy_cfg.get("prompt_mode"),
-        obs_resize=tuple(env_cfg["obs_resize"]) if env_cfg.get("obs_resize") else None,
+        obs_resize=tuple(env_cfg["obs_resize"]) if env_cfg.get("obs_resize") is not None else None,
         image_transform_config=policy_cfg.get("image_transform_config"),
         observation_stride_raw_frames=model_input._observation_stride_raw_frames(config),
         env_fps=env_cfg["env_fps"],

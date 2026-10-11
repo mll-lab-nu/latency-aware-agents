@@ -12,7 +12,7 @@ class ActionResolver:
     def __init__(self, env_config: Mapping[str, Any]):
         self.env_config = env_config
         self._action_map = self._normalize_action_map(env_config.get("action_map", {}))
-        self._noop_ref = self._require_noop_ref(env_config)
+        self._noop_ref = env_config["noop_action"]
         self._oneshot_refs = list(env_config.get("oneshot_actions", []))
         self._oneshot_ref_names = {str(item) for item in self._oneshot_refs}
         noop_value, noop_name = self._resolve_value_and_name(self._noop_ref)
@@ -56,15 +56,7 @@ class ActionResolver:
     def _normalize_action_map(action_map: Any) -> dict[str, Any]:
         if action_map is None:
             return {}
-        if not isinstance(action_map, Mapping):
-            raise ValueError("env.action_map must be a mapping when provided")
         return {str(key): value for key, value in action_map.items()}
-
-    @staticmethod
-    def _require_noop_ref(env_config: Mapping[str, Any]) -> Any:
-        if "noop_action" not in env_config:
-            raise ValueError("Missing required field: noop_action")
-        return env_config["noop_action"]
 
 
 def _contains_equal(values: Iterable[Any], target: Any) -> bool:

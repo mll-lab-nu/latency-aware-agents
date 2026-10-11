@@ -67,10 +67,6 @@ def normalize_actions_for_space(
     actions = _as_action_tensor(actions, device)
     if isinstance(action_space, Discrete):
         if actions.ndim == 0:
-            if batch_size != 1:
-                raise ValueError(
-                    "Sample Factory batched policy returned a scalar action for multiple observations"
-                )
             actions = actions.reshape(1, 1)
         elif actions.ndim == 1:
             actions = unsqueeze_tensor(actions, dim=-1)
@@ -90,9 +86,7 @@ def normalize_actions_for_space(
             actions,
             batch_size=batch_size,
             num_components=len(action_space.spaces),
-            action_space_name="Tuple",
         )
-        _validate_discrete_tuple_action_values(actions, action_space)
         return actions
 
     if _is_one_dimensional_multidiscrete_space(action_space):
@@ -100,9 +94,7 @@ def normalize_actions_for_space(
             actions,
             batch_size=batch_size,
             num_components=len(action_space.nvec),
-            action_space_name="MultiDiscrete",
         )
-        _validate_multidiscrete_action_values(actions, action_space)
         return actions
 
     raise NotImplementedError(f"Unsupported Sample Factory action space for batched prediction: {action_space!r}")
@@ -113,21 +105,9 @@ def _normalize_composite_action_tensor(
     *,
     batch_size: int,
     num_components: int,
-    action_space_name: str,
 ) -> torch.Tensor:
-    if actions.ndim == 1:
-        if batch_size == 1 and actions.shape[0] == num_components:
-            actions = actions.reshape(1, num_components)
-        else:
-            raise ValueError(
-                f"Sample Factory {action_space_name} actions must have shape [batch, {num_components}], "
-                f"got {tuple(actions.shape)}"
-            )
-    if actions.ndim != 2:
-        raise ValueError(
-            f"Sample Factory {action_space_name} actions must have shape [batch, {num_components}], "
-            f"got {tuple(actions.shape)}"
-        )
+    if actions.ndim == 1 and batch_size == 1:
+        actions = actions.unsqueeze(0)
     _require_action_shape(actions, batch_size=batch_size, num_components=num_components)
     return actions
 
@@ -136,25 +116,6 @@ def _require_action_shape(actions: torch.Tensor, *, batch_size: int, num_compone
     expected_shape = (batch_size, num_components)
     if tuple(actions.shape) != expected_shape:
         raise ValueError(f"Sample Factory actions must have shape {expected_shape}, got {tuple(actions.shape)}")
-
-
-def _validate_discrete_tuple_action_values(actions: torch.Tensor, action_space: SpaceTuple) -> None:
-    for component_index, subspace in enumerate(action_space.spaces):
-        values = actions[:, component_index]
-        if torch.any(values < 0) or torch.any(values >= subspace.n):
-            raise ValueError(
-                f"Tuple action component {component_index} is outside Discrete({subspace.n})"
-            )
-
-
-def _validate_multidiscrete_action_values(actions: torch.Tensor, action_space: MultiDiscrete) -> None:
-    nvec = np.asarray(action_space.nvec).tolist()
-    for component_index, n in enumerate(nvec):
-        values = actions[:, component_index]
-        if torch.any(values < 0) or torch.any(values >= n):
-            raise ValueError(
-                f"MultiDiscrete action component {component_index} is outside range [0, {n})"
-            )
 
 
 def split_batch_actions(processed_actions: Any, batch_size: int, *, action_space: Any) -> list[Any]:

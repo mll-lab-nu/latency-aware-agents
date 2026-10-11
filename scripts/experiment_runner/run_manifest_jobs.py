@@ -96,7 +96,7 @@ def _terminate_active_processes(sig: int = signal.SIGTERM) -> None:
         _signal_process_group(process, sig)
     deadline = time.time() + PROCESS_GROUP_TERM_TIMEOUT_SEC
     for process in processes:
-        remaining = max(0.0, deadline - time.time())
+        remaining = deadline - time.time()
         try:
             process.wait(timeout=remaining)
         except subprocess.TimeoutExpired:
@@ -105,7 +105,7 @@ def _terminate_active_processes(sig: int = signal.SIGTERM) -> None:
         _signal_process_group(process, signal.SIGKILL)
     kill_deadline = time.time() + PROCESS_GROUP_KILL_TIMEOUT_SEC
     for process in processes:
-        remaining = max(0.0, kill_deadline - time.time())
+        remaining = kill_deadline - time.time()
         try:
             process.wait(timeout=remaining)
         except subprocess.TimeoutExpired:

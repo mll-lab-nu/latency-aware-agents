@@ -31,6 +31,8 @@ def load_flappy_cuda_extension() -> Any:
 
 
 class CudaFlappyRenderer:
+    """Render Flappy core state with CUDA kernels."""
+
     min_rotation = -90
     max_rotation = 20
 
@@ -47,10 +49,6 @@ class CudaFlappyRenderer:
             else assets.background_rgb
         )
         self.fill_color = self._uint8_tensor(np.asarray(assets.fill_color, dtype=np.uint8))
-        assert assets.base is not None
-        assert assets.pipe_upper is not None
-        assert assets.pipe_lower is not None
-        assert assets.birds is not None
         self.base_rgb = self._uint8_tensor(assets.base.rgb)
         self.base_mask = self._bool_tensor(assets.base.mask)
         self.pipe_upper_rgb = self._uint8_tensor(assets.pipe_upper.rgb)
@@ -92,7 +90,6 @@ class CudaFlappyRenderer:
         return out
 
     def _bird_atlas(self, assets: FlappyRenderAssets) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        assert assets.birds is not None
         rotations = list(range(self.min_rotation, self.max_rotation + 1))
         player_indices = sorted({int(key[0]) for key in assets.birds})
         max_h = max(sprite.height for sprite in assets.birds.values())

@@ -194,16 +194,11 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         Explicit sources let session callers share a Temporal sampler across
         their episodes without tying its random stream to physical slot IDs.
         """
-        if max_env_steps < 0:
-            raise ValueError("max_env_steps must be non-negative")
         episode_ids = [int(episode_id) for episode_id in episode_ids]
         if len(seeds) != len(episode_ids):
             raise ValueError("seeds length must match episode_ids length")
 
         self._reset_run_state(episode_ids)
-        if not episode_ids and next_episode is None:
-            return []
-
         groups = deque(
             deque(group) for group in (
                 episode_groups if episode_groups is not None else [[eid] for eid in episode_ids]
@@ -334,7 +329,7 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
                         [slot.decision_issued_action], [active_action.value],
                     )
                 result = step_responses[slot.slot_id].result
-                soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
+                soft_reset = bool(result.info.get("soft_reset"))
                 episode_done = bool(result.done or result.truncated) and not soft_reset
                 if slot.buffers.step_records is not None or self.collection_observer is not None:
                     record = build_step_record(

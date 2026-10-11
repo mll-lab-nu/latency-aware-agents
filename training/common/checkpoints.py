@@ -48,10 +48,7 @@ def restore_rng_state(state: dict[str, Any]) -> None:
 
 
 def experiment_dir(train_dir: str | os.PathLike[str], experiment_name: str) -> Path:
-    name = str(experiment_name).strip()
-    if not name:
-        raise ValueError("experiment.name must be a non-empty string")
-    return Path(train_dir).expanduser() / name
+    return Path(train_dir).expanduser() / str(experiment_name).strip()
 
 
 def checkpoint_dir(
@@ -169,7 +166,6 @@ def patch_sample_factory_checkpoint_loader() -> None:
                 return False
 
             checkpoint = self._get_checkpoint_dict()
-            assert checkpoint is not None
 
             root = self.checkpoint_dir(self.cfg, self.policy_id)
             tmp_filepath = os.path.join(root, f"{name_prefix}_temp")

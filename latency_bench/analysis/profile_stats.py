@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable
 
 import numpy as np
@@ -40,8 +39,6 @@ def compute_latency_profile_summary(
 
     for threshold in tail_frame_thresholds:
         threshold_value = float(threshold)
-        if not math.isfinite(threshold_value) or threshold_value < 0:
-            raise ValueError("tail_frame_thresholds must contain finite non-negative values")
         threshold_key = _format_threshold_key(threshold_value)
         suffix = "frame" if threshold_key == "1" else "frames"
         key = f"prob_latency_gt_{threshold_key}_{suffix}"

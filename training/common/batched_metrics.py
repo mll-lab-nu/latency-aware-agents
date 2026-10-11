@@ -24,7 +24,7 @@ class BatchedEpisodeMetrics:
         include_score: bool = True,
     ) -> None:
         self.batch_size = int(batch_size)
-        self.frames_per_decision = max(1, int(frames_per_decision))
+        self.frames_per_decision = frames_per_decision
         self.metrics_path = metrics_path or ""
         self.worker_index = int(worker_index)
         self.vector_index = int(vector_index)

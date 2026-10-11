@@ -421,7 +421,7 @@ class SampleFactoryPolicyRunner(PolicyRunner):
         if self.use_rnn:
             slot_ids = self._slot_ids_for_observations(observations)
             rnn_states = torch.cat(
-                [self._rnn_state_for_slot(slot_id) for slot_id in slot_ids],
+                [self._rnn_states_by_slot[slot_id] for slot_id in slot_ids],
                 dim=0,
             )
         else:
@@ -523,9 +523,6 @@ class SampleFactoryPolicyRunner(PolicyRunner):
                 self._rnn_states_by_slot[slot_id] = self._zero_rnn_state()
             slot_ids.append(slot_id)
         return slot_ids
-
-    def _rnn_state_for_slot(self, slot_id: int) -> torch.Tensor:
-        return self._rnn_states_by_slot[slot_id]
 
     def _store_batch_rnn_states(
         self, slot_ids: Sequence[int], new_rnn_states: torch.Tensor

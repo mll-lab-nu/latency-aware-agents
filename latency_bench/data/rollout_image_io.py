@@ -74,7 +74,7 @@ class RolloutImageWriter:
             row_buffer_size: Maximum pending writes before waiting.
             export_image_size: Optional ``(width, height)`` resize target.
         """
-        self.writer = BackgroundWriter(max_workers=max_workers, max_pending=row_buffer_size) if max_workers > 0 else None
+        self.writer = BackgroundWriter(max_workers=max_workers, max_pending=row_buffer_size) if max_workers != 0 else None
         self.export_image_size = export_image_size
 
     def write(self, frame: np.ndarray, image_path: Path) -> str:
