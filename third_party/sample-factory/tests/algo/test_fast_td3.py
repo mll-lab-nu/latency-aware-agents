@@ -1,5 +1,6 @@
 from copy import deepcopy
 from types import SimpleNamespace
+import time
 
 import numpy as np
 import pytest
@@ -217,7 +218,7 @@ def test_fasttd3_runner_stops_on_optimizer_steps_and_uses_them_for_summaries():
         ),
         env_steps={0: 160_000_000},
         train_steps={0: 499_999},
-        total_train_seconds=1.0,
+        start_time=time.time(),
     )
 
     assert Runner._summary_step(runner, 0) == 499_999
