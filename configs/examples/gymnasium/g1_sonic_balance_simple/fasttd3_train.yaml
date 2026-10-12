@@ -145,7 +145,7 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
-  wandb_project: latency-sensitive-bench
+  wandb_project: null
   wandb_group: g1-sonic-balance-fasttd3
   wandb_job_type: sample_factory
   wandb_name: g1_sonic_balance_simple_raw_ramp_fasttd3_25m_s1

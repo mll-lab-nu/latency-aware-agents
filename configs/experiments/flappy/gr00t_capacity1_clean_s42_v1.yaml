@@ -58,7 +58,7 @@ evaluation:
       max_latency_ms: 300.0
       seed: 0
 logging:
-  wandb_project: starvla_tasks
+  wandb_project: null
   wandb_job_type: flappy_capacity1_gr00t_clean
 
 latency_settings:

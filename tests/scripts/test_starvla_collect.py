@@ -120,16 +120,13 @@ def test_profile_inference_uses_the_explicit_local_backbone(tmp_path):
     assert result["policy"]["backbone_path"] == str(tmp_path / "Qwen3-VL-4B-Instruct")
 
 
-def test_profile_publish_records_the_selected_checkpoint_and_revision(tmp_path, monkeypatch):
+def test_profile_export_records_selected_checkpoint_and_evaluation(tmp_path):
+    """Long-lived Balance inference bundle contract owned by the task recipe suite."""
     from scripts.tasks.humanoidbench_balance_simple import vla_profile_dagger as profile
 
     bundle = tmp_path / "bundle"
     (bundle / "checkpoints").mkdir(parents=True)
-    published = {}
-    monkeypatch.setattr(
-        profile.artifacts, "publish_model",
-        lambda source, **kwargs: published.update(source=source, kwargs=kwargs) or "revision-123")
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         condition="latency-aware", model="qwenpi_v3", run_id="formal-profile-conditioned",
         horizon=16, label_mode="profile_conditioned", teacher=tmp_path / "teacher.pth",
         teacher_config=tmp_path / "teacher.yaml", teacher_revision="teacher-revision",
@@ -140,14 +137,10 @@ def test_profile_publish_records_the_selected_checkpoint_and_revision(tmp_path, 
     run_record = {"development_seeds": list(range(32)), "heldout_seeds": list(range(64)),
                   "wandb_runs": {"dagger": {"id": "run-dagger"}}}
 
-    publication = profile.publish_result(args, bundle, evaluation, result, run_record)
+    profile.export_result(args, bundle, evaluation, result, run_record)
 
-    assert published["source"] == bundle
-    assert published["kwargs"]["condition"] == "latency-aware"
     assert json.loads((bundle / "eval_profile.json").read_text())["n"] == 64
     assert json.loads((bundle / "provenance.json").read_text())["optimizer_steps"] == 10000
-    assert publication["revision"] == "revision-123"
-    assert json.loads((tmp_path / "publication.json").read_text()) == publication
 
 
 def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_path, monkeypatch):
@@ -170,7 +163,7 @@ def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_p
         (directory / "metadata.json").write_text("{}")
     monkeypatch.setattr(profile, "write_balance_dataset", write_dataset)
     monkeypatch.setattr(profile, "write_json", lambda *args, **kwargs: None)
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         smoke=True, rollout_overlap=False, inference_batch_size=8, rollout_workers=16,
         label_mode="profile_conditioned", teacher=tmp_path / "teacher.pth",
         teacher_config=tmp_path / "teacher.yaml", teacher_revision="revision",
@@ -202,7 +195,7 @@ def test_profile_periodic_eval_is_logged_with_its_training_run(tmp_path, monkeyp
 
     monkeypatch.setenv("WANDB_ENTITY", "entity")
     monkeypatch.setattr(profile.wandb, "init", lambda **kwargs: captured.update(kwargs=kwargs) or Run())
-    args = SimpleNamespace(smoke=False, collect_bootstrap_only=False, run_id="formal", task="balance",
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, smoke=False, collect_bootstrap_only=False, run_id="formal", task="balance",
                            model="qwenoft", label_mode="zero_full", output_dir=tmp_path,
                            wandb_runs={"dagger": {"id": "formal-dagger"}})
     evaluation = {"mean_length": 40.0, "mean_return": 27.0, "n": 32, "ge100": 0, "ge500": 0}
@@ -228,7 +221,7 @@ def test_profile_dagger_launch_uses_one_resumable_full_schedule(tmp_path, monkey
     deltas = [tmp_path / "dagger_01", tmp_path / "dagger_02"]
     state = tmp_path / "training/dagger/checkpoints/steps_2_state"
     state.mkdir(parents=True)
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         output_dir=tmp_path,
         task="balance",
         label_mode="zero_full",
@@ -341,7 +334,10 @@ def test_profile_dagger_starts_at_bootstrap_then_advances_latest_across_rounds(t
 
     def train(args, bootstrap, deltas, phase, steps, boundary, pretrained, resume):
         training.append((phase, steps, boundary, pretrained, resume))
-        return output / f"bundles/{phase}_{boundary}", output / f"states/{boundary}"
+        destination = output / f"bundles/{phase}_{boundary}"
+        (destination / "checkpoints").mkdir(parents=True, exist_ok=True)
+        (destination / "checkpoints/model.pt").touch()
+        return destination, output / f"states/{boundary}"
 
     class Process:
         args = ["accelerate"]
@@ -447,7 +443,7 @@ def test_profile_train_segment_writes_random_40_40_20_and_checkpointing(tmp_path
         profile.runtime, "run_command",
         lambda *args, **kwargs: launched.update(env=kwargs["env"]))
     monkeypatch.setattr(profile, "inference_bundle", lambda trained, weights, destination, **kwargs: destination)
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         task="balance", model="qwenpi_v3", horizon=16, label_mode="profile_conditioned",
         smoke=False, gradient_checkpointing=False, output_dir=tmp_path, backbone=tmp_path / "backbone",
         vla_python=tmp_path / "qwenpi/bin/python", port=1234, run_id="run",
@@ -542,7 +538,7 @@ def test_profile_worker_startup_failure_propagates_and_reaps_children(tmp_path, 
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "6,7")
     before = {process.pid for process in mp.active_children()}
-    args = SimpleNamespace(rollout_workers=2, teacher=tmp_path / "teacher.pth",
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, rollout_workers=2, teacher=tmp_path / "teacher.pth",
                            teacher_config=tmp_path / "teacher.yaml",
                            label_mode="profile_conditioned")
     with pytest.raises(RuntimeError, match="KeyError"):

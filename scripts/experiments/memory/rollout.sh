@@ -15,6 +15,5 @@ case "${1:-all}" in
 esac
 for task in "${tasks[@]}"; do
   config="configs/experiments/memory/collect/$task.yaml"
-  "$PYTHON" -m scripts.experiments.memory.collect --config "$config" --stage collect
-  "$PYTHON" -m scripts.experiments.memory.collect --config "$config" --stage publish
+  "$PYTHON" -m scripts.experiments.memory.collect --config "$config"
 done

@@ -22,7 +22,7 @@ import wandb
 import yaml
 
 from latency_bench.core.config import load_config
-from scripts.starvla import artifacts, runtime
+from scripts.starvla import runtime
 from scripts.starvla.dagger_mixture import write_dagger_mixture
 from latency_bench.policy.action_prefix import resolve_action_prefix
 from latency_bench.integrations.starvla.task_contracts import task_spec
@@ -157,8 +157,8 @@ def _rollout_quality_metrics(prefix, result):
 
 def _wandb_stage_run(args, stage, config=None):
     suffix = "" if stage == "bootstrap" else f"-{stage}"
-    disabled = args.smoke or args.collect_bootstrap_only
-    return wandb.init(project="starvla_tasks", entity=None if disabled else os.environ["WANDB_ENTITY"],
+    disabled = args.smoke or args.collect_bootstrap_only or args.wandb_project is None
+    return wandb.init(project=args.wandb_project, entity=args.wandb_entity,
                       id=args.wandb_runs[stage]["id"],
                       name=f"{args.task}-{args.label_mode}-{args.model}{suffix}",
                       group=args.run_id, mode="disabled" if disabled else "online", dir=str(args.output_dir),
@@ -174,7 +174,7 @@ def _log_periodic_eval(args, stage, training_step, optimizer_steps, evaluation, 
                       "eval/ge100": evaluation["ge100"], "eval/ge500": evaluation["ge500"]})
 
 
-def publish_result(args, bundle, evaluation, result, run_record):
+def export_result(args, bundle, evaluation, result, run_record):
     eval_name = "eval_l0.json" if args.condition == "zero-latency" else "eval_profile.json"
     write_json(bundle / eval_name, evaluation)
     write_json(bundle / "provenance.json", {
@@ -194,18 +194,6 @@ def publish_result(args, bundle, evaluation, result, run_record):
         f"# {args.model} — HumanoidBench Balance Simple\n\n"
         f"DAgger with {args.label_mode} supervision, action horizon {args.horizon}, "
         "and a 50 Hz H1 teacher queried every physical frame.\n")
-    revision = artifacts.publish_model(
-        bundle, task="humanoidbench_balance_simple", model=args.model,
-        run_id=args.run_id, condition=args.condition, action_horizon=args.horizon)
-    publication = {
-        "repo_id": artifacts.MODEL_REPO_ID,
-        "path": artifacts.model_path(
-            "humanoidbench_balance_simple", args.model, args.run_id,
-            condition=args.condition, action_horizon=args.horizon),
-        "revision": revision,
-    }
-    write_json(args.output_dir / "publication.json", publication)
-    return publication
 
 
 def _training_launch(
@@ -231,7 +219,7 @@ def _training_launch(
         config["trainer"]["dagger_control_dir"] = str(control_dir)
     config["wandb_tags"] = ["balance", f"h{args.horizon}", args.label_mode, "h1-teacher",
                             "smoke" if args.smoke else "formal"]
-    config["wandb_entity"] = None if args.smoke else os.environ["WANDB_ENTITY"]
+    config["wandb_entity"] = args.wandb_entity
     config["wandb_group"] = args.run_id
     config["framework"]["qwenvl"]["enable_gradient_checkpointing"] = args.gradient_checkpointing
     config["datasets"]["vla_data"]["sequential_step_sampling"] = False
@@ -244,7 +232,7 @@ def _training_launch(
     path = args.output_dir / f"{stem}.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False))
     env = runtime.environment() | {"CUDA_HOME": str(args.vla_python.resolve().parent.parent),
-                           "WANDB_MODE": "disabled" if args.smoke else "online",
+                           "WANDB_MODE": "online" if args.wandb_project is not None and not args.smoke else "disabled",
                            "WANDB_RUN_ID": args.wandb_runs[training_phase]["id"], "WANDB_RESUME": "allow"}
     command = [args.vla_python, "-m", "accelerate.commands.launch", "--config_file",
                runtime.STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml", "--num_processes",
@@ -373,7 +361,8 @@ def main():
     parser.add_argument("--teacher", type=Path, default=TEACHER)
     parser.add_argument("--teacher-config", type=Path, default=TEACHER_CONFIG)
     parser.add_argument("--teacher-revision", default=TEACHER_REVISION)
-    parser.add_argument("--wandb-entity", default="saberrr-zju")
+    parser.add_argument("--wandb-project", help="Enable W&B in this project")
+    parser.add_argument("--wandb-entity", help="Optional W&B account or team")
     parser.add_argument("--profile-path", type=Path)
     parser.add_argument("--collect-bootstrap-only", action="store_true")
     parser.add_argument("--model", choices=MODELS, default="qwenpi_v3")
@@ -388,14 +377,11 @@ def main():
     parser.add_argument("--inference-batch-size", type=int, default=8)
     parser.add_argument("--rollout-overlap", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
-    os.environ["WANDB_ENTITY"] = args.wandb_entity
     args.output_dir = args.output.resolve()
     if not args.resume:
         args.output_dir.mkdir(parents=True, exist_ok=False)
     args.run_id = f"{args.output_dir.parent.name}-{args.output_dir.name}"
-    os.environ["WANDB_RUN_GROUP"] = args.run_id
     args.task = "balance"
     args.condition = "zero-latency" if args.label_mode == "zero_full" else "latency-aware"
     args.num_workers, args.prefetch_factor = 16, 3
@@ -768,9 +754,9 @@ def main():
         run.summary["best_vs_bootstrap_mean_length_gain"] = result["best_vs_bootstrap"]["mean_length_gain"]
         run.summary["best_vs_bootstrap_paired_95_interval"] = result["best_vs_bootstrap"]["paired_95_interval"]
         run.summary["best_vs_bootstrap_accepted"] = result["best_vs_bootstrap"]["accepted"]
-    if args.publish:
-        publication = publish_result(args, best_bundle, results["best"], result, run_record)
-        print(f"MODEL_REVISION={publication['revision']}")
+    export_result(args, best_bundle, results["best"], result, run_record)
+    print(f"OUTPUT_DIR={args.output_dir}")
+    print(f"MODEL_PATH={best_bundle / 'checkpoints/model.pt'}")
 
 
 if __name__ == "__main__":

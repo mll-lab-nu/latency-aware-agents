@@ -17,28 +17,21 @@ DAGGER="$ROOT/outputs/starvla/runs/mikasa_intercept_grab_fast/$RUN_ID/dagger"
 STATE="$ROOT/outputs/tasks/mikasa_intercept_grab_fast/$RUN_ID"
 TEACHER="$ROOT/outputs/starvla/artifacts/models/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/checkpoint.pt"
 cd "$ROOT"
-set -a
-. ./.env
-set +a
 unset WANDB_RUN_ID WANDB_RESUME
-export WANDB_ENTITY="${WANDB_ENTITY:?W&B entity}"
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="$ROOT:$ROOT/third_party/starVLA"
 export CUDA_VISIBLE_DEVICES="$DEVICES"
 export TOKENIZERS_PARALLELISM=false
 export CUDA_HOME="$(dirname "$(dirname "$VLA_PY")")"
 export PATH="$CUDA_HOME/bin:$PATH"
-PUBLISH_PREFIX="latency-aware/mikasa-intercept-grab-fast/vla/starvla-qwenoft-h8/$RUN_ID"
 mkdir -p "$DATA" "$STATE"
-publish_failure() {
+record_failure() {
   job_exit=$?
   trap - ERR
   printf 'failed:%s\n' "$job_exit" > "$STATE/phase"
-  "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 \
-    diagnostics --sft "$SFT" --dagger "$DAGGER" --state "$STATE" --prefix "$PUBLISH_PREFIX"
   exit "$job_exit"
 }
-trap publish_failure ERR
+trap record_failure ERR
 
 "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.write_conditioned_configs \
   --condition "$CONDITION" --output "$STATE/$CONDITION.yaml"
@@ -50,9 +43,7 @@ bash scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh \
 printf 'sft-5000\n' > "$STATE/phase"
 bash scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh \
   train qwenoft "$CONDITION" "$RUN_ID" "$DEVICES" "$SFT_PORT" > "$STATE/sft.log" 2>&1
-printf 'publish-sft-endpoint\n' > "$STATE/phase"
-"$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 \
-  training --source "$SFT/training/bootstrap" --prefix "$PUBLISH_PREFIX"
+printf 'prepare-dagger-evaluation\n' > "$STATE/phase"
 "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.write_conditioned_configs \
   --condition "$CONDITION" --output "$STATE/eval.yaml" \
   --evaluation-run "$SFT" --vla-python "$VLA_PY" \
@@ -70,6 +61,4 @@ REPORT_ARGS=()
 if [[ -n "$PREVIOUS_COLUMN" ]]; then REPORT_ARGS+=(--previous-column "$PREVIOUS_COLUMN"); fi
 "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.prefix_repair_results \
   --run "$DAGGER" --output "$STATE/results" "${REPORT_ARGS[@]}"
-"$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 \
-  selected --source "$DAGGER" --state "$STATE" --prefix "$PUBLISH_PREFIX"
 printf 'complete\n' > "$STATE/phase"

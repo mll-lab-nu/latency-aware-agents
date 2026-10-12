@@ -46,7 +46,7 @@ else:
     config_path = tmp_path / "recipe.yaml"
     config_path.write_text(yaml.safe_dump(recipe))
     monkeypatch.setattr(collect.sys, "executable", str(interpreter))
-    collect.main(["--config", str(config_path), "--stage", "collect"])
+    collect.main(["--config", str(config_path)])
     assert json.loads((output / "metadata.json").read_text())["replayed_seeds"] == [10, 11, 110]
     assert [row["episode_idx"] for row in json.loads((output / "probe_state.json").read_text())["accepted_specs"]] == [0, 1, 2]
 

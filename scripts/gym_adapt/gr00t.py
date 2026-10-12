@@ -68,7 +68,8 @@ def teacher_evaluation_config(config_path: Path, checkpoint: Path, output: Path,
 
 
 def vla_config(task: str, dataset: Path, backbone: Path, output: Path,
-               *, num_gpus: int, micro_batch: int, condition: str, wandb_entity: str) -> dict:
+               *, num_gpus: int, micro_batch: int, condition: str,
+               wandb_entity: str | None = None, wandb_project: str | None = None) -> dict:
     cfg = yaml.safe_load((STARVLA / "examples/rl_games/config/base/common.yaml").read_text())
     contract = json.loads((dataset / "manifest.json").read_text())
     horizon = 1
@@ -80,7 +81,7 @@ def vla_config(task: str, dataset: Path, backbone: Path, output: Path,
     write_json(mixture, {"train": [[str(dataset), 1.0, contract["robot_type"]]],
                          "validation": [[str(dataset.with_name(dataset.name + "__val")), 1.0, contract["robot_type"]]]})
     cfg.update(run_id=run_id, run_root_dir=str(output / "training"), seed=42, is_debug=False,
-               version_id="0.21", wandb_project="latency-sensitive-bench", wandb_entity=wandb_entity,
+               version_id="0.21", wandb_project=wandb_project, wandb_entity=wandb_entity,
                wandb_name=run_id, wandb_group="gr00t-seven-env", wandb_tags=[task, condition, "GR00T", f"h{horizon}"],
                training_latency_condition=condition,
                backbone=BACKBONE, base_model={"repo_id": BACKBONE["repo_id"]})
@@ -218,7 +219,8 @@ def main():
     vla.add_argument("--num-gpus", type=int, choices=(1, 2, 4), required=True)
     vla.add_argument("--micro-batch", type=int, choices=(8, 16, 32), required=True)
     vla.add_argument("--condition", choices=("zero_latency", "profile_latency"), required=True)
-    vla.add_argument("--wandb-entity", required=True)
+    vla.add_argument("--wandb-project", help="Enable W&B in this project")
+    vla.add_argument("--wandb-entity", help="Optional W&B account or team")
     bundle = commands.add_parser("bundle")
     bundle.add_argument("--task", choices=tuple(GATES), required=True)
     for name in ("trained", "checkpoint", "dataset", "output", "source-manifest"):
@@ -253,7 +255,7 @@ def main():
     elif args.command == "vla-config":
         cfg = vla_config(args.task, args.dataset.resolve(), args.backbone.resolve(), args.output.resolve(),
                          num_gpus=args.num_gpus, micro_batch=args.micro_batch, condition=args.condition,
-                         wandb_entity=args.wandb_entity)
+                         wandb_entity=args.wandb_entity, wandb_project=args.wandb_project)
         path = args.output / "training.yaml"
         path.write_text(yaml.safe_dump(cfg, sort_keys=False))
         print(path)

@@ -8,7 +8,7 @@ current frame and the action-query tokens attend to, so a streaming policy does
 not re-encode old frames every step. Training uses the same recurrence, so there
 is no train/inference gap.
 
-Milestone status (see docs/memory.md):
+Milestone status (see docs/guides/memory.md):
   1/2 (this file, no eviction): an incremental, KV-cached forward fed one frame
       at a time is mathematically identical to a single forward over the whole
       sequence. ``chunked_prefill_last_hidden`` is that primitive, and

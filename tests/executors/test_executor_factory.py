@@ -815,16 +815,9 @@ def test_realtime_factory_releases_environment_after_setup_failure(monkeypatch, 
 
 
 
-def test_factory_rejects_removed_trace_replay_method(tmp_path):
-    trace_path = tmp_path / "profile_device_latency.jsonl"
-    trace_path.write_text('{"latency_ms": 0.0}\n', encoding="utf-8")
+def test_factory_rejects_unsupported_latency_method(tmp_path):
     config = _config(output_dir=str(tmp_path))
-    config["executor"]["parallel_envs"] = 4
-    config["latency"] = {
-        "method": "trace_replay",
-        "trace_path": str(trace_path),
-        "loop_trace": True,
-    }
+    config["latency"] = {"method": "unsupported_method"}
 
     with pytest.raises(ValueError, match="Unsupported latency method"):
         build_executor(config)
@@ -846,20 +839,6 @@ def test_factory_builds_profile_sample_latency_source(tmp_path):
         assert executor.latency_source.profile_metadata["model_id"] == "openvla"
     finally:
         executor.close()
-
-
-@pytest.mark.parametrize("latency_method", ["empirical_sample", "empirical_trace_replay", "measured"])
-def test_factory_rejects_removed_empirical_latency_methods(tmp_path, latency_method):
-    profile_dir = _write_latency_profile(tmp_path)
-    config = _config(output_dir=str(tmp_path))
-    config["latency"] = {
-        "method": latency_method,
-        "profile_path": profile_dir,
-        "seed": 0,
-    }
-
-    with pytest.raises(ValueError, match="Unsupported latency method"):
-        build_executor(config)
 
 
 def test_parallel_simulated_tuple_action_space_builds_batched_executor_after_phase_3d(tmp_path):

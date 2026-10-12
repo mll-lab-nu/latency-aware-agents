@@ -2,7 +2,6 @@ from argparse import Namespace
 import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -18,60 +17,8 @@ from scripts.tasks.atari_hist8.profile_teacher import teacher_configs
 from scripts.tasks.decision_history.collect_vla_hist8 import audit_atari_history
 
 
-def test_published_profile_records_model_revision_and_uploaded_evidence(tmp_path, monkeypatch):
-    """Long-lived H8 publication contract owned by the history recipe suite."""
-    from scripts.tasks.atari_hist8 import profile_published as module
-    from latency_bench.core.config import load_config
-
-    publication = {
-        "task": "atlantis", "model": "qwenoft", "repo_id": "org/models",
-        "path": "published/bundle", "revision": "model-revision",
-    }
-    publication_path = tmp_path / "publication.json"
-    publication_path.write_text(json.dumps(publication))
-    run_dir = tmp_path / "run"
-    session = run_dir / "sessions/0"
-    session.mkdir(parents=True)
-    (session / "observation_attempts.jsonl").write_text("{}\n")
-    (session / "generated.yaml").write_text("private: config")
-    (run_dir / "hardware.json").write_text("private hardware")
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    profile_path = profile_dir / "profile.json"
-    profile_path.write_text("{}")
-    measured, publications = [], []
-
-    def run_profile(config, **kwargs):
-        measured.append(config)
-        return {"PROFILE_PATH": str(profile_path), "PROFILE_REF": "m/g/w/i",
-                "RUN_DIR": str(run_dir), "RUN_ID": "run-1"}
-
-    def create_commit(**kwargs):
-        publications.append(kwargs)
-        return SimpleNamespace(oid="profile-revision")
-
-    root = Path(__file__).resolve().parents[2]
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(module, "load_config", lambda path: load_config(root / path))
-    monkeypatch.setattr(module, "run_profile", run_profile)
-    monkeypatch.setattr(module, "HfApi", lambda: SimpleNamespace(create_commit=create_commit))
-    monkeypatch.setattr(sys, "argv", ["profile_published", "--publication", str(publication_path)])
-    module.main()
-    assert (measured[0]["policy"]["hf_repo"], measured[0]["policy"]["root"],
-            measured[0]["policy"]["revision"]) == ("org/models", "published/bundle", "model-revision")
-    upload = publications[0]
-    assert (upload["repo_id"], upload["repo_type"]) == ("MLL-Lab/LAGEN-profiles", "dataset")
-    assert {operation.path_in_repo for operation in upload["operations"]} == {
-        "runs/m/g/w/i/run-1/sessions/0/observation_attempts.jsonl", "profiles/m/g/w/i/profile.json",
-    }
-    receipt = json.loads((tmp_path / "outputs/tasks/atari_hist8_v1/profile_receipts/atlantis-qwenoft.json").read_text())
-    assert (receipt["profile_repo"], receipt["profile_revision"], receipt["profile_path"]) == (
-        "MLL-Lab/LAGEN-profiles", "profile-revision", "profiles/m/g/w/i/profile.json",
-    )
-
-
 def arguments(tmp_path, task="demon_attack", model="qwenoft"):
-    return Namespace(task=task, model=model, dataset_dir=tmp_path / "data" / "lerobot",
+    return Namespace(wandb_project=None, wandb_entity=None, task=task, model=model, dataset_dir=tmp_path / "data" / "lerobot",
                      base_model_dir=tmp_path / "backbone", output_root=tmp_path / "train",
                      run_id=f"{task}-{model}-v2", vlm_lr=3e-6, stop_after_steps=None,
                      preflight=False, resume=False, training_condition="profile")
@@ -99,9 +46,7 @@ def test_profile_teacher_keeps_cpu_learning_and_independent_gpu_evaluation(tmp_p
     assert evaluation["evaluation"]["max_env_steps"] == 7200
     assert evaluation["executor"]["env_backend"] == f"{task}_gpu_batched"
     assert evaluation["logging"]["wandb_name"] == train["logging"]["wandb_name"]
-    assert train["logging"]["wandb_project"] == "latency-sensitive-bench"
-
-
+    assert train["logging"]["wandb_project"] is None
 
 
 def test_atari_profile_history_audit_preserves_rejected_commands_and_delayed_actions(tmp_path):
@@ -146,8 +91,8 @@ def test_training_configs_keep_the_task_contract(tmp_path, task, state_dim, acti
     assert cfg.trainer.learning_rate.base == 3e-5
     assert cfg.trainer.scheduler_specific_kwargs.min_lr_rate == pytest.approx(1 / 30)
     assert cfg.trainer.max_train_steps == 5000
-    assert cfg.wandb_entity == "saberrr-zju"
-    assert cfg.wandb_project == "starvla_tasks"
+    assert cfg.wandb_entity is None
+    assert cfg.wandb_project is None
     if model == "qwenoft":
         assert cfg.framework.action_model.loss_type == (
             "multibinary_bce" if task == "deadly_corridor" else "discrete_ce")
@@ -264,16 +209,17 @@ def test_history_training_uses_named_run_and_resumes_recorded_wandb_id(tmp_path,
     from omegaconf import OmegaConf
     from scripts.tasks.decision_history import train_vla_hist8 as module
 
-    (tmp_path / "code_snapshot.json").write_text('{"revision": "training-source"}')
+    revision = ["training-source"]
     config = OmegaConf.create({"run_id": "named-run", "trainer": {"max_train_steps": 5000},
         "datasets": {"vla_data": {"num_workers": 16, "eval_num_workers": 16, "prefetch_factor": 2}}})
     calls = []
     monkeypatch.setattr(module, "ROOT", tmp_path)
     monkeypatch.setattr(module, "training_config", lambda args: config)
     monkeypatch.setattr(module.subprocess, "run", lambda command, **kwargs: calls.append(kwargs["env"]))
+    monkeypatch.setattr(module.subprocess, "check_output", lambda *args, **kwargs: revision[0])
     argv = ["train_vla_hist8", "--task", "flappy", "--model", "qwenoft", "--dataset-dir", str(tmp_path / "data"),
             "--base-model-dir", str(tmp_path / "backbone"), "--output-root", str(tmp_path),
-            "--run-id", "named-run", "--vlm-lr", "0.000003", "--port", "12345"]
+            "--run-id", "named-run", "--vlm-lr", "0.000003", "--port", "12345", "--wandb-project", "test-project"]
     monkeypatch.setattr(sys, "argv", argv)
     module.main()
     assert calls[0]["WANDB_RUN_ID"] == "named-run"
@@ -281,9 +227,9 @@ def test_history_training_uses_named_run_and_resumes_recorded_wandb_id(tmp_path,
     metadata = json.loads(record.read_text())
     metadata["wandb_run_id"] = "existing-wandb-run"
     record.write_text(json.dumps(metadata))
-    (tmp_path / "code_snapshot.json").write_text('{"revision": "resume-source"}')
+    revision[0] = "resume-source"
     monkeypatch.setattr(sys, "argv", argv + ["--resume"])
     module.main()
     assert calls[1]["WANDB_RUN_ID"] == "existing-wandb-run"
     assert calls[1]["WANDB_RESUME"] == "allow"
-    assert json.loads((tmp_path / "named-run/training_code_snapshot.json").read_text()) == {"revision": "training-source"}
+    assert json.loads((tmp_path / "named-run/training_code_snapshot.json").read_text())["revision"] == "training-source"

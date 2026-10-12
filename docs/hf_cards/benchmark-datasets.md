@@ -3912,16 +3912,8 @@ Training data, episode-level evaluations and paper experiment manifests.
 
 [Benchmark release inventory](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/main/reports/benchmark-release/README.md)
 
-## Artifact retention
+## Reproduction
 
-HAIC and Extreme Parkour releases are retired. Model bundles retain the published evaluation checkpoint, or the latest checkpoint when no evaluation selection exists. Optimizer and trainer recovery state are not release assets. Identical dataset copies use the canonical task paths. Original configurations and experiment evidence remain source records.
-
-## Figure 2 latency degradation
-
-[Latency-degradation catalogue](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/main/experiments/latency-degradation/README.md) preserves all 15 curves, exact evaluation records, fixed checkpoint sources and provenance gaps. Six MIKASA checkpoints are reused, and all six confirmed game checkpoints are published in benchmark-models with their original checkpoint files.
-
-## Consolidated historical sources
-
-[Source archive index](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/main/reports/source-repository-retirement-20261008) records the original dataset trees, exact fixed references, model metadata and coverage verification. These archives retain unresolved source bindings. Hardware records are in [profiles](https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles/tree/8baa06beca7265b239f50826bc8cea0f989326ad/runs/archive/standard-pipeline).
-
-Root `archive/` was retired on 2026-10-08. Current task datasets, formal evaluations and nested experiment archives retain their existing locations. Historical source inventories describe the earlier consolidation, not current download availability.
+Select the exact task, checkpoint, dataset, and profile from the linked experiment manifest.
+Each result identifies its episode count, clocks, latency settings, and seeds.
+The manifest records any missing source bindings.

@@ -43,7 +43,7 @@ train() {
     --condition "$CONDITION" --train-only --no-oom-retry "$checkpointing" \
     --run-id "$RUN_ID" --output-dir "$OUTPUT_DIR" --dataset-dir "$DATASET_DIR" \
     --teacher-checkpoint "$TEACHER_CHECKPOINT" \
-    --no-publish --vla-python "$VLA_PY" --task-python "$TASK_PY" \
+    --vla-python "$VLA_PY" --task-python "$TASK_PY" \
     --num-gpus 2 --micro-batch 64 --port "$PORT" "${resume[@]}"
 }
 

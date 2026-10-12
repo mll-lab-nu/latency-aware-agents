@@ -18,10 +18,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="openvla_bridge_demon_attack_latency_mixed_024_exp1" \
     trainer.distributed_backend=none \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="latency-sensitive-bench/benchmark-models" \
-    checkpoint.sync.enabled=false \
-    checkpoint.sync.repo_id="latency-sensitive-bench/benchmark-models" \
     dataset.source_hf="latency-sensitive-bench/benchmark-datasets" \
     dataset.revision=15d17287246bd19940c837d6c8a5327564f969c5 \
     dataset.source_subdir=zero-latency/demon-attack/demon_attack_200ep/demon_attack_fix_latency_0_200ep \

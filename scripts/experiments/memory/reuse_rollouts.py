@@ -43,37 +43,24 @@ def _write_subset(source, files, budget, destination):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--stage", choices=("collect", "publish"), required=True)
     args = parser.parse_args(argv)
     config = load_config(args.config)
     source = config["source_dataset"]
     output = Path(config["output_dir"])
-    publication = config["publication"]
     api = HfApi()
-    if args.stage == "collect":
-        output.mkdir(parents=True)
-        files = api.list_repo_files(source["repo_id"], repo_type="dataset", revision=source["revision"])
-        metadata = {"source_repo": source["repo_id"], "source_revision": source["revision"],
-                    "source_config": source["path"], "derived_config": publication["data_dir"]}
-        for split in ("train", "val"):
-            paths = sorted(path for path in files if path.startswith(source["path"] + "/" + split + "-")
-                           and path.endswith(".parquet"))
-            episodes, rows = _write_subset(source, paths, config[split + "_episodes"], output / f"{split}.parquet")
-            metadata.update({split + "_episodes": len(episodes), split + "_episode_idx": episodes,
-                             split + "_rows": rows})
-        metadata["total_episodes"] = metadata["train_episodes"] + metadata["val_episodes"]
-        metadata["total_rows"] = metadata["train_rows"] + metadata["val_rows"]
-        write_json(output / "metadata.json", metadata)
-    else:
-        api.create_repo(repo_id=publication["repo_id"], repo_type="dataset", private=publication["private"], exist_ok=True)
-        commit = api.upload_folder(
-            repo_id=publication["repo_id"], repo_type="dataset", folder_path=output,
-            path_in_repo=publication["data_dir"], allow_patterns=["*.parquet", "metadata.json"],
-        )
-        write_json(output / "publication.json", {
-            "repo_id": publication["repo_id"], "revision": commit.oid,
-            "path": publication["data_dir"], "publication_status": "published",
-        })
+    output.mkdir(parents=True)
+    files = api.list_repo_files(source["repo_id"], repo_type="dataset", revision=source["revision"])
+    metadata = {"source_repo": source["repo_id"], "source_revision": source["revision"],
+                "source_config": source["path"]}
+    for split in ("train", "val"):
+        paths = sorted(path for path in files if path.startswith(source["path"] + "/" + split + "-")
+                       and path.endswith(".parquet"))
+        episodes, rows = _write_subset(source, paths, config[split + "_episodes"], output / f"{split}.parquet")
+        metadata.update({split + "_episodes": len(episodes), split + "_episode_idx": episodes,
+                         split + "_rows": rows})
+    metadata["total_episodes"] = metadata["train_episodes"] + metadata["val_episodes"]
+    metadata["total_rows"] = metadata["train_rows"] + metadata["val_rows"]
+    write_json(output / "metadata.json", metadata)
 
 
 if __name__ == "__main__":

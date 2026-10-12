@@ -10,9 +10,3 @@ checkpoint:
   save_safetensors_file: false
   local:
     keep_last_n: 1
-  sync:
-    enabled: false
-    repo_id: null
-    keep_last_n: 0
-    sync_every_n_checkpoints: 1
-    resume_policy: local_latest

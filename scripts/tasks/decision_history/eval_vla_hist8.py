@@ -193,7 +193,7 @@ def main() -> None:
     pack.add_argument("--collection-provenance", type=Path, required=True)
     pack.add_argument("--output-dir", type=Path, required=True)
     pack.add_argument("--step", type=int, default=5000)
-    pack.add_argument("--wandb-run-id", required=True)
+    pack.add_argument("--wandb-run-id")
     evaluate = subparsers.add_parser("eval")
     evaluate.add_argument("--task", choices=EVAL_CONFIGS, required=True)
     evaluate.add_argument("--model", choices=("qwenoft", "qwengr00t", "qwenpi_v3"), required=True)
@@ -209,6 +209,8 @@ def main() -> None:
     evaluate.add_argument("--inference-devices", nargs="+")
     evaluate.add_argument("--max-steps", type=int)
     evaluate.add_argument("--metric-prefix", default=EVAL_PREFIX)
+    evaluate.add_argument("--wandb-project", help="Enable W&B in this project")
+    evaluate.add_argument("--wandb-entity", help="Optional W&B account or team")
     args = parser.parse_args()
     if args.command == "bundle":
         package_bundle(
@@ -250,13 +252,13 @@ def main() -> None:
     subprocess.run([sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path)],
                    cwd=ROOT, env=run_env, check=True)
     audit_evaluation(output_dir)
-    if args.episodes == 100:
+    if args.episodes == 100 and args.wandb_project is not None:
         provenance = json.loads((args.bundle_dir.resolve() / "provenance.json").read_text())
         config["logging"].update({
             "wandb_name": provenance["wandb_run_id"],
             "wandb_display_name": provenance["training_run_id"],
-            "wandb_project": "starvla_tasks",
-            "wandb_entity": "saberrr-zju",
+            "wandb_project": args.wandb_project,
+            "wandb_entity": args.wandb_entity,
         })
         label = "0" if args.env_condition == "zero" else "profile_sample"
         summary = json.loads((output_dir / f"queue_eval_latency_{label}.json").read_text())

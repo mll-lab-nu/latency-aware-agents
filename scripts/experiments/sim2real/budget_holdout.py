@@ -15,7 +15,6 @@ import numpy as np
 
 from scripts.experiments.sim2real import budget, runtime, replay
 from scripts.experiments.sim2real.budget_report import run_mean
-from scripts.experiments.sim2real.publication import StudyPublication
 from latency_bench.core.config import load_config
 from latency_bench.executors.factory import build_executor
 from latency_bench.utils.io import read_json, write_csv, write_json_atomic
@@ -70,7 +69,7 @@ def simulation_jobs(output, base, fps, manifest):
             yield run_id, run_path(output, method, run_id, manifest["fit_runs"]), config, seed
 
 
-def simulate(output, model, manifest, publication, worker_python):
+def simulate(output, model, manifest, worker_python):
     """Replay the held-out sessions at the configured parallelism and inference batch cap."""
     base, _, fps = runtime.runtime_base(output / "source", worker_python)
     base["policy"]["action_noise_seeded"] = model == "qwengr00t"
@@ -91,16 +90,14 @@ def simulate(output, model, manifest, publication, worker_python):
         for job in simulation_jobs(output, base, fps, manifest):
             path = job[1]
             if (path / "DONE").exists():
-                publication.publish(path.relative_to(output).as_posix(), [path])
                 continue
             jobs.append(job)
             if len(jobs) == slots:
-                replay.replay_settings(executor, jobs, output, publication, protocol=manifest["protocol"])
+                replay.replay_settings(executor, jobs, output, protocol=manifest["protocol"])
                 jobs.clear()
         if jobs:
-            replay.replay_settings(executor, jobs, output, publication, protocol=manifest["protocol"])
+            replay.replay_settings(executor, jobs, output, protocol=manifest["protocol"])
     (output / "SIM_DONE").touch()
-    publication.publish("sim_complete", [output / "SIM_DONE"])
 
 
 def summarize(real, simulated, reference, indices):
@@ -194,13 +191,10 @@ def main():
         config = load_config(args.config)
         prepare(root, args.base_root.resolve(), config)
     manifest = read_json(root / "holdout.json")
-    prefix = f"sim2real-budget/{manifest['task']}/{root.name}"
     if args.stage == "prepare":
-        StudyPublication(root, prefix, defer_uploads=True).publish("context", [root / "holdout.json"])
         return
     if args.stage == "report":
         destination = report(root, manifest)
-        StudyPublication(root, prefix, defer_uploads=True).publish("report", [destination, root / "REPORT_DONE"])
         return
     if args.stage == "sim" and args.gpu_uuid is None:
         parser.error("sim requires --gpu-uuid")
@@ -209,13 +203,11 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_uuid
     os.environ["LATENCY_BENCH_ENV_BACKEND_START_METHOD"] = "spawn"
     output = root / args.model
-    publication = StudyPublication(output, f"{prefix}/{args.model}", defer_uploads=True)
     if args.stage == "fit":
-        budget.fit_profiles(output, output / "source", args.model, publication,
-                            partitions={"holdout": manifest["partition"]}, fit_sizes=[manifest["fit_runs"]],
+        budget.fit_profiles(output, output / "source", args.model, partitions={"holdout": manifest["partition"]}, fit_sizes=[manifest["fit_runs"]],
                             source_ref=manifest["sources"][args.model])
     else:
-        simulate(output, args.model, manifest, publication, args.worker_python)
+        simulate(output, args.model, manifest, args.worker_python)
 
 
 if __name__ == "__main__":

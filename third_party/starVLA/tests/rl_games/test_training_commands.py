@@ -1314,20 +1314,6 @@ def test_vla_trainer_can_save_bf16_safetensors_model_checkpoint() -> None:
     assert "save_file(safetensors_state_dict, model_checkpoint_path)" in trainer_text
 
 
-def test_memory_upload_scripts_drop_training_state_before_upload() -> None:
-    script_dir = REPO_ROOT.parent / "scripts" / "bash_scripts" / "memory"
-    script_paths = sorted(script_dir.glob("*.sh"))
-
-    for script_path in script_paths:
-        script_text = script_path.read_text(encoding="utf-8")
-        if "hf upload latency-sensitive-bench/memory" not in script_text:
-            continue
-        assert 'compgen -G "${CHECKPOINT_DIR}/steps_*_model.safetensors"' in script_text, script_path
-        assert 'find "${CHECKPOINT_DIR}" -maxdepth 1 -type d -name "steps_*_state" -exec rm -rf {} +' in script_text, script_path
-        assert '--exclude "checkpoints/_initialization/**"' in script_text, script_path
-        assert '--exclude "checkpoints/*_state/**"' in script_text, script_path
-
-
 def test_run_train_accepts_explicit_resume_checkpoint() -> None:
     script_text = (REPO_ROOT / "examples" / "rl_games" / "scripts" / "run_train.sh").read_text(encoding="utf-8")
 

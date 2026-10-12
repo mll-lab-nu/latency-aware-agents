@@ -17,8 +17,13 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path, help="Override the policy checkpoint in the config.")
+    parser.add_argument("--wandb-project", help="Enable W&B in this project")
+    parser.add_argument("--wandb-entity", help="Optional W&B account or team")
     args = parser.parse_args()
     config = load_config(args.config)
+    config["training"]["track"] = args.wandb_project is not None
+    config["training"]["wandb_project_name"] = args.wandb_project
+    config["training"]["wandb_entity"] = args.wandb_entity
     output = args.output_dir.resolve()
     if args.checkpoint is not None:
         config["training"]["checkpoint"] = str(args.checkpoint.resolve())

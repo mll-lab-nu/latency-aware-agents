@@ -1,4 +1,4 @@
-"""Train a StarVLA task, evaluate, and publish formal artifacts."""
+"""Train a StarVLA task, evaluate, and save local artifacts."""
 
 from __future__ import annotations
 
@@ -22,10 +22,13 @@ from latency_bench.analysis.eval_stats import summarize_eval_run
 from latency_bench.integrations.starvla.task_contracts import read_task_contract, task_spec
 from latency_bench.eval.reporting import _log_corrected_eval_summaries_to_wandb, _summary_latency_label
 from latency_bench.utils.hf import resolve_token
-from scripts.starvla import artifacts, runtime
+from scripts.starvla import runtime
 from scripts.starvla.model_config import make_model_config
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES, QWEN_BACKBONE_REVISION
 
+
+MODEL_REPO_ID = "MLL-Lab/LAGEN-models"
+DATASET_REPO_ID = "MLL-Lab/LAGEN-datasets"
 
 _TRAINING_STATE_RE = re.compile(r'steps_(\d+)_state$')
 BACKBONES = {
@@ -102,10 +105,10 @@ def conda_python(name: str) -> Path:
 def resolve_teacher(task: str, override: Path | None, condition: str = "zero-latency") -> tuple[Path, dict]:
     spec = task_spec(task)
     filename = f'{condition}/{spec.name.replace("_", "-")}/small-policy/{TASK_SETTINGS[task]["teacher"]}'
-    reference = {'repo_id': artifacts.MODEL_REPO_ID, 'path': filename}
+    reference = {'repo_id': MODEL_REPO_ID, 'path': filename}
     if override is not None:
-        return override.resolve(), {'source': 'local_override', 'filename': override.name}
-    downloaded = hf_hub_download(artifacts.MODEL_REPO_ID, filename,
+        return override.resolve(), {'source': 'local', 'path': str(override.resolve())}
+    downloaded = hf_hub_download(MODEL_REPO_ID, filename,
                                  local_dir=runtime.ROOT / 'outputs/starvla/artifacts/models', token=resolve_token(''))
     return Path(downloaded).resolve(), reference
 
@@ -122,24 +125,14 @@ def resolve_backbone(model: str, task: str) -> tuple[Path, dict]:
     return Path(path).resolve(), reference
 
 
-def dataset_reference(task: str, directory: Path, *, model=None, run_id=None, round_number=None, condition="zero-latency") -> dict:
+def dataset_reference(task: str, directory: Path, *, condition="zero-latency") -> dict:
     return {
-        'repo_id': artifacts.DATASET_REPO_ID,
-        'path': artifacts.dataset_path(task_spec(task).name, model=model, run_id=run_id, round_number=round_number, condition=condition, action_horizon=task_spec(task).action_horizon),
-        'local_dir': str(directory), 'revision': None, 'condition': condition,
+        'local_dir': str(directory), 'condition': condition,
         'action_horizon': task_spec(task).action_horizon,
     }
 
 
-def publish_data(reference: dict, *, task: str, model=None, run_id=None, round_number=None) -> None:
-    reference['revision'] = artifacts.publish_dataset(
-        Path(reference['local_dir']), task=task_spec(task).name, model=model,
-        run_id=run_id, round_number=round_number, condition=reference["condition"],
-        action_horizon=reference["action_horizon"],
-    )
-
-
-def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Path) -> tuple[Path, dict]:
+def prepare_shared(args) -> tuple[Path, dict]:
     shared = (args.output_dir / 'bootstrap' if args.smoke else
               runtime.ROOT / 'outputs/starvla/datasets' / task_spec(args.task).name /
               f'teacher-rollouts-h{task_spec(args.task).action_horizon}-state-v1')
@@ -151,6 +144,8 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
     with (shared.parent / f'.{shared.name}.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         ref = dataset_reference(args.task, shared, condition=args.condition)
+        task_name = task_spec(args.task).name.replace('_', '-')
+        source_path = f"{args.condition}/{task_name}/teacher-rollouts-h{task_spec(args.task).action_horizon}-state-v1"
         contract_file = shared / 'lerobot/task_contract.json'
         if args.task == 'mikasa_h8' and args.dataset_dir is None and not contract_file.exists():
             from latency_bench.integrations.starvla.mikasa_history_export import prepare_mikasa_h8_from_hub
@@ -162,14 +157,14 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
         if args.task == 'mikasa' and not contract_file.exists() and args.dataset_dir is None:
             hub = HfApi(token=resolve_token(''))
             remote_exists = not args.smoke and hub.file_exists(
-                artifacts.DATASET_REPO_ID, f'{ref["path"]}/lerobot/task_contract.json', repo_type='dataset'
+                DATASET_REPO_ID, f'{source_path}/lerobot/task_contract.json', repo_type='dataset'
             )
             if remote_exists:
-                revision = hub.repo_info(artifacts.DATASET_REPO_ID, repo_type='dataset').sha
-                snapshot = Path(snapshot_download(artifacts.DATASET_REPO_ID, repo_type='dataset',
-                                revision=revision, allow_patterns=[f'{ref["path"]}/**'], token=resolve_token('')))
-                shutil.copytree(snapshot / ref['path'], shared)
-                ref['revision'] = revision
+                revision = hub.repo_info(DATASET_REPO_ID, repo_type='dataset').sha
+                snapshot = Path(snapshot_download(DATASET_REPO_ID, repo_type='dataset',
+                                revision=revision, allow_patterns=[f'{source_path}/**'], token=resolve_token('')))
+                shutil.copytree(snapshot / source_path, shared)
+                ref['source'] = {'repo_id': DATASET_REPO_ID, 'path': source_path, 'revision': revision}
             else:
                 from latency_bench.data.conversion import convert_dataset
 
@@ -177,7 +172,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                               'code_revisions': code_revisions(args.task)}
                 source_path = f'zero-latency/{task_spec(args.task).name.replace("_", "-")}/teacher-rollouts-v1'
                 snapshot = Path(snapshot_download(
-                    artifacts.DATASET_REPO_ID, repo_type='dataset',
+                    DATASET_REPO_ID, repo_type='dataset',
                     allow_patterns=[f'{source_path}/lerobot/**', f'{source_path}/lerobot__val/**'],
                     token=resolve_token(''),
                 ))
@@ -185,7 +180,7 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                     'input_dir': str(snapshot / source_path / 'lerobot'),
                     'input_val': str(snapshot / source_path / 'lerobot__val'),
                     'output_dir': str(shared / 'lerobot')}})
-                provenance['source_dataset'] = {'repo_id': artifacts.DATASET_REPO_ID,
+                provenance['source_dataset'] = {'repo_id': DATASET_REPO_ID,
                                                 'path': source_path}
                 write_json(shared / 'provenance.json', provenance)
                 (shared / 'README.md').write_text(
@@ -193,13 +188,6 @@ def prepare_shared(args, teacher: Path, teacher_reference: dict, task_python: Pa
                     'Shared by QwenOFT, QwenPI_v3, QwenGR00T, and WanOFT.\n'
                     'Train/validation splits and normalization are fixed in the LeRobot metadata.\n')
         read_task_contract(shared / 'lerobot')
-        publication = shared / 'publication.json'
-        if publication.exists():
-            ref['revision'] = json.loads(publication.read_text())['revision']
-        if not args.smoke and not args.no_publish and ref['revision'] is None:
-            publish_data(ref, task=args.task)
-        if ref['revision'] is not None:
-            write_json(publication, {'revision': ref['revision']})
     return shared, ref
 
 
@@ -252,8 +240,8 @@ def training_config(args, *, bootstrap: Path, deltas: list[Path], backbone: Path
     return {
         'run_id': run_id, 'wandb_name': wandb_name,
         'run_root_dir': str(args.output_dir / 'training'),
-        'seed': 0, 'wandb_project': 'starvla_tasks', 'wandb_entity': None if args.smoke else os.environ['WANDB_ENTITY'],
-        'wandb_group': None if args.smoke else os.environ['WANDB_RUN_GROUP'] if args.task == 'balance' else 'vla-train',
+        'seed': 0, 'wandb_project': args.wandb_project, 'wandb_entity': args.wandb_entity,
+        'wandb_group': args.output_dir.name,
         'wandb_tags': [args.task, f'h{contract["action_horizon"]}',
                        'smoke' if args.smoke else 'formal', wandb_condition],
         'training_latency_condition': wandb_condition,
@@ -293,7 +281,7 @@ def train(args, config: dict) -> tuple[Path, Path]:
         env['WANDB_RESUME'] = 'allow' if (
             args.resume or trainer['is_resume']
         ) else 'never'
-    env['WANDB_MODE'] = 'disabled' if args.smoke else 'online'
+    env['WANDB_MODE'] = 'online' if args.wandb_project is not None and not args.smoke else 'disabled'
     while True:
         config_path.write_text(yaml.safe_dump(config, sort_keys=False))
         print(f"Training microbatch={data['per_device_batch_size']}, "
@@ -417,11 +405,11 @@ def evaluate(args, bundle: Path, *, label: str,
         runtime.run_command(command, output_dir / 'stdout.log', env=eval_env)
     else:
         runtime.run_command(command, output_dir / 'stdout.log')
-    if wandb_checkpoint is not None and not args.smoke:
+    if wandb_checkpoint is not None and args.wandb_project is not None and not args.smoke:
         run_id, step = wandb_checkpoint
         # The task entries save summaries; this parent owns W&B reporting for all tasks.
-        config['logging'].update({'wandb_name': run_id, 'wandb_project': 'starvla_tasks',
-                                  'wandb_entity': os.environ['WANDB_ENTITY']})
+        config['logging'].update({'wandb_name': run_id, 'wandb_project': args.wandb_project,
+                                  'wandb_entity': args.wandb_entity})
         summary = json.loads((output_dir / f'queue_eval_latency_{_summary_latency_label(config)}.json').read_text())
         summary['checkpoint_global_step'] = step
         _log_corrected_eval_summaries_to_wandb(config, [summary])
@@ -541,12 +529,6 @@ def mikasa_h8_execution_audit(evaluation: Path) -> dict:
     return audit
 
 
-
-
-
-
-
-
 def _training_record(args, config, *, steps: int, dagger_updates: int, has_deltas: bool) -> dict:
     return {
         'sft_updates': steps,
@@ -579,35 +561,13 @@ def code_revisions(task: str) -> dict:
             for name, path in [('benchmark', runtime.ROOT), ('starvla', runtime.STARVLA), task_repo]}
 
 
-def publish_run(output_dir: Path) -> str:
-    run = json.loads((output_dir / 'run.json').read_text())
-    if run['smoke']:
-        raise ValueError('Smoke artifacts are local-only')
-    for index, ref in enumerate(run['datasets']):
-        if ref['revision'] is None:
-            publish_data(ref, task=run['task'], model=run['model'], run_id=run['run_id'],
-                         round_number=index - 1 if index else None)
-            write_json(output_dir / 'run.json', run)
-    # `training` is recorded only after the final checkpoint's evaluation succeeds.
-    provenance = {key: run[key] for key in (
-        'task', 'model', 'run_id', 'smoke', 'teacher', 'backbone', 'code_revisions',
-        'datasets', 'seed', 'training',
-    )}
-    provenance['datasets'] = [{key: value for key, value in ref.items() if key != 'local_dir'}
-                              for ref in run['datasets']]
-    write_json(output_dir / 'inference/provenance.json', provenance)
-    revision = artifacts.publish_model(output_dir / 'inference', task=task_spec(run['task']).name,
-                                       model=run['model'], run_id=run['run_id'], condition=run['condition'], action_horizon=task_spec(run['task']).action_horizon)
-    write_json(output_dir / 'publication.json', {'repo_id': artifacts.MODEL_REPO_ID,
-        'path': artifacts.model_path(task_spec(run['task']).name, run['model'], run['run_id'], condition=run['condition'], action_horizon=task_spec(run['task']).action_horizon), 'revision': revision})
-    return revision
-
-
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--task', choices=['mikasa', 'mikasa_h8', 'mikasa_conditioned_h8'], required=True)
     parser.add_argument('--model', choices=['qwenoft', 'qwenpi_v3', 'qwengr00t', 'wanoft'], required=True)
     parser.add_argument('--run-id')
+    parser.add_argument('--wandb-project', help='Enable W&B in this project')
+    parser.add_argument('--wandb-entity', help='Optional W&B account or team')
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--dataset-dir', type=Path)
     parser.add_argument('--teacher-checkpoint', type=Path)
@@ -631,9 +591,7 @@ def main(argv=None) -> None:
     parser.add_argument('--eval-seed', type=int, help='First evaluation episode seed; defaults to the task seed')
     parser.add_argument('--port', type=int, default=29521)
     parser.add_argument('--smoke', action='store_true')
-    parser.add_argument('--no-publish', action='store_true', help='Keep Hugging Face datasets and models local')
     parser.add_argument('--resume', action='store_true', help='Resume the matching --run-id from its latest complete state')
-    parser.add_argument('--publish-only', action='store_true')
     parser.add_argument('--train-only', action='store_true', help='Export SFT weights and full recovery state; evaluate separately')
     args = parser.parse_args(argv)
     if args.smoke:
@@ -652,10 +610,6 @@ def main(argv=None) -> None:
     if args.force and not args.resume and args.output_dir.exists():
         shutil.rmtree(args.output_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    if args.publish_only:
-        if not args.smoke and not args.no_publish:
-            print('MODEL_REVISION=' + publish_run(args.output_dir))
-        return
     run = None
     bootstrap_state = None
     if args.resume:
@@ -674,11 +628,11 @@ def main(argv=None) -> None:
                        conda_python('starvla_rl_games_openvla'))
     args.task_python = (args.task_python.absolute() if args.task_python is not None else
                         conda_python('latency'))
-    teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint)
+    _, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint)
     backbone_path, backbone_ref = resolve_backbone(args.model, args.task)
     args.backbone_path = backbone_path
     if run is None:
-        bootstrap, bootstrap_ref = prepare_shared(args, teacher, teacher_ref, args.task_python)
+        bootstrap, bootstrap_ref = prepare_shared(args)
     else:
         bootstrap_ref = run['datasets'][0]
         bootstrap = Path(bootstrap_ref['local_dir'])
@@ -687,7 +641,6 @@ def main(argv=None) -> None:
         run = {'task': args.task, 'model': args.model, 'run_id': args.run_id, 'smoke': args.smoke,
                'teacher': teacher_ref, 'backbone': backbone_ref, 'code_revisions': code_revisions(args.task),
                'datasets': [bootstrap_ref], 'seed': 0, 'condition': args.condition}
-    run['no_publish'] = args.no_publish
     run['evaluation'] = {'seed': args.eval_seed, 'episodes': args.eval_episodes}
     write_json(args.output_dir / 'run.json', run)
     steps = 2 if args.smoke else TASK_SETTINGS[args.task]['sft_steps']
@@ -794,11 +747,8 @@ def main(argv=None) -> None:
         f'# {args.model} — {task_spec(args.task).name}\n\n'
         f'RGB + continuous state, action horizon {task_spec(args.task).action_horizon}, VLA {task_spec(args.task).fps:g} Hz.\n'
         'See task_contract.json for normalization, eval_l0.json for zero-latency results, '
-        'and provenance.json for source references and dataset publication revisions.\n')
-    if args.smoke or args.no_publish:
-        write_json(bundle / 'provenance.json', run)
-    else:
-        print('MODEL_REVISION=' + publish_run(args.output_dir))
+        'and provenance.json for source references and local dataset paths.\n')
+    write_json(bundle / 'provenance.json', run)
     print(f'MODEL_PATH={bundle / "checkpoints/model.pt"}')
     print(f'EVAL_PATH={evaluation}')
 

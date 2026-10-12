@@ -116,7 +116,7 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
-  wandb_project: latency-sensitive-bench
+  wandb_project: null
   wandb_group: air_raid
   wandb_job_type: sample_factory
   wandb_tags: ""

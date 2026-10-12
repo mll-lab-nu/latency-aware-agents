@@ -1,4 +1,4 @@
-"""Collect memory teacher datasets, merge probe shards, or publish completed data."""
+"""Collect memory teacher datasets and merge probe shards."""
 
 import argparse
 from copy import deepcopy
@@ -9,7 +9,7 @@ import sys
 
 from latency_bench.core.config import load_config, merge_dicts
 from latency_bench.data.rollout_probe import merge_probe_states, write_probe_state
-from latency_bench.utils.io import read_json, write_json, write_yaml
+from latency_bench.utils.io import read_json, write_yaml
 from latency_bench.utils.paths import REPO_ROOT
 
 
@@ -69,32 +69,20 @@ def _collect_shards(config, shards, directory):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--stage", choices=("collect", "publish"), required=True)
     args = parser.parse_args(argv)
     recipe = load_config(args.config)
     experiment = recipe["dataset_experiment"]
-    config = _run_config(recipe) if args.stage == "collect" else recipe
+    config = _run_config(recipe)
     output = Path(config["logging"]["output_dir"]).expanduser().absolute()
     directory = output.with_name(output.name + "_collection")
     directory.mkdir(parents=True, exist_ok=True)
     config["logging"]["output_dir"] = str(output)
     config_path = directory / "collect.yaml"
-    if args.stage == "collect":
-        shards = experiment["probe_shards"]
-        if shards is not None:
-            _collect_shards(config, shards, directory)
-        subprocess.run(_collect_command(config, config_path), cwd=REPO_ROOT, check=True)
-    else:
-        # Dataset/image dependencies are needed only for the explicit publication stage.
-        from latency_bench.data.hf_parquet import load_parquet_splits
-
-        publication = experiment["publication"]
-        commit = load_parquet_splits(output).push_to_hub(**publication)
-        write_json(directory / "publication.json", {
-            "repo_id": publication["repo_id"], "revision": commit.oid,
-            "config_name": publication["config_name"], "path": publication["data_dir"],
-            "collection_config": str(config_path), "publication_status": "published",
-        })
+    shards = experiment["probe_shards"]
+    if shards is not None:
+        _collect_shards(config, shards, directory)
+    subprocess.run(_collect_command(config, config_path), cwd=REPO_ROOT, check=True)
+    print(f"OUTPUT_DIR={output}")
 
 
 if __name__ == "__main__":

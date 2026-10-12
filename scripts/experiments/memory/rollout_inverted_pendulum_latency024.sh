@@ -17,6 +17,5 @@ case "${1:-all}" in
 esac
 for latency in "${latencies[@]}"; do
   config="configs/experiments/memory/collect/inverted_pendulum_l$latency.yaml"
-  "$PYTHON" -m scripts.experiments.memory.collect --config "$config" --stage collect
-  "$PYTHON" -m scripts.experiments.memory.collect --config "$config" --stage publish
+  "$PYTHON" -m scripts.experiments.memory.collect --config "$config"
 done

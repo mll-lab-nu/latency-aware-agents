@@ -37,4 +37,4 @@ training:
   finite_horizon_gae: true
   total_timesteps: 150000000
   eval_freq: 25
-  track: true
+  track: false

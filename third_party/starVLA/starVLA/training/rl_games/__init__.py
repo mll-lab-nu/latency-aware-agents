@@ -1,4 +1,4 @@
-__all__ = ["apply_model_alias", "apply_action_spec", "validate_rl_games_config", "sync_kv_memory_obs_window", "CheckpointSyncManager", "RlGamesEvalRunner", "build_rl_games_eval_runner"]
+__all__ = ["apply_model_alias", "apply_action_spec", "validate_rl_games_config", "sync_kv_memory_obs_window", "CheckpointRetention", "RlGamesEvalRunner", "build_rl_games_eval_runner"]
 
 
 def build_rl_games_eval_runner(cfg, output_dir: str):
@@ -34,10 +34,10 @@ def __getattr__(name):
         from .config_validation import sync_kv_memory_obs_window
 
         return sync_kv_memory_obs_window
-    if name == "CheckpointSyncManager":
-        from .checkpoint_sync import CheckpointSyncManager
+    if name == "CheckpointRetention":
+        from .checkpoint_retention import CheckpointRetention
 
-        return CheckpointSyncManager
+        return CheckpointRetention
     if name == "RlGamesEvalRunner":
         from .eval_core import RlGamesEvalRunner
 

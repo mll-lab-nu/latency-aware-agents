@@ -159,20 +159,6 @@ def parse_args() -> argparse.Namespace:
         default=20,
         help="Number of samples per class per latency (e.g. 20 -> 20 NOOP + 20 FLAP for each latency).",
     )
-    # --- upload results (CSV + frames + metadata) to HuggingFace ---
-    p.add_argument("--push-to-hub", action="store_true", help="Upload the CSV + frames + metadata to HF after the run.")
-    p.add_argument("--hf-output-repo", default="talha15032/reasoning_trace", help="HF dataset repo to upload results to.")
-    p.add_argument(
-        "--hf-output-subdir",
-        default="",
-        help="Subdir in the repo for this run (e.g. flappy_mixed / bridge). Default: output CSV's parent dir name.",
-    )
-    p.add_argument(
-        "--hf-output-private",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Create/keep the output dataset repo private (default). Use --no-hf-output-private for public.",
-    )
     p.add_argument("--frames-dir", default="", help="Dir to dump sampled frame PNGs. Default: <csv dir>/frames")
     p.add_argument("--max-new-tokens", type=int, default=256)
     p.add_argument("--device", default="cuda")
@@ -552,41 +538,6 @@ def preprocess_image_for_action(framework, pil: Image.Image) -> Image.Image:
     return resize_images(pil, target_size=train_obs_image_size)
 
 
-def upload_results_to_hub(*, out_csv: Path, frames_dir: Path, metadata_path: Path, repo_id: str, subdir: str, private: bool, token) -> None:
-    """Upload only the results (CSV + frames + metadata) to a HF dataset repo.
-
-    Explicit per-artifact uploads (not the whole output dir) so the large
-    downloaded checkpoints / base VLM under the same dir are never pushed.
-    """
-    from huggingface_hub import HfApi, upload_file, upload_folder
-
-    api = HfApi(token=token)
-    api.create_repo(repo_id=repo_id, repo_type="dataset", private=bool(private), exist_ok=True)
-    base = subdir.strip("/")
-    print(f"Uploading results to dataset repo {repo_id} under '{base}/' ...")
-    upload_file(
-        path_or_fileobj=str(out_csv),
-        path_in_repo=f"{base}/{out_csv.name}",
-        repo_id=repo_id,
-        repo_type="dataset",
-        token=token,
-    )
-    upload_file(
-        path_or_fileobj=str(metadata_path),
-        path_in_repo=f"{base}/metadata.json",
-        repo_id=repo_id,
-        repo_type="dataset",
-        token=token,
-    )
-    if frames_dir.exists():
-        upload_folder(
-            folder_path=str(frames_dir),
-            path_in_repo=f"{base}/frames",
-            repo_id=repo_id,
-            repo_type="dataset",
-            token=token,
-        )
-    print(f"Uploaded -> https://huggingface.co/datasets/{repo_id}/tree/main/{base}")
 
 
 def sample_balanced_rows(ds, classes, per_class: int, *, shuffle: bool = False, seed: int = 0):
@@ -881,16 +832,6 @@ def main() -> None:
         overall = np.mean([r["true_label"] == r["action_from_vlm"] for r in rows_out])
         print(f"  overall: {overall:.1%}  (n={len(rows_out)})")
 
-    if args.push_to_hub:
-        upload_results_to_hub(
-            out_csv=out_csv,
-            frames_dir=frames_dir,
-            metadata_path=metadata_path,
-            repo_id=args.hf_output_repo,
-            subdir=args.hf_output_subdir or out_csv.parent.name,
-            private=args.hf_output_private,
-            token=args.hf_token,
-        )
 
 
 if __name__ == "__main__":

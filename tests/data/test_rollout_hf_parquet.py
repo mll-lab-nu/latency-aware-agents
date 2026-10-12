@@ -202,6 +202,5 @@ def test_load_written_parquet_splits_restores_image_feature(tmp_path):
     assert set(dd) == {"train", "val"}
     assert dd["train"].num_rows == 2
     assert dd["val"].num_rows == 1
-    # Image feature round-trips, so push_to_hub re-embeds image bytes correctly.
     assert isinstance(dd["train"].features["image"], Image)
     assert dd["train"][0]["image"].size == (2, 2)

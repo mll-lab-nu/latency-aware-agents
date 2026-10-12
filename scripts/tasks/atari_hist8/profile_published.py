@@ -6,7 +6,6 @@ import argparse
 import json
 from pathlib import Path
 
-from huggingface_hub import CommitOperationAdd, HfApi
 
 from latency_bench.profiling.runner import run_profile
 from latency_bench.core.config import load_config
@@ -15,37 +14,22 @@ from latency_bench.utils.io import write_json_atomic
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--publication", type=Path, required=True)
+    parser.add_argument("--model-source", type=Path, required=True)
     parser.add_argument("--resume")
     args = parser.parse_args()
-    source = json.loads(args.publication.read_text())
-    publication = {key: source[key] for key in ("task", "model", "repo_id", "path", "revision")}
-    task, model = publication["task"], publication["model"]
+    source = json.loads(args.model_source.read_text())
+    model_source = {key: source[key] for key in ("task", "model", "repo_id", "path", "revision")}
+    task, model = model_source["task"], model_source["model"]
     config = load_config(f"configs/examples/{task}/profile_{model}.yaml")
-    config["policy"].update(source="hf", hf_repo=publication["repo_id"], root=publication["path"],
-                                  revision=publication["revision"])
+    config["policy"].update(source="hf", hf_repo=model_source["repo_id"], root=model_source["path"],
+                                  revision=model_source["revision"])
     result = run_profile(config, resume_run_id=args.resume)
-    # This experiment publishes its measured condition for downstream teacher training.
-    repository = "MLL-Lab/LAGEN-profiles"
-    run_dir = Path(result["RUN_DIR"])
-    profile_dir = Path(result["PROFILE_PATH"]).parent
-    profile_ref = result["PROFILE_REF"]
-    private_files = {"calibration.generated.yaml", "generated.yaml", "resolved_config.yaml",
-                     "hardware.json", "run_contract.json"}
-    operations = [CommitOperationAdd(
-        path_in_repo=f"runs/{profile_ref}/{result['RUN_ID']}/{path.relative_to(run_dir).as_posix()}",
-        path_or_fileobj=str(path)) for path in sorted(run_dir.rglob("*"))
-        if path.is_file() and path.name not in private_files and path.relative_to(run_dir).parts[0] != "profile"]
-    operations.extend(CommitOperationAdd(
-        path_in_repo=f"profiles/{profile_ref}/{path.name}", path_or_fileobj=str(path))
-        for path in sorted(profile_dir.iterdir()) if path.is_file())
-    commit = HfApi().create_commit(repo_id=repository, repo_type="dataset", operations=operations,
-                                 commit_message=f"Publish Atari H8 measurement {task}/{model}")
-    profile_path = "profiles/" + profile_ref + "/profile.json"
-    write_json_atomic(Path("outputs/tasks/atari_hist8_v1/profile_receipts") / f"{task}-{model}.json",
-                      {"task": task, "model": model, "model_publication": publication, "profile": result,
-                       "profile_repo": repository, "profile_revision": commit.oid,
-                       "profile_path": profile_path})
+    source_path = Path(result["RUN_DIR"]) / "profile_source.json"
+    write_json_atomic(source_path, {
+        "task": task, "model": model, "model_source": model_source,
+        "profile_path": result["PROFILE_PATH"],
+    })
+    print(f"PROFILE_SOURCE={source_path}")
     print(json.dumps(result, indent=2))
 
 

@@ -86,7 +86,7 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
 
 
 def materialize_rollouts(task: str, output: Path, mirror_host: str | None) -> None:
-    """Convert the completed rollout and publish the training-ready marker last."""
+    """Convert the completed rollout and save the training-ready marker last."""
     raw = output / "raw"
     provenance = json.loads((output / "rollout.complete.json").read_text())
     metadata = json.loads((raw / "metadata.json").read_text())

@@ -14,6 +14,4 @@ exec "${TASK_PY}" \
   "${MIKASA_ROOT}/mikasa_robo_suite/vla/dataset_collectors/get_dataset_collectors_ckpt.py" \
   --env-id InterceptGrabFast-VLA-v0 \
   --total-timesteps "${MIKASA_TOTAL_TIMESTEPS:-150000000}" \
-  --track \
-  --wandb-entity "${WANDB_ENTITY}" \
   "$@"

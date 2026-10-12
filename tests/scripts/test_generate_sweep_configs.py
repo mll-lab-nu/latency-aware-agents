@@ -77,8 +77,6 @@ def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tm
     assert {row["seed"] for row in rows} == {"42"}
     assert {row["frame_stack"] for row in rows} == {"4"}
     assert {row["obs_fps"] for row in rows} == {"10"}
-    assert {row["train_upload_repo_id"] for row in rows} == {""}
-    assert {row["eval_upload_repo_id"] for row in rows} == {""}
 
     for row in rows:
         train_cfg = yaml.safe_load(Path(row["train_config"]).read_text(encoding="utf-8"))
@@ -87,7 +85,7 @@ def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tm
         assert train_cfg["env"]["obs_fps"] == 10
         assert train_cfg["training"]["train_for_env_steps"] == 25_000_000
         assert train_cfg["evaluation"]["eval_interval_steps"] == 5_000_000
-        assert train_cfg["logging"]["wandb_project"] == "starvla_tasks"
+        assert train_cfg["logging"]["wandb_project"] is None
         assert train_cfg["executor"]["simulated_worker_capacity"] == 1
         assert train_cfg["latency"]["method"] == "temporal"
         assert train_cfg["latency"]["profile_worker_slot"] == 0
@@ -158,7 +156,6 @@ def test_deadly_native35_history_spec_uses_game_clock_and_best_checkpoint(tmp_pa
         assert eval_cfg["policy"]["checkpoint_kind"] == "best"
         assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "best"]
         assert eval_cfg["evaluation"]["episodes"] == 100
-        assert row["train_upload_repo_id"] == row["eval_upload_repo_id"] == ""
 
 
 @pytest.mark.parametrize(
@@ -169,7 +166,7 @@ def test_deadly_native35_history_spec_uses_game_clock_and_best_checkpoint(tmp_pa
         ("deadly_corridor", "fixed_l6", 6, 8.75, "8p75"),
     ],
 )
-def test_memory_rollout_teacher_spec_emits_single_uploadable_job(
+def test_memory_rollout_teacher_spec_emits_single_training_job(
     tmp_path,
     env_name,
     latency_label,
@@ -206,12 +203,6 @@ def test_memory_rollout_teacher_spec_emits_single_uploadable_job(
     assert row["latency_label"] == latency_label
     assert row["latency_kind"] == "fixed"
     assert row["latency_fixed_frames"] == str(latency_frames)
-    assert row["train_upload_repo_id"] == "MLL-Lab/LAGEN-models"
-    assert row["train_upload_repo_type"] == "model"
-    assert row["eval_upload_repo_id"] == ""
-    assert row["train_artifact_repo_path"].startswith(
-        f"latency-aware/{env_name.replace('_', '-')}/small-policy/memory_rollout_teacher:{env_name}:"
-    )
 
     train_cfg = yaml.safe_load(Path(row["train_config"]).read_text(encoding="utf-8"))
     assert train_cfg["experiment"]["seed"] == 0
@@ -376,12 +367,6 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     assert {row["env"] for row in rows} == {"flappy"}
     assert {row["frame_stack"] for row in rows} == {"1", "2", "3", "4", "5", "6", "7", "8"}
     assert {row["observation_stride"] for row in rows} == {"1"}
-    assert {row["train_upload_repo_id"] for row in rows} == {
-        "MLL-Lab/LAGEN-models"
-    }
-    assert {row["eval_upload_repo_id"] for row in rows} == {
-        "MLL-Lab/LAGEN-datasets"
-    }
 
     train_cfg = yaml.safe_load(
         (
@@ -451,12 +436,6 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     assert [suite["latency"] for suite in uniform_eval_cfg['evaluation']['suites']] == [{"method": 'uniform', "seed": uniform_eval_cfg["experiment"]["seed"], 'min_latency_ms': 1 * 1000.0 / uniform_eval_cfg["env"]["env_fps"], 'max_latency_ms': 3 * 1000.0 / uniform_eval_cfg["env"]["env_fps"]}]
 
     assert [suite["latency"] for suite in train_cfg['evaluation']['suites']] == [{"method": "fixed", "fixed_latency_ms": 2 * 1000.0 / train_cfg["env"]["env_fps"]}]
-    assert "train_upload_repo_id" not in train_cfg
-    assert "train_upload_repo_type" not in train_cfg
-    assert "train_upload_path_prefix" not in train_cfg
-    assert "eval_upload_repo_id" not in train_cfg
-    assert "eval_upload_repo_type" not in train_cfg
-    assert "eval_upload_path_prefix" not in train_cfg
 
 
 def test_paper_sweep_specs_use_base_inheritance():

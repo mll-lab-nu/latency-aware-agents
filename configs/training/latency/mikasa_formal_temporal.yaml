@@ -8,7 +8,7 @@ training:
   update_epochs: 4
   total_timesteps: 150000000
   eval_freq: 25
-  track: true
+  track: false
 latency:
   method: temporal
   seed: 0

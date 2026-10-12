@@ -1,4 +1,4 @@
-"""Cumulative replay and retryable artifact publication contracts."""
+"""Local task training, inference bundles, and optional W&B contracts."""
 
 import json
 import subprocess
@@ -39,13 +39,11 @@ def test_mikasa_bootstrap_prepares_published_lerobot_splits(tmp_path, monkeypatc
     monkeypatch.setattr(train_task, 'snapshot_download', lambda *args, **kwargs: str(snapshot))
     monkeypatch.setattr(train_task, 'resolve_token', lambda _: None)
     monkeypatch.setattr(train_task, 'code_revisions', lambda _: {})
-    args = SimpleNamespace(task='mikasa', condition='zero-latency', smoke=smoke,
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, task='mikasa', condition='zero-latency', smoke=smoke,
                            output_dir=tmp_path / 'run', dataset_dir=None, force=False,
-                           no_publish=True)
+                           )
 
-    shared, reference = train_task.prepare_shared(
-        args, tmp_path / 'teacher.pt', {}, tmp_path / 'simulator-python',
-    )
+    shared, reference = train_task.prepare_shared(args)
 
     for split in ('lerobot', 'lerobot__val'):
         assert pq.read_table(shared / split / 'data/chunk-000/episode.parquet') == rows
@@ -103,7 +101,7 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
         'action_horizon': 8 if task == 'balance' else 1,
         'normalization': {'action': {'min': [0], 'max': [1]}},
     }))
-    args = SimpleNamespace(task=task, model=model, output_dir=tmp_path,
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, task=task, model=model, output_dir=tmp_path,
                            smoke=True, num_gpus=1, micro_batch=1, num_workers=4,
                            persistent_workers=True, pin_memory=True, prefetch_factor=2,
                            condition=condition, gradient_checkpointing=True)
@@ -138,11 +136,11 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
     assert continuous['trainer']['eval_interval'] == 2
 
 
-def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
+def test_enabled_wandb_reuses_run_id(tmp_path, monkeypatch):
     calls = []
     monkeypatch.delenv('WANDB_RUN_ID', raising=False)
     monkeypatch.delenv('WANDB_RESUME', raising=False)
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project="test-project", wandb_entity="test-entity",
         output_dir=tmp_path,
         task='balance',
         model='qwenpi_v3',
@@ -191,7 +189,7 @@ def test_resume_requires_explicit_run_id():
 
 def test_fixed_training_oom_preserves_requested_batch(tmp_path, monkeypatch):
     """Long-lived trainer contract: disabled retries never change batch or accumulation."""
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         output_dir=tmp_path, task='mikasa_conditioned_h8', model='qwenoft', run_id='fixed-3',
         resume=False, smoke=False, vla_python=tmp_path / 'python', num_gpus=2, port=29521,
         oom_retry=False, micro_batch=64,
@@ -215,7 +213,7 @@ def test_fixed_training_oom_preserves_requested_batch(tmp_path, monkeypatch):
 
 def test_eval_config_preserves_explicit_episode_count_and_seed(tmp_path):
     """Long-lived train_task evaluation contract: explicit counts and seeds reach the evaluator."""
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         task='mikasa', model='qwenoft', condition='zero-latency', smoke=False,
         eval_seed=1234, inference_device='cuda:1', simulator_device='cuda:0',
         vla_python=tmp_path / 'vla-python', backbone_path=tmp_path / 'backbone',
@@ -228,14 +226,14 @@ def test_eval_config_preserves_explicit_episode_count_and_seed(tmp_path):
 
 
 @pytest.mark.parametrize(('method', 'label'), [('zero', '0'), ('temporal', 'profile_sample')])
-@pytest.mark.parametrize('smoke', [False, True])
-def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_path, monkeypatch, method, label, smoke):
+@pytest.mark.parametrize(('smoke', 'wandb_project'), [(False, None), (False, 'test-project'), (True, 'test-project')])
+def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_path, monkeypatch, method, label, smoke, wandb_project):
     """Long-lived eval contract: formal metrics are reported; smoke stays local."""
     if smoke:
         monkeypatch.delenv('WANDB_ENTITY', raising=False)
     else:
         monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
-    args = SimpleNamespace(task='balance', task_python=tmp_path / 'python',
+    args = SimpleNamespace(wandb_project=wandb_project, wandb_entity='test-entity', task='balance', task_python=tmp_path / 'python',
                            output_dir=tmp_path, eval_episodes=1, smoke=smoke)
     config = {'executor': {'mode': 'simulated'}, 'latency': {'method': method}, 'logging': {}}
     monkeypatch.setattr(train_task, 'eval_config', lambda *args, **kwargs: config)
@@ -254,7 +252,7 @@ def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_pat
 
     assert result == output
     assert commands == [[args.task_python, '-m', 'latency_bench', 'eval', '--config', output / 'eval_config.yaml']]
-    assert summaries == ([] if smoke else [{'returns': [1.0], 'checkpoint_global_step': 500}])
+    assert summaries == ([] if smoke or wandb_project is None else [{'returns': [1.0], 'checkpoint_global_step': 500}])
 
 
 def test_resume_requires_complete_training_state(tmp_path):
@@ -308,46 +306,6 @@ def test_mixture_retains_half_bootstrap_and_independent_validation(tmp_path):
     assert mixture['validation'] == [[str(bootstrap / 'lerobot__val'), 1, 'robot']]
 
 
-def test_publish_retry_preserves_dataset_revisions_and_rejects_smoke(tmp_path, monkeypatch):
-    (tmp_path / 'inference').mkdir()
-    run = {'task': 'balance', 'model': 'qwenoft', 'run_id': 'run', 'smoke': False,
-           'condition': 'zero-latency',
-           'teacher': {}, 'backbone': {}, 'code_revisions': {}, 'seed': 0,
-           'training': {'sft_updates': 2, 'dagger_updates': 2},
-           'datasets': [{'local_dir': str(tmp_path / 'bootstrap'), 'revision': 'shared',
-                         'condition': 'zero-latency', 'action_horizon': 1},
-                        {'local_dir': str(tmp_path / 'round-00'), 'revision': None,
-                         'condition': 'zero-latency', 'action_horizon': 1}]}
-    train_task.write_json(tmp_path / 'run.json', run)
-    uploads = []
-    monkeypatch.setattr(train_task.artifacts, 'publish_dataset',
-                        lambda path, **kwargs: uploads.append(kwargs) or 'delta')
-
-    def fail(*args, **kwargs):
-        raise ConnectionError('interrupted')
-
-    monkeypatch.setattr(train_task.artifacts, 'publish_model', fail)
-    with pytest.raises(ConnectionError):
-        train_task.publish_run(tmp_path)
-    saved = json.loads((tmp_path / 'run.json').read_text())
-    assert [ref['revision'] for ref in saved['datasets']] == ['shared', 'delta']
-    monkeypatch.setattr(train_task.artifacts, 'publish_model', lambda *a, **kw: 'model')
-    assert train_task.publish_run(tmp_path) == 'model'
-    assert len(uploads) == 1
-    assert uploads[0]['round_number'] == 0
-    provenance = json.loads((tmp_path / 'inference/provenance.json').read_text())
-    assert provenance['datasets'] == [
-        {'revision': 'shared', 'condition': 'zero-latency', 'action_horizon': 1},
-        {'revision': 'delta', 'condition': 'zero-latency', 'action_horizon': 1},
-    ]
-    del saved['training']
-    train_task.write_json(tmp_path / 'run.json', saved)
-    with pytest.raises(KeyError, match='training'):
-        train_task.publish_run(tmp_path)
-    saved['smoke'] = True
-    train_task.write_json(tmp_path / 'run.json', saved)
-    with pytest.raises(ValueError, match='local-only'):
-        train_task.publish_run(tmp_path)
 
 
 
@@ -452,6 +410,6 @@ def test_runtime_evaluation_command_keeps_native_task_entrypoints(
 ):
     python = tmp_path / 'task-python'
     config = tmp_path / 'eval.yaml'
-    args = SimpleNamespace(task=task, task_python=python)
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, task=task, task_python=python)
 
     assert runtime.evaluation_command(args, config) == [python, *driver, config_flag, config]

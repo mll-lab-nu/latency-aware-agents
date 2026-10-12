@@ -15,11 +15,9 @@ for task in "${tasks[@]}"; do
   for latency in "${latencies[@]}"; do
     config="configs/experiments/memory/collect/${task}_l${latency}.yaml"
     if [[ "$task:$latency" == defend_the_line:0 ]]; then
-      "$PYTHON" -m scripts.experiments.memory.reuse_rollouts --config "$config" --stage collect
-      "$PYTHON" -m scripts.experiments.memory.reuse_rollouts --config "$config" --stage publish
+      "$PYTHON" -m scripts.experiments.memory.reuse_rollouts --config "$config"
     else
-      "$PYTHON" -m scripts.experiments.memory.collect --config "$config" --stage collect
-      "$PYTHON" -m scripts.experiments.memory.collect --config "$config" --stage publish
+      "$PYTHON" -m scripts.experiments.memory.collect --config "$config"
     fi
   done
 done

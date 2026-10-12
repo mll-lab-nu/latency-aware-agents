@@ -542,7 +542,7 @@ def test_mikasa_h8_training_config(
             }
         )
     )
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         task=task,
         model=model,
         output_dir=tmp_path,
@@ -584,7 +584,7 @@ def test_mikasa_h8_training_config(
         from scripts.tasks.mikasa_intercept_grab_fast.run_dagger import _trainer_config
 
         (tmp_path / "bootstrap.yaml").write_text(yaml.safe_dump(config))
-        dagger_args = SimpleNamespace(
+        dagger_args = SimpleNamespace(wandb_project=None, wandb_entity=None,
             source_run=tmp_path, output=tmp_path, condition=condition, model=model,
             bootstrap=bootstrap.parent, total_steps=5000, round_steps=500, smoke=False,
             source_checkpoint=tmp_path / "sft-step-5000.pt",
@@ -603,10 +603,10 @@ def test_mikasa_h8_training_config(
         assert resumed["trainer"]["pretrained_checkpoint"] == str(tmp_path / "steps_500_state")
 
 
-def test_mikasa_h8_dataset_reference_uses_h8_artifact_path(tmp_path):
+def test_mikasa_h8_dataset_reference_identifies_local_data(tmp_path):
     reference = train_task.dataset_reference("mikasa_h8", tmp_path)
     assert reference["action_horizon"] == 8
-    assert "teacher-rollouts-h8-state-v1" in reference["path"]
+    assert reference["local_dir"] == str(tmp_path)
 
 
 def test_dagger_rejects_a_different_source_condition_before_starting(tmp_path):
@@ -640,7 +640,7 @@ def test_dagger_latency_cells_resume_and_select_only_matched_results(tmp_path, m
     """Long-lived controller contract: five cells resume independently; only matched scores select weights."""
     from scripts.tasks.mikasa_intercept_grab_fast import run_dagger as dagger
 
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         output=tmp_path, eval_episodes=100,
         condition=f"fixed-{train_latency}", task_python=Path("python"), model="qwenoft", source_run=tmp_path,
         latency_config=tmp_path / "latency.yaml", bootstrap=tmp_path / "bootstrap",
@@ -722,67 +722,13 @@ def test_prefix63_report_keeps_matched_selection_and_fixed_prefix(tmp_path, trai
     assert "comparison" not in result
 
 
-@pytest.mark.parametrize("upload_result", ["ok", "network-error"])
-def test_prefix63_completed_phase_publishes_inference_and_retains_recovery_state(tmp_path, monkeypatch, upload_result):
-    """Long-lived publication contract: publish inference files and retain recovery state locally."""
-    from scripts.tasks.mikasa_intercept_grab_fast import publish_prefix63 as publish
-
-    trained = tmp_path / "training"
-    checkpoints = trained / "checkpoints"
-    checkpoints.mkdir(parents=True)
-    model = checkpoints / "steps_5000_pytorch_model.pt"
-    model.write_bytes(b"test-model")
-    state = checkpoints / "steps_5000_state"
-    state.mkdir()
-    (state / "optimizer.pt").write_bytes(b"test-optimizer")
-    contract = tmp_path / "task_contract.json"
-    contract.write_text(json.dumps({"state_dim": 63, "action_prefix": {"frames": 2}}))
-    data = {"task_contract_path": str(contract), "include_state": True,
-            "obs_image_size": [224, 224], "image_mode": "single", "stitch_grid": [1, 2],
-            "num_obs_frames": 1}
-    cfg = {"run_id": "dagger", "training_latency_condition": "fixed-2",
-           "version_id": "0.21", "framework": {"qwenvl": {"base_vlm": "/remote/backbone"}},
-           "datasets": {"vla_data": data}, "trainer": {"max_train_steps": 5000}}
-    (trained / "config.full.yaml").write_text(yaml.safe_dump(cfg))
-    (trained / "dataset_statistics.json").write_text("{}")
-    uploaded = {}
-
-    def upload_folder(**kwargs):
-        if upload_result == "network-error":
-            raise RuntimeError("upload failed")
-        for path in Path(kwargs["folder_path"]).rglob("*"):
-            if path.is_file():
-                uploaded[kwargs["path_in_repo"] + "/" + path.relative_to(kwargs["folder_path"]).as_posix()] = path.read_bytes()
-        return SimpleNamespace(oid="published-revision")
-
-    monkeypatch.setattr(publish, "HfApi", lambda **kwargs: SimpleNamespace(upload_folder=upload_folder))
-    receipt = trained / "publication_step_5000.json"
-    if upload_result != "ok":
-        with pytest.raises(RuntimeError):
-            publish.publish_training_endpoint(trained, "test/fixed-2")
-        assert not receipt.exists()
-    else:
-        publish.publish_training_endpoint(trained, "test/fixed-2")
-        assert json.loads(receipt.read_text())["revision"] == "published-revision"
-        prefix = "test/fixed-2/training/dagger/step_05000/"
-        assert uploaded[prefix + "checkpoints/model.pt"] == b"test-model"
-        assert not any("trainer_state/" in path for path in uploaded)
-        assert (state / "optimizer.pt").read_bytes() == b"test-optimizer"
-        assert json.loads(uploaded[prefix + "task_contract.json"])["state_dim"] == 63
-        def unexpected_network(**kwargs):
-            raise AssertionError("Completed publication must use its saved revision")
-        monkeypatch.setattr(publish, "HfApi", unexpected_network)
-        publish.publish_training_endpoint(trained, "test/fixed-2")
-        assert json.loads(receipt.read_text())["revision"] == "published-revision"
-
-
 @pytest.mark.parametrize("train_latency", [1, 2, 3, 4])
 def test_fixed_dagger_final_eval_uses_all_latencies_and_one_best(tmp_path, monkeypatch, train_latency):
     """Long-lived final evaluation contract: matched-only development still ends with five held-out cells."""
     from scripts.tasks.mikasa_intercept_grab_fast import run_dagger as dagger
 
     (tmp_path / "best.json").write_text(json.dumps({"step": 1500, "checkpoint": "selected.pt"}))
-    args = SimpleNamespace(output=tmp_path, condition=f"fixed-{train_latency}",
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, output=tmp_path, condition=f"fixed-{train_latency}",
                            heldout_episodes=200, total_steps=5000, source_checkpoint=Path("sft.pt"),
                            eval_configs={latency: Path(f"eval_{latency}.yaml") for latency in range(5)})
     calls = []
@@ -952,7 +898,7 @@ def test_mikasa_h8_execution_audit_requires_configured_fixed_delay(tmp_path, fra
 
 
 def test_mikasa_h8_eval_uses_20hz_rtx3090_profile_capacity_one(tmp_path, monkeypatch):
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         task="mikasa_h8",
         model="qwenoft",
         condition="zero-latency",
@@ -1015,7 +961,7 @@ def test_mikasa_h8_eval_uses_20hz_rtx3090_profile_capacity_one(tmp_path, monkeyp
 def test_mikasa_conditioned_eval_keeps_causal_action_context_in_all_settings(
     tmp_path, monkeypatch
 ):
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         task="mikasa_conditioned_h8",
         model="qwenpi_v3",
         condition="profile-latency",
@@ -1082,7 +1028,7 @@ def test_mikasa_conditioned_eval_keeps_causal_action_context_in_all_settings(
 
 
 def test_mikasa_h8_eval_reorders_physical_simulator_and_inference_gpus(tmp_path, monkeypatch):
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         task="mikasa_h8",
         task_python=tmp_path / "mikasa-python",
         output_dir=tmp_path,
@@ -1112,7 +1058,7 @@ def test_conditioned_grid_preserves_training_prefix(tmp_path, train_latency, eva
     prefix = {"mode": "fixed_frames", "frames": train_latency, "env_fps": 20,
               "action_horizon": 8, "action_dim": 7}
     (bundle / "task_contract.json").write_text(json.dumps({"action_prefix": prefix}))
-    args = SimpleNamespace(train_latency=train_latency, eval_latency=eval_latency,
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, train_latency=train_latency, eval_latency=eval_latency,
                            vla_python=tmp_path / "python", backbone_path=tmp_path / "backbone")
     config = grid.build_config(args, bundle, tmp_path / "eval")
     assert config["policy"]["action_prefix"] == prefix

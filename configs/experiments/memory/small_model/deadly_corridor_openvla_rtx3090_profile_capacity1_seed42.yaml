@@ -53,7 +53,7 @@ training:
   train_for_env_steps: 10000000
 
 logging:
-  wandb_project: starvla_tasks
+  wandb_project: null
   wandb_job_type: deadly_corridor_profiled_small_capacity1
 
 latency_settings:

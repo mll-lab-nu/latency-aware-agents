@@ -12,8 +12,13 @@ The [paper experiment catalogue](https://huggingface.co/datasets/MLL-Lab/LAGEN-d
 Root cards provide navigation.
 Task pages and fixed manifests identify detailed settings and source limits.
 
-Task transfer includes the formal Demon Attack policies and a separate archive for joint training and evaluation reruns.
+## Task cards
 
-The dataset card preserves named Viewer selections and available feature metadata.
-Some archived selections have no recorded schema or row count. Their manifests
-remain the source for known settings and missing metadata.
+| Resource | Card source |
+| --- | --- |
+| MIKASA PPO teacher | [Teacher model](mikasa-teacher.md) |
+| MIKASA H1 demonstrations | [Dataset](mikasa-dataset.md) |
+| Historical Balance teacher demonstrations | [Dataset](balance-dataset.md) |
+
+The dataset root card retains named Viewer selections and their recorded feature metadata.
+Use the selected artifact's manifest for its complete contract.

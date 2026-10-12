@@ -38,7 +38,7 @@ def grouped_inputs(latency_by_run, clock, *, protocol, replica_seed):
 class RunTrajectoryLogger(TrajectoryLogger):
     """Persist complete logical runs and their traces before a slot is reused."""
 
-    def __init__(self, output, on_run_complete, *, run_paths, protocol,
+    def __init__(self, output, *, run_paths, protocol,
                  episode_metadata=None):
         super().__init__(output / "stream", save_step_records=True,
                          save_action_records=True, save_latency_records=True)
@@ -46,7 +46,6 @@ class RunTrajectoryLogger(TrajectoryLogger):
         self.env_seed = protocol["seed"]
         self.env_seed_stride = protocol["seed_stride"]
         self.episodes_per_run = protocol["episodes"]
-        self.on_run_complete = on_run_complete
         self.episode_metadata = episode_metadata
         self._run_metrics = defaultdict(list)
 
@@ -72,7 +71,6 @@ class RunTrajectoryLogger(TrajectoryLogger):
         if len(self.episode_metrics) == self.episodes_per_run:
             super().flush()
             (self.output_dir / "DONE").touch()
-            self.on_run_complete(run_key, self.output_dir)
             del self._run_metrics[run_key]
         self.episode_metrics = []
 
@@ -116,14 +114,14 @@ def build_replay_executor(config, parallel_runs):
     return executor, config
 
 
-def replay_runs(executor, configs, run_paths, runtime_dir, on_run_complete, *, protocol, replica_seed):
-    """Persist each missing run in its original publication directory."""
+def replay_runs(executor, configs, run_paths, runtime_dir, *, protocol, replica_seed):
+    """Persist each missing run in its original run directory."""
     for run_id, path in run_paths.items():
         if path.exists():
             shutil.rmtree(path)  # The caller supplies only incomplete runs.
         write_yaml(path / "generated.yaml", configs[run_id])
     executor.logger = RunTrajectoryLogger(
-        runtime_dir, on_run_complete, run_paths=run_paths, protocol=protocol,
+        runtime_dir, run_paths=run_paths, protocol=protocol,
     )
     groups, seeds, sources = grouped_inputs(
         {run_id: config["latency"] for run_id, config in configs.items()}, executor.clock,
@@ -135,7 +133,7 @@ def replay_runs(executor, configs, run_paths, runtime_dir, on_run_complete, *, p
     )
 
 
-def simulate(base, output, manifest, publication, *, inference_device, simulator_device, parallel_runs):
+def simulate(base, output, manifest, *, inference_device, simulator_device, parallel_runs):
     """Resume only missing runs; retain original profile, clocks, seeds and result paths."""
     protocol = manifest["protocol"]
     fps = read_json(output / "calibration/calibration.json")["selected_env_fps"]
@@ -171,32 +169,27 @@ def simulate(base, output, manifest, publication, *, inference_device, simulator
                 "episode_id": f"{protocol['seed_stride']} * valid_run_id + episode_in_run",
                 "temporal_replica_zero_seed": replica_seed,
             })
-        publication.publish("sim_parallel_context", [context])
         for method in protocol["methods"]:
             paths = {run_id: output / "sim" / method / str(index)
                      for index, run_id in enumerate(protocol["valid"])}
-            def publish_run(run_id, path):
-                publication.publish(str(path.relative_to(output)), [path])
             pending = {}
             for run_id, path in paths.items():
-                if (path / "DONE").exists():
-                    publish_run(run_id, path)
-                else:
+                if not (path / "DONE").exists():
                     pending[run_id] = path
             if pending:
                 print(f"Parallel {method}: runs {list(pending)}, slots={parallel_runs}", flush=True)
                 replay_runs(executor, {run_id: configs[method][run_id] for run_id in pending}, pending,
-                            runtime_dir, publish_run, protocol=protocol, replica_seed=replica_seed)
+                            runtime_dir, protocol=protocol, replica_seed=replica_seed)
 
 
-def replay_group(executor, config, path, run_ids, on_run_complete, *, protocol, latency_seeds):
+def replay_group(executor, config, path, run_ids, *, protocol, latency_seeds):
     """Replay missing runs through an already resident model and environment pool."""
     for run_id in run_ids:
         run_path = path / "runs" / str(run_id)
         if run_path.exists():
             shutil.rmtree(run_path)  # Only incomplete runs are passed by the caller.
     executor.logger = RunTrajectoryLogger(
-        path, on_run_complete, run_paths={run_id: path / "runs" / str(run_id) for run_id in run_ids},
+        path, run_paths={run_id: path / "runs" / str(run_id) for run_id in run_ids},
         protocol=protocol,
     )
     groups, seeds, sources = grouped_inputs(
@@ -208,7 +201,7 @@ def replay_group(executor, config, path, run_ids, on_run_complete, *, protocol, 
     )
 
 
-def replay_settings(executor, jobs, output, publication, *, protocol):
+def replay_settings(executor, jobs, output, *, protocol):
     """Replay (run ID, path, config, latency seed) jobs independently of slot assignment."""
     groups, seeds, sources, identities, paths = [], [], {}, {}, {}
     for session_id, (run_id, path, config, run_latency_seed) in enumerate(jobs):
@@ -226,10 +219,8 @@ def replay_settings(executor, jobs, output, publication, *, protocol):
             sources[internal_id] = run_sources[logical[0][episode]]
             identities[internal_id] = {"run_id": run_id, "episode_in_run": episode,
                                        "episode_seed": run_seeds[episode], "latency_seed": run_latency_seed}
-    def publish_run(session_id, path):
-        publication.publish(path.relative_to(output).as_posix(), [path])
     executor.logger = RunTrajectoryLogger(
-        output / "runtime", publish_run, run_paths=paths,
+        output / "runtime", run_paths=paths,
         protocol=protocol, episode_metadata=identities,
     )
     started = time.perf_counter()
@@ -241,4 +232,3 @@ def replay_settings(executor, jobs, output, publication, *, protocol):
     timing = output / "runtime/groups" / f"{stamp}.json"
     write_json(timing, {"stage": "sim", "seconds": time.perf_counter() - started, "gpu_count": 1,
                         "runs": [path.relative_to(output).as_posix() for path in paths.values()]})
-    publication.publish(f"runtime/groups/{stamp}", [timing])

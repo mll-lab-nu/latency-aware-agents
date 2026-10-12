@@ -42,14 +42,14 @@ Browse the resources in the [LAGEN collection](https://huggingface.co/collection
 
 | Your input | Start here |
 | --- | --- |
-| A published or local model | [Select artifacts](docs/artifacts.md), then [evaluate](docs/standard_pipeline.md#evaluate-an-existing-model) |
-| Your own environment or policy | [Run the CPU example](docs/custom_components.md), then replace its factories |
-| A teacher or training dataset | [Collect demonstrations](docs/rollout_collection.md) or use a task cookbook |
-| A model to measure | [Measure and replay latency](docs/profiling/cookbook.md) |
+| A published or local model | [Select artifacts](docs/artifacts.md), then [evaluate](docs/workflow.md#evaluate-an-existing-model) |
+| Your own environment or policy | [Run the CPU example](docs/guides/custom_components.md), then replace its factories |
+| A teacher or training dataset | [Collect demonstrations](docs/guides/rollout_collection.md) or use a task cookbook |
+| A model to measure | [Measure and replay latency](docs/cookbooks/profiling.md) |
 
 The custom CPU example does not require an NVIDIA GPU.
 Reference VLA and GPU simulator recipes require their selected model and simulator dependencies.
-See the [installation guide](docs/QUICK_START.md) for each installation path.
+See the [installation guide](docs/installation.md) for each installation path.
 
 Clone the source:
 
@@ -69,45 +69,19 @@ export PYTHONPATH="$PWD/configs/examples/custom_env${PYTHONPATH:+:$PYTHONPATH}"
 python -m latency_bench eval --config configs/examples/custom_env/eval.yaml
 ```
 
-For the reference GPU environment, run `bash install.sh`.
-Select simulators with `--env`. Add a model environment when needed:
-
-```bash
-bash install.sh --env mikasa_intercept_grab_fast --model openvla --tier dev
-```
-
-Use the same entrypoint for each stage:
-
-```bash
-python -m latency_bench eval --config eval.yaml
-python -m latency_bench collect --config collect.yaml
-python -m latency_bench convert --config convert.yaml
-python -m latency_bench profile run --config profile.yaml
-python -m latency_bench profile fit --run-dir /path/to/measurement
-```
-
-The [standard pipeline](docs/standard_pipeline.md) describes each stage's inputs and outputs.
-Start at the stage that matches your existing artifacts.
+The [installation guide](docs/installation.md) covers reference GPU environments and task dependencies.
+The [workflow guide](docs/workflow.md) describes each stage's inputs and local outputs.
 
 ## Documentation
 
-| Guide | Use it to |
+| Start here | Purpose |
 | --- | --- |
-| [Installation](docs/QUICK_START.md) | Select dependencies and interpreters |
-| [Configuration](docs/configuration.md) | Select tasks, model sources, execution modes, and budgets |
-| [External components](docs/custom_components.md) | Run CPU evaluation, collection, conversion, profiling, and replay |
-| [Gymnasium adaptation](docs/gymnasium_adapter.md) | Define task contracts and use the public training wrapper |
-| [Demonstration collection](docs/rollout_collection.md) | Pair student observations with teacher labels and export training data |
-| [Standard pipeline](docs/standard_pipeline.md) | Start from an existing teacher, dataset, model, or profile |
-| [MIKASA cookbook](docs/mikasa/cookbook.md) | Run manipulation recipes |
-| [Balance cookbook](docs/humanoidbench/cookbook.md) | Run H8/H16 collection and training recipes |
-| [Latency-aware PPO](docs/mikasa/latency_ppo.md) | Train MIKASA teachers with measured profiles |
-| [Demon Attack](docs/demon_attack.md) | Preserve full-game scoring and life-loss resets |
-| [Execution semantics](docs/latency_execution_semantics_en.md) | Understand clocks, ordering, capacity, hold, and chunks |
-| [Profiling](docs/profiling/cookbook.md) | Measure latency, fit a profile, and replay it |
-| [Memory](docs/memory.md) | Select temporal images and policy memory |
-| [Infrastructure](docs/infra.md) | Locate runtime responsibilities and stable contracts |
-| [Artifacts](docs/artifacts.md) | Select published inputs and inspect result evidence |
+| [Documentation index](docs/README.md) | Find guides, cookbooks, references, and experiment recipes |
+| [Installation](docs/installation.md) | Install the selected task and model runtime |
+| [Workflow](docs/workflow.md) | Start from an existing teacher, dataset, model, or profile |
+| [Custom components](docs/guides/custom_components.md) | Run the complete CPU example with your own environment and policy |
+| [Task cookbooks](docs/README.md#cookbooks) | Train, collect, evaluate, and measure reference tasks |
+| [Artifacts](docs/artifacts.md) | Select published inputs and their fixed source protocols |
 
 ## Citation
 

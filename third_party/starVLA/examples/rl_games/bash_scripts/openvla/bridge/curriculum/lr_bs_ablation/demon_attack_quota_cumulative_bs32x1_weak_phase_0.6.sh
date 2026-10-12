@@ -20,10 +20,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="openvla_demon_attack_mixed_latency_quota_cumulative_clean_exp1_bs32x1_weak_phase_0.6" \
     trainer.distributed_backend=none \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/openvla_demon_attack_mixed_latency_quota_cumulative_clean_exp1_bs32x1_weak_phase_0.6" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/openvla_demon_attack_mixed_latency_quota_cumulative_clean_exp1_bs32x1_weak_phase_0.6" \
     dataset.source_hf="latency-sensitive-bench/benchmark-datasets" \
     dataset.revision=15d17287246bd19940c837d6c8a5327564f969c5 \
     dataset.source_subdir=zero-latency/demon-attack/demon_attack_200ep/demon_attack_fix_latency_0_200ep \

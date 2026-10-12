@@ -419,15 +419,13 @@ def test_install_script_help_exposes_only_fixed_stack_options(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "torch-profile" not in result.stdout
     assert "Python 3.10" in result.stdout
     assert "CUDA Toolkit 12.8.1" in result.stdout
     assert "PyTorch 2.11.0+cu128" in result.stdout
-    assert "--accept-rom-license" not in result.stdout
     assert not calls_path.exists()
 
 
-def test_install_script_rejects_removed_torch_profile_option(tmp_path):
+def test_install_script_rejects_unknown_option_before_installing(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(
         tmp_path,
@@ -436,7 +434,7 @@ def test_install_script_rejects_removed_torch_profile_option(tmp_path):
     )
 
     result = subprocess.run(
-        ["bash", str(script_path), "--torch-profile", "cu128"],
+        ["bash", str(script_path), "--unknown-option"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -445,28 +443,8 @@ def test_install_script_rejects_removed_torch_profile_option(tmp_path):
     )
 
     assert result.returncode != 0
-    assert "unknown argument: --torch-profile" in result.stderr
+    assert "unknown argument: --unknown-option" in result.stderr
     assert not calls_path.exists()
-
-
-def test_install_script_ignores_removed_profile_environment_variable(tmp_path):
-    script_path = REPO_ROOT / "install.sh"
-    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="9.0\n")
-    env["LATENCY_BENCH_TORCH_PROFILE"] = "cu130"
-
-    result = subprocess.run(
-        ["bash", str(script_path), "--model", "openvla"],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=openvla" in result.stdout
-    calls = calls_path.read_text(encoding="utf-8")
-    assert "cu130" not in calls
 
 
 def test_install_script_forwards_all_model_selection(tmp_path):

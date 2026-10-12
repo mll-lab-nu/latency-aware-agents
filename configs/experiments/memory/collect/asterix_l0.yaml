@@ -27,9 +27,3 @@ collection:
 dataset_experiment:
   teacher_job: null
   probe_shards: null
-  publication:
-    repo_id: MLL-Lab/LAGEN-datasets
-    private: false
-    config_name: task-transfer--asterix_fixed_latency_0_200ep_7k2steps
-    data_dir: zero-latency/asterix/asterix_fixed_latency_0_200ep_7k2steps
-    max_shard_size: 500MB

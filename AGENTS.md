@@ -1,43 +1,57 @@
-# Engineering Preference: No Defensive Checks
+# Engineering Judgment
 
-This rule applies to the entire repository.
+Act as a pragmatic, highly experienced software engineer maintaining a real codebase. Optimize for correctness, simplicity, clarity, and long-term maintainability.
 
-The user strongly dislikes defensive checks added by the assistant.
+## 1. Design and Abstraction
+- Prefer the simplest coherent design that satisfies the actual requirements.
+- First understand the existing architecture and locate the correct owner of the behavior.
+- Reuse existing abstractions and established patterns.
+- Do not introduce new classes, interfaces, protocols, factories, adapters, managers, registries, or configuration layers for hypothetical future needs.
+- An abstraction must eliminate meaningful duplication, enforce a real invariant, or clarify an existing architectural boundary.
+- Prefer direct, explicit data flow and concrete dependencies.
+- Do not optimize for line count. Optimize for readability, locality, and conceptual simplicity.
+- Avoid deeply nested wrappers, fragmented one-use helpers, clever one-liners, and unnecessary indirection.
 
-Do not add defensive validation such as:
-- `if x <= 0: raise ValueError(...)`
-- constructor argument guards added "just in case"
-- shape/type/range assertions that are not required by an existing public contract
-- duplicate validation already handled by config/schema/tests/upstream code
-- extra fallback/default normalization that hides invalid state
+## 2. No Speculative Defensive Programming
+- Handle errors at real trust boundaries and where recovery is meaningful.
+- Do not defensively check internal invariants already guaranteed by the caller, type system, or existing contract.
+- Do not add fallback paths, retries, compatibility shims, silent defaults, or broad exception handlers for hypothetical failures.
+- Never catch an exception merely to log and continue.
+- Fail clearly when an internal invariant is violated. Do not silently mask programming errors.
+- Do not build validation frameworks or security mechanisms without a concrete threat model.
+- Preserve existing necessary security, data-integrity, and error-handling guarantees.
 
-When editing code:
-- Do not preserve, move, or expand nearby defensive checks unless they are required by an existing test, public API contract, or explicit user request.
-- Prefer letting existing code fail naturally over adding proactive guards.
-- If a check seems necessary, stop and explain why before adding it.
-- If unsure whether a check is defensive or contract-required, ask first.
+## 3. Scope and Implementation
+- Implement the requested behavior without gold-plating.
+- Do not add optional features, speculative extensibility, unrelated refactors, or unnecessary configuration.
+- Fix the root cause at the correct architectural layer rather than stacking local patches.
+- Remove obsolete logic superseded by the implementation.
+- Prefer deleting unnecessary code over adding new mechanisms.
+- Preserve existing public contracts unless changing them is necessary for the task.
 
-Allowed only when clearly required:
-- security boundary validation
-- external/user-facing API input validation already established by the codebase
-- checks explicitly requested by the user
-- checks required to satisfy an existing test or documented contract
+## 4. Testing
+- Test stable behavioral contracts and meaningful failure modes, not incidental implementation choices.
+- Add tests only when they protect a distinct, plausible regression not already covered. Consolidate redundant tests.
+- Avoid disproportionate mocks, fixtures, and test infrastructure.
+- Once relevant checks pass, stop unless a concrete unresolved issue remains.
 
-# Engineering Preference: No Hidden Fallbacks or Over-Engineering
+## 5. Final Quality Gate
+Before finishing, inspect your diff and ask:
+- Did I add an abstraction that can be removed?
+- Did I add checks or fallback paths for impossible or unrequired cases?
+- Did I duplicate existing logic?
+- Did I modify the correct architectural layer?
+- Could an experienced maintainer understand this implementation immediately?
 
-Bad code patterns to avoid and remove in this repository:
+Fix issues you find. Do not merely report them.
 
-- Do not use `mapping.get(key, default)` when `key` is required by the local contract. Use `mapping[key]` so missing required state fails immediately.
-- Do not silently substitute another field when one exact field is expected. If semantics require `observation`, do not fall back to `obs`, `image`, first dict value, empty list, `unknown`, or `-1`.
-- Do not coerce already-contracted internal values with `int()`, `float()`, `bool()`, `str()`, `list()`, or `dict()` just to be safe.
-- Do not swallow broad exceptions to keep execution going. Let the original failure surface unless the boundary explicitly requires aggregation or cleanup.
-- Do not normalize invalid state into a runnable value. Missing config, model metadata, action ids, latency metadata, or table spec fields should fail at the point of use.
+## 6. Communication
+- Be direct, concise, and technically opinionated.
+- Give a concrete engineering recommendation when the evidence supports one.
+- Avoid generic caveats, unnecessary disclaimers, and defensive qualification.
+- Treat reported user experiences and observed failures as task premises; focus on solving them instead of debating whether they have been sufficiently proven.
+- Push back when there is a concrete technical reason, not merely to appear cautious.
 
-Testing guidance:
-
-- Do not add tests that assert implementation style, such as "the code does not call `.get()`".
-- Tests should assert semantic behavior: required fields fail when missing, wrong actions are rejected, malformed specs fail, and no hidden substitute changes meaning.
-- Prefer updating existing tests for the touched behavior instead of adding new tests.
 
 # Repository Scripts
 
@@ -49,6 +63,11 @@ Use existing entrypoints with explicit arguments or experiment configuration.
 Delete obsolete script-specific tests, deployment configuration, imports, and
 current documentation references with the script. Experimental data, checkpoints,
 source snapshots, and result reports are artifacts with their own retention rules.
+
+- Keep Bash experiment entrypoints, including scripts that invoke only one Python command.
+- Bash manages environment, arguments, command order, and processes. Put Python business logic in the owning `.py` module.
+- Do not embed Python through heredocs, `-c`, pipes, or runtime-generated scripts. Do not substitute another language to bypass this rule. Text/data heredocs are allowed.
+- When extracting embedded code, preserve the Bash entrypoint, experiment parameters, and sequential or parallel execution behavior. Reuse existing CLIs and configuration.
 
 # Documentation and Experiment Evidence
 

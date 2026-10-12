@@ -6,7 +6,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 STARVLA_ROOT="${REPO_ROOT}/third_party/starVLA"
 RAW_ROOT="${REPO_ROOT}/teacher_datasets/memory"
-VLA_REPO="MLL-Lab/LAGEN-models"
 cd "${REPO_ROOT}"
 
 BASE_MODEL_REPO="Qwen/Qwen3-VL-4B-Instruct"
@@ -129,16 +128,6 @@ train_method() {
     "dataset.target_latency_unit=raw_frames" \
     "${eval_args[@]}"
 
-  conda run --no-capture-output -n latency hf upload \
-    "${VLA_REPO}" \
-    "${run_dir}" \
-    "latency-aware/${env_name//_/-}/vla/starvla-qwenoft-h1/${run_id}" \
-    --exclude "wandb/**" \
-    --exclude "checkpoints/_initialization/**" \
-    --exclude "checkpoints/*_state/**" \
-    --exclude "**/optimizer.bin" \
-    --exclude "**/*optim_states.pt" \
-    --repo-type model
 }
 
 select_envs "${1:-all}"

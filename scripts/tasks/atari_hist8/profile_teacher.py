@@ -1,4 +1,4 @@
-"""Train, independently evaluate and publish one CPU H8 profile-aware teacher."""
+"""Train, independently evaluate and export one CPU H8 profile-aware teacher."""
 
 from __future__ import annotations
 
@@ -6,20 +6,18 @@ import argparse
 from collections import Counter
 from copy import deepcopy
 import json
-import os
 from pathlib import Path
 from latency_bench.policy.model_source import set_model_files
 import shutil
 import subprocess
 import sys
 
-from huggingface_hub import HfApi, hf_hub_download, snapshot_download
+from huggingface_hub import hf_hub_download
 import torch
 import yaml
 
 from latency_bench.core.config import load_config
 from latency_bench.utils.io import write_json_atomic
-from scripts.tasks.atari_hist8.publish_zero import REPO_ID
 from training.common.checkpoints import find_checkpoint
 
 
@@ -36,7 +34,7 @@ def teacher_configs(task: str, model: str, profile: Path, output: Path) -> tuple
     train["latency"] = {"method": "temporal", "profile_path": str(profile),
                         "profile_worker_slot": 0, "seed": 0, "add_latency_info": False}
     train["logging"].update(output_dir=str(output / "teacher_logs" / run_id),
-                            wandb_project="latency-sensitive-bench", wandb_entity="saberrr-zju",
+                            wandb_project=None, wandb_entity=None,
                             wandb_name=run_id, wandb_tags=["atari-hist8-v1", "profile", model])
     evaluation = deepcopy(train)
     evaluation["experiment"]["seed"] = 1_000_000
@@ -54,15 +52,8 @@ def teacher_configs(task: str, model: str, profile: Path, output: Path) -> tuple
 
 
 def prepare(receipt: dict, output: Path) -> Path:
-    receipt = {key: receipt[key] for key in (
-        "task", "model", "model_publication", "profile", "profile_repo", "profile_revision", "profile_path")}
-    receipt["model_publication"] = {key: receipt["model_publication"][key] for key in (
-        "task", "model", "repo_id", "path", "revision")}
     task, model = receipt["task"], receipt["model"]
-    snapshot = Path(snapshot_download(receipt["profile_repo"], repo_type="dataset",
-                                      revision=receipt["profile_revision"],
-                                      allow_patterns=[str(Path(receipt["profile_path"]).parent / "*")]))
-    profile = snapshot / receipt["profile_path"]
+    profile = Path(receipt["profile_path"])
     directory = output / "teacher_configs" / f"{task}-{model}"
     directory.mkdir(parents=True, exist_ok=True)
     shutil.copytree(profile.parent, directory / "profile", dirs_exist_ok=True)
@@ -76,7 +67,7 @@ def prepare(receipt: dict, output: Path) -> Path:
     write_json_atomic(directory / "provenance.json", {
         "task": task, "model": model, "run_id": train["experiment"]["name"],
         "initialization": "scratch", "zero_teacher": zero["teachers"][task],
-        "zero_teacher_revision": zero["revision"], "profile_publication": receipt,
+        "zero_teacher_revision": zero["revision"], "profile_source": receipt,
     })
     return directory
 
@@ -103,7 +94,7 @@ def evaluate(directory: Path) -> None:
                       "training_step": state["env_steps"]})
 
 
-def publish(directory: Path, output: Path) -> dict:
+def export(directory: Path, output: Path) -> dict:
     provenance = json.loads((directory / "provenance.json").read_text())
     run_id, task, model = provenance["run_id"], provenance["task"], provenance["model"]
     evidence = output / "teacher_evals" / run_id
@@ -113,15 +104,15 @@ def publish(directory: Path, output: Path) -> dict:
     latest = find_checkpoint(train["backend"]["train_dir"], run_id)
     final_state = torch.load(latest, map_location="cpu", weights_only=False)
     if final_state["env_steps"] < train["training"]["train_for_env_steps"]:
-        raise ValueError("Formal teacher publication requires completed training")
+        raise ValueError("Formal teacher export requires completed training")
     summary = json.loads((evidence / "queue_eval_latency_profile_sample.json").read_text())
     audit = json.loads((evidence / "action_audit.json").read_text())
     evaluation = load_config(directory / "eval.yaml")
     expected_seeds = list(range(evaluation["experiment"]["seed"],
                                 evaluation["experiment"]["seed"] + evaluation["evaluation"]["episodes"]))
     if audit["episode_seeds"] != expected_seeds:
-        raise ValueError("Formal teacher publication requires the configured evaluation seeds")
-    destination = output / "teacher_publication_stage" / run_id
+        raise ValueError("Formal teacher export requires the configured evaluation seeds")
+    destination = output / "teacher_bundles" / run_id
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(checkpoint, destination / checkpoint.name)
     shutil.copyfile(checkpoint.parent.parent / "config.json", destination / "config.json")
@@ -131,7 +122,6 @@ def publish(directory: Path, output: Path) -> dict:
     for name in ("episode_metrics.jsonl", "action_audit.json", "checkpoint.json"):
         shutil.copyfile(evidence / name, destination / name)
     write_json_atomic(destination / "eval_profile.json", summary)
-    profile = provenance["profile_publication"]
     provenance.update(checkpoint=checkpoint.name,
                       best_checkpoint_env_steps=identity["training_step"],
                       final_env_steps=final_state["env_steps"], mean_return=summary["mean_return"],
@@ -146,27 +136,17 @@ def publish(directory: Path, output: Path) -> dict:
         f"Best checkpoint at {identity['training_step']} raw frames. "
         f"GPU evaluation: {audit['episodes']} episodes, mean raw return {summary['mean_return']}, "
         f"seeds {audit['episode_seeds']}, parallel 32, 60/15 Hz, 7200 raw-frame cap.\n\n"
-        f"[W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/{run_id}). "
-        "Profile identity and both training/evaluation configs are included.\n")
-    path = f"latency-aware/{task}/small-policy/sample-factory-{model}-hist8-cpu15m-s0-v1"
-    api = HfApi(token=os.environ["HF_TOKEN"])
-    commit = api.upload_folder(repo_id=REPO_ID, folder_path=destination, path_in_repo=path,
-                                commit_message=f"Publish {task} {model} profile-aware H8 teacher")
-    teacher = {"path": path, "checkpoint": checkpoint.name,
-               "profile_path": profile["profile_path"]}
-    catalog = {"revision": commit.oid, "profile_revision": profile["profile_revision"],
-               "teachers": {task: {model: teacher}}}
-    write_json_atomic(output / "teacher_publications" / f"{task}-{model}.json", catalog)
-    return catalog
+                "Profile identity and both training/evaluation configs are included.\n")
+    return {"output_dir": str(destination), "checkpoint": str(destination / checkpoint.name)}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile-receipt", type=Path, required=True)
+    parser.add_argument("--profile-source", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
-    parser.add_argument("--stage", choices=("prepare", "train", "eval", "publish"), required=True)
+    parser.add_argument("--stage", choices=("prepare", "train", "eval", "export"), required=True)
     args = parser.parse_args()
-    receipt = json.loads(args.profile_receipt.read_text())
+    receipt = json.loads(args.profile_source.read_text())
     output = args.output_root.resolve()
     directory = output / "teacher_configs" / f"{receipt['task']}-{receipt['model']}"
     if args.stage == "prepare":
@@ -177,7 +157,7 @@ def main() -> None:
     elif args.stage == "eval":
         evaluate(directory)
     else:
-        print(json.dumps(publish(directory, output), indent=2))
+        print(json.dumps(export(directory, output), indent=2))
 
 
 if __name__ == "__main__":

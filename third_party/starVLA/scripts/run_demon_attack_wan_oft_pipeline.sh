@@ -10,7 +10,6 @@ Runs the fixed-raw-frame-latency-6 Demon Attack WanOFT pipeline:
   2. download WanOFT checkpoints
   3. convert canonical benchmark row history directly into StarVLA LeRobot data
   4. train WanOFT through commands/wanoft/train_demon_attack_wan_oft.sh
-  5. upload the run directory when --upload-repo is supplied
 
 The source latency is 6 raw Atari frames, or 1.5 policy decision steps at
 frameskip=4. Post-train rollout evaluation is disabled because the current
@@ -22,14 +21,11 @@ Options:
   --max-train-steps <N>       Training steps (default: 2000)
   --benchmark-root <path>     latency-sensitive-bench checkout (default: containing benchmark checkout)
   --dataset-cache-dir <path>  Optional Hugging Face cache directory
-  --upload-repo <repo>        HF model repo; specifying this enables upload (default: local only)
-  --upload-path <path>        Path inside the HF repo (default: <run_id>)
   --run-id <id>               Override run id
   --skip-env-setup            Do not run examples/rl_games/install/bootstrap.sh
   --skip-checkpoints          Do not download Wan base/init checkpoints
   --skip-convert              Do not convert source data
   --skip-train                Do not run training
-  --skip-upload               Do not upload the run directory
   -h, --help                  Show this help
 EOF
 }
@@ -51,8 +47,6 @@ BENCHMARK_ROOT="${LATENCY_BENCH_ROOT:-}"
 LATENCY_RAW_FRAMES=6
 RUN_ROOT_DIR="${RUN_ROOT_DIR:-results/Checkpoints}"
 RUN_ID="${RUN_ID:-}"
-UPLOAD_REPO="${UPLOAD_REPO:-}"
-UPLOAD_PATH_IN_REPO="${UPLOAD_PATH_IN_REPO:-}"
 BASE_MODEL_REPO="${BASE_MODEL_REPO:-Wan-AI/Wan2.2-TI2V-5B-Diffusers}"
 BASE_MODEL_DIR="${BASE_MODEL_DIR:-playground/Pretrained_models/Wan-AI/Wan2.2-TI2V-5B-Diffusers}"
 INIT_CHECKPOINT_REPO="${INIT_CHECKPOINT_REPO:-StarVLA/WM4A-Wan2d2-OFT-LIBERO-4in1}"
@@ -61,7 +55,6 @@ SKIP_ENV_SETUP="false"
 SKIP_CHECKPOINTS="false"
 SKIP_CONVERT="false"
 SKIP_TRAIN="false"
-SKIP_UPLOAD="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -85,15 +78,6 @@ while [[ $# -gt 0 ]]; do
       DATASET_CACHE_DIR="$2"
       shift 2
       ;;
-    --upload-repo)
-      UPLOAD_REPO="$2"
-      SKIP_UPLOAD="false"
-      shift 2
-      ;;
-    --upload-path)
-      UPLOAD_PATH_IN_REPO="$2"
-      shift 2
-      ;;
     --run-id)
       RUN_ID="$2"
       shift 2
@@ -112,10 +96,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-train)
       SKIP_TRAIN="true"
-      shift
-      ;;
-    --skip-upload)
-      SKIP_UPLOAD="true"
       shift
       ;;
     -h|--help)
@@ -151,7 +131,6 @@ CONVERTED_DATA_DIR="${CONVERTED_DATA_ROOT}/demon_attack_train__bridge"
 PROMPT_MAP_PATH="${CONVERTED_DATA_DIR}/latency_prompt_map.json"
 MANIFEST_PATH="${CONVERTED_DATA_DIR}/manifest.json"
 RUN_ID="${RUN_ID:-wan_oft_demon_attack_fix_latency_${LATENCY_RAW_FRAMES}_context${CONTEXT_WINDOW}_standard_sft_${MAX_TRAIN_STEPS}_effbs${EFFECTIVE_BATCH_SIZE}_224_currentce}"
-UPLOAD_PATH_IN_REPO="${UPLOAD_PATH_IN_REPO:-${RUN_ID}}"
 RUN_DIR="${RUN_ROOT_DIR}/${RUN_ID}"
 
 ensure_hf_cli() {
@@ -254,7 +233,7 @@ if [[ "${SKIP_ENV_SETUP}" != "true" ]]; then
 fi
 
 activate_conda_env
-if [[ "${SKIP_CHECKPOINTS}" != "true" || "${SKIP_UPLOAD}" != "true" ]]; then
+if [[ "${SKIP_CHECKPOINTS}" != "true" ]]; then
   ensure_hf_cli
 fi
 
@@ -318,15 +297,5 @@ if [[ "${SKIP_TRAIN}" != "true" ]]; then
     bash commands/wanoft/train_demon_attack_wan_oft.sh 6 "${TRAIN_OVERRIDES[@]}"
 fi
 
-if [[ "${SKIP_UPLOAD}" != "true" ]]; then
-  if [[ ! -d "${RUN_DIR}" ]]; then
-    echo "[demon-wanoft-fixed] Training output directory does not exist: ${RUN_DIR}" >&2
-    exit 1
-  fi
-  echo "[demon-wanoft-fixed] Uploading ${RUN_DIR} to ${UPLOAD_REPO}:${UPLOAD_PATH_IN_REPO}"
-  hf upload "${UPLOAD_REPO}" "${RUN_DIR}" "${UPLOAD_PATH_IN_REPO}" \
-    --exclude "wandb/**" \
-    --repo-type model
-fi
 
 echo "[demon-wanoft-fixed] Complete: raw-frame latency=${LATENCY_RAW_FRAMES} run_id=${RUN_ID}"

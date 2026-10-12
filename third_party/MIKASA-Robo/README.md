@@ -57,7 +57,7 @@ uv pip install --python .venv/bin/python --prerelease allow -e .
 ```
 
 For LAGEN dataset preparation, use the benchmark's
-[MIKASA cookbook](../../docs/mikasa/cookbook.md).
+[MIKASA cookbook](../../docs/cookbooks/mikasa.md).
 
 See the [installation guide](https://mikasarobo.github.io/installation.html) for system requirements, package-install alternatives, and setup troubleshooting.
 

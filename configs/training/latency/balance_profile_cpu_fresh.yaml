@@ -32,5 +32,5 @@ training:
 
 logging:
   output_dir: outputs/tasks/humanoidbench_balance_simple/profile_cpu_fresh/train
-  wandb_project: ""
+  wandb_project: null
   wandb_name: g1_sonic_balance_simple_raw_ramp_fasttd3_profile_cpu_fresh_s1

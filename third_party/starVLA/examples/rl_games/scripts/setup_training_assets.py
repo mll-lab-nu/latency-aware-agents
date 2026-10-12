@@ -1639,19 +1639,7 @@ def setup_assets(args) -> dict[str, Any]:
                 )
             return result
         if hf_error:
-            sync_repo_id = str(getattr(args, "checkpoint_sync_repo_id", "") or "")
-            sync_enabled = _str2bool(getattr(args, "checkpoint_sync_enabled", False))
-            if (
-                args.checkpoint_load == "auto"
-                and sync_enabled
-                and sync_repo_id == hf_repo_id
-            ):
-                result["checkpoint_hf_status"] = (
-                    f"HF resume repo {hf_repo_id} was not available during auto-resume; "
-                    "starting from local/base model and using it as the checkpoint sync destination"
-                )
-            else:
-                result["checkpoint_hf_warning"] = hf_error
+            result["checkpoint_hf_warning"] = hf_error
 
     if local_ckpt is not None:
         result.update({
@@ -1786,8 +1774,6 @@ def main() -> int:
     parser.add_argument("--initialization-hf-repo-id", default="")
     parser.add_argument("--initialization-checkpoint-filename", default="")
     parser.add_argument("--gymnasium-task-contract", default=None)
-    parser.add_argument("--checkpoint-sync-enabled", default="false")
-    parser.add_argument("--checkpoint-sync-repo-id", default="")
     parser.add_argument("--hf-repo-id", default="")
     args = parser.parse_args()
     if args.dataset_cache_dir == "":

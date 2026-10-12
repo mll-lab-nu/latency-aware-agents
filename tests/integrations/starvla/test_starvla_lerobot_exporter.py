@@ -1134,7 +1134,7 @@ def test_resume_freezes_training_statistics(normalization_run, tmp_path, mode):
     if mode == "same_run":
         expected_checkpoint = checkpoint.parent / "steps_9_state"
         expected_checkpoint.mkdir()
-        (expected_checkpoint / "model.safetensors").write_bytes(b"full training state")
+        (expected_checkpoint / "pytorch_model").mkdir()
     target = original if mode == "same_run" else tmp_path / mode
     target.mkdir(exist_ok=True)
     cfg.output_dir = str(target)

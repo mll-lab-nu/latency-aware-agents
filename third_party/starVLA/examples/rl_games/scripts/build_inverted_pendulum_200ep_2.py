@@ -128,7 +128,6 @@ dataset.target_latency_unit=observation_steps
 
 def _write_manifest(stage_dir: Path) -> None:
     manifest = {
-        "repo_id": DEST_REPO_ID,
         "latency_0": {
             "source_repo": OG_SOURCE_REPO,
             "source_revision": OG_SOURCE_REVISION,
@@ -173,25 +172,12 @@ def build_dataset(stage_dir: Path, *, token: str | None = None) -> None:
     _write_manifest(stage_dir)
 
 
-def upload_dataset(stage_dir: Path, *, repo_id: str, private: bool, token: str | None = None) -> None:
-    api = HfApi(token=token)
-    api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
-    api.upload_folder(
-        repo_id=repo_id,
-        repo_type="dataset",
-        folder_path=str(stage_dir),
-        commit_message="Create inverted pendulum mixed latency dataset with OG L0",
-        token=token,
-    )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo-id", default=DEST_REPO_ID)
     parser.add_argument("--stage-dir", default="/tmp/inverted_pendulum_200ep_2")
     parser.add_argument("--token", default=None)
-    parser.add_argument("--private", action="store_true")
-    parser.add_argument("--stage-only", action="store_true")
     parser.add_argument("--keep-stage", action="store_true")
     return parser.parse_args()
 
@@ -206,12 +192,7 @@ def main() -> None:
     print(f"[stage] ready at {stage_dir}")
     print(f"[stage] StarVLA source_subdir: {L0_DEST_SUBDIR},{L2_SUBDIR},{L4_SUBDIR}")
 
-    if args.stage_only:
-        return
-
-    print(f"[upload] pushing to {args.repo_id}")
-    upload_dataset(stage_dir, repo_id=args.repo_id, private=args.private, token=args.token)
-    print(f"[done] https://huggingface.co/datasets/{args.repo_id}")
+    print(f"OUTPUT_DIR={stage_dir}")
 
 
 if __name__ == "__main__":

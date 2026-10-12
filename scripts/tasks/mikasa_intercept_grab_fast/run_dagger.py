@@ -191,6 +191,8 @@ def _alive(pid: int) -> bool:
 def _trainer_config(args, resume_state: Path | None) -> Path:
     config = yaml.safe_load((args.source_run / "bootstrap.yaml").read_text(encoding="utf-8"))
     config["run_id"] = "dagger"
+    config["wandb_project"] = args.wandb_project
+    config["wandb_entity"] = args.wandb_entity
     config["run_root_dir"] = str(args.output / "training")
     config["wandb_name"] = f"mikasa-h8-dagger-{args.condition}-{args.model}"
     config["wandb_group"] = args.output.name
@@ -250,7 +252,7 @@ def _launch_trainer(args) -> int:
         "PYTHONPATH": os.pathsep.join((str(ROOT), str(STARVLA))),
         "TOKENIZERS_PARALLELISM": "false",
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-        "WANDB_MODE": "disabled" if args.smoke else "online",
+        "WANDB_MODE": "online" if args.wandb_project is not None and not args.smoke else "disabled",
         "WANDB_RUN_ID": f"mikasa-h8-dagger-{args.condition}-{args.model}-"
                         + json.loads((args.source_run / "run.json").read_text())["run_id"],
         "WANDB_RESUME": "allow",
@@ -465,6 +467,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--inference-batch-size", type=int, default=8)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--wandb-project", help="Enable W&B in this project")
+    parser.add_argument("--wandb-entity", help="Optional W&B account or team")
     run(parser.parse_args())
 
 

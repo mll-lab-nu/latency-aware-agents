@@ -22,10 +22,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="openvla_bridge_demon_attack_fixed_latency_6_200ep_7k2steps_ghost15_exp2" \
     trainer.distributed_backend=none \
     workspace_dir="$WORKSPACE_DIR" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/openvla_bridge_demon_attack_fixed_latency_6_200ep_7k2steps_ghost15_exp2" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/openvla_bridge_demon_attack_fixed_latency_6_200ep_7k2steps_ghost15_exp2" \
     dataset.source_hf="latency-sensitive-bench/openvla_bridge_demon_attack_fixed_latency_6_200ep_7k2steps_ghost15" \
     dataset.latency_filter=[6] \
     datasets.vla_data.sequential_step_sampling=true \

@@ -2092,25 +2092,6 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
     assert Path(train_rows[0]["image"]).exists()
 
 
-def test_push_token_prefers_explicit_then_environment(monkeypatch):
-    from scripts.rollout_data.push_sf_teacher_dataset import resolve_token
-
-    monkeypatch.setenv("HF_TOKEN", "env-token")
-    monkeypatch.setenv("HUGGINGFACE_HUB_TOKEN", "hub-token")
-
-    assert resolve_token(" explicit-token ") == "explicit-token"
-    assert resolve_token("") == "env-token"
-
-
-def test_push_token_falls_back_to_huggingface_hub_token(monkeypatch):
-    from scripts.rollout_data.push_sf_teacher_dataset import resolve_token
-
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.setenv("HUGGINGFACE_HUB_TOKEN", "hub-token")
-
-    assert resolve_token("") == "hub-token"
-
-
 def test_merge_probe_states_reindexes_dedupes_and_assigns_splits():
     from latency_bench.data.rollout_probe import merge_probe_states, build_episode_plan
 

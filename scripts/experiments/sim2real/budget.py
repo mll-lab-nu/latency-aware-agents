@@ -12,8 +12,8 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
+from scripts.experiments.sim2real.assets import DATASET_REPO
 from scripts.experiments.sim2real import runtime, replay
-from scripts.experiments.sim2real.publication import DATASET_REPO, StudyPublication
 from latency_bench.executors.factory import build_executor
 from latency_bench.latency.profile_builder import build_profile_from_traces
 from latency_bench.core.config import load_config
@@ -77,7 +77,7 @@ def initialize(output, model, config):
     return manifest
 
 
-def measure_real(output, source, model, worker_python, publication, manifest):
+def measure_real(output, source, model, worker_python, manifest):
     protocol = manifest["protocol"]
     base, original, fps = runtime.runtime_base(source, worker_python)
     runtime.record_execution_contract(output, "real", {"base": base, "env_fps": fps})
@@ -100,12 +100,10 @@ def measure_real(output, source, model, worker_python, publication, manifest):
         started_at = read_json(timing)["started_at"]
         write_json_atomic(timing, {"stage": "real", "model": model, "run_id": run_id, "run_ids": [run_id], "started_at": started_at,
                                    "seconds": (path / "DONE").stat().st_mtime - started_at, "gpu_count": 1})
-        publication.publish(f"real/{run_id}", [path, timing])
     (output / "REAL_DONE").touch()
-    publication.publish("real_complete", [output / "REAL_DONE", output / "budget.json"])
 
 
-def fit_profiles(output, source, model, publication, *, partitions, fit_sizes, source_ref):
+def fit_profiles(output, source, model, *, partitions, fit_sizes, source_ref):
     (output / "REAL_DONE").read_bytes()
     original = read_json(source / "experiment.json")
     fps = read_json(source / "calibration/calibration.json")["selected_env_fps"]
@@ -131,10 +129,9 @@ def fit_profiles(output, source, model, publication, *, partitions, fit_sizes, s
                                                   "seconds": time.perf_counter() - start,
                                                   "gpu_count": 0})
                 (path / "DONE").touch()
-            publication.publish(f"profiles/{split}/{count}", [path])
 
 
-def simulate(output, source, model, worker_python, publication, parallel_runs, *, partitions,
+def simulate(output, source, model, worker_python, parallel_runs, *, partitions,
              manifest, combine_settings=False):
     protocol = manifest["protocol"]
     base, _, fps = runtime.runtime_base(source, worker_python)
@@ -170,14 +167,10 @@ def simulate(output, source, model, worker_python, publication, parallel_runs, *
                                                      profile_path=profile, latency_seed=0, protocol=protocol)
                     run_ids = partition["valid"]
                     path = output / "sim" / split / str(count) / method
-                    def publish_run(run_id, run_path):
-                        publication.publish(f"{path.relative_to(output)}/runs/{run_id}", [run_path])
                     pending = []
                     for run_id in run_ids:
                         run_path = path / "runs" / str(run_id)
-                        if (run_path / "DONE").exists():
-                            publish_run(run_id, run_path)
-                        else:
+                        if not (run_path / "DONE").exists():
                             pending.append(run_id)
                     if not pending:
                         continue
@@ -185,23 +178,21 @@ def simulate(output, source, model, worker_python, publication, parallel_runs, *
                         buffered_jobs.extend((run_id, path / "runs" / str(run_id), replay_config, manifest["latency_seeds"][str(run_id)])
                                              for run_id in pending)
                         while len(buffered_jobs) >= parallel_runs:
-                            replay.replay_settings(executor, buffered_jobs[:parallel_runs], output, publication, protocol=protocol)
+                            replay.replay_settings(executor, buffered_jobs[:parallel_runs], output, protocol=protocol)
                             del buffered_jobs[:parallel_runs]
                         continue
                     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
                     start = time.perf_counter()
-                    replay.replay_group(executor, replay_config, path, pending, publish_run,
+                    replay.replay_group(executor, replay_config, path, pending,
                                         protocol=protocol, latency_seeds=manifest["latency_seeds"])
                     write_json(path / "timings" / f"{stamp}.json", {
                         "stage": "sim", "model": model, "split": split, "fit_runs": count,
                         "method": method, "run_ids": pending, "seconds": time.perf_counter() - start,
                         "gpu_count": 1, "parallel_runs": parallel_runs,
                     })
-                    publication.publish(f"{path.relative_to(output)}/timing/{stamp}", [path / "timings" / f"{stamp}.json"])
         if buffered_jobs:
-            replay.replay_settings(executor, buffered_jobs, output, publication, protocol=protocol)
+            replay.replay_settings(executor, buffered_jobs, output, protocol=protocol)
     (output / "SIM_DONE").touch()
-    publication.publish("sim_complete", [output / "SIM_DONE", output / "runtime/setups"])
 
 
 def verify_parallel(output, source, model, worker_python, manifest):
@@ -238,7 +229,7 @@ def verify_parallel(output, source, model, worker_python, manifest):
                 path = output / "verification" / str(slots) / method
                 pending = [run_id for run_id in run_ids if not (path / "runs" / str(run_id) / "DONE").exists()]
                 if pending:
-                    replay.replay_group(executor, replay_config, path, pending, lambda run_id, path: None,
+                    replay.replay_group(executor, replay_config, path, pending,
                                         protocol=protocol, latency_seeds=manifest["latency_seeds"])
     rows = []
     for method in protocol["methods"]:
@@ -276,7 +267,6 @@ def main(argv=None):
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--worker-python", default=sys.executable)
     parser.add_argument("--gpu-uuid", required=True, help="Execution GPU UUID")
-    parser.add_argument("--defer-uploads", action="store_true", help="queue completed stages for a batch publisher")
     args = parser.parse_args(argv)
     config = load_config(args.config)
     model = args.model
@@ -286,17 +276,12 @@ def main(argv=None):
     output = args.root.resolve() / model
     manifest = initialize(output, model, config)
     source = prepare_source(output, manifest["source"])
-    publication = StudyPublication(output, f"sim2real-budget/{manifest['task']}/{args.root.name}/{model}",
-                                   defer_uploads=args.defer_uploads)
-    publication.publish("context", [output / "budget.json", source / "experiment.json",
-                                     source / "eval_template.yaml", source / "calibration/calibration.json"])
     if args.stage == "verify":
         verify_parallel(output, source, model, args.worker_python, manifest)
-        publication.publish("parallel_verified", [output / "PARALLEL_VERIFIED", output / "verification/result.json", output / "verification/timings"])
     elif args.stage == "real":
-        measure_real(output, source, model, args.worker_python, publication, manifest)
+        measure_real(output, source, model, args.worker_python, manifest)
     elif args.stage == "fit":
-        fit_profiles(output, source, model, publication, partitions=manifest["splits"],
+        fit_profiles(output, source, model, partitions=manifest["splits"],
                      fit_sizes=manifest["fit_sizes"], source_ref=manifest["source"])
     elif args.stage == "sim":
         # Both cards finish real acquisition before either starts replay.
@@ -304,7 +289,7 @@ def main(argv=None):
             (args.root / peer / "REAL_DONE").read_bytes()
         (output / "PARALLEL_VERIFIED").read_bytes()
         verified_slots = read_json(output / "verification/result.json")["parallel_runs"][-1]
-        simulate(output, source, model, args.worker_python, publication, verified_slots,
+        simulate(output, source, model, args.worker_python, verified_slots,
                  partitions=manifest["splits"], manifest=manifest)
 
 

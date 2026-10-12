@@ -14,9 +14,3 @@ dataset_experiment:
     latency_fixed_frames: 2
     seed: 10
   probe_shards: null
-  publication:
-    repo_id: latency-sensitive-bench/benchmark-datasets
-    private: false
-    config_name: task-transfer--atlantis_fixed_latency_2_200ep_7k2steps
-    data_dir: latency-aware/atlantis/atlantis_200ep/atlantis_fixed_latency_2_200ep_7k2steps
-    max_shard_size: 500MB

@@ -9,7 +9,7 @@ shift || true
 usage() {
   cat <<'USAGE'
 Usage:
-  bash scripts/tasks/mikasa_intercept_grab_fast/train_fixed_latency_all.sh [train|eval|upload|both|full|all] [GPU:LATENCIES ...]
+  bash scripts/tasks/mikasa_intercept_grab_fast/train_fixed_latency_all.sh [train|eval|both|full|all] [GPU:LATENCIES ...]
 
 Examples:
   # Default: GPU 0 runs L0,L2,L4; GPU 1 runs L1,L3.
@@ -21,7 +21,7 @@ Examples:
   # Run all five sequentially on one GPU:
   bash scripts/tasks/mikasa_intercept_grab_fast/train_fixed_latency_all.sh train 0:0,1,2,3,4
 
-  # Train, then eval, then upload all five.
+  # Train, evaluate, and export all five local model bundles.
   bash scripts/tasks/mikasa_intercept_grab_fast/train_fixed_latency_all.sh full 0:0,2,4 1:1,3
 
 Each GPU:LATENCIES group is one sequential queue. Different groups run in parallel.
@@ -29,7 +29,7 @@ USAGE
 }
 
 case "${MODE}" in
-  train|eval|upload|both|full|all) ;;
+  train|eval|both|full|all) ;;
   -h|--help|help)
     usage
     exit 0

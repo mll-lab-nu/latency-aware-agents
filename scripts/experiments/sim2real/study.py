@@ -18,9 +18,9 @@ from huggingface_hub import HfApi
 
 from latency_bench.core.clock import ms_to_raw_frames
 from latency_bench.core.config import load_config
+from scripts.experiments.sim2real.assets import DATASET_REPO, download_real_experiment
 from scripts.experiments.sim2real import runtime
 from scripts.experiments.sim2real.assets import prepare_assets, prepare_model_assets, portable_eval_config
-from scripts.experiments.sim2real.publication import DATASET_REPO, StudyPublication, download_real_experiment
 from latency_bench.latency.hardware_info import (
     collect_hardware_fingerprint, describe_participating_gpus, instance_id_from_gpu_deployment,
     public_hardware_projection,
@@ -50,11 +50,10 @@ def admitted_latencies(output, count):
     return [next(samples) for _ in range(count)]
 
 
-def calibrate(base, training_profile, output, *, inference_device, simulator_device, entry, publication, protocol):
+def calibrate(base, training_profile, output, *, inference_device, simulator_device, entry, protocol):
     """Match training-clock mean latency using two independent realtime probes."""
     result_path = output / "calibration.json"
     if result_path.exists():
-        publication.publish("calibration", [result_path])
         return read_json(result_path)
     training_fps = base["env"]["env_fps"]
     stride = training_fps / base["env"]["obs_fps"]
@@ -74,7 +73,6 @@ def calibrate(base, training_profile, output, *, inference_device, simulator_dev
             episodes=protocol["calibration_samples"], calibration_samples=protocol["calibration_samples"],
         )
         runtime.execute_stage(config, probe_dir, entry)
-        publication.publish(f"calibration/probe_{index}", [probe_dir])
         samples = admitted_latencies(probe_dir, protocol["calibration_samples"])
         mean_ms = mean(samples)
         actual_frames = mean_ms * fps / 1000.0
@@ -94,12 +92,11 @@ def calibrate(base, training_profile, output, *, inference_device, simulator_dev
         "predicted_mean_raw_frames": mean(ms_to_raw_frames(value, fps) for value in samples),
     }
     write_json_atomic(result_path, result)
-    publication.publish("calibration", [result_path])
     return result
 
 
 def fit_profile(output, *, model, task, deployment, experiment_id, calibration, contract):
-    """Only the five fitting sessions are inputs to the frozen profile."""
+    """Only the manifest's fitting sessions contribute to the frozen profile."""
     protocol = contract["protocol"]
     destination = output / "profile"
     if not (destination / "DONE").exists():
@@ -198,7 +195,7 @@ def summarize_real(output, protocol):
 
 
 def summarize_sim(output, manifest):
-    """Compare replays with the frozen held-out run means downloaded from HF."""
+    """Compare replays with the frozen held-out run means."""
     result = read_json(output / "real_summary.json")
     real_rows = result.pop("runs")
     protocol = manifest["protocol"]
@@ -220,7 +217,7 @@ def summarize_sim(output, manifest):
 
 def run_real(base, training_profile, entry, *, output, model, task, deployment,
              inference_device, simulator_device, contract, fingerprint, registry, resume):
-    """Collect and publish one real experiment, stopping after held-out evaluation."""
+    """Collect one local real experiment, stopping after held-out evaluation."""
     contract_path = output / "contract.json"
     if resume:
         # The existing profiling resume contract also rejects changed identity;
@@ -233,8 +230,6 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
         write_json(output / "hardware.json", fingerprint)
     protocol = contract["protocol"]
     write_yaml(output / "archived_eval.yaml", base)
-    source_ref = (f"experiments/sim2real-calibration/runs/{deployment['gpu_class']}/"
-                  f"{task}/{model}/{deployment['instance_id']}/{output.name}")
     public_hardware = public_hardware_projection(
         fingerprint,
         cuda_visible_devices=deployment["gpus"][0]["uuid"],
@@ -243,57 +238,46 @@ def run_real(base, training_profile, entry, *, output, model, task, deployment,
     write_json(output / "hardware_public.json", public_hardware)
     manifest = {
         "task": task, "model": model, "assets": entry, "target_deployment": public_hardware,
-        "source_ref": source_ref, "protocol": contract["protocol"],
+        "experiment_id": output.name, "protocol": contract["protocol"],
         **{key: registry[key] for key in ("model_repo", "model_revision", "backbone")},
     }
     write_json_atomic(output / "experiment.json", manifest)
     write_yaml(output / "eval_template.yaml", portable_eval_config(base, entry, registry))
-    publication = StudyPublication(output, source_ref)
     print(f"EXPERIMENT_ID={output.name}\nOUTPUT_DIR={output}", flush=True)
-    publication.publish("context", [output / filename for filename in (
-        "experiment.json", "eval_template.yaml", "hardware_public.json",
-    )])
     calibration = calibrate(
         base, training_profile, output / "calibration", inference_device=inference_device,
-        simulator_device=simulator_device, entry=entry, publication=publication, protocol=protocol,
+        simulator_device=simulator_device, entry=entry, protocol=protocol,
     )
-    for index in protocol["fit"]:
+    last_fit = next(index for index in reversed(protocol["collection_order"]) if index in protocol["fit"])
+    for index in protocol["collection_order"]:
         path = output / "real" / str(index)
         runtime.execute_stage(runtime.run_config(
             base, path, inference_device=inference_device, simulator_device=simulator_device,
             env_fps=calibration["selected_env_fps"], run_id=index, protocol=protocol,
         ), path, entry)
-        publication.publish(f"real/{index}", [path])
-    profile_path = fit_profile(
-        output, model=model, task=task, deployment=deployment, experiment_id=output.name,
-        calibration=calibration, contract=manifest,
-    )
-    publication.publish("profile", [profile_path.parent])
-    for index in protocol["valid"]:
-        path = output / "real" / str(index)
-        runtime.execute_stage(runtime.run_config(
-            base, path, inference_device=inference_device, simulator_device=simulator_device,
-            env_fps=calibration["selected_env_fps"], run_id=index, protocol=protocol,
-        ), path, entry)
-        publication.publish(f"real/{index}", [path])
+        if index == last_fit:
+            fit_profile(
+                output, model=model, task=task, deployment=deployment, experiment_id=output.name,
+                calibration=calibration, contract=manifest,
+            )
     summarize_real(output, protocol)
     (output / "REAL_DONE").touch()
-    revision = publication.publish("real_complete", [output / name for name in (
-        "real_runs.csv", "real_summary.json", "REAL_DONE",
-    )])
-    print(f"SOURCE_REF={source_ref}\nSOURCE_REVISION={revision}", flush=True)
+    print(f"SOURCE_DIR={output}", flush=True)
     return output
 
 
 def run_sim(base, entry, *, output, manifest, source_revision,
-            inference_device, simulator_device, fingerprint, parallel_runs=1, defer_uploads=False):
+            inference_device, simulator_device, fingerprint, parallel_runs=1):
     """Replay a pinned real experiment on the caller's independent execution GPU."""
     (output / "REAL_DONE").read_bytes()
-    publication = StudyPublication(output, manifest["source_ref"], defer_uploads=defer_uploads)
+    source = str(output.resolve()) if source_revision is None else {
+        "repo_id": DATASET_REPO, "path": manifest["source_ref"], "revision": source_revision,
+    }
     contract = {
-        "source_ref": manifest["source_ref"], "source_revision": source_revision,
+        "source": source,
         "python": sys.executable, "config": base,
         "inference_device": inference_device, "simulator_device": simulator_device,
+        "parallel_runs": parallel_runs,
         "gpus": [{"uuid": gpu["uuid"], "name": gpu["name"]} for gpu in fingerprint["gpus"]],
     }
     contract_path = output / "simulation_contract.json"
@@ -301,8 +285,6 @@ def run_sim(base, entry, *, output, manifest, source_revision,
         if read_json(contract_path) != contract:
             raise ValueError(f"Simulation contract does not match: {contract_path}")
     else:
-        if publication.api.file_exists(DATASET_REPO, f"{manifest['source_ref']}/published/sim_context.json", repo_type="dataset"):
-            raise FileExistsError("Simulation already exists remotely; resume its original local replay directory")
         write_json_atomic(contract_path, contract)
         write_json(output / "simulation_hardware.json", fingerprint)
         write_json(output / "simulation_hardware_public.json", {
@@ -311,9 +293,8 @@ def run_sim(base, entry, *, output, manifest, source_revision,
             "python_version": sys.version,
         })
     write_json(output / "simulation_source.json", {
-        "repo_id": DATASET_REPO, "source_ref": manifest["source_ref"], "revision": source_revision,
+        "source": source,
     })
-    publication.publish("sim_context", [output / "simulation_source.json", output / "simulation_hardware_public.json"])
     calibration = read_json(output / "calibration/calibration.json")
     profile_path = output / "profile/profile.json"
     protocol = manifest["protocol"]
@@ -327,55 +308,65 @@ def run_sim(base, entry, *, output, manifest, source_revision,
                     method=method, profile_path=profile_path, latency_seed=index,
                     protocol=protocol,
                 ), path, entry)
-                publication.publish(f"sim/{method}/{index}", [path])
     else:
         # The optional parallel runtime imports model/executor dependencies only for replay.
         from scripts.experiments.sim2real.replay import simulate
-        simulate(base, output, manifest, publication, inference_device=inference_device,
+        simulate(base, output, manifest, inference_device=inference_device,
                  simulator_device=simulator_device, parallel_runs=parallel_runs)
     summarize_sim(output, manifest)
     (output / "SIM_DONE").touch()
-    publication.publish("sim_complete", [output / name for name in ("runs.csv", "comparison.json", "SIM_DONE")])
     return output
 
 
 def main(argv=None):
     registry = load_config(REGISTRY)
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=REGISTRY,
+                        help="real-stage registry and protocol; replay reads the pinned manifest")
     parser.add_argument("--stage", choices=("real", "sim"), required=True)
     parser.add_argument("--task", choices=registry["tasks"])
     parser.add_argument("--model", choices=registry["models"])
+    parser.add_argument("--source-dir", type=Path, help="Completed local real experiment")
     parser.add_argument("--source-ref")
     parser.add_argument("--source-revision")
     parser.add_argument("--gpu", type=int, required=True)
     parser.add_argument("--simulator-gpu", type=int)
     parser.add_argument("--parallel-runs", type=int, default=1,
                         help="independent sim run slots sharing batched model inference")
-    parser.add_argument("--defer-uploads", action="store_true", help="queue completed sim stages for a batch publisher")
     parser.add_argument("--worker-python", default=sys.executable,
                         help="model worker interpreter; may differ from the simulator interpreter")
     parser.add_argument("--resume", metavar="EXPERIMENT_ID")
-    parser.add_argument("--output-root", type=Path, default=REPO_ROOT / "results/sim2real")
+    parser.add_argument("--output-root", type=Path, default=REPO_ROOT / "outputs/sim2real")
     args = parser.parse_args(argv)
+    registry = load_config(args.config)
     if args.stage == "real":
         if args.task is None or args.model is None:
             parser.error("real requires --task and --model")
-        if args.source_ref is not None or args.source_revision is not None:
+        if args.source_dir is not None or args.source_ref is not None or args.source_revision is not None:
             parser.error("source arguments belong to the sim stage")
         task, model = args.task, args.model
     else:
-        if args.source_ref is None or args.source_revision is None:
-            parser.error("sim requires --source-ref and --source-revision")
         if args.task is not None or args.model is not None or args.resume is not None:
-            parser.error("sim selects and resumes its experiment using the pinned source arguments")
-        ref = Path(args.source_ref)
-        if ref.is_absolute() or ".." in ref.parts:
-            parser.error("--source-ref must be a repository-relative path")
-        if args.source_revision in {".", ".."} or Path(args.source_revision).name != args.source_revision:
-            parser.error("--source-revision must be a single revision identifier")
-        args.source_revision = HfApi().repo_info(DATASET_REPO, repo_type="dataset", revision=args.source_revision).sha
-        output = args.output_root.resolve() / "replays" / ref / args.source_revision
-        manifest = download_real_experiment(args.source_ref, args.source_revision, output)
+            parser.error("sim selects its experiment through its source")
+        if args.source_dir is not None:
+            if args.source_ref is not None or args.source_revision is not None:
+                parser.error("--source-dir cannot be combined with remote source arguments")
+            output = args.source_dir.resolve()
+            (output / "REAL_DONE").read_bytes()
+            manifest = read_json(output / "experiment.json")
+        else:
+            if args.source_ref is None or args.source_revision is None:
+                parser.error("sim requires --source-dir or both --source-ref and --source-revision")
+            ref = Path(args.source_ref)
+            if ref.is_absolute() or ".." in ref.parts:
+                parser.error("--source-ref must be a repository-relative path")
+            if args.source_revision in {".", ".."} or Path(args.source_revision).name != args.source_revision:
+                parser.error("--source-revision must be a single revision identifier")
+            args.source_revision = HfApi().repo_info(
+                DATASET_REPO, repo_type="dataset", revision=args.source_revision, expand=["sha"],
+            ).sha
+            output = args.output_root.resolve() / "replays" / ref / args.source_revision
+            manifest = download_real_experiment(args.source_ref, args.source_revision, output)
         task, model = manifest["task"], manifest["model"]
         registry = manifest
     mikasa = task == "mikasa_intercept_grab_fast"
@@ -404,7 +395,6 @@ def main(argv=None):
             base, entry, output=output, manifest=manifest, source_revision=args.source_revision,
             inference_device=inference_device, simulator_device=simulator_device, fingerprint=fingerprint,
             parallel_runs=args.parallel_runs,
-            defer_uploads=args.defer_uploads,
         )
         print(f"Completed simulation {result}", flush=True)
         return

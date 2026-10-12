@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+WANDB_ARGS=(--wandb-enabled false)
+if [[ -n "${WANDB_PROJECT:-}" ]]; then
+  WANDB_ARGS=(--wandb-enabled true --wandb-project "$WANDB_PROJECT")
+  if [[ -n "${WANDB_ENTITY:-}" ]]; then
+    WANDB_ARGS+=(--wandb-entity "$WANDB_ENTITY")
+  fi
+fi
 export HF_ENDPOINT=https://huggingface.co
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 STARVLA_ROOT="${REPO_ROOT}/third_party/starVLA"
-VLA_REPO="MLL-Lab/LAGEN-models"
 VLA_REVISION="a4099f759f71ffa72d967be3695c8e054cfc377c"
 CHECKPOINT_ROOT="${STARVLA_ROOT}/results/Checkpoints/.hf-benchmark-models/${VLA_REVISION}"
 cd "${REPO_ROOT}"
@@ -157,9 +164,7 @@ eval_method() {
     --override "rl_games.env_eval.eval_parallel_envs=${eval_parallel}" \
     --override "rl_games.env_eval.post_train.enabled=true" \
     --override "rl_games.env_eval.latency.prompt_map_path=${prompt_map}" \
-    --wandb-enabled true \
-    --wandb-project starVLA_rl_games \
-    --wandb-entity zihanwang-ai-northwestern-university \
+    "${WANDB_ARGS[@]}" \
     --wandb-run-name "${wandb_run_name}"; then
     eval_status=0
   else

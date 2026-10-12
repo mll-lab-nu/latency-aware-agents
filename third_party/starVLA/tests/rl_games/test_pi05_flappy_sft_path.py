@@ -60,8 +60,6 @@ def _setup_args(tmp_path: Path, model: str, env: str) -> SimpleNamespace:
         checkpoint_load="none",
         checkpoint_hf_repo_id="",
         hf_repo_id="",
-        checkpoint_sync_repo_id="",
-        checkpoint_sync_enabled="false",
         target_latency_unit="observation_steps",
     )
 

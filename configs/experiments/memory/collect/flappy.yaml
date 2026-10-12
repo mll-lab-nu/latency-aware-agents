@@ -9,9 +9,3 @@ dataset_experiment:
     latency_fixed_frames: 3
     seed: 0
   probe_shards: null
-  publication:
-    repo_id: MLL-Lab/LAGEN-datasets
-    private: false
-    config_name: flappy_fixed_latency_3_200ep_7k2steps
-    data_dir: latency-aware/flappy/flappy_fixed_latency_3_200ep_7k2steps
-    max_shard_size: 500MB

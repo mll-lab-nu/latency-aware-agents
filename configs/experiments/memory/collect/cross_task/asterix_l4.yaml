@@ -14,9 +14,3 @@ dataset_experiment:
     latency_fixed_frames: 4
     seed: 10
   probe_shards: null
-  publication:
-    repo_id: latency-sensitive-bench/benchmark-datasets
-    private: false
-    config_name: task-transfer--asterix_fixed_latency_4_200ep_7k2steps
-    data_dir: latency-aware/asterix/asterix_200ep/asterix_fixed_latency_4_200ep_7k2steps
-    max_shard_size: 500MB

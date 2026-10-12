@@ -56,7 +56,7 @@ evaluation:
       max_latency_ms: 300.0
       seed: 0
 logging:
-  wandb_project: starvla_tasks
+  wandb_project: null
   wandb_job_type: flappy_decision_history_temporal
   wandb_tags: [decision_v1]
 

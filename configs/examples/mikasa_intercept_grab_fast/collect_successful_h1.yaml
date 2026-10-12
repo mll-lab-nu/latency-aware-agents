@@ -28,5 +28,3 @@ collection:
 dataset:
   train_episodes: 250
   val_episodes: 25
-  private: false
-  path_template: fixed-latency-l{latency}/mikasa-intercept-grab-fast/teacher-rollouts-h1-success-{train_episodes}train-{val_episodes}val

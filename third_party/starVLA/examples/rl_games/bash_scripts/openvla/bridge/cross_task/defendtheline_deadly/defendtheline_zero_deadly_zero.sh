@@ -25,10 +25,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="openvla_bridge_cross_defendtheline_zero_deadly_zero_exp3" \
     trainer.distributed_backend=none \
     workspace_dir="$WORKSPACE_DIR" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="latency-sensitive-bench/benchmark-models" \
-    checkpoint.sync.enabled=false \
-    checkpoint.sync.repo_id="latency-sensitive-bench/benchmark-models" \
     checkpoint.save_best_model=false \
     trainer.max_train_steps=4000 \
     datasets.vla_data.sequential_step_sampling=true \

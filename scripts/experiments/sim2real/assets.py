@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 from huggingface_hub import hf_hub_download, snapshot_download
 
@@ -75,3 +76,30 @@ def prepare_model_assets(registry, entry, *, eval_config_path=None):
         "training_profile": entry["training_profile"],
     }
     return config
+
+
+DATASET_REPO = "MLL-Lab/LAGEN-datasets"
+
+
+def download_real_experiment(source_ref: str, revision: str, output: Path) -> dict:
+    """Restore portable real results from exactly the caller's HF snapshot."""
+    snapshot = Path(snapshot_download(
+        repo_id=DATASET_REPO, repo_type="dataset", revision=revision,
+        allow_patterns=[f"{source_ref}/{name}" for name in (
+            "experiment.json", "eval_template.yaml", "REAL_DONE", "real_summary.json",
+            "real_runs.csv", "profile_source.json",
+            "real/*/episode_metrics.jsonl",
+        )],
+    )) / source_ref
+    (snapshot / "REAL_DONE").read_bytes()
+    shutil.copytree(snapshot, output, dirs_exist_ok=True)
+    profile = read_json(snapshot / "profile_source.json")
+    measurement = Path(snapshot_download(
+        repo_id=profile["repo_id"], repo_type="dataset", revision=profile["revision"],
+        allow_patterns=[f"{profile['source_ref']}/{name}" for name in (
+            "calibration/calibration.json", "profile/*",
+        )],
+    )) / profile["source_ref"]
+    shutil.copytree(measurement / "calibration", output / "calibration", dirs_exist_ok=True)
+    shutil.copytree(measurement / "profile", output / "profile", dirs_exist_ok=True)
+    return read_json(output / "experiment.json")

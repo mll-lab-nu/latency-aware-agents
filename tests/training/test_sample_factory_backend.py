@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from argparse import Namespace
 from types import SimpleNamespace
 
 import pytest
@@ -370,16 +371,20 @@ def test_build_common_sf_args_does_not_emit_unsupported_wandb_unique_id_arg():
 def test_build_common_sf_args_emits_wandb_tags_as_multiple_values():
     cfg = load_config("configs/base/flappy.yaml")
     cfg["logging"]["wandb_tags"] = ["observation_stride", "flappy", "frame_stack"]
+    cfg["logging"]["wandb_project"] = "test-project"
+    cfg["logging"]["wandb_entity"] = "test-team"
 
     args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
 
     idx = args.index("--wandb_tags")
     assert args[idx : idx + 4] == ["--wandb_tags", "observation_stride", "flappy", "frame_stack"]
+    assert args[args.index("--wandb_user") + 1] == "test-team"
 
 
 def test_build_common_sf_args_splits_legacy_comma_wandb_tags():
     cfg = load_config("configs/base/flappy.yaml")
     cfg["logging"]["wandb_tags"] = "observation_stride,flappy,frame_stack"
+    cfg["logging"]["wandb_project"] = "test-project"
 
     args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
 
@@ -1308,7 +1313,7 @@ def test_demon_attack_reference_env_is_sample_factory_compatible(monkeypatch):
         lambda **kwargs: _ScriptedAtariInfoEnv([]),
     )
 
-    cfg = SimpleNamespace(
+    cfg = Namespace(
         env=integration.SF_ENV_NAME,
         env_gpu_actions=False,
         env_gpu_observations=False,
@@ -1374,7 +1379,7 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
     monkeypatch.setattr(integration, "_ENVS_REGISTERED", False)
     monkeypatch.setattr(integration.gym, "make", FakeFlappyGymnasium.make)
 
-    cfg = SimpleNamespace(
+    cfg = Namespace(
         env=integration.SF_ENV_NAME,
         env_gpu_actions=False,
         env_gpu_observations=False,

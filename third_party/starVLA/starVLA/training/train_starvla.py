@@ -42,7 +42,7 @@ from starVLA.dataloader import build_dataloader
 from starVLA.dataloader.worker_context import build_cpu_only_dataloader_kwargs
 from starVLA.model.framework.base_framework import build_framework
 from starVLA.model.framework.share_tools import apply_config_compat
-from starVLA.training.rl_games import CheckpointSyncManager, apply_action_spec, apply_model_alias, build_rl_games_eval_runner, sync_kv_memory_obs_window, validate_rl_games_config
+from starVLA.training.rl_games import CheckpointRetention, apply_action_spec, apply_model_alias, build_rl_games_eval_runner, sync_kv_memory_obs_window, validate_rl_games_config
 from starVLA.training.rl_games.auth import login_training_services
 from starVLA.training.rl_games.eval_core import EvalResult
 from starVLA.training.rl_games import action_cc_f1
@@ -488,7 +488,11 @@ def prepare_data(cfg, accelerator, output_dir) -> tuple[DataLoader, DataLoader |
     training_statistics = None
     source_stats_path = None
     if gymnasium and resume_checkpoint is not None:
-        _, run_dir = resolve_pretrained_checkpoint_path(resume_checkpoint)
+        checkpoint_path = Path(resume_checkpoint)
+        if checkpoint_path.is_dir():
+            run_dir = checkpoint_path.parents[1]
+        else:
+            _, run_dir = resolve_pretrained_checkpoint_path(resume_checkpoint)
         source_stats_path = run_dir / "dataset_statistics.json"
         training_statistics = json.loads(source_stats_path.read_text(encoding="utf-8"))
         resume_model_cfg = OmegaConf.to_container(OmegaConf.load(run_dir / "config.yaml"), resolve=True)
@@ -636,7 +640,7 @@ class VLATrainer(TrainerUtils):
 
         self.completed_steps = 0
         self.total_batch_size = self._calculate_total_batch_size()
-        self._checkpoint_sync_manager = CheckpointSyncManager(cfg=self.config)
+        self._checkpoint_retention = CheckpointRetention(cfg=self.config)
         self._rl_games_eval_runner = None
         self._pending_full_state_resume = None
         self._save_best_model_enabled = _as_bool(
@@ -750,6 +754,7 @@ class VLATrainer(TrainerUtils):
         if self.accelerator.is_main_process:
             wandb_name = self.config.wandb_name if "wandb_name" in self.config else self.config.run_id
             wandb.init(
+                mode="disabled" if not self.config.wandb_project else None,
                 name=wandb_name,
                 dir=os.path.join(self.config.output_dir, "wandb"),
                 project=self.config.wandb_project,
@@ -975,19 +980,8 @@ class VLATrainer(TrainerUtils):
         step_metrics["checkpoint/best_score"] = float(self._best_score)
         step_metrics["checkpoint/best_step"] = float(self._best_step)
         step_metrics["checkpoint/is_new_best"] = float(is_new_best)
-        self._checkpoint_sync_manager.sync_eval_result(
-            eval_path=eval_result.path,
-            stage="mid_train",
-            step=self.completed_steps,
-        )
         return step_metrics
 
-    def _best_config_paths(self) -> list[str]:
-        output_dir = Path(self.config.output_dir)
-        return [
-            str(output_dir / "config.full.yaml"),
-            str(output_dir / "config.yaml"),
-        ]
 
     def _save_best_checkpoint(self, eval_result, score: float, stage: str) -> bool:
         if not self._save_best_model_enabled:
@@ -1027,11 +1021,6 @@ class VLATrainer(TrainerUtils):
             self.accelerator.print(
                 f"✅ New best checkpoint saved at {self._best_state_path} "
                 f"(step={self._best_step}, score={self._best_score:.6f})"
-            )
-            self._checkpoint_sync_manager.sync_best_checkpoint(
-                state_path=self._best_state_path,
-                metadata_path=self._best_metadata_path,
-                config_paths=self._best_config_paths(),
             )
         self.accelerator.wait_for_everyone()
         return True
@@ -1078,7 +1067,7 @@ class VLATrainer(TrainerUtils):
                 self.accelerator.print(f"✅ Checkpoint state saved at {saved_state_path}")
             if model_checkpoint_path is not None:
                 self.accelerator.print(f"✅ Model checkpoint saved at {model_checkpoint_path}")
-            self._checkpoint_sync_manager.register_local_checkpoint(
+            self._checkpoint_retention.register_local_checkpoint(
                 step=self.completed_steps,
                 state_path=saved_state_path,
                 model_path=model_checkpoint_path,
@@ -1093,7 +1082,10 @@ class VLATrainer(TrainerUtils):
         self.accelerator.wait_for_everyone()
 
     def _log_wandb(self, metrics):
-        wandb.log({**metrics, "global_step": self.completed_steps})
+        payload = {**metrics, "global_step": self.completed_steps}
+        with (Path(self.config.output_dir) / "training_metrics.jsonl").open("a") as stream:
+            stream.write(json.dumps(payload) + "\n")
+        wandb.log(payload)
 
     def _log_metrics(self, metrics):
         """Record training metrics."""
@@ -2522,11 +2514,6 @@ class VLATrainer(TrainerUtils):
                 if self._save_best_model_enabled:
                     final_metrics["checkpoint/best_score"] = float(self._best_score)
                     final_metrics["checkpoint/best_step"] = float(self._best_step)
-                self._checkpoint_sync_manager.sync_eval_result(
-                    eval_path=eval_result.path,
-                    stage="post_train",
-                    step=self.completed_steps,
-                )
                 self._log_wandb(final_metrics)
 
         if self.accelerator.is_main_process:

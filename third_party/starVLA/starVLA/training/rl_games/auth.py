@@ -5,7 +5,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 logger = logging.getLogger(__name__)
@@ -74,15 +74,6 @@ def _resolve_path(value: Any, *, workspace_dir: Path | None = None, repo_root: P
     return repo_path
 
 
-def _default_env_candidates(workspace_dir: Path | None, repo_root: Path) -> Iterable[Path]:
-    if workspace_dir is not None:
-        yield workspace_dir / ".env"
-        yield workspace_dir / "auth.env"
-    yield repo_root.parent / ".env"
-    yield repo_root / ".env"
-    yield repo_root / "examples/rl_games/auth.env"
-
-
 def load_auth_env(
     cfg: Any = None,
     *,
@@ -91,7 +82,7 @@ def load_auth_env(
     env_file: str | Path | None = None,
     require_env_file: bool = True,
 ) -> str | None:
-    """Load auth.env values into os.environ and normalize token aliases."""
+    """Load an explicitly selected credential file and normalize token aliases."""
     repo_root_path = Path(repo_root).expanduser().resolve()
     workspace_path = Path(workspace_dir).expanduser().resolve() if workspace_dir not in (None, "") else None
     configured_env_file = env_file if env_file not in (None, "") else _cfg_get(cfg, "auth.env_file")
@@ -105,12 +96,6 @@ def load_auth_env(
         else:
             _load_env_file(candidate)
             loaded_env_file = candidate
-    else:
-        for candidate in _default_env_candidates(workspace_path, repo_root_path):
-            if candidate.exists():
-                _load_env_file(candidate)
-                loaded_env_file = candidate
-                break
 
     hf_token_env = str(_cfg_get(cfg, "auth.hf_token_env", "HF_TOKEN") or "HF_TOKEN")
     hf_token = (
@@ -163,7 +148,7 @@ def login_training_services(
 
     wandb_key = os.environ.get("WANDB_API_KEY")
     result.wandb_configured = bool(wandb_key)
-    if wandb_key and os.environ.get("WANDB_MODE", "").lower() != "disabled":
+    if _cfg_get(cfg, "wandb_project") and wandb_key and os.environ.get("WANDB_MODE", "").lower() != "disabled":
         try:
             import wandb
 

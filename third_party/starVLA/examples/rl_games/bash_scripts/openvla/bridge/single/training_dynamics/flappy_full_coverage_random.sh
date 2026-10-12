@@ -12,10 +12,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="openvla_bridge_flappy_single_latency_exp1_30ep_full_coverage_shuffle" \
     trainer.distributed_backend=none \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/openvla_bridge_flappy_single_latency_exp1_30ep_full_coverage_shuffle" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/openvla_bridge_flappy_single_latency_exp1_30ep_full_coverage_shuffle" \
     dataset.source_hf="talha1503/flappy_bird_zero_latency_parquet" \
     checkpoint.save_best_model=true \
     dataset.max_episodes=30 \

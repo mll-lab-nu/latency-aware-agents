@@ -55,7 +55,7 @@ evaluation:
       max_latency_ms: 171.42857142857144
       seed: 42
 logging:
-  wandb_project: starvla_tasks
+  wandb_project: null
   wandb_job_type: deadly_corridor_decision_history_native35_temporal
   wandb_tags: [decision_v1]
 

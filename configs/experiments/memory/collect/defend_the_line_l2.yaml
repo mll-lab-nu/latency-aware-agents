@@ -27,9 +27,3 @@ collection:
 dataset_experiment:
   teacher_job: null
   probe_shards: null
-  publication:
-    repo_id: MLL-Lab/LAGEN-datasets
-    private: false
-    config_name: task-transfer--defend_the_line_fixed_latency_2_200ep_7k2steps
-    data_dir: latency-aware/defend-the-line/defend_the_line_fixed_latency_2_200ep_7k2steps
-    max_shard_size: 500MB

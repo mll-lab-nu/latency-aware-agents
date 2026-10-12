@@ -15,7 +15,6 @@ import numpy as np
 
 from scripts.experiments.sim2real import budget
 from scripts.experiments.sim2real.budget_report import run_mean, normalized_mean_error
-from scripts.experiments.sim2real.publication import StudyPublication
 from latency_bench.core.config import load_config
 from latency_bench.utils.io import read_json, write_json_atomic, write_csv, write_json
 
@@ -45,11 +44,7 @@ def prepare_inputs(root, base_root, config):
         manifest = {
             **campaign, **config,
             "previous_campaign": base_root.name,
-            "previous_report_revision": read_json(base_root / "uploads/report.json")["revision"],
-            "previous_sim_revisions": {
-                model: read_json(base_root / model / "uploads/sim_complete.json")["revision"]
-                for model in campaign["models"]
-            },
+            "previous_output": str(base_root.resolve()),
             "partitions": random_partitions(campaign, config["seeds"]),
             "fit_priority_seed": campaign["split_seed"],
             "new_episodes": per_split * (len(config["seeds"]) - 1),
@@ -146,14 +141,10 @@ def main(argv=None):
         config = load_config(args.config)
         prepare_inputs(root, base_root, config)
     manifest = read_json(root / "repeats.json")
-    prefix = f"sim2real-budget/{manifest['task']}/{root.name}"
-    publication = StudyPublication(root, prefix, defer_uploads=True)
-    publication.publish("context", [root / "repeats.json"])
     if args.stage == "prepare":
         return
     if args.stage == "report":
         report = repeated_report(root, base_root)
-        publication.publish("report", [report, root / "REPORT_DONE"])
         return
     if args.stage == "sim" and args.gpu_uuid is None:
         parser.error("sim requires --gpu-uuid")
@@ -162,14 +153,12 @@ def main(argv=None):
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_uuid
     os.environ["LATENCY_BENCH_ENV_BACKEND_START_METHOD"] = "spawn"
     output = root / args.model
-    publication = StudyPublication(output, f"{prefix}/{args.model}", defer_uploads=True)
     partitions = {str(seed): manifest["partitions"][str(seed)] for seed in manifest["seeds"][1:]}
     if args.stage == "fit":
-        budget.fit_profiles(output, output / "source", args.model, publication, partitions=partitions,
+        budget.fit_profiles(output, output / "source", args.model, partitions=partitions,
                             fit_sizes=manifest["fit_sizes"], source_ref=manifest["sources"][args.model])
     else:
-        budget.simulate(output, output / "source", args.model, args.worker_python, publication,
-                        manifest["parallel_runs"], partitions=partitions, manifest=manifest,
+        budget.simulate(output, output / "source", args.model, args.worker_python, manifest["parallel_runs"], partitions=partitions, manifest=manifest,
                         combine_settings=manifest["combine_settings"])
 
 

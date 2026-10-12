@@ -38,7 +38,7 @@ __pycache__/
 /third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/uv.lock
 
 # onle reference for agents, not to upload
-reference/
+/reference/
 paper/
 
 # private keys

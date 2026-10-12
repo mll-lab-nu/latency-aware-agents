@@ -1,11 +1,10 @@
-"""Prepare H1 collection/conversion configs or publish the completed dataset."""
+"""Prepare H1 collection/conversion configs and finalize local provenance."""
 
 import argparse
 from copy import deepcopy
 from pathlib import Path
 import os
 
-from huggingface_hub import HfApi
 
 from latency_bench.core.config import load_config
 from latency_bench.utils.io import read_json, write_json, write_yaml
@@ -14,11 +13,10 @@ from latency_bench.utils.io import read_json, write_json, write_yaml
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--stage", choices=("prepare", "publish"), required=True)
+    parser.add_argument("--stage", choices=("prepare", "finalize"), required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--latency-frames", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--repo-id", required=True)
     parser.add_argument("--package-only", action="store_true")
     args = parser.parse_args(argv)
     config = load_config(args.config)
@@ -53,16 +51,7 @@ def main(argv=None):
         "collector_metadata": metadata, "action_labels": "issued H1 commands",
         "packaging": read_json(data / "packaging.json"),
     })
-    prefix = settings["path_template"].format(latency=args.latency_frames, **settings)
-    api = HfApi()
-    api.create_repo(repo_id=args.repo_id, repo_type="dataset", private=settings["private"], exist_ok=True)
-    commit = api.upload_folder(
-        repo_id=args.repo_id, repo_type="dataset", folder_path=data, path_in_repo=prefix,
-        allow_patterns=["lerobot/**", "lerobot__val/**", "packaging.json", "provenance.json"],
-        ignore_patterns=["**/.cache/**"],
-    )
-    write_json(data / "publication.json", {"repo_id": args.repo_id, "revision": commit.oid,
-                                           "path": prefix, "publication_status": "published"})
+    print(f"OUTPUT_DIR={data}")
 
 
 if __name__ == "__main__":
