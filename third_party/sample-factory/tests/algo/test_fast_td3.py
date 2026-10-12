@@ -52,7 +52,7 @@ def test_actor_uses_sf_contract_and_carries_noise_scale():
     cfg.normalize_input = False
     obs_space, action_space = _spaces()
     actor = FastTD3ActorCritic(obs_space, action_space, cfg)
-    result = actor({"obs": torch.zeros(8, 3)}, torch.zeros(8, 1))
+    result = actor({"obs": torch.zeros(8, 3)}, torch.zeros(8, 1), action_mask=None)
 
     assert [layer.out_features for layer in actor.actor.net if isinstance(layer, torch.nn.Linear)] == [512, 256, 128, 2]
     assert result["actions"].shape == (8, 2)
