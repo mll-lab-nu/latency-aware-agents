@@ -2,13 +2,11 @@
   "task": "hopper",
   "condition": "profile_latency",
   "teacher_checkpoint_path": "/mnt/local/lzj/latency-sensitive-bench/pi05_hopper_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_hopper_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/checkpoint_000019536_10002432.pth",
-  "teacher_checkpoint_sha256": "9b78ae32c795cf0eecbd2b66e04f2775091a9756a40e5f5635791ac2b2ca4b86",
   "teacher": {
     "state": "TEACHER_FULL_TRACE_AUDIT_PASSED",
     "verified_at": "2026-09-21T14:09:31.112834+00:00",
     "task": "hopper",
     "model_revision": "408930d8a85f0cb316dc3bdebfb8142526570355",
-    "P_profile_sha256": "1289653bf6e8591cdd5cf805ad539ddd1cb041cdad08a9f2833597fe72271e1e",
     "P_warnings": [
       {
         "session": 1,
@@ -24,7 +22,6 @@
       "candidates": {
         "final": {
           "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_hopper_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_hopper_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/checkpoint_000019536_10002432.pth",
-          "sha256": "9b78ae32c795cf0eecbd2b66e04f2775091a9756a40e5f5635791ac2b2ca4b86",
           "episodes": 20,
           "seeds": [
             104771,
@@ -76,7 +73,6 @@
         },
         "training_best": {
           "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_hopper_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_hopper_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/best_000019536_10002432_reward_2535.456.pth",
-          "sha256": "f0d71c11d6f468510a6b1e98d528060bfe213e094ae81a13a7c9129af2f5b2ec",
           "episodes": 20,
           "seeds": [
             104771,
@@ -214,7 +210,6 @@
         "submitted_observations": 10606,
         "dropped_observations": 3110,
         "observation_drop_fraction": 0.2267424905220181,
-        "config_sha256": "39166d114a7d4b46e64da14382bd644f4095e7eb36fc6eae52479c2545093f81",
         "state_contract": "Native state11 is bound to manifest/loader QA/saved reload; no per-step state vector is recorded."
       },
       "training_best": {
@@ -299,7 +294,6 @@
         "submitted_observations": 10606,
         "dropped_observations": 3110,
         "observation_drop_fraction": 0.2267424905220181,
-        "config_sha256": "8447bbc671595a369933dff026480db4f94846a7970e4e8ac6731abdf21d0138",
         "state_contract": "Native state11 is bound to manifest/loader QA/saved reload; no per-step state vector is recorded."
       }
     },
@@ -355,14 +349,12 @@
       "submitted_observations": 5577,
       "dropped_observations": 1660,
       "observation_drop_fraction": 0.22937681359679427,
-      "config_sha256": "8a5246d083413a735ed88e2e3b9a5c4f7b49896abfd3153488d9fcd1edd62176",
       "state_contract": "Native state11 is bound to manifest/loader QA/saved reload; no per-step state vector is recorded."
     },
     "probe": {
       "attempts": 12,
       "accepted": 2,
       "rejected": 10,
-      "source_state_sha256": "fad846336f923f7f0bf755c2d5cdbbcc2a8c4f955556c2299ef088cbd20d1f72",
       "accepted_specs": [
         {
           "attempt_idx": 4,
@@ -391,8 +383,6 @@
   },
   "profile_source": {
     "model_revision": "408930d8a85f0cb316dc3bdebfb8142526570355",
-    "checkpoint_sha256": "c35ddc57fef8fd096adca3df9ecf94662824c26b311c3884508f07646231f05b",
-    "profile_sha256": "1289653bf6e8591cdd5cf805ad539ddd1cb041cdad08a9f2833597fe72271e1e",
     "source_run_id": "20260921T094220318783Z",
     "P_publication_revision": "e1a9bdd566b96d5da4703f769d40eab656af491e",
     "warnings": [
@@ -438,21 +428,13 @@
         "action_min": -1.0,
         "action_max": 1.0
       }
-    },
-    "sha256": {
-      "metadata.json": "6a0e1ef5b903e923c37f5091eeece485d4a00dfc7a8c63a95c523cf59399531a",
-      "train.parquet": "47b4bd70080aa670c285f207aca9cc2f3c803d1f07c58fa0faa3a585e325939a",
-      "val.parquet": "af5561f9912e9a580bc8112875cf11a55e7014e418677293428e32fb911962e0"
     }
   },
   "probe_state": {
     "path": "/mnt/local/lzj/latency-sensitive-bench/pi05_hopper_h1_5fps_g128_20260921/profile_latency/data/probe_state_gt2500.json",
-    "sha256": "eae3de415d0cced764c95c9ed12ae9b70a2a02ae30f7bbbc4bb461cd7f3da675",
     "attempted": 218,
     "accepted": 100,
-    "rejected": 118,
-    "original_12_sha256": "fad846336f923f7f0bf755c2d5cdbbcc2a8c4f955556c2299ef088cbd20d1f72",
-    "original_120_sha256": "8427adc4e968df0ea8467a8848462e51a481a9d31a2dbbc7f5458e3700da3a9b"
+    "rejected": 118
   },
   "evaluation_prompt_keys": [
     "1",

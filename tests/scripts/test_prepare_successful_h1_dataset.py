@@ -9,6 +9,21 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
+def test_package_only_preparation_preserves_collected_run_configs(tmp_path):
+    """Long-lived H1 resume contract: packaging preserves the collection configuration."""
+    from helpers import REPO_ROOT
+    from scripts.tasks.mikasa_intercept_grab_fast.successful_h1_dataset import main
+
+    args = ["--config", str(REPO_ROOT / "configs/examples/mikasa_intercept_grab_fast/collect_successful_h1.yaml"),
+            "--stage", "prepare", "--checkpoint", str(tmp_path / "teacher.pt"),
+            "--latency-frames", "2", "--output", str(tmp_path / "run"), "--repo-id", "org/data"]
+    main(args)
+    paths = [tmp_path / "run" / name for name in ("collect.yaml", "latency.yaml")]
+    original = [path.read_bytes() for path in paths]
+    main(args + ["--package-only"])
+    assert [path.read_bytes() for path in paths] == original
+
+
 def test_direct_h1_packaging_preserves_successful_episodes_cameras_and_labels(tmp_path, monkeypatch):
     """Long-lived H1 packaging contract: successful issued labels and training statistics."""
     from latency_bench.integrations.starvla.mikasa_h1_export import prepare

@@ -5,37 +5,28 @@
   "source_run_id": "20260921T094220318783Z",
   "profile_ref": "pi05/1x-rtx3090/hopper/instance_3e2f0f5afcb9c13e",
   "profile_path": "/workspace/lzj/latency-sensitive-bench/runs/hopper/pi05_h1_5fps_g128_20260921/profiling/profiles/pi05/1x-rtx3090/hopper/instance_3e2f0f5afcb9c13e/profile.json",
-  "profile_sha256": "1289653bf6e8591cdd5cf805ad539ddd1cb041cdad08a9f2833597fe72271e1e",
   "profile_files": {
     "profile.json": {
-      "size": 1999,
-      "sha256": "1289653bf6e8591cdd5cf805ad539ddd1cb041cdad08a9f2833597fe72271e1e"
+      "size": 1999
     },
     "latency_distribution.json": {
-      "size": 25470,
-      "sha256": "aba8684fc362e39078680a56ebeb2813ee1af644f0143b21712c769b48048cec"
+      "size": 25470
     },
     "latency_burst_model.json": {
-      "size": 26588,
-      "sha256": "ec558c76b2e370160cfe929731a3564e6e173c19d0f03f18e590befbd69859b8"
+      "size": 26588
     },
     "hardware.json": {
-      "size": 987,
-      "sha256": "ba01c9e05b9a67fa6f7d5513136c79a044d330df501d5bf430ff64f73b6c51e0"
+      "size": 987
     },
     "latency_profile.png": {
-      "size": 63209,
-      "sha256": "c46cfb296633d92b97bc850f72348c7ec19879917f4e39988fa5835a7113ea58"
+      "size": 63209
     },
     "DONE": {
-      "size": 0,
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "size": 0
     }
   },
   "model_revision": "408930d8a85f0cb316dc3bdebfb8142526570355",
-  "checkpoint_sha256": "c35ddc57fef8fd096adca3df9ecf94662824c26b311c3884508f07646231f05b",
   "post_P_checkpoint_hash_observation": {
-    "sha256": "c35ddc57fef8fd096adca3df9ecf94662824c26b311c3884508f07646231f05b",
     "bytes": 10922629277,
     "observed_at_utc": "2026-09-21T11:10:55.288552+00:00",
     "source": "outputs/pi05/hopper/h1_5fps_g128_20260921/p60-audit-input.json",
@@ -930,318 +921,239 @@
   ],
   "source_checksums": {
     "sessions/0/generated.yaml": {
-      "size": 4257,
-      "sha256": "f6cddb7c0ee90cacf4777d2cbe19415255d17926a9f72fd94a724f8dcd4e58ed"
+      "size": 4257
     },
     "sessions/0/warmup_summary.json": {
-      "size": 3223,
-      "sha256": "d720acfbb198646345700841940601d2d5490c4e710f0fe03a8c0b72a9728874"
+      "size": 3223
     },
     "sessions/0/warmup_latencies.jsonl": {
-      "bytes": 74905,
-      "sha256": "0bd0a2fb5ce1f688388dae7926ad1d1b98b96baf000e9b0677ab89707dfce4d9"
+      "bytes": 74905
     },
     "sessions/0/warmup_pipeline_profile.jsonl": {
-      "size": 60488,
-      "sha256": "cfb1e084a9cd7fdf52d519bd3d27fefad51f2f94c2bf7bedc7b3d614df2ea049"
+      "size": 60488
     },
     "sessions/0/observation_attempts.jsonl": {
-      "bytes": 14367,
-      "sha256": "2b8f7054cfa9a379f07cabd07d86aa1d788ccab69b1a84a0093529f203d28f27"
+      "bytes": 14367
     },
     "sessions/0/steps.jsonl": {
-      "bytes": 71487,
-      "sha256": "ebbb3408a592ef513fb091adedda36dc23add7dfb764413c05813724df5d445a"
+      "bytes": 71487
     },
     "sessions/0/actions.jsonl": {
-      "bytes": 169547,
-      "sha256": "d67c9db8cbe0f700e0597b4b6129f2e40653f2bf08421f5b6b4e42f85495fe09"
+      "bytes": 169547
     },
     "sessions/0/episode_metrics.jsonl": {
-      "bytes": 43026,
-      "sha256": "e98430ccf57f947786aae4d40e0cde06ed4162d252e755d79491c1dae3722937"
+      "bytes": 43026
     },
     "sessions/0/realtime_pipeline_profile.jsonl": {
-      "size": 61592,
-      "sha256": "e64aba3c8780da5cdb5c01ff1e1d7c6b05a4b3a5482d1edda8ad349d172087ce"
+      "size": 61592
     },
     "sessions/0/realtime_pipeline_summary.json": {
-      "size": 3622,
-      "sha256": "93bd6c5b399dc8a19f0d06fe421d3f3c9617de3a622ee454378bb7d8c60e0f28"
+      "size": 3622
     },
     "sessions/0/latencies.jsonl": {
-      "size": 45743,
-      "sha256": "1f491fde56d3049836a6fe2f1c0750690aae329ea3707448b1b5efa9bfb2c52b"
+      "size": 45743
     },
     "sessions/0/infer_latencies.jsonl": {
-      "size": 45743,
-      "sha256": "1f491fde56d3049836a6fe2f1c0750690aae329ea3707448b1b5efa9bfb2c52b"
+      "size": 45743
     },
     "sessions/0/e2e_latencies.jsonl": {
-      "size": 16079,
-      "sha256": "b438d156d3175019e3bb9f4575fea4de82eb5be8a85aee689f970db2247987fe"
+      "size": 16079
     },
     "sessions/1/generated.yaml": {
-      "size": 4257,
-      "sha256": "e75a5b389b6216a93394dbe208c6dc2f3cedacab1f3da2e54c93a937970f40e0"
+      "size": 4257
     },
     "sessions/1/warmup_summary.json": {
-      "size": 3237,
-      "sha256": "d15e8ef4afc29f339da905b23308032295f9ec9be73afa1ee68d57beca24df72"
+      "size": 3237
     },
     "sessions/1/warmup_latencies.jsonl": {
-      "bytes": 74906,
-      "sha256": "13534ae852183bb2c3eb4408138564fa72fdb6c0e224df748e3ae358bb8f41c2"
+      "bytes": 74906
     },
     "sessions/1/warmup_pipeline_profile.jsonl": {
-      "size": 60563,
-      "sha256": "7b02e3f34e6e5d30728efe4d29dce8d7c575e0d5c625dcdd21b8e840a65db678"
+      "size": 60563
     },
     "sessions/1/observation_attempts.jsonl": {
-      "bytes": 14480,
-      "sha256": "a685315075951778b59f3272f7e26b775a389675381b1147091b5db80ad6bf0f"
+      "bytes": 14480
     },
     "sessions/1/steps.jsonl": {
-      "bytes": 71534,
-      "sha256": "799c71444463f8c0828fc1931007b33c13cb52ff71e73a33273a163ecba4f531"
+      "bytes": 71534
     },
     "sessions/1/actions.jsonl": {
-      "bytes": 172273,
-      "sha256": "e7d8f2e04d9ff670293f85d7d8c4ff77e659eba387334668e7c1d879eb59b345"
+      "bytes": 172273
     },
     "sessions/1/episode_metrics.jsonl": {
-      "bytes": 43152,
-      "sha256": "48c56072495efa1a0ce9e35027e6df52239d768d38c90b2283fd0eecb2193cb0"
+      "bytes": 43152
     },
     "sessions/1/realtime_pipeline_profile.jsonl": {
-      "size": 61594,
-      "sha256": "474f21418d6aa7211e04dba00ed4f297762933bcb6c12683d17fbdfdbe48ca60"
+      "size": 61594
     },
     "sessions/1/realtime_pipeline_summary.json": {
-      "size": 3639,
-      "sha256": "081bc8598740679b8570597c38aa5b68d9ef1cd56ece259a15a21927f135c8d8"
+      "size": 3639
     },
     "sessions/1/latencies.jsonl": {
-      "size": 46518,
-      "sha256": "92ad35edd07af985618b8fc00623e2bf280e0a54484e913f9738bbb9bb290985"
+      "size": 46518
     },
     "sessions/1/infer_latencies.jsonl": {
-      "size": 46518,
-      "sha256": "92ad35edd07af985618b8fc00623e2bf280e0a54484e913f9738bbb9bb290985"
+      "size": 46518
     },
     "sessions/1/e2e_latencies.jsonl": {
-      "size": 16062,
-      "sha256": "d703c5c8a2d95cdce3d5ab84ea09536da664996482884a7e538e7ef612f34216"
+      "size": 16062
     },
     "sessions/2/generated.yaml": {
-      "size": 4257,
-      "sha256": "c868810b21cb0aaf4177b7579515f3371b6cf358c5dd58eaacb1290b944629b0"
+      "size": 4257
     },
     "sessions/2/warmup_summary.json": {
-      "size": 3227,
-      "sha256": "8ef4c5a387eaeb93fa584fefa5bae236ffd021015a363940d05437999091ca7b"
+      "size": 3227
     },
     "sessions/2/warmup_latencies.jsonl": {
-      "bytes": 74916,
-      "sha256": "09ff57546ad02f467ff0c2cec041be8e114149858226343edc0b10e780f1b15f"
+      "bytes": 74916
     },
     "sessions/2/warmup_pipeline_profile.jsonl": {
-      "size": 60565,
-      "sha256": "e9aa6051db678605014fc898fd6dd78aea699dc2175c7e890084614b5784b0d5"
+      "size": 60565
     },
     "sessions/2/observation_attempts.jsonl": {
-      "bytes": 16271,
-      "sha256": "aa6f8909b1dbbb454214d208b5da1c8e80129bdb3770a2ed84199b5a7cf6daa0"
+      "bytes": 16271
     },
     "sessions/2/steps.jsonl": {
-      "bytes": 74823,
-      "sha256": "b75b967da11645ad7b810c97e9af875558c19a7eb494a9ff268372167cd76ee6"
+      "bytes": 74823
     },
     "sessions/2/actions.jsonl": {
-      "bytes": 203449,
-      "sha256": "4b8e18bbf65904fe17dbee629f9ede6bdc92f966bd31082e28c9905cc8a53103"
+      "bytes": 203449
     },
     "sessions/2/episode_metrics.jsonl": {
-      "bytes": 43065,
-      "sha256": "c90cef831f92801af34cb4d76917ed3dc78a777209639a8ad4e4c2a2e97f97fd"
+      "bytes": 43065
     },
     "sessions/2/realtime_pipeline_profile.jsonl": {
-      "size": 76286,
-      "sha256": "5fa825f5a4cc0a799231b3dd1a75c1c61fd69db0394366fae314c87c0d2a7448"
+      "size": 76286
     },
     "sessions/2/realtime_pipeline_summary.json": {
-      "size": 3638,
-      "sha256": "674555fc6f8c199d534fd9f1f7423667cf881deb70105e7c97b38e79c6d63a2b"
+      "size": 3638
     },
     "sessions/2/latencies.jsonl": {
-      "size": 54743,
-      "sha256": "cceedd136df752431f26d474794cfb641c09609ec0feac78b28b83c999432d71"
+      "size": 54743
     },
     "sessions/2/infer_latencies.jsonl": {
-      "size": 54743,
-      "sha256": "cceedd136df752431f26d474794cfb641c09609ec0feac78b28b83c999432d71"
+      "size": 54743
     },
     "sessions/2/e2e_latencies.jsonl": {
-      "size": 19905,
-      "sha256": "bf61391635a60a03e474430e823d13149a0d5077318eed83bebea3e68f7196bb"
+      "size": 19905
     },
     "sessions/3/generated.yaml": {
-      "size": 4257,
-      "sha256": "d6c0aca7a7a1a175822e488b5a382cf92d393202bd72db52c34aa0ca8058b03e"
+      "size": 4257
     },
     "sessions/3/warmup_summary.json": {
-      "size": 3225,
-      "sha256": "9da6d51f356588b7ce9ada787f073953347a8e318f932bbe7f710b2cdee36d9a"
+      "size": 3225
     },
     "sessions/3/warmup_latencies.jsonl": {
-      "bytes": 74880,
-      "sha256": "d0af6cbb0f7ceff6b03c47b8d4badd8b781a1176fb18e210d2eef51b60a44265"
+      "bytes": 74880
     },
     "sessions/3/warmup_pipeline_profile.jsonl": {
-      "size": 60456,
-      "sha256": "0f75d5ceb6d2882338a7ddebb9c6e13a22526e6f38f0c99e9b518d891a7f174c"
+      "size": 60456
     },
     "sessions/3/observation_attempts.jsonl": {
-      "bytes": 14703,
-      "sha256": "c3c0108300235a4ac3aa0956c64f44a06b2edb5beeb71ec19790053a3674c349"
+      "bytes": 14703
     },
     "sessions/3/steps.jsonl": {
-      "bytes": 73757,
-      "sha256": "3a04e81d23b3bed67fdeee24f9ec308b1f9fe0e346b27b5c65b3aaea2aa2e275"
+      "bytes": 73757
     },
     "sessions/3/actions.jsonl": {
-      "bytes": 167296,
-      "sha256": "aa42e900438f47fdcc3a5e4a1e4157ae68eb104dde1dc6f81c9519e8795e3304"
+      "bytes": 167296
     },
     "sessions/3/episode_metrics.jsonl": {
-      "bytes": 43040,
-      "sha256": "8706b59bfdfeb259b586146859717fcfe269c50b0c9fae7f88a28df78ec02245"
+      "bytes": 43040
     },
     "sessions/3/realtime_pipeline_profile.jsonl": {
-      "size": 62693,
-      "sha256": "d96086d0e6c6a14c9c50aa544457c695a8dd8fa5a51d18848a544b9f7ded7663"
+      "size": 62693
     },
     "sessions/3/realtime_pipeline_summary.json": {
-      "size": 3637,
-      "sha256": "ddfe54b89fbc8339f68624ea4a407112ed7d12ab278b85504f1896e0907c9e93"
+      "size": 3637
     },
     "sessions/3/latencies.jsonl": {
-      "size": 45014,
-      "sha256": "f23a9b726fa809ed419413ae404c7bbabad54e8212c2332d3119f5b4160c8b13"
+      "size": 45014
     },
     "sessions/3/infer_latencies.jsonl": {
-      "size": 45014,
-      "sha256": "f23a9b726fa809ed419413ae404c7bbabad54e8212c2332d3119f5b4160c8b13"
+      "size": 45014
     },
     "sessions/3/e2e_latencies.jsonl": {
-      "size": 16347,
-      "sha256": "380e0dfb84ee31c2c40525be3fb808c75194dcb69066aa6633cf07a3207c1dc4"
+      "size": 16347
     },
     "sessions/4/generated.yaml": {
-      "size": 4257,
-      "sha256": "753d91c31daca74b4a8ed72594ce81411c48a0f6103962af597ed9ed7f81784d"
+      "size": 4257
     },
     "sessions/4/warmup_summary.json": {
-      "size": 3227,
-      "sha256": "188d102139be69d88d712b6113a0890d89f4c39449f2d115160712f86258b423"
+      "size": 3227
     },
     "sessions/4/warmup_latencies.jsonl": {
-      "bytes": 74883,
-      "sha256": "63fba5f153c22f1ed463d2516c50af039e15dd2d8437c11aaf6dfd50ca5df32d"
+      "bytes": 74883
     },
     "sessions/4/warmup_pipeline_profile.jsonl": {
-      "size": 60442,
-      "sha256": "3c60790672b8dfa89e6ab8481d86f4c28e97db1416b5c5f47a78169f0f80c42e"
+      "size": 60442
     },
     "sessions/4/observation_attempts.jsonl": {
-      "bytes": 14777,
-      "sha256": "6f7aca708895e93c2eb6c85912153748ab1147f16ea4a321c5a2ee9f4aed140b"
+      "bytes": 14777
     },
     "sessions/4/steps.jsonl": {
-      "bytes": 72331,
-      "sha256": "76f914f09218879d26923d09b4caff650c781ec6758b65fb9a538dd462721454"
+      "bytes": 72331
     },
     "sessions/4/actions.jsonl": {
-      "bytes": 175289,
-      "sha256": "67a0396a13aa530f03cfc74ee1019341679b30089534a573b8b84a5b66f44b4f"
+      "bytes": 175289
     },
     "sessions/4/episode_metrics.jsonl": {
-      "bytes": 43057,
-      "sha256": "4f3cf2420dea16f6ebe86ba3b78b7c90c3516bd38456b7733cb5681f2e1948fc"
+      "bytes": 43057
     },
     "sessions/4/realtime_pipeline_profile.jsonl": {
-      "size": 63768,
-      "sha256": "b6f2f3ca3e9e488b79dd8cab755a38d8a1548711b6dea3349359ee95f7f353af"
+      "size": 63768
     },
     "sessions/4/realtime_pipeline_summary.json": {
-      "size": 3643,
-      "sha256": "1d05bce0497621eb97487775ab4060536390f2e903b35b4390276717312fdfe6"
+      "size": 3643
     },
     "sessions/4/latencies.jsonl": {
-      "size": 47272,
-      "sha256": "f8dd79bb3974ab4185065a8c20170197c5f1d6583f9f994f178614059c2f2f0e"
+      "size": 47272
     },
     "sessions/4/infer_latencies.jsonl": {
-      "size": 47272,
-      "sha256": "f8dd79bb3974ab4185065a8c20170197c5f1d6583f9f994f178614059c2f2f0e"
+      "size": 47272
     },
     "sessions/4/e2e_latencies.jsonl": {
-      "size": 16634,
-      "sha256": "b330c7f3fdb1283f028dc954a68484d9656bebd637f9a8dc9124105e826d6aa5"
+      "size": 16634
     },
     "P.status.json": {
-      "size": 733,
-      "sha256": "0b82eca43b60a303230867773558c0a77be22a640b386b79025b6f08ca41f531"
+      "size": 733
     },
     "profile-ready.json": {
-      "size": 365,
-      "sha256": "b883ae81560b83d95761d103035285135dc4f501a5855a8bd17359097db7ecae"
+      "size": 365
     },
     "preparation.json": {
-      "size": 972,
-      "sha256": "35b7e3d1a2d817e4ad9f99ee564955276a9277ae09ff909f7420bee70f3514d4"
+      "size": 972
     },
     "configuration-verification.json": {
-      "size": 3423,
-      "sha256": "0688e5614c98c2365def58d0e620951a9736ea712c10c7cf366552299b2c716a"
+      "size": 3423
     },
     "P.yaml": {
-      "size": 4022,
-      "sha256": "a517a5e1731f8294bf9c50bb679e1605ac09d3d6e177380413fbf93968bf6f25"
+      "size": 4022
     },
     "bundle/manifest.json": {
-      "size": 3774,
-      "sha256": "be39e793656d05fe417369c9bb00ea69097ce7e4d67e91b2a509a2834f08498e"
+      "size": 3774
     },
     "bundle/validation.json": {
-      "size": 529,
-      "sha256": "ba29392eee723bf2268b6fb534fb7c69d66e5eb2a5dc50722b7aa110e9777a45"
+      "size": 529
     },
     "bundle/config.yaml": {
-      "size": 3075,
-      "sha256": "821eb96c7ce689d8f43dbf0650cdcb20c2d672f31ca23d119548b87b7bc98015"
+      "size": 3075
     },
     "bundle/latency_prompt_map.json": {
-      "size": 373,
-      "sha256": "9fd22cc880afbd45589baa0db9ca0e237c3f89b4811156f6ed964600f82b186e"
+      "size": 373
     },
     "code/latency_bench/cross_device/runtime_configs.py": {
-      "size": 5899,
-      "sha256": "18ca0505ecf413b8b34610c35efbacb9c25c0621f54b2eff754fb4ebac69efb7"
+      "size": 5899
     },
     "code/latency_bench/executors/realtime/env_worker.py": {
-      "size": 12942,
-      "sha256": "384c40fe36ae2071f9d27271680702ed107849bd4357cc228f9b110a7a35bcb4"
+      "size": 12942
     },
     "code/latency_bench/executors/realtime/executor.py": {
-      "size": 39419,
-      "sha256": "a0261db50c73f82675c493edb16b0c9111168379f2d2031d0198c4774fdd6433"
+      "size": 39419
     }
   },
   "fit_binding": {
-    "sample_model_type": "hidden_regime",
-    "distribution_sha256": "aba8684fc362e39078680a56ebeb2813ee1af644f0143b21712c769b48048cec",
-    "burst_model_sha256": "ec558c76b2e370160cfe929731a3564e6e173c19d0f03f18e590befbd69859b8"
+    "sample_model_type": "hidden_regime"
   },
   "protocol": {
     "env_fps": 5,

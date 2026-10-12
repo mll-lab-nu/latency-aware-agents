@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
-import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -27,14 +26,6 @@ GATES = {"air_raid": 2500, "inverted_pendulum": 900, "ant": 3000,
 def write_json(path: Path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n")
-
-
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def teacher_config(task: str, run_root: Path, profile: Path | None, source: Path | None = None) -> dict:
@@ -146,12 +137,7 @@ def export_bundle(task: str, trained: Path, checkpoint: Path, dataset: Path, des
         "checkpoint": checkpoint.name, "training_steps": config["trainer"]["max_train_steps"],
         "seed": config["seed"], "global_batch": 64, "training_run_id": config["run_id"],
         "condition": config["training_latency_condition"],
-        "source": json.loads(source_manifest.read_text()),
-        "training_config_sha256": file_sha256(trained / "config.full.yaml"),
-        "dataset_manifest_sha256": file_sha256(dataset / "manifest.json")})
-    checksums = {path.relative_to(destination).as_posix(): file_sha256(path)
-                 for path in sorted(destination.rglob("*")) if path.is_file() and path.name != "SHA256SUMS"}
-    (destination / "SHA256SUMS").write_text("".join(f"{value}  {path}\n" for path, value in checksums.items()))
+        "source": json.loads(source_manifest.read_text())})
     return destination
 
 

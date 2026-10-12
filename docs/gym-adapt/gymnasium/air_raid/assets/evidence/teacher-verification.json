@@ -9,7 +9,6 @@
   "approximate_raw_game_frame_budget": 40000000,
   "actual_env_steps": 10002432,
   "seed": 0,
-  "profile_sha256": "7e81ed45da94173b447bdf0cf1ff59343cc7b4e1e6029bcf261cf054c2596cd6",
   "source_profile_capture_fps": [
     10,
     2.5
@@ -20,7 +19,6 @@
     "candidates": {
       "final": {
         "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_airraid_10_2p5_g128_20260920/profile_latency/teacher/checkpoints/airraid_pi05_profile_appo_h1_10env_2p5obs_g128_20260920/checkpoint_p0/checkpoint_000039064_10002432.pth",
-        "sha256": "59e7018b8aad3c0d7f52b40f9a5a4847c450b44f6cba27b66d052895869d4f10",
         "episodes": 20,
         "seeds": [
           104771,
@@ -72,7 +70,6 @@
       },
       "training_best": {
         "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_airraid_10_2p5_g128_20260920/profile_latency/teacher/checkpoints/airraid_pi05_profile_appo_h1_10env_2p5obs_g128_20260920/checkpoint_p0/best_000036640_9379840_reward_11643.500.pth",
-        "sha256": "ca875c7fce0848b8d62d2ed9c8a8654a198757fed984fa23b1940f503df725fa",
         "episodes": 20,
         "seeds": [
           104771,
@@ -212,7 +209,6 @@
       "raw_rewards_lengths_and_admission_counters_match": true,
       "raw_step_indices_and_clock_verified": true,
       "mode": "profile_sample",
-      "config_sha256": "966bd1fcfc5bb414c430248f2f47fd36e5a0adcc8f86c6cd8d04a6dea9be9c2f",
       "strict_gt2500": 20
     },
     "selection_training_best": {
@@ -301,7 +297,6 @@
       "raw_rewards_lengths_and_admission_counters_match": true,
       "raw_step_indices_and_clock_verified": true,
       "mode": "profile_sample",
-      "config_sha256": "64fc179e9a31bd49d46e6d30b51e5cecd809f1166ed8523388e596ca6234d0de",
       "strict_gt2500": 20
     },
     "E10": {
@@ -360,12 +355,10 @@
       "raw_rewards_lengths_and_admission_counters_match": true,
       "raw_step_indices_and_clock_verified": true,
       "mode": "profile_sample",
-      "config_sha256": "4fc2f1de21e7005bc6002d41a3ba2655c9cb8a8e9d15e4371b3316d6fe167d55",
       "strict_gt2500": 10
     }
   },
   "probe": {
-    "source_state_sha256": "74b620e5aa7e0995d331d19a00821f64b0de5b8e64a4846e5e9a19ef636a5880",
     "attempts": 12,
     "accepted": 12,
     "rejected": 0,
@@ -484,6 +477,5 @@
   "E10_seed_caveat": "E10 repeats the first10selection seeds, not independent evaluation",
   "raw_budget_caveat": "10M Sample Factory counted steps cover about40M raw game frames atstride4; actual counted envsteps are readfromFinal checkpoint.",
   "downstream": "After positive12attemptprobe,100accepted strict>2500 with no finiteattemptcap,actualreplayQA,freshPi05global128/micro64/acc1/GCfalse/ZeRO2/5000updates,andRTX3090F20; otherwise scientificstop",
-  "source_P_verification_sha256": "bc541ac289879bef1d50f006f13b530c1bb4870df600c9153891de301f784a38",
   "gate": "PASSED"
 }

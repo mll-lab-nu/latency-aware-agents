@@ -150,7 +150,7 @@
 <summary>Evaluation command</summary>
 
 <pre><code>MUJOCO_GL=egl PYTHONPATH=. conda run -n latency \
-  python -m latency_bench.run \
+  python -m latency_bench eval \
   --config configs/examples/gymnasium/hopper/small_model_eval.yaml \
   --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/small_models/hopper_rgb_state/gymnasium_hopper_rgb_state_zero_latency_10m/checkpoint_p0/best_000011992_6139904_reward_3206.405.pth</code></pre></details>
 
@@ -198,7 +198,7 @@
         </div>
 
 
-<div class="callout"><strong>Hugging Face:</strong> the verified raw export is published at <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/zero_latency/demonstrations/raw">zero-latency raw demonstrations</a>. The two parquet LFS SHA256 values and downloaded metadata bytes match the server source.</div>
+<div class="callout"><strong>Hugging Face:</strong> the verified raw export is published at <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/zero_latency/demonstrations/raw">zero-latency raw demonstrations</a>. The published revision contains both parquet files and their source metadata.</div>
 
 
 
@@ -257,7 +257,7 @@ datasets.vla_data.per_device_batch_size=16
 trainer.gradient_accumulation_steps=1
 
 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/examples/gymnasium/hopper/starvla_eval.yaml \
   --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/openvla_runs/hopper_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/checkpoints/steps_5000_pytorch_model.pt \
   --model-config-path /mnt/checkpoints/latency-sensitive-bench/openvla_runs/hopper_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/config.full.yaml \
@@ -482,7 +482,7 @@ python -m latency_bench.run \
 </table>
 </div>
 
-<p><a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/resolve/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/OpenVLA/evaluation/traces/episode_metrics.jsonl">F episode results</a> · <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/OpenVLA/evaluation/records/F.validation.json">F validation</a> · <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/OpenVLA/evaluation/records/F.evidence_sha256.json">Complete evidence hashes</a>.</p>
+<p><a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/resolve/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/OpenVLA/evaluation/traces/episode_metrics.jsonl">F episode results</a> · <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/OpenVLA/evaluation/records/F.validation.json">F validation</a>.</p>
 
 <p><a href="https://huggingface.co/latency-sensitive-bench/extra-envs-checkpoints/tree/98647be31ed0eac5743d6348eba25e85c4978f06/hopper/profile_latency/OpenVLA">Verified final VLA bundle</a> · <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/OpenVLA/training/vla.upload.json">Model upload receipt</a>.</p>
 
@@ -490,7 +490,7 @@ python -m latency_bench.run \
 
 <p><a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/demonstrations/raw">Raw data</a> are archived in Standard-Pipeline; converted data are generated on the training server. The original raw/conversion publication audit verified 123 files (5.084 GB). <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/provenance/execution/data.upload.json">Upload receipts</a> · <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/demonstrations/validation/materialized_data_validation.json">Materialized episode audit</a> · <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/OpenVLA/training/vla_data_binding.json">VLA data binding</a>.</p>
 
-<p><a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/provenance/pipeline/continuation.md">Continuation contract</a> · <a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/provenance/pipeline/input_sha256.json">Profile input hashes</a></p>
+<p><a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/hopper/profile_latency/provenance/pipeline/continuation.md">Continuation contract</a></p>
 
 
 </section></details><section id="archive"><p class="section-kicker">Models / data / evidence</p><h2>Models, data and scientific evidence</h2><p><a href="https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/hopper/profile_latency/GR00T/h1_5fps_20260917">Complete compact experiment evidence and raw data</a> · <a href="https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/hopper/vla/starvla-qwengr00t-h1/hopper_profile_gr00t_h1_5fps_2h100_20260917">Final model</a> · <a href="https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/hopper/vla/starvla-qwengr00t-h1/hopper_l0_gr00t_h1_5fps_2h100_20260917">L0 model / simulation</a> · <a href="https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/hopper/small-policy/sample-factory-qwengr00t-rtx3090-v1">Selected teacher and profile</a> · <a href="results-summary.json">Results JSON</a> · <a href="gr00t-publication.json">Publication receipt</a></p>

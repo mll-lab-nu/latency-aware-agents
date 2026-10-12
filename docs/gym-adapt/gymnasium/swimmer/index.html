@@ -126,7 +126,7 @@ python -m training.train \
           <summary>Evaluation command</summary>
           <pre><code>PATH=/home/lzj/miniconda3/envs/latency/bin:$PATH \
 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/examples/gymnasium/swimmer/small_model_eval.yaml \
   --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/small_models/swimmer/gymnasium_swimmer_rgb_state_zero_latency_10m/checkpoint_p0/best_000005288_2707456_reward_17.123.pth</code></pre>
         </details>

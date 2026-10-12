@@ -5,6 +5,10 @@ issued by a teacher. It writes canonical Parquet that the existing LeRobot
 converter can consume directly. Environment and policy factories use the same
 contracts as [external components](custom_components.md).
 
+Bash experiment entries select YAML recipes and order collection, conversion,
+and publication. The [memory dataset recipes](../scripts/experiments/memory/README.md)
+include sharded probe/replay and fixed-latency teacher workflows.
+
 ```python
 from latency_bench.core.config import load_config
 from latency_bench.data.rollout import collect_rollouts

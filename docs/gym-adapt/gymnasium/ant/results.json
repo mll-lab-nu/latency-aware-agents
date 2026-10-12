@@ -109,7 +109,7 @@
         "profile_teacher": "4,497.52 \u00b1 71.51",
         "final": "1,774.71 \u00b1 824.61"
       },
-      "training": "Fresh QwenPI_v3 L0/profile 5000 updates, seed 42, global 128=2\u00d7micro 32\u00d7accum 2, GC disabled, ZeRO-2; 4 inference timesteps/2 diffusion repeats, no Bridge initialization. APPO seed 2222, target 10M/actual 10,002,432; final/best 20 tie4474.69 \u00b171.06 selects Final. Profile revision20f7452df3e281b6aea0f5a66a1602eb70297490, checkpoint SHA25601ce038a96b6479d74680235df1edd6ce586ee040dd1cfa55bca9a9dfa60e70f.",
+      "training": "Fresh QwenPI_v3 L0/profile 5000 updates, seed 42, global 128=2\u00d7micro 32\u00d7accum 2, GC disabled, ZeRO-2; 4 inference timesteps/2 diffusion repeats, no Bridge initialization. APPO seed 2222, target 10M/actual 10,002,432; final/best 20 tie4474.69 \u00b171.06 selects Final. Profile revision20f7452df3e281b6aea0f5a66a1602eb70297490.",
       "data": "Profile probe12/12,100 accepted/101 attempts, strict>3000, 90/10 episodes, 89,808/9,757 rows; continuous projector, train-only min-max once; dataset revisionbc8880117681c51eae3a38747b1976dba0a89fe2.",
       "limitations": [
         "One training run per model; episode population SD is not uncertainty across training seeds. Different clocks, training recipes and measured latency distributions preclude controlled architecture ranking or equal-delay causal claims.",

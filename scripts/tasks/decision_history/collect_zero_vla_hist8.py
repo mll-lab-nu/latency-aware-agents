@@ -16,7 +16,7 @@ from latency_bench.utils.io import write_json_atomic
 from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 from latency_bench.data.rollout_probe import write_probe_state, merge_probe_states
 from scripts.tasks.decision_history.collect_vla_hist8 import (
-    ROOT, TASK_SETTINGS, HISTORY_DIMS, _file_sha256, _export_command, _quality_report,
+    ROOT, TASK_SETTINGS, HISTORY_DIMS, _export_command, _quality_report,
 )
 
 
@@ -34,7 +34,6 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
     checkpoint = runtime_bundle / teacher["checkpoint"]
     if not checkpoint.exists():
         os.link(bundle / teacher["checkpoint"], checkpoint)
-    assert _file_sha256(checkpoint) == teacher["checkpoint_sha256"]
     source_config = json.loads((bundle / "config.json").read_text())
     write_json_atomic(output / "teacher_source_config.json", source_config)
     overrides = {"env_fps": teacher["env_fps"], "obs_fps": teacher["obs_fps"],
@@ -77,7 +76,7 @@ def collect_rollouts(args, catalog: dict, teacher: dict, output: Path) -> None:
     metadata = json.loads((raw / "metadata.json").read_text())
     provenance = {"teacher_repo": catalog["repo_id"], "teacher_revision": catalog["revision"],
                   "teacher_path": teacher["path"], "teacher_checkpoint": teacher["checkpoint"],
-                  "teacher_sha256": teacher["checkpoint_sha256"], "rollout_overrides": overrides,
+                  "rollout_overrides": overrides,
                   "training_latency_condition": "zero", "history": "decision_v1", "history_decisions": 8,
                   "history_source": "teacher_transport" if args.task in {"atlantis", "asterix"}
                   else "zero_latency_issued_equals_applied", "student_image_frames": 1,

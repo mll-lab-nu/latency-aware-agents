@@ -122,7 +122,7 @@ explicit mapping in `tasks/contracts.py::registration_module_name` is applied at
 environment construction and contract-comparison boundaries; it changes only
 known module names. It does not rewrite environment IDs, actions, states, clocks
 or archived files. Unknown/custom module names keep normal import behavior.
-Archived Pi05 source metadata and its SHA256 manifest remain byte-for-byte intact.
+Pi05 source metadata retains its archived values. The source index records repository revisions and file paths.
 
 ## Configuration and artifacts
 

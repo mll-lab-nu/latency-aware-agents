@@ -1,22 +1,9 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
-
-
-def obs_digest(value: Any) -> str:
-    if hasattr(value, "detach"):
-        value = value.detach().cpu().numpy()
-    array = np.asarray(value)
-    digest = hashlib.sha256()
-    digest.update(str(array.dtype).encode("utf-8"))
-    digest.update(json.dumps(tuple(int(dim) for dim in array.shape)).encode("utf-8"))
-    digest.update(np.ascontiguousarray(array).tobytes())
-    return digest.hexdigest()
 
 
 def jsonable_value(value: Any) -> Any:
@@ -43,8 +30,11 @@ def step_record(
     info_keys: Sequence[str] = (),
 ) -> dict[str, Any]:
     selected_info = {key: jsonable_value(info[key]) for key in info_keys} if info_keys else {}
+    if hasattr(obs, "detach"):
+        obs = obs.detach().cpu().numpy()
+    observation = np.asarray(obs)
     return {
-        "obs_digest": obs_digest(obs),
+        "observation": observation.copy(),
         "reward": float(reward),
         "terminated": bool(terminated),
         "truncated": bool(truncated),
@@ -56,7 +46,12 @@ def compare_step_traces(
     baseline: Sequence[Mapping[str, Any]],
     accelerated: Sequence[Mapping[str, Any]],
 ) -> dict[str, bool]:
-    obs_equal = [row["obs_digest"] for row in baseline] == [row["obs_digest"] for row in accelerated]
+    obs_equal = len(baseline) == len(accelerated) and all(
+        left["observation"].dtype == right["observation"].dtype
+        and left["observation"].shape == right["observation"].shape
+        and left["observation"].tobytes() == right["observation"].tobytes()
+        for left, right in zip(baseline, accelerated)
+    )
     reward_equal = [row["reward"] for row in baseline] == [row["reward"] for row in accelerated]
     terminated_equal = [row["terminated"] for row in baseline] == [row["terminated"] for row in accelerated]
     truncated_equal = [row["truncated"] for row in baseline] == [row["truncated"] for row in accelerated]

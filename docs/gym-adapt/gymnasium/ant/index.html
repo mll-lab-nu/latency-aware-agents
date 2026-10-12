@@ -196,7 +196,7 @@ python -m training.train \
 
 <pre><code>PATH=/home/lzj/miniconda3/envs/latency/bin:$PATH \
 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/examples/gymnasium/ant/small_model_eval.yaml \
   --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/small_models/ant/gymnasium_ant_rgb_state_zero_latency_10m/checkpoint_p0/best_000018616_9531392_reward_5710.194.pth</code></pre>
         </details>
@@ -299,7 +299,7 @@ python -m latency_bench.run \
 
 
 <pre><code>MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=.:third_party/starVLA \
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/examples/gymnasium/ant/starvla_eval.yaml</code></pre>
 
 <p>The evaluation uses the saved model config, converted dataset manifest, latency prompt map, and final checkpoint. No training-time best model is selected.</p>

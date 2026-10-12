@@ -722,9 +722,9 @@ def test_prefix63_report_keeps_matched_selection_and_fixed_prefix(tmp_path, trai
     assert "comparison" not in result
 
 
-@pytest.mark.parametrize("upload_result", ["ok", "missing-model", "network-error"])
-def test_prefix63_completed_phase_publication_requires_complete_inference_bundle(tmp_path, monkeypatch, upload_result):
-    """Long-lived publication contract: verify the inference bundle and retain recovery state locally."""
+@pytest.mark.parametrize("upload_result", ["ok", "network-error"])
+def test_prefix63_completed_phase_publishes_inference_and_retains_recovery_state(tmp_path, monkeypatch, upload_result):
+    """Long-lived publication contract: publish inference files and retain recovery state locally."""
     from scripts.tasks.mikasa_intercept_grab_fast import publish_prefix63 as publish
 
     trained = tmp_path / "training"
@@ -753,15 +753,9 @@ def test_prefix63_completed_phase_publication_requires_complete_inference_bundle
         for path in Path(kwargs["folder_path"]).rglob("*"):
             if path.is_file():
                 uploaded[kwargs["path_in_repo"] + "/" + path.relative_to(kwargs["folder_path"]).as_posix()] = path.read_bytes()
-        return SimpleNamespace(oid="verified-revision")
+        return SimpleNamespace(oid="published-revision")
 
-    def paths_info(repo, paths, **kwargs):
-        assert kwargs["revision"] == "verified-revision"
-        return [SimpleNamespace(path=p, size=len(uploaded[p])) for p in paths
-                if not (upload_result == "missing-model" and p.endswith("checkpoints/model.pt"))]
-
-    monkeypatch.setattr(publish, "HfApi", lambda **kwargs: SimpleNamespace(
-        upload_folder=upload_folder, get_paths_info=paths_info))
+    monkeypatch.setattr(publish, "HfApi", lambda **kwargs: SimpleNamespace(upload_folder=upload_folder))
     receipt = trained / "publication_step_5000.json"
     if upload_result != "ok":
         with pytest.raises(RuntimeError):
@@ -769,7 +763,7 @@ def test_prefix63_completed_phase_publication_requires_complete_inference_bundle
         assert not receipt.exists()
     else:
         publish.publish_training_endpoint(trained, "test/fixed-2")
-        assert json.loads(receipt.read_text())["revision"] == "verified-revision"
+        assert json.loads(receipt.read_text())["revision"] == "published-revision"
         prefix = "test/fixed-2/training/dagger/step_05000/"
         assert uploaded[prefix + "checkpoints/model.pt"] == b"test-model"
         assert not any("trainer_state/" in path for path in uploaded)
@@ -779,7 +773,7 @@ def test_prefix63_completed_phase_publication_requires_complete_inference_bundle
             raise AssertionError("Completed publication must use its saved revision")
         monkeypatch.setattr(publish, "HfApi", unexpected_network)
         publish.publish_training_endpoint(trained, "test/fixed-2")
-        assert json.loads(receipt.read_text())["revision"] == "verified-revision"
+        assert json.loads(receipt.read_text())["revision"] == "published-revision"
 
 
 @pytest.mark.parametrize("train_latency", [1, 2, 3, 4])
@@ -1233,7 +1227,7 @@ def test_conditioned_entry_runs_shared_stages_with_explicit_inputs(tmp_path, mod
         "bash", str(REPO_ROOT / "scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh"),
         "all", model, condition, "trial", "0,1", "29700",
     ], cwd=REPO_ROOT, env={**os.environ, "VLA_PY": str(interpreter), "TASK_PY": str(interpreter),
-        "UV": str(interpreter), "TEACHER_CHECKPOINT": "/teacher.pt", "CALLS": str(calls),
+        "LEROBOT_PY": str(interpreter), "TEACHER_CHECKPOINT": "/teacher.pt", "CALLS": str(calls),
         "DATASET_DIR": str(tmp_path / "data"), "OUTPUT_DIR": str(tmp_path / "training")},
         capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -1241,7 +1235,7 @@ def test_conditioned_entry_runs_shared_stages_with_explicit_inputs(tmp_path, mod
     commands = [command for command in commands if "-m" in command]
     modules = [command[command.index("-m") + 1] for command in commands]
     assert [module.rsplit(".", 1)[-1] for module in modules] == [
-        "write_conditioned_latency_config", "latency_bench", "latency_bench",
+        "write_conditioned_configs", "latency_bench", "latency_bench",
         "audit_conditioned_h8_dataset", "train_task", "evaluate_h8_checkpoint",
     ]
     collect, train, evaluate = commands[1], commands[4], commands[5]

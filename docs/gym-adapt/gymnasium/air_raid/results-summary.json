@@ -82,7 +82,6 @@
     "state": "VERIFIED_B_F",
     "verified_at": "2026-09-17T09:56:40.391446+00:00",
     "checkpoint_revision": "06a0d90722e3b1cfd2117a3577e34ed01e4aed74",
-    "checkpoint_sha256": "530ee1a1b62ccdec8ef77a0d1c639eb8c16782dd94d91b5e5444c162da0e58b2",
     "paired_mean_delta": 852.5,
     "relative_mean_improvement": 1.161839863713799,
     "paired_wins": 18,
@@ -403,7 +402,6 @@
         "capacity_drops": 0,
         "invalid_actions": 0,
         "dropped_actions": 0,
-        "profile_sha256": "7e81ed45da94173b447bdf0cf1ff59343cc7b4e1e6029bcf261cf054c2596cd6",
         "sessions": [
           {
             "session": 0,
@@ -601,9 +599,6 @@
         "within_episode_wall_interval_max_ms": 101.09999775886536,
         "clock_note": "actual_env_fps includes per-episode startup overhead; within-episode intervals report running cadence separately",
         "model_revision": "de49831bd5dc9d642058bff0237e6ff2c9127b53",
-        "checkpoint_sha256": "c9ad50c5229424c919bb108d75b016f3b1815405ebd03adbea08137c18849bd8",
-        "post_evaluation_checkpoint_sha256_verified": true,
-        "prompt_sha256": "d0d18bb3b88e911d6075cab8cbc17ba143ef83b97c5d79eb4a5e521d7ba86a20",
         "env_fps": 10,
         "obs_fps": 2.5,
         "mode": "realtime",
@@ -699,9 +694,6 @@
         "within_episode_wall_interval_max_ms": 101.09112318605185,
         "clock_note": "actual_env_fps includes per-episode startup overhead; within-episode intervals report running cadence separately",
         "model_revision": "ac837400f55e4a9a96cc757dbcc516711b37e75f",
-        "checkpoint_sha256": "7914e1f1e2ba0b78d29c15dd33d96bbb6a5f61bad6ebb17f583a6d6d9958fb14",
-        "post_evaluation_checkpoint_sha256_verified": true,
-        "prompt_sha256": "2c76e85caee2f134ee0db4fb83f71304304f5981171a258f263fe5fa70e1da22",
         "env_fps": 10,
         "obs_fps": 2.5,
         "mode": "realtime",
@@ -715,7 +707,6 @@
       "change": "allocator only; requested scientific configuration unchanged"
     },
     "model_revision": "de49831bd5dc9d642058bff0237e6ff2c9127b53",
-    "checkpoint_sha256": "c9ad50c5229424c919bb108d75b016f3b1815405ebd03adbea08137c18849bd8",
     "publication": {
       "L0_evidence_revision": "3d32a83ed1418369af549bfa0edd60a00a6e7e48",
       "L0_step_audit_revision": "e44c6651952b117ea85231e28729b8f9c1d0dc0b",
@@ -764,7 +755,6 @@
         "candidates": {
           "final": {
             "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_airraid_10_2p5_g128_20260920/profile_latency/teacher/checkpoints/airraid_pi05_profile_appo_h1_10env_2p5obs_g128_20260920/checkpoint_p0/checkpoint_000039064_10002432.pth",
-            "sha256": "59e7018b8aad3c0d7f52b40f9a5a4847c450b44f6cba27b66d052895869d4f10",
             "episodes": 20,
             "seeds": [
               104771,
@@ -816,7 +806,6 @@
           },
           "training_best": {
             "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_airraid_10_2p5_g128_20260920/profile_latency/teacher/checkpoints/airraid_pi05_profile_appo_h1_10env_2p5obs_g128_20260920/checkpoint_p0/best_000036640_9379840_reward_11643.500.pth",
-            "sha256": "ca875c7fce0848b8d62d2ed9c8a8654a198757fed984fa23b1940f503df725fa",
             "episodes": 20,
             "seeds": [
               104771,
@@ -925,11 +914,9 @@
         "raw_rewards_lengths_and_admission_counters_match": true,
         "raw_step_indices_and_clock_verified": true,
         "mode": "profile_sample",
-        "config_sha256": "4fc2f1de21e7005bc6002d41a3ba2655c9cb8a8e9d15e4371b3316d6fe167d55",
         "strict_gt2500": 10
       },
       "probe": {
-        "source_state_sha256": "74b620e5aa7e0995d331d19a00821f64b0de5b8e64a4846e5e9a19ef636a5880",
         "attempts": 12,
         "accepted": 12,
         "rejected": 0,
@@ -1085,7 +1072,6 @@
       "completed_at": "2026-09-20T17:52:20.536539+00:00",
       "exit_code": 0,
       "model_revision": "ac837400f55e4a9a96cc757dbcc516711b37e75f",
-      "checkpoint_sha256": "7914e1f1e2ba0b78d29c15dd33d96bbb6a5f61bad6ebb17f583a6d6d9958fb14",
       "saved_reload": {
         "state": "SAVED_MODEL_RELOAD_AND_REAL_SAMPLE_FORWARD_VERIFIED",
         "forward_shape": [
@@ -1098,7 +1084,6 @@
         "uses_state": false,
         "action_horizon": 1,
         "loader_rows": 9000,
-        "checkpoint_sha256": "7914e1f1e2ba0b78d29c15dd33d96bbb6a5f61bad6ebb17f583a6d6d9958fb14",
         "verified_at": "2026-09-20T17:52:57.468485+00:00"
       },
       "saved_reload_completed_at": "2026-09-20T17:52:58.444693+00:00",

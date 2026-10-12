@@ -1,5 +1,4 @@
 from argparse import Namespace
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -19,56 +18,56 @@ from scripts.tasks.atari_hist8.profile_teacher import teacher_configs
 from scripts.tasks.decision_history.collect_vla_hist8 import audit_atari_history
 
 
-@pytest.mark.parametrize("matching_checkpoint", [True, False])
-def test_profiling_checks_published_model_before_measurement(tmp_path, monkeypatch, matching_checkpoint):
+def test_published_profile_records_model_revision_and_uploaded_evidence(tmp_path, monkeypatch):
     """Long-lived H8 publication contract owned by the history recipe suite."""
     from scripts.tasks.atari_hist8 import profile_published as module
     from latency_bench.core.config import load_config
 
-    checkpoint = tmp_path / "checkpoint.pt"
-    checkpoint.write_bytes(b"published weights")
     publication = {
         "task": "atlantis", "model": "qwenoft", "repo_id": "org/models",
         "path": "published/bundle", "revision": "model-revision",
-        "checkpoint_sha256": module.file_sha256(checkpoint) if matching_checkpoint else "wrong-checkpoint",
     }
     publication_path = tmp_path / "publication.json"
     publication_path.write_text(json.dumps(publication))
-    profile_path = tmp_path / "profile.json"
+    run_dir = tmp_path / "run"
+    session = run_dir / "sessions/0"
+    session.mkdir(parents=True)
+    (session / "observation_attempts.jsonl").write_text("{}\n")
+    (session / "generated.yaml").write_text("private: config")
+    (run_dir / "hardware.json").write_text("private hardware")
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    profile_path = profile_dir / "profile.json"
     profile_path.write_text("{}")
-    measured = []
+    measured, publications = [], []
 
     def run_profile(config, **kwargs):
         measured.append(config)
-        return {"PROFILE_PATH": str(profile_path), "PROFILE_REF": "m/g/w/i", "RUN_DIR": str(tmp_path), "RUN_ID": "run-1"}
+        return {"PROFILE_PATH": str(profile_path), "PROFILE_REF": "m/g/w/i",
+                "RUN_DIR": str(run_dir), "RUN_ID": "run-1"}
 
-    def download(repo, filename, **kwargs):
-        if kwargs.get("repo_type") == "dataset":
-            assert kwargs["revision"] == "profile-revision"
-            return str(profile_path)
-        assert (repo, filename, kwargs["revision"]) == (
-            "org/models", "published/bundle/checkpoints/model.pt", "model-revision",
-        )
-        return str(checkpoint)
+    def create_commit(**kwargs):
+        publications.append(kwargs)
+        return SimpleNamespace(oid="profile-revision")
 
     root = Path(__file__).resolve().parents[2]
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(module, "load_config", lambda path: load_config(root / path))
-    monkeypatch.setattr(module, "hf_hub_download", download)
     monkeypatch.setattr(module, "run_profile", run_profile)
-    monkeypatch.setattr(module, "HfApi", lambda: SimpleNamespace(
-        create_commit=lambda **kwargs: SimpleNamespace(oid="profile-revision")))
-    monkeypatch.setattr(sys, "argv",
-                        ["profile_published", "--publication", str(publication_path)])
-    if not matching_checkpoint:
-        with pytest.raises(ValueError, match="Checkpoint does not match"):
-            module.main()
-        assert measured == []
-        return
+    monkeypatch.setattr(module, "HfApi", lambda: SimpleNamespace(create_commit=create_commit))
+    monkeypatch.setattr(sys, "argv", ["profile_published", "--publication", str(publication_path)])
     module.main()
-    assert measured[0]["policy"]["revision"] == "model-revision"
+    assert (measured[0]["policy"]["hf_repo"], measured[0]["policy"]["root"],
+            measured[0]["policy"]["revision"]) == ("org/models", "published/bundle", "model-revision")
+    upload = publications[0]
+    assert (upload["repo_id"], upload["repo_type"]) == ("MLL-Lab/LAGEN-profiles", "dataset")
+    assert {operation.path_in_repo for operation in upload["operations"]} == {
+        "runs/m/g/w/i/run-1/sessions/0/observation_attempts.jsonl", "profiles/m/g/w/i/profile.json",
+    }
     receipt = json.loads((tmp_path / "outputs/tasks/atari_hist8_v1/profile_receipts/atlantis-qwenoft.json").read_text())
-    assert receipt["profile_sha256"] == module.file_sha256(profile_path)
+    assert (receipt["profile_repo"], receipt["profile_revision"], receipt["profile_path"]) == (
+        "MLL-Lab/LAGEN-profiles", "profile-revision", "profiles/m/g/w/i/profile.json",
+    )
 
 
 def arguments(tmp_path, task="demon_attack", model="qwenoft"):
@@ -224,7 +223,7 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path, task)
     provenance = json.loads((bundle / "provenance.json").read_text())
     assert provenance["training_step"] == 2877
     assert provenance["wandb_run_id"] == "old-id"
-    assert provenance["checkpoint_sha256"] == hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    assert (bundle / provenance["checkpoint"]).read_bytes() == checkpoint.read_bytes()
     assert provenance["eval_protocol_version"] == EVAL_PROTOCOL
     cfg = evaluation_config(task, "qwenoft", bundle, tmp_path / "profile.json",
                             tmp_path / "eval", tmp_path / "backbone", Path("/python"),
@@ -258,3 +257,33 @@ def test_history01_metric_namespace_preserves_checkpoint_step():
     }], prefix="eval_history01_v2")
     assert payload["global_step"] == 2877
     assert payload["eval_history01_v2/fixed/latency_2/mean_return"] == 1.
+
+
+def test_history_training_uses_named_run_and_resumes_recorded_wandb_id(tmp_path, monkeypatch):
+    """Long-lived history training contract: resume preserves run identity and its source snapshot."""
+    from omegaconf import OmegaConf
+    from scripts.tasks.decision_history import train_vla_hist8 as module
+
+    (tmp_path / "code_snapshot.json").write_text('{"revision": "training-source"}')
+    config = OmegaConf.create({"run_id": "named-run", "trainer": {"max_train_steps": 5000},
+        "datasets": {"vla_data": {"num_workers": 16, "eval_num_workers": 16, "prefetch_factor": 2}}})
+    calls = []
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "training_config", lambda args: config)
+    monkeypatch.setattr(module.subprocess, "run", lambda command, **kwargs: calls.append(kwargs["env"]))
+    argv = ["train_vla_hist8", "--task", "flappy", "--model", "qwenoft", "--dataset-dir", str(tmp_path / "data"),
+            "--base-model-dir", str(tmp_path / "backbone"), "--output-root", str(tmp_path),
+            "--run-id", "named-run", "--vlm-lr", "0.000003", "--port", "12345"]
+    monkeypatch.setattr(sys, "argv", argv)
+    module.main()
+    assert calls[0]["WANDB_RUN_ID"] == "named-run"
+    record = tmp_path / "named-run/run_metadata.json"
+    metadata = json.loads(record.read_text())
+    metadata["wandb_run_id"] = "existing-wandb-run"
+    record.write_text(json.dumps(metadata))
+    (tmp_path / "code_snapshot.json").write_text('{"revision": "resume-source"}')
+    monkeypatch.setattr(sys, "argv", argv + ["--resume"])
+    module.main()
+    assert calls[1]["WANDB_RUN_ID"] == "existing-wandb-run"
+    assert calls[1]["WANDB_RESUME"] == "allow"
+    assert json.loads((tmp_path / "named-run/training_code_snapshot.json").read_text()) == {"revision": "training-source"}

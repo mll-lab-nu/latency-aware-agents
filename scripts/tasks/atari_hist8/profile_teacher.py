@@ -15,13 +15,11 @@ import sys
 
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 import torch
-import wandb
 import yaml
 
 from latency_bench.core.config import load_config
 from latency_bench.utils.io import write_json_atomic
 from scripts.tasks.atari_hist8.publish_zero import REPO_ID
-from scripts.tasks.decision_history.eval_vla_hist8 import file_sha256
 from training.common.checkpoints import find_checkpoint
 
 
@@ -56,12 +54,15 @@ def teacher_configs(task: str, model: str, profile: Path, output: Path) -> tuple
 
 
 def prepare(receipt: dict, output: Path) -> Path:
+    receipt = {key: receipt[key] for key in (
+        "task", "model", "model_publication", "profile", "profile_repo", "profile_revision", "profile_path")}
+    receipt["model_publication"] = {key: receipt["model_publication"][key] for key in (
+        "task", "model", "repo_id", "path", "revision")}
     task, model = receipt["task"], receipt["model"]
     snapshot = Path(snapshot_download(receipt["profile_repo"], repo_type="dataset",
                                       revision=receipt["profile_revision"],
                                       allow_patterns=[str(Path(receipt["profile_path"]).parent / "*")]))
     profile = snapshot / receipt["profile_path"]
-    assert file_sha256(profile) == receipt["profile_sha256"]
     directory = output / "teacher_configs" / f"{task}-{model}"
     directory.mkdir(parents=True, exist_ok=True)
     shutil.copytree(profile.parent, directory / "profile", dirs_exist_ok=True)
@@ -89,16 +90,17 @@ def evaluate(directory: Path) -> None:
                    cwd=ROOT, check=True)
     evidence = Path(config["logging"]["output_dir"])
     records = [json.loads(line) for line in (evidence / "episode_metrics.jsonl").read_text().splitlines()]
-    assert sorted(row["metadata"]["episode_seed"] for row in records) == list(range(1_000_000, 1_000_100))
     counts = Counter()
     with (evidence / "actions.jsonl").open() as stream:
         for line in stream:
             counts[json.dumps(json.loads(line)["action"]["value"])] += 1
-    write_json_atomic(evidence / "action_audit.json", {"episodes": 100, "action_counts": dict(counts),
+    write_json_atomic(evidence / "action_audit.json", {"episodes": len(records),
+                                                      "episode_seeds": sorted(row["metadata"]["episode_seed"] for row in records),
+                                                      "action_counts": dict(counts),
                                                       "issued_actions": sum(counts.values())})
     state = torch.load(checkpoint, map_location="cpu", weights_only=False)
     write_json_atomic(evidence / "checkpoint.json", {"checkpoint": str(checkpoint),
-                      "checkpoint_sha256": file_sha256(checkpoint), "training_step": state["env_steps"]})
+                      "training_step": state["env_steps"]})
 
 
 def publish(directory: Path, output: Path) -> dict:
@@ -110,13 +112,15 @@ def publish(directory: Path, output: Path) -> dict:
     train = load_config(directory / "train.yaml")
     latest = find_checkpoint(train["backend"]["train_dir"], run_id)
     final_state = torch.load(latest, map_location="cpu", weights_only=False)
-    assert final_state["env_steps"] >= 15_000_000
-    assert identity["checkpoint_sha256"] == file_sha256(checkpoint)
+    if final_state["env_steps"] < train["training"]["train_for_env_steps"]:
+        raise ValueError("Formal teacher publication requires completed training")
     summary = json.loads((evidence / "queue_eval_latency_profile_sample.json").read_text())
-    run = wandb.Api().run(f"saberrr-zju/latency-sensitive-bench/{run_id}")
-    remote_scores = {key: value for key, value in run.summary.items()
-                     if key.startswith("eval_corrected/") and key.endswith("/mean_return")}
-    assert list(remote_scores.values()) == [summary["mean_return"]]
+    audit = json.loads((evidence / "action_audit.json").read_text())
+    evaluation = load_config(directory / "eval.yaml")
+    expected_seeds = list(range(evaluation["experiment"]["seed"],
+                                evaluation["experiment"]["seed"] + evaluation["evaluation"]["episodes"]))
+    if audit["episode_seeds"] != expected_seeds:
+        raise ValueError("Formal teacher publication requires the configured evaluation seeds")
     destination = output / "teacher_publication_stage" / run_id
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(checkpoint, destination / checkpoint.name)
@@ -128,29 +132,28 @@ def publish(directory: Path, output: Path) -> dict:
         shutil.copyfile(evidence / name, destination / name)
     write_json_atomic(destination / "eval_profile.json", summary)
     profile = provenance["profile_publication"]
-    provenance.update(checkpoint=checkpoint.name, checkpoint_sha256=identity["checkpoint_sha256"],
+    provenance.update(checkpoint=checkpoint.name,
                       best_checkpoint_env_steps=identity["training_step"],
                       final_env_steps=final_state["env_steps"], mean_return=summary["mean_return"],
-                      episodes=100, wandb_readback=remote_scores)
+                      episodes=audit["episodes"], episode_seeds=audit["episode_seeds"],
+                      training_status="complete", evaluation_status="complete")
     write_json_atomic(destination / "provenance.json", provenance)
     (destination / "README.md").write_text(
         f"# {task.title()} H8 CPU teacher for {model} RTX 3090 temporal profile\n\n"
-        "Fresh CPU/ALE training: 15M raw frames, seed 0, four-frame input, eight decision histories, "
+        f"CPU/ALE training: {final_state['env_steps']} raw frames ({provenance['training_status']}), "
+        "seed 0, four-frame input, eight decision histories, "
         "constant LR 0.000303; GPU network updates, worker slot 0 and capacity 1.\n\n"
         f"Best checkpoint at {identity['training_step']} raw frames. "
-        f"GPU evaluation: 100 episodes, mean raw return {summary['mean_return']}, "
-        "seeds 1000000–1000099, parallel 32, 60/15 Hz, 7200 raw-frame cap.\n\n"
+        f"GPU evaluation: {audit['episodes']} episodes, mean raw return {summary['mean_return']}, "
+        f"seeds {audit['episode_seeds']}, parallel 32, 60/15 Hz, 7200 raw-frame cap.\n\n"
         f"[W&B](https://wandb.ai/saberrr-zju/latency-sensitive-bench/runs/{run_id}). "
         "Profile identity and both training/evaluation configs are included.\n")
     path = f"latency-aware/{task}/small-policy/sample-factory-{model}-hist8-cpu15m-s0-v1"
     api = HfApi(token=os.environ["HF_TOKEN"])
     commit = api.upload_folder(repo_id=REPO_ID, folder_path=destination, path_in_repo=path,
                                 commit_message=f"Publish {task} {model} profile-aware H8 teacher")
-    for local in (p for p in destination.rglob("*") if p.is_file()):
-        remote = Path(hf_hub_download(REPO_ID, path + "/" + str(local.relative_to(destination)), revision=commit.oid))
-        assert file_sha256(remote) == file_sha256(local)
-    teacher = {"path": path, "checkpoint": checkpoint.name, "sha256": identity["checkpoint_sha256"],
-               "profile_path": profile["profile_path"], "profile_sha256": profile["profile_sha256"]}
+    teacher = {"path": path, "checkpoint": checkpoint.name,
+               "profile_path": profile["profile_path"]}
     catalog = {"revision": commit.oid, "profile_revision": profile["profile_revision"],
                "teachers": {task: {model: teacher}}}
     write_json_atomic(output / "teacher_publications" / f"{task}-{model}.json", catalog)

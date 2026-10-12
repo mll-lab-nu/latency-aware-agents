@@ -38,8 +38,9 @@ bash scripts/tasks/mikasa_intercept_grab_fast/collect_fixed_latency_dataset.sh \
 Here `2` selects 100 ms latency and `3` selects the physical GPU.
 The script uploads the prepared splits and provenance to the supplied HF dataset.
 Set `TASK_PY` to the simulator interpreter and `LEROBOT_PY` to an installed
-packaging interpreter, or use `UV` with the packaging project from QUICK_START.
-`TRAIN_EPISODES` and `VAL_EPISODES` override the split sizes.
+packaging interpreter from QUICK_START.
+The split sizes and publication settings are stored in
+`configs/examples/mikasa_intercept_grab_fast/collect_successful_h1.yaml`.
 Add `--package-only` before the positional arguments to reuse saved NPZ episodes
 and the saved latency configuration after collection completes.
 

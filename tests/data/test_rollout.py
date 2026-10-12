@@ -244,17 +244,50 @@ def test_public_collection_and_conversion_commands(config, tmp_path, capsys):
     assert (output / "meta/info.json").read_bytes() == before
 
 
-def test_forced_conversion_preserves_validation_source(tmp_path):
+@pytest.mark.parametrize("overlap", ["input_val", "normalization_source", "nested_output"])
+def test_forced_conversion_preserves_sources(tmp_path, overlap):
     """Long-lived conversion boundary: force cannot delete an input split."""
     from latency_bench.data.conversion import convert_dataset
 
     train = tmp_path / "source"
     train.mkdir()
-    validation = tmp_path / "converted__val"
-    validation.mkdir()
-    evidence = validation / "data.parquet"
+    protected = train / "meta" if overlap == "nested_output" else tmp_path / "converted__val"
+    protected.mkdir()
+    evidence = protected / "data.parquet"
     evidence.write_bytes(b"validation source")
+    options = {"format": "lerobot", "input_dir": str(train),
+               "output_dir": str(protected if overlap == "nested_output" else tmp_path / "converted"), "force": True}
+    if overlap != "nested_output":
+        options[overlap] = str(protected)
     with pytest.raises(ValueError, match="input or normalization"):
-        convert_dataset({"conversion": {"format": "lerobot", "input_dir": str(train),
-            "input_val": str(validation), "output_dir": str(tmp_path / "converted"), "force": True}})
+        convert_dataset({"conversion": options})
     assert evidence.read_bytes() == b"validation source"
+
+
+@pytest.mark.parametrize("task,policy", [
+    ("counter", "sample_factory"), ("g1_sonic_balance_simple", "sample_factory"),
+    ("mikasa_intercept_grab_fast", "mikasa_ppo"),
+])
+def test_collection_preserves_existing_output_before_native_dispatch(tmp_path, task, policy):
+    """Long-lived data boundary: native adapters cannot overwrite an existing dataset."""
+    evidence = tmp_path / "train.parquet"
+    evidence.write_bytes(b"existing dataset")
+    with pytest.raises(FileExistsError):
+        collect_rollouts({"env": {"name": task}, "policy": {"type": policy},
+                          "collection": {"label_mode": "prefix_h8"},
+                          "logging": {"output_dir": str(tmp_path)}})
+    assert evidence.read_bytes() == b"existing dataset"
+
+
+def test_failed_canonical_conversion_keeps_existing_dataset(tmp_path):
+    """Long-lived conversion boundary: source parsing precedes forced replacement."""
+    from latency_bench.data.conversion import convert_dataset
+
+    output = tmp_path / "prepared"
+    output.mkdir()
+    evidence = output / "train.parquet"
+    evidence.write_bytes(b"existing dataset")
+    with pytest.raises(FileNotFoundError):
+        convert_dataset({"conversion": {"format": "lerobot", "task": "balance_profile_h8",
+            "input_dir": str(tmp_path / "missing"), "output_dir": str(output), "force": True}})
+    assert evidence.read_bytes() == b"existing dataset"

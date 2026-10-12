@@ -77,7 +77,6 @@
     "within_episode_wall_interval_mean_ms": 200.00094455385926,
     "prompt_key": 1,
     "model_revision": "20f7452df3e281b6aea0f5a66a1602eb70297490",
-    "checkpoint_sha256": "01ce038a96b6479d74680235df1edd6ce586ee040dd1cfa55bca9a9dfa60e70f",
     "checkpoint_post_eval_hash_verified": true
   },
   "paired": [

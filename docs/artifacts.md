@@ -44,7 +44,7 @@ Model releases contain inference weights and necessary metadata. Optimizer state
 and training recovery files are not part of the published inference bundles.
 Original configurations and evaluation records remain experiment evidence.
 Use `--no-publish` for local task training. Formal task runs otherwise publish
-automatically. Profiling uploads only with `--publish`.
+automatically. Profiling saves measurements locally. Experiment publication is a separate explicit step.
 
 ## Paper experiments
 

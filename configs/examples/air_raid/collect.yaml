@@ -1,0 +1,45 @@
+experiment:
+  name: air_raid_teacher_collection
+  seed: 0
+env:
+  name: air_raid
+  env_fps: 50
+  obs_fps: 12.5
+  make_kwargs:
+    noop_max: 30
+    fire_reset: true
+policy:
+  type: sample_factory
+  source: local
+  root: outputs/air_raid/teacher
+  checkpoint: null
+  deterministic: false
+executor:
+  mode: simulated
+  parallel_envs: 12
+  inference_devices:
+  - gpu
+  simulated_worker_capacity: 1
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+latency:
+  method: zero
+evaluation:
+  episodes: 100
+  max_env_steps: 3600
+logging:
+  output_dir: outputs/air_raid/dataset
+collection:
+  two_pass: true
+  val_fraction: 0.1
+  split_seed: 0
+  replay_num_envs: 16
+  image_writer_workers: 16
+  row_buffer_size: 8192
+  context_window: 0
+  filter_preset: none
+  episode_return_gt: 2000
+  export_image_size:
+  - 224
+  - 224

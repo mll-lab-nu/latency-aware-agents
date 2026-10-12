@@ -90,9 +90,6 @@
     "within_episode_wall_interval_max_ms": 101.09999775886536,
     "clock_note": "actual_env_fps includes per-episode startup overhead; within-episode intervals report running cadence separately",
     "model_revision": "de49831bd5dc9d642058bff0237e6ff2c9127b53",
-    "checkpoint_sha256": "c9ad50c5229424c919bb108d75b016f3b1815405ebd03adbea08137c18849bd8",
-    "post_evaluation_checkpoint_sha256_verified": true,
-    "prompt_sha256": "d0d18bb3b88e911d6075cab8cbc17ba143ef83b97c5d79eb4a5e521d7ba86a20",
     "env_fps": 10,
     "obs_fps": 2.5,
     "mode": "realtime",
@@ -188,9 +185,6 @@
     "within_episode_wall_interval_max_ms": 101.09112318605185,
     "clock_note": "actual_env_fps includes per-episode startup overhead; within-episode intervals report running cadence separately",
     "model_revision": "ac837400f55e4a9a96cc757dbcc516711b37e75f",
-    "checkpoint_sha256": "7914e1f1e2ba0b78d29c15dd33d96bbb6a5f61bad6ebb17f583a6d6d9958fb14",
-    "post_evaluation_checkpoint_sha256_verified": true,
-    "prompt_sha256": "2c76e85caee2f134ee0db4fb83f71304304f5981171a258f263fe5fa70e1da22",
     "env_fps": 10,
     "obs_fps": 2.5,
     "mode": "realtime",
@@ -326,7 +320,6 @@
   "ties": 0,
   "losses": 2,
   "protocol": "RTX3090/10env-2.5obsFPS/measured-only/seed42-61/cap3600/no-state/discrete6/RGB224/H1; Bprompt0/Fprompt2",
-  "F_prompt_sha256": "2c76e85caee2f134ee0db4fb83f71304304f5981171a258f263fe5fa70e1da22",
   "checkpoint_post_eval_hash_verified": true,
   "causal_scope": "Same benchmark protocol, different realized inference latency distributions; no equal-delay or architecture-ranking claim"
 }

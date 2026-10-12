@@ -58,7 +58,6 @@
       "state_dim": 17,
       "action_dim": 6,
       "state_encoding": "continuous_projector",
-      "checkpoint_sha256": "3293bd997b44a633e894b98c17dde79fb0da70eb0e5ef55bd2d3b9175db3c36c",
       "reload": "Existing strict key check with documented tied Qwen lm_head equivalence only"
     }
   },
@@ -67,7 +66,6 @@
     "task": "walker2d",
     "verified_at": "2026-09-21T06:19:45.347588+00:00",
     "model_revision": "44917cfeae3eeaca53a3c1222547f98a797d07a0",
-    "checkpoint_sha256": "3293bd997b44a633e894b98c17dde79fb0da70eb0e5ef55bd2d3b9175db3c36c",
     "publications": {
       "model": {
         "revision": "44917cfeae3eeaca53a3c1222547f98a797d07a0",
@@ -156,27 +154,13 @@
     "state_contract": "state17/minmax/continuous_projector bound to manifest, prior actual train/val loader QA and saved real-state forward; state vectors are not logged per step",
     "environment_frame_stack": 1,
     "VLA_input_frames": 1,
-    "prompt_sha256": "81aea9f26f25bf69aef7fadee6768615a606a4df1b476c5ce1db2708163952a2",
     "evaluation_finished_at": "2026-09-21T06:18:34.568585+00:00",
-    "post_evaluation_checkpoint_sha256_verified": true,
     "preclip_command_range": [
       -1.2540802955627441,
       1.2021697759628296
     ],
     "commands_requiring_native_clip": 17188,
-    "action_contract": "Six finite preclip torque commands; Walker2dContinuousActionEnv casts float32 and clips to native Box[-1,1] before physics. GymnasiumEnvAdapter logs the original command as applied_action.",
-    "action_adapter_source_sha256": {
-      "latency_bench/envs/gymnasium_walker2d.py": "1fa7625376fe6f0838c585b6643e4b0c4bd9588b69fc35a1dbe953f6378e0e13",
-      "latency_bench/envs/gymnasium.py": "e5351a4d70520350c8bcbdcaf958ab57d8eca83e251adfd6f520ac34e40254f5"
-    },
-    "source_trace_sha256": {
-      "steps.jsonl": "751684ebb3cc2e8f1e61fd79061a4573e8733821f44c1bcd69002e18a22b50a5",
-      "actions.jsonl": "056ee802f72a8d7ee6faa4c347ddfd2923aae085b354a0e80caa19b1cd0b134e",
-      "latencies.jsonl": "863a9dcb88e2677f7f500c8e8ee10aec90ba0a12aaa3cc4b7799ce0d5a92df24",
-      "e2e_latencies.jsonl": "a12b7b1ca5528b3407b555e06076655f384c9055842550d61295fcf8a75ae876",
-      "episode_metrics.jsonl": "6d4eb8052b7d37634181609f49e48752bcb18f5d730d00c86205071f53fb2663"
-    },
-    "source_config_sha256": "3183d7dd35189cebc4aad20b2e260359c202a534c632b22b490ba58f70adc9e3"
+    "action_contract": "Six finite preclip torque commands; Walker2dContinuousActionEnv casts float32 and clips to native Box[-1,1] before physics. GymnasiumEnvAdapter logs the original command as applied_action."
   },
   "P": {
     "state": "PROFILE_PROTOCOL_AND_CANONICAL_SAMPLES_VERIFIED",
@@ -186,7 +170,6 @@
     "p95_ms": 209.44028282165527,
     "capacity_drops": 310,
     "warmup_samples_excluded": 500,
-    "profile_sha256": "b5409f8578bec62e2c5232c3916b3ddd2e0e9494031259265540ba6aef882e5e",
     "warnings": [],
     "protocol": {
       "env_fps": 5,
@@ -301,10 +284,8 @@
     "running_interval_min_ms": 121.31799291819334,
     "running_interval_max_ms": 279.3249683454633,
     "model_revision": "44917cfeae3eeaca53a3c1222547f98a797d07a0",
-    "checkpoint_sha256": "3293bd997b44a633e894b98c17dde79fb0da70eb0e5ef55bd2d3b9175db3c36c",
     "post_eval_checkpoint_hash_verified": true,
     "prompt_key": 0,
-    "prompt_sha256": "81aea9f26f25bf69aef7fadee6768615a606a4df1b476c5ce1db2708163952a2",
     "protocol": {
       "fps": 5,
       "raw_step_cap": 1000,
@@ -325,7 +306,6 @@
     "state": "TEACHER_FULL_TRACE_AUDIT_PASSED",
     "verified_at": "2026-09-21T14:35:27.633103+00:00",
     "task": "walker2d",
-    "P_profile_sha256": "b5409f8578bec62e2c5232c3916b3ddd2e0e9494031259265540ba6aef882e5e",
     "P_publication_revision": "e1a9bdd566b96d5da4703f769d40eab656af491e",
     "actual_final_env_steps": 10002432,
     "actual_final_train_step": 19536,
@@ -336,7 +316,6 @@
       "candidates": {
         "final": {
           "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_walker2d_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_walker2d_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/checkpoint_000019536_10002432.pth",
-          "sha256": "e157a7be891b0b498028293fc7be14eda97cd41b485220f558ea3d5a88c77171",
           "train_step": 19536,
           "env_steps": 10002432,
           "episodes": 20,
@@ -390,7 +369,6 @@
         },
         "training_best": {
           "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_walker2d_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_walker2d_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/best_000018928_9691136_reward_4148.139.pth",
-          "sha256": "3d51959c7d65d8e9d1ec34cfc4a8dc7741abf9726439512bc7a0442fd265044e",
           "train_step": 18928,
           "env_steps": 9691136,
           "episodes": 20,
@@ -443,7 +421,6 @@
           "strict_gt3000": 16
         }
       },
-      "selected_checkpoint_sha256": "3d51959c7d65d8e9d1ec34cfc4a8dc7741abf9726439512bc7a0442fd265044e",
       "completed_at_utc": "2026-09-21T14:08:56.270953+00:00"
     },
     "evaluations": {
@@ -529,7 +506,6 @@
         "submitted_observations": 12457,
         "dropped_observations": 1486,
         "observation_drop_fraction": 0.10657677687728609,
-        "config_sha256": "318b6a23b6ad09082fa52378a5527fe11bffa50d6b82958a23217055cf09dcac",
         "state_contract": "Native Walker2d state17 and action6 are bound to the exact teacher/evaluation configuration; no per-step state vector is recorded."
       },
       "training_best": {
@@ -614,7 +590,6 @@
         "submitted_observations": 16208,
         "dropped_observations": 1904,
         "observation_drop_fraction": 0.10512367491166077,
-        "config_sha256": "cbf847662b86166c3543091ed3de91eb6bb36afe35fedc326a4a2ffdb757f64f",
         "state_contract": "Native Walker2d state17 and action6 are bound to the exact teacher/evaluation configuration; no per-step state vector is recorded."
       }
     },
@@ -670,14 +645,12 @@
       "submitted_observations": 7551,
       "dropped_observations": 909,
       "observation_drop_fraction": 0.1074468085106383,
-      "config_sha256": "58e7857f1995a34924ed156b9718f1c462d5c0a733c2ae0f30e211f58051aa4c",
       "state_contract": "Native Walker2d state17 and action6 are bound to the exact teacher/evaluation configuration; no per-step state vector is recorded."
     },
     "probe": {
       "attempts": 12,
       "accepted": 12,
       "rejected": 0,
-      "source_state_sha256": "266f2ec22ca31030bcc2e2161543314b579d178a1f45ff428b3278aa0bdead58",
       "accepted_specs": [
         {
           "attempt_idx": 0,
@@ -804,12 +777,9 @@
     "gradient_checkpointing": false,
     "zero_stage": 2,
     "model_revision": "a06fa2de288b4d0ef8bad9f56756077a2ad0b1a3",
-    "checkpoint_sha256": "248d8959f1c4b4045b64fd0c4f7a8e086606eea5827f263b04ef703e26b4cd84",
     "approved_oom_amendment": {
       "state": "PROFILE_FORMAL_CONFIG_READY",
-      "config_sha256": "ef6a6ebe46a7ea39db0ca63fbefa0d0747356accfff78ada59989e091925649c",
       "dataset_revision": "42d03372359f14ab830b1dcfebaf15986aa0e984",
-      "dataset_manifest_sha256": "e850ecfe50be72061722c0a57d95efb797f705e5c0aa1049c56f9d0bec54fbdb",
       "rows": [
         88708,
         10000
@@ -828,8 +798,7 @@
       "zero_stage": 2,
       "post_train_actions": [],
       "prepared_at": "2026-09-21T16:37:47.529782+00:00",
-      "approval": "User explicitly approved Walker2d micro32 x accumulation2, GC off",
-      "previous_failed_config_sha256": "25fa480c40d211667ed9fb547ad11bc3ce58da5e8292099ba3ca3ed5d09c18c6"
+      "approval": "User explicitly approved Walker2d micro32 x accumulation2, GC off"
     }
   },
   "F": {
@@ -919,10 +888,8 @@
     "running_interval_min_ms": 93.44322793185711,
     "running_interval_max_ms": 419.87643111497164,
     "model_revision": "a06fa2de288b4d0ef8bad9f56756077a2ad0b1a3",
-    "checkpoint_sha256": "248d8959f1c4b4045b64fd0c4f7a8e086606eea5827f263b04ef703e26b4cd84",
     "post_eval_checkpoint_hash_verified": true,
     "prompt_key": 1,
-    "prompt_sha256": "02bb001e87b644b845097bc1b894196526ce5990e11093e35d5503ec07085c2f",
     "protocol": {
       "fps": 5,
       "raw_step_cap": 1000,
@@ -1066,13 +1033,8 @@
     "val_rows": 10000,
     "total_rows": 98708,
     "raw_metadata_path": "/mnt/local/lzj/latency-sensitive-bench/pi05_walker2d_h1_5fps_g128_20260921/profile_latency/data/raw_profile/metadata.json",
-    "raw_metadata_sha256": "f01614b1df2395b2a4ae5f7bcaf7c215c42a029543ee7d31758ce49170fdbea2",
-    "profile_sha256": "b5409f8578bec62e2c5232c3916b3ddd2e0e9494031259265540ba6aef882e5e",
     "selected_checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_walker2d_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_walker2d_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/best_000018928_9691136_reward_4148.139.pth",
-    "selected_checkpoint_sha256": "3d51959c7d65d8e9d1ec34cfc4a8dc7741abf9726439512bc7a0442fd265044e",
-    "original_probe_state_sha256": "266f2ec22ca31030bcc2e2161543314b579d178a1f45ff428b3278aa0bdead58",
-    "extended_probe_state_path": "/mnt/local/lzj/latency-sensitive-bench/pi05_walker2d_h1_5fps_g128_20260921/profile_latency/data100-full-probe-state.json",
-    "extended_probe_state_sha256": "369efebe9c5abd237b02f5d368c4d1f21b0533fea1c3d9f59e501484d386f67f"
+    "extended_probe_state_path": "/mnt/local/lzj/latency-sensitive-bench/pi05_walker2d_h1_5fps_g128_20260921/profile_latency/data100-full-probe-state.json"
   },
   "baseline_publication": {
     "state": "NOT_UPLOADED",

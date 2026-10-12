@@ -85,10 +85,8 @@
   "running_interval_min_ms": 121.31799291819334,
   "running_interval_max_ms": 279.3249683454633,
   "model_revision": "44917cfeae3eeaca53a3c1222547f98a797d07a0",
-  "checkpoint_sha256": "3293bd997b44a633e894b98c17dde79fb0da70eb0e5ef55bd2d3b9175db3c36c",
   "post_eval_checkpoint_hash_verified": true,
   "prompt_key": 0,
-  "prompt_sha256": "81aea9f26f25bf69aef7fadee6768615a606a4df1b476c5ce1db2708163952a2",
   "protocol": {
     "fps": 5,
     "raw_step_cap": 1000,

@@ -1,0 +1,35 @@
+__base__:
+- ../../../base/defend_the_line.yaml
+- base.yaml
+experiment:
+  name: defend_the_line_fixed_latency_2_200ep_7k2steps
+  seed: 0
+backend:
+  run_mode: eval
+policy:
+  source: hf
+  hf_repo: latency-sensitive-bench/paper-experiment-models
+  revision: main
+  root: memory/small_model/defend_the_line/latency_024_25m_fs4_1min_eval/train/memory_small_model:defend_the_line:frame_stack:fixed_l2:fs4:obs8p75:stride1:seed0
+  checkpoint_kind: best
+executor:
+  parallel_envs: 64
+latency:
+  method: fixed
+  fixed_latency_ms: 57.142857142857146
+evaluation:
+  episodes: 200
+logging:
+  output_dir: outputs/memory/teacher_datasets/defend_the_line_fixed_latency_2_200ep_7k2steps
+collection:
+  replay_num_envs: 64
+  episode_return_gt: 29
+dataset_experiment:
+  teacher_job: null
+  probe_shards: null
+  publication:
+    repo_id: MLL-Lab/LAGEN-datasets
+    private: false
+    config_name: task-transfer--defend_the_line_fixed_latency_2_200ep_7k2steps
+    data_dir: latency-aware/defend-the-line/defend_the_line_fixed_latency_2_200ep_7k2steps
+    max_shard_size: 500MB

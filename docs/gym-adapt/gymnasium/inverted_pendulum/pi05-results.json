@@ -95,7 +95,6 @@
     "task": "inverted_pendulum",
     "verified_at": "2026-09-18T18:01:25.317853+00:00",
     "model_revision": "49242c5950f3c282558852fdfe9805a8aaaf2b07",
-    "checkpoint_sha256": "db70c6ed6501f216973b7dc557d2b388e337d98255b78d335c3cdb09410e7939",
     "publications": {
       "model": {
         "revision": "49242c5950f3c282558852fdfe9805a8aaaf2b07",
@@ -186,7 +185,6 @@
     "latency": "zero",
     "mode": "simulated",
     "state_contract": "state4/minmax/continuous_projector; saved real-state forward and prior train/val loader QA verified; state vectors are not logged per step",
-    "prompt_sha256": "bdedb6e0f49db8ed7552a20876f3affbd8582246c130d7fe3506d9758e712c55",
     "evaluation_finished_at": "2026-09-18T17:49:04.762832+00:00",
     "remaining": "RTX3090 P/B and profile branch/F20"
   },
@@ -194,9 +192,7 @@
     "state": "PROFILE_PROTOCOL_AND_CANONICAL_SAMPLES_VERIFIED",
     "verified_at": "2026-09-18T18:19:35.397358+00:00",
     "profile_path": "/workspace/lzj/latency-sensitive-bench/runs/inverted_pendulum/pi05_h1_5fps_20260918/profiling/runs/pi05/1x-rtx3090/inverted_pendulum/instance_859cf1e47bca6046/20260918T180217105615Z/profile/profile.json",
-    "profile_sha256": "63cd4feebf693ced88b91f6083e820a2774f0de2089d5413e1d7971a5277df19",
     "model_revision": "49242c5950f3c282558852fdfe9805a8aaaf2b07",
-    "checkpoint_sha256": "db70c6ed6501f216973b7dc557d2b388e337d98255b78d335c3cdb09410e7939",
     "sessions": [
       {
         "session": 0,
@@ -316,28 +312,22 @@
     "dropped_actions": 0,
     "profile_files": {
       "latency_distribution.json": {
-        "size": 25479,
-        "sha256": "65ab8f8b433455f8be53aaddbd2c8b9cb085d08a689d261eb2eb70a57f1ac9db"
+        "size": 25479
       },
       "latency_profile.png": {
-        "size": 60478,
-        "sha256": "99791cc6ffcd1e75981d7dfab51005bbcdb05ea75f5b1c69e616d957da4bf845"
+        "size": 60478
       },
       "latency_burst_model.json": {
-        "size": 22301,
-        "sha256": "2b827646fd670f03fd3d9e9129a86fc050b3a38f0864e4ed27465e43d02a3b6b"
+        "size": 22301
       },
       "profile.json": {
-        "size": 2023,
-        "sha256": "63cd4feebf693ced88b91f6083e820a2774f0de2089d5413e1d7971a5277df19"
+        "size": 2023
       },
       "hardware.json": {
-        "size": 988,
-        "sha256": "96bcbee23e82762b3c411a16fcd96227c3029457b5a40114bb4070ff7fda910e"
+        "size": 988
       },
       "DONE": {
-        "size": 0,
-        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        "size": 0
       }
     },
     "audit_scope": "Completed P configs, all step rewards/indices/clock/actions/admission counters, episode metrics, canonical observation_attempts and fit summary; no bulk traces transferred during B."
@@ -350,7 +340,6 @@
       "candidates": {
         "final": {
           "checkpoint": "/mnt/ant/lzj/latency-sensitive-bench/pi05_h1_20260918/inverted_pendulum/profile_latency/teacher/checkpoints/ip_profile_pi05_appo_h1_5fps_20260918/checkpoint_p0/checkpoint_000001968_1007616.pth",
-          "sha256": "929b9ebce1a8457c72e05801e2e9bae1c62e02a0360ee3150d181565b72511d0",
           "episodes": 20,
           "seeds": [
             104771,
@@ -402,7 +391,6 @@
         },
         "training_best": {
           "checkpoint": "/mnt/ant/lzj/latency-sensitive-bench/pi05_h1_20260918/inverted_pendulum/profile_latency/teacher/checkpoints/ip_profile_pi05_appo_h1_5fps_20260918/checkpoint_p0/best_000001968_1007616_reward_918.460.pth",
-          "sha256": "4869e228d85089d3b63dbdfc43dacecac8b8b5591d1019ce2299b39a9e18ed61",
           "episodes": 20,
           "seeds": [
             104771,
@@ -602,7 +590,6 @@
         "dropped_observations": 0
       }
     },
-    "profile_sha256": "63cd4feebf693ced88b91f6083e820a2774f0de2089d5413e1d7971a5277df19",
     "training_budget": 1000000,
     "actual_training_env_steps": 1007616,
     "seed": 0,
@@ -815,7 +802,6 @@
     "within_episode_wall_interval_max_ms": 201.14100794307888,
     "clock_note": "actual_env_fps includes per-episode startup overhead; within-episode intervals report running cadence separately",
     "model_revision": "49242c5950f3c282558852fdfe9805a8aaaf2b07",
-    "checkpoint_sha256": "db70c6ed6501f216973b7dc557d2b388e337d98255b78d335c3cdb09410e7939",
     "env_fps": 5,
     "obs_fps": 5,
     "mode": "realtime",
@@ -911,7 +897,6 @@
     "within_episode_wall_interval_max_ms": 201.15211606025696,
     "clock_note": "actual_env_fps includes per-episode startup overhead; within-episode intervals report running cadence separately",
     "model_revision": "a59a917336d1b7d75acae9c51355c13c360bf351",
-    "checkpoint_sha256": "b5d6c402e7f55e3c3531abc4f486e19ab8fd04cb644b8ba30e9175ef26cc906b",
     "env_fps": 5,
     "obs_fps": 5,
     "mode": "realtime",

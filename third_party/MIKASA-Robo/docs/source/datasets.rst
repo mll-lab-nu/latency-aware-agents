@@ -175,7 +175,7 @@ PPO-oracle task:
 
 .. code-block:: bash
 
-   uv run python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets.py \
+   .venv/bin/python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets.py \
      --env-id RememberColor3-VLA-v0 \
      --path-to-save-data data_mikasa_robo \
      --ckpt-dir . \
@@ -185,7 +185,7 @@ Motion-planning task:
 
 .. code-block:: bash
 
-   uv run python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets_motion_planning.py \
+   .venv/bin/python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets_motion_planning.py \
      --env-id TraceShapeHard-VLA-v0 \
      --path-to-save-data data_mikasa_robo \
      --num-train-data 250 \
@@ -212,9 +212,10 @@ Single task:
 
 .. code-block:: bash
 
-   uv sync --project utils/convert_rlds_to_lerobot
-   uv run --project utils/convert_rlds_to_lerobot \
-     python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
+   uv venv --python 3.10 utils/convert_rlds_to_lerobot/.venv
+   uv pip install --python utils/convert_rlds_to_lerobot/.venv/bin/python \
+     --prerelease allow -r utils/convert_rlds_to_lerobot/pyproject.toml
+   utils/convert_rlds_to_lerobot/.venv/bin/python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
      --task RememberColor3-VLA-v0 \
      --overwrite-dest
 
@@ -222,7 +223,6 @@ All available RLDS task folders:
 
 .. code-block:: bash
 
-   uv run --project utils/convert_rlds_to_lerobot \
-     python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
+   utils/convert_rlds_to_lerobot/.venv/bin/python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
      --all \
      --overwrite-dest

@@ -583,7 +583,7 @@ def rollout_batch(
             "teacher_checkpoint": str(args.teacher), "teacher_config": str(args.teacher_config),
             "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
             "teacher_revision": args.teacher_revision,
-            "teacher_sha256": args.teacher_sha256,
+
             "latency": config["latency"],
             "state": f"physical198+returned_normalized_chunk{args.horizon}x43+current_index{args.horizon}",
             "student_control": not oracle, "labels": len(rows),

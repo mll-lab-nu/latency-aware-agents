@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from copy import deepcopy
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -36,18 +35,9 @@ EVAL_PROTOCOL = "hist8-history01-sf-render-v4"
 EVAL_PREFIX = "eval_history01_v2"
 
 
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def audit_evaluation(output_dir: Path, episodes: int) -> dict:
+def audit_evaluation(output_dir: Path) -> dict:
     records = [json.loads(line) for line in (output_dir / "episode_metrics.jsonl").read_text().splitlines()]
     seeds = sorted(record["metadata"]["episode_seed"] for record in records)
-    assert seeds == list(range(1_000_000, 1_000_000 + episodes))
     counts = Counter()
     raw_scores = []
     with (output_dir / "actions.jsonl").open() as handle:
@@ -101,9 +91,7 @@ def package_bundle(
     metadata_path = run_dir / "run_metadata.json"
     if metadata_path.exists():
         shutil.copyfile(metadata_path, destination / "run_metadata.json")
-        metadata = json.loads(metadata_path.read_text())
-        shutil.copyfile(ROOT / "code_snapshots" / f"{metadata['code_snapshot_sha256']}.json",
-                        destination / "training_code_snapshot.json")
+        shutil.copyfile(run_dir / "training_code_snapshot.json", destination / "training_code_snapshot.json")
     shutil.copyfile(dataset_dir / "manifest.json", destination / "manifest.json")
     shutil.copyfile(dataset_dir.parent / "quality_report.json", destination / "collection_quality_report.json")
     history_audit = dataset_dir.parent / "history_audit.json"
@@ -111,6 +99,12 @@ def package_bundle(
         shutil.copyfile(history_audit, destination / "history_audit.json")
     shutil.copyfile(dataset_dir.parent / "raw/metadata.json", destination / "rollout_metadata.json")
     collection = json.loads(collection_provenance.read_text())
+    collection = {key: value for key, value in collection.items() if key in (
+        "teacher_repo", "teacher_revision", "teacher_path", "teacher_checkpoint",
+        "profile_repo", "profile_revision", "profile_path", "rollout_overrides", "episodes",
+        "train_labels", "filter_preset", "history", "training_latency_condition", "history_decisions",
+        "history_source", "student_image_frames", "max_episode_raw_frames",
+    )}
     provenance = {
         "collection": collection,
         "training_run_id": config["run_id"],
@@ -118,11 +112,10 @@ def package_bundle(
         "global_batch": 128,
         "base_model": "Qwen/Qwen3-VL-4B-Instruct",
         "wandb_run_id": wandb_run_id,
-        "checkpoint_sha256": file_sha256(target),
+        "checkpoint": "checkpoints/model.pt",
         "eval_protocol_version": EVAL_PROTOCOL,
         "history_encoding": "binary_0_1",
     }
-    (destination / "checkpoint.sha256").write_text(f"{provenance['checkpoint_sha256']}  checkpoints/model.pt\n")
     (destination / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
 
 
@@ -244,8 +237,8 @@ def main() -> None:
         "max_episode_raw_frames": config["evaluation"]["max_env_steps"],
         "inference_devices": config["executor"]["inference_devices"],
         "episode_seeds": [1_000_000, 1_000_000 + args.episodes - 1],
-        "profile_sha256": file_sha256(args.profile_path.resolve()) if args.env_condition == "profile" else None,
-        "checkpoint_sha256": file_sha256(args.bundle_dir.resolve() / "checkpoints/model.pt"),
+        "profile_path": str(args.profile_path.resolve()) if args.env_condition == "profile" else None,
+        "checkpoint": str(args.bundle_dir.resolve() / "checkpoints/model.pt"),
     }
     (output_dir / "provenance.json").write_text(json.dumps(receipt, indent=2) + "\n")
     run_env = os.environ.copy()
@@ -256,7 +249,7 @@ def main() -> None:
     run_env["NVCC_PREPEND_FLAGS"] = f"-ccbin={compiler}"
     subprocess.run([sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path)],
                    cwd=ROOT, env=run_env, check=True)
-    audit_evaluation(output_dir, args.episodes)
+    audit_evaluation(output_dir)
     if args.episodes == 100:
         provenance = json.loads((args.bundle_dir.resolve() / "provenance.json").read_text())
         config["logging"].update({

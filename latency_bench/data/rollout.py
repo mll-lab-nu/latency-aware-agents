@@ -255,6 +255,12 @@ def collect_rollouts(config: dict[str, Any]) -> dict[str, Any]:
     """
     task = config["env"]["name"]
     collection = config["collection"]
+    output_dir = Path(config["logging"]["output_dir"]).expanduser().absolute()
+    config["logging"]["output_dir"] = str(output_dir)
+    native_labels = task in {"g1_sonic_balance_simple", "mikasa_intercept_grab_fast"} and "label_mode" in collection
+    if output_dir.exists() and any(output_dir.iterdir()):
+        if native_labels or not probe.probe_state_path(output_dir).exists():
+            raise FileExistsError(f"Collection output already exists without resumable state: {output_dir}")
     if task == "g1_sonic_balance_simple" and "label_mode" in collection:
         from latency_bench.envs.tasks.humanoidbench.collection import collect
         return collect(config)
@@ -270,8 +276,6 @@ def collect_rollouts(config: dict[str, Any]) -> dict[str, Any]:
 
     config, task, options, source_metadata = resolve_collection(config)
     output_dir = Path(config["logging"]["output_dir"])
-    if output_dir.exists() and any(output_dir.iterdir()) and not probe.probe_state_path(output_dir).exists():
-        raise FileExistsError(f"Collection output already exists without resumable state: {output_dir}")
     def execution_factory(*, capture, num_envs):
         return ExecutorCollectionExecution(config, num_envs=num_envs)
     output_dir.mkdir(parents=True, exist_ok=True)

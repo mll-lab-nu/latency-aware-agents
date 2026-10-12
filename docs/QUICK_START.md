@@ -69,14 +69,14 @@ export MIKASA_PY="$BENCH_ROOT/third_party/MIKASA-Robo/.venv/bin/python"
 "$MIKASA_PY" -c 'import torch, mani_skill; print(torch.__version__, torch.cuda.get_device_capability())'
 ```
 
-MIKASA 锁定 Torch 2.2.1。RTX PRO 6000 等 `(12, 0)` GPU 的已验证运行方式是安装后覆盖为 CUDA 12.8 的 Torch 2.7.1：
+MIKASA 的依赖声明指定 Torch 2.2.1。RTX PRO 6000 等 `(12, 0)` GPU 的已验证运行方式是安装后覆盖为 CUDA 12.8 的 Torch 2.7.1：
 
 ```bash
 uv pip install --python "$MIKASA_PY" \
   --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1
 ```
 
-覆盖后直接调用 `$MIKASA_PY`，再次 `uv sync` / `uv run` 会按锁文件恢复旧 Torch。MIKASA `train_small_policy.sh` 会再次调用安装脚本；在覆盖 Torch 的 Blackwell 主机上，优先使用 `train_qwenoft.sh` 等共享启动器，它们不会重新同步模拟器环境。不要在该环境安装根项目的完整依赖，它们会覆盖 MIKASA 的 NumPy/Torch 约束；任务启动器通过 `PYTHONPATH` 引入 benchmark。
+覆盖后直接调用 `$MIKASA_PY`，重新执行安装命令会按依赖声明安装 Torch 2.2.1。MIKASA `train_small_policy.sh` 会再次调用安装脚本；在覆盖 Torch 的 Blackwell 主机上，优先使用 `train_qwenoft.sh` 等共享启动器，它们不会重新同步模拟器环境。不要在该环境安装根项目的完整依赖，它们会覆盖 MIKASA 的 NumPy/Torch 约束；任务启动器通过 `PYTHONPATH` 引入 benchmark。
 
 当前共享 H1 使用已发布的 LeRobot 数据。
 当前 conditioned H8 和 DAgger 将采集的 NPZ 直接打包成 LeRobot，只需要下面的打包环境。
@@ -85,7 +85,9 @@ uv pip install --python "$MIKASA_PY" \
 `scripts/mikasa/install.sh` 不会安装该打包环境：
 
 ```bash
-uv sync --project third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot --python 3.10
+uv venv --python 3.10 third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/.venv
+uv pip install --python third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/.venv/bin/python \
+  --prerelease allow -r third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/pyproject.toml
 third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/.venv/bin/python \
   -c 'import lerobot; print(lerobot.__file__)'
 ```

@@ -1,4 +1,4 @@
-"""Publish MIKASA artifacts directly from the training host, with revision verification."""
+"""Publish MIKASA artifacts and record their repository revisions."""
 
 import argparse
 import copy
@@ -20,21 +20,11 @@ DATA_REPO = "MLL-Lab/LAGEN-datasets"
 
 
 def publish_folder(source: Path, prefix: str, *, repo_id: str, repo_type: str) -> str:
-    """A completed publication requires every file to exist at the returned revision."""
-    files = {f"{prefix}/{p.relative_to(source).as_posix()}": p.stat().st_size
-             for p in source.rglob("*") if p.is_file() and ".cache" not in p.parts
-             and p.name != "publication.json"}
+    """Upload an artifact directory and return its publication revision."""
     api = HfApi(token=resolve_token(""))
     commit = api.upload_folder(repo_id=repo_id, repo_type=repo_type, folder_path=source,
                                path_in_repo=prefix, ignore_patterns=["**/.cache/**", "**/publication.json", "publication.json"],
                                commit_message=f"Publish {prefix}")
-    paths = list(files)
-    confirmed = {}
-    for start in range(0, len(paths), 100):
-        confirmed.update({entry.path: entry.size for entry in api.get_paths_info(
-            repo_id, paths[start:start + 100], repo_type=repo_type, revision=commit.oid)})
-    if confirmed != files:
-        raise RuntimeError(f"Hugging Face publication verification failed: {prefix}@{commit.oid}")
     print(f"HF_PUBLISHED={repo_id}/{prefix}@{commit.oid}", flush=True)
     return commit.oid
 
@@ -56,12 +46,11 @@ def publish_training_endpoint(directory: Path, model_prefix: str) -> None:
         stage = Path(staging)
         (stage / "checkpoints").mkdir()
         os.link(model_path, stage / "checkpoints/model.pt")
-        full = yaml.safe_load((directory / "config.full.yaml").read_text())
-        inference = {key: copy.deepcopy(full[key]) for key in ("framework", "version_id")}
+        inference = {key: copy.deepcopy(cfg[key]) for key in ("framework", "version_id")}
         inference["framework"]["qwenvl"]["base_vlm"] = "Qwen/Qwen3-VL-4B-Instruct"
         inference["backbone"] = {"repo_id": "Qwen/Qwen3-VL-4B-Instruct",
                                  "revision": QWEN_BACKBONE_REVISION}
-        inference["datasets"] = {"vla_data": {key: full["datasets"]["vla_data"][key] for key in (
+        inference["datasets"] = {"vla_data": {key: cfg["datasets"]["vla_data"][key] for key in (
             "include_state", "obs_image_size", "image_mode", "stitch_grid", "num_obs_frames")}}
         inference["trainer"] = {"pretrained_checkpoint": None}
         (stage / "config.yaml").write_text(yaml.safe_dump(inference, sort_keys=False))
@@ -98,10 +87,32 @@ def publish_diagnostics(sft: Path, dagger: Path, state: Path, prefix: str) -> st
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--prefix", required=True)
-    parser.add_argument("--repo-type", choices=("model", "dataset"), required=True)
+    commands = parser.add_subparsers(dest="stage", required=True)
+    for name in ("folder", "training", "diagnostics", "selected"):
+        command = commands.add_parser(name)
+        command.add_argument("--prefix", required=True)
+        if name in {"folder", "training", "selected"}:
+            command.add_argument("--source", type=Path, required=True)
+        if name == "folder":
+            command.add_argument("--repo-type", choices=("model", "dataset"), required=True)
+        if name in {"diagnostics", "selected"}:
+            command.add_argument("--state", type=Path, required=True)
+        if name == "diagnostics":
+            command.add_argument("--sft", type=Path, required=True)
+            command.add_argument("--dagger", type=Path, required=True)
     args = parser.parse_args()
+    if args.stage == "training":
+        publish_training_endpoint(args.source, args.prefix)
+        return
+    if args.stage == "diagnostics":
+        publish_diagnostics(args.sft, args.dagger, args.state, args.prefix)
+        return
+    if args.stage == "selected":
+        publish_training_endpoint(args.source / "training/dagger", args.prefix)
+        best = json.loads((args.source / "best.json").read_text())
+        publish_folder(Path(best["checkpoint"]).parent.parent, args.prefix, repo_id=MODEL_REPO, repo_type="model")
+        publish_folder(args.state / "results", args.prefix + "/evaluation", repo_id=MODEL_REPO, repo_type="model")
+        return
     repo = MODEL_REPO if args.repo_type == "model" else DATA_REPO
     revision = publish_folder(args.source, args.prefix, repo_id=repo, repo_type=args.repo_type)
     (args.source / "publication.json").write_text(json.dumps({

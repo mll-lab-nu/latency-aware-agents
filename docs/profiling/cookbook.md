@@ -105,6 +105,11 @@ latency:
 python -m latency_bench eval --config eval.yaml
 ```
 
+The MIKASA profile recipes set `profiling.eval_entrypoint` to
+`scripts/mikasa/evaluate.py` to use the task's native evaluator. Profiling invokes
+that path with `latency-eval --eval-config <generated.yaml>`. Relative entrypoint
+paths use the invocation directory; run these recipes from the repository root.
+
 Specify the environment, policy, resource settings and episode budget in that
 configuration. `iid` samples the profile independently; `temporal` preserves its
 fitted temporal structure. A profile can also supply the public latency wrapper.

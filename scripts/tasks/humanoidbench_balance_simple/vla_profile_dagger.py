@@ -36,7 +36,6 @@ MODELS = ("qwenoft", "qwenpi_v3", "qwengr00t")
 LABEL_MODES = ("zero_full", "profile_conditioned")
 TEACHER_QUERY_CADENCE_RAW_FRAMES = 1
 TEACHER_REVISION = "a8210caa0e7432f208b377d678ca5f10f5f1b879"
-TEACHER_SHA256 = "f29be9c198553fc498f1977891d9299af57d4c6f11b4d1a44d355e830cc6f3c3"
 TEACHER_ROOT = (ROOT / "outputs/starvla/artifacts/models/zero-latency"
                 / "humanoidbench-balance-simple/small-policy/fasttd3-h1-v1")
 TEACHER = TEACHER_ROOT / "checkpoint.pth"
@@ -183,7 +182,7 @@ def publish_result(args, bundle, evaluation, result, run_record):
         "run_id": args.run_id, "condition": args.condition,
         "action_horizon": args.horizon, "label_mode": args.label_mode,
         "teacher": str(args.teacher), "teacher_config": str(args.teacher_config),
-        "teacher_revision": args.teacher_revision, "teacher_sha256": args.teacher_sha256,
+        "teacher_revision": args.teacher_revision,
         "selected_checkpoint": str(bundle / "checkpoints/model.pt"),
         "selection": "best development mean episode length over 32 fixed seeds",
         "optimizer_steps": result["optimizer_steps"],
@@ -374,7 +373,6 @@ def main():
     parser.add_argument("--teacher", type=Path, default=TEACHER)
     parser.add_argument("--teacher-config", type=Path, default=TEACHER_CONFIG)
     parser.add_argument("--teacher-revision", default=TEACHER_REVISION)
-    parser.add_argument("--teacher-sha256", default=TEACHER_SHA256)
     parser.add_argument("--wandb-entity", default="saberrr-zju")
     parser.add_argument("--profile-path", type=Path)
     parser.add_argument("--collect-bootstrap-only", action="store_true")
@@ -447,7 +445,7 @@ def main():
                   "label_mode": args.label_mode,
                   "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
                   "teacher_revision": args.teacher_revision,
-                  "teacher_sha256": args.teacher_sha256,
+
                   "teacher_oracle_seeds": teacher_oracle_seeds,
                   "profile_path": profile_path}
         write_json(args.output_dir / "budget.json", budget)
@@ -459,7 +457,7 @@ def main():
             "teacher": "zero50_fasttd3_h1_step_200000",
             "teacher_chunking": "closed_loop_requery_every_1_frame",
             "teacher_revision": args.teacher_revision,
-            "teacher_sha256": args.teacher_sha256,
+
             "label_mode": args.label_mode,
             "action_prefix": config["policy"]["action_prefix"],
             "profile_loss": "all_teacher_suffix_heads_until_termination",
@@ -484,7 +482,7 @@ def main():
                       "heldout_seeds": heldout, "teacher": str(args.teacher),
                       "teacher_config": str(args.teacher_config),
                       "teacher_revision": args.teacher_revision,
-                      "teacher_sha256": args.teacher_sha256,
+
                       "bootstrap_bundle": None}
         write_json(args.output_dir / "run.json", run_record)
         write_json(args.output_dir / "history.json", history)

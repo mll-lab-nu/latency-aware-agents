@@ -38,8 +38,8 @@ HAIC and Extreme Parkour releases are retired. Model bundles retain the publishe
 
 ## Figure 2 latency-degradation sources
 
-[Checkpoint source bindings](https://huggingface.co/MLL-Lab/LAGEN-models/blob/main/reports/latency-degradation-20261007/README.md) identify the six original game checkpoints and the six reused MIKASA checkpoints. All six game checkpoints are published with their original SHA256 and size. The report records the missing Flappy GR00T step 3000 and two unconfirmed OpenVLA bindings.
+[Checkpoint source bindings](https://huggingface.co/MLL-Lab/LAGEN-models/blob/main/reports/latency-degradation-20261007/README.md) identify the six original game checkpoints and the six reused MIKASA checkpoints. All six game checkpoints are published at their original checkpoint files. The report records the missing Flappy GR00T step 3000 and two unconfirmed OpenVLA bindings.
 
 ## Source consolidation
 
-[Verified source index](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/a6e93d4a9a1277c5cd5a7145e0295e3e190374e1/reports/source-repository-retirement-20261008) records the former Standard-Pipeline, HumanoidBench, MIKASA and Figure 2 sources. The 65 selected Standard-Pipeline inference bundles reuse existing canonical model paths. All six confirmed Figure 2 game checkpoints are published with their original SHA256 and size. Available original configs and statistics remain with their canonical bundles. Unverified runtime capability and missing historical bindings remain explicit.
+[Verified source index](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/a6e93d4a9a1277c5cd5a7145e0295e3e190374e1/reports/source-repository-retirement-20261008) records the former Standard-Pipeline, HumanoidBench, MIKASA and Figure 2 sources. The 65 selected Standard-Pipeline inference bundles reuse existing canonical model paths. All six confirmed Figure 2 game checkpoints are published at their original checkpoint files. Available original configs and statistics remain with their canonical bundles. Unverified runtime capability and missing historical bindings remain explicit.

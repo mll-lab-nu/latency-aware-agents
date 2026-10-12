@@ -47,12 +47,13 @@ The canonical VLA benchmark contains **90 tasks** with natural-language instruct
 
 ## Installation
 
-Install from the repository with the locked `uv` environment:
+Install from the repository with an explicitly installed environment:
 
 ```bash
 git clone https://github.com/CognitiveAISystems/MIKASA-Robo.git
 cd MIKASA-Robo
-uv sync --frozen
+uv venv --python 3.10 .venv
+uv pip install --python .venv/bin/python --prerelease allow -e .
 ```
 
 For LAGEN dataset preparation, use the benchmark's
@@ -99,7 +100,7 @@ For task browsing, wrapper behavior, language instructions, and the observation/
 Run the reference checkpoint-free dummy policy first to smoke-test the evaluation pipeline:
 
 ```bash
-uv run python examples/eval_demo.py \
+.venv/bin/python examples/eval_demo.py \
   --num-episodes 1 --sim-backend gpu \
   --output-dir eval_results/dummy
 ```

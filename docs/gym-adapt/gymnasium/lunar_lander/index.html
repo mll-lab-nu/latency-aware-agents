@@ -137,7 +137,7 @@ SDL_VIDEODRIVER=dummy python scripts/scaffold_gymnasium_lunar_lander.py \
 python artifacts/lunar_lander/repro_scripts/l1_scheduler_trace.py</code></pre></details>
         <details open><summary>Complete fixed-L1 APPO training — VERIFIED</summary><pre><code>WANDB_MODE=disabled SDL_VIDEODRIVER=dummy python -m training.train \
   --config configs/examples/gymnasium/lunar_lander/small_model_train.yaml</code></pre><p>Completed 1,015,808 frames at 1,746.3 FPS. Latest checkpoint: <code>outputs/examples/gymnasium_lunar_lander/checkpoints/gymnasium_lunar_lander_discrete_fixed_l1/checkpoint_p0/checkpoint_000001984_1015808.pth</code>.</p></details>
-        <details open><summary>Ten-episode fixed-L1 evaluation — VERIFIED</summary><pre><code>python -m latency_bench.run \
+        <details open><summary>Ten-episode fixed-L1 evaluation — VERIFIED</summary><pre><code>python -m latency_bench eval \
   --config configs/examples/gymnasium/lunar_lander/small_model_eval.yaml \
   --checkpoint-path outputs/examples/gymnasium_lunar_lander/checkpoints/\
 gymnasium_lunar_lander_discrete_fixed_l1/checkpoint_p0/\

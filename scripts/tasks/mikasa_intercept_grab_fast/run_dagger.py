@@ -22,7 +22,6 @@ from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCI
 
 ROOT = Path(__file__).resolve().parents[3]
 STARVLA = ROOT / "third_party/starVLA"
-PACKAGER_PROJECT = ROOT / "third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot"
 DEVELOPMENT_SEED = 4_242_424_442
 HELDOUT_SEED = 4_242_424_542
 
@@ -142,7 +141,7 @@ def _delta(args, round_number: int, checkpoint: Path,
             "normalization_source": str(args.bootstrap / "lerobot"), "task": args.task}}
         conversion_path = directory / "convert.json"
         _write_json(conversion_path, conversion)
-        command = [args.uv, "run", "--frozen", "--project", PACKAGER_PROJECT, "python",
+        command = [args.lerobot_python,
                    "-m", "latency_bench", "convert", "--config", conversion_path]
         package_env = os.environ | {"PYTHONPATH": str(ROOT)}
         _run(command, directory / "package.log", env=package_env)
@@ -458,7 +457,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--vla-python", type=Path, required=True)
     parser.add_argument("--task-python", type=Path, required=True)
-    parser.add_argument("--uv", type=Path, required=True)
+    parser.add_argument("--lerobot-python", type=Path, required=True)
     parser.add_argument("--train-devices", required=True)
     parser.add_argument("--inference-gpu", type=int, required=True)
     parser.add_argument("--simulator-gpu", type=int, required=True)

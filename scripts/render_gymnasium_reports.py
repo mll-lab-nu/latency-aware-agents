@@ -78,7 +78,7 @@ def results_table(env, *, overview=False):
 
 def final_text(text):
     sentences = re.split(r'(?<=[.!?])\s+', text)
-    sentences = [sentence for sentence in sentences if not re.search(r'\brevision\b|SHA256|superseded native.*H8|old GR00T H8', sentence, re.I)]
+    sentences = [sentence for sentence in sentences if not re.search(r'\brevision\b|superseded native.*H8|old GR00T H8', sentence, re.I)]
     return ' '.join(sentences).replace('historical shared source teacher', 'shared source teacher').replace('Historical source clock', 'Source clock')
 
 

@@ -48,6 +48,4 @@ def eval_command(options: dict[str, Any], config_path: Path, output_dir: Path) -
         return [sys.executable, options["eval_entrypoint"], "latency-eval", "--eval-config", str(config_path)]
     command = [sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path),
                "--output-dir", str(output_dir)]
-    if "checkpoint_kind" in options:
-        command.extend(["--checkpoint-kind", options["checkpoint_kind"]])
     return command

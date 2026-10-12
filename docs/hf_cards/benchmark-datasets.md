@@ -3918,7 +3918,7 @@ HAIC and Extreme Parkour releases are retired. Model bundles retain the publishe
 
 ## Figure 2 latency degradation
 
-[Latency-degradation catalogue](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/main/experiments/latency-degradation/README.md) preserves all 15 curves, exact evaluation records, fixed checkpoint sources and provenance gaps. Six MIKASA checkpoints are reused, and all six confirmed game checkpoints are published in benchmark-models with unchanged SHA256 and size.
+[Latency-degradation catalogue](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/blob/main/experiments/latency-degradation/README.md) preserves all 15 curves, exact evaluation records, fixed checkpoint sources and provenance gaps. Six MIKASA checkpoints are reused, and all six confirmed game checkpoints are published in benchmark-models with their original checkpoint files.
 
 ## Consolidated historical sources
 

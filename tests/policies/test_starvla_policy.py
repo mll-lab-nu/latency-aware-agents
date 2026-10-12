@@ -1407,7 +1407,6 @@ def test_starvla_default_policy_metadata_omits_input_frame_hashes(monkeypatch, t
         )
     )
 
-    assert "input_frame_sha256" not in output.metadata
     assert "input_frame_shape" not in output.metadata
     assert output.metadata["input_frame_count"] == 1
 

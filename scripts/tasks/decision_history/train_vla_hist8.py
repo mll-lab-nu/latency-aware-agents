@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -144,7 +144,10 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "train.yaml"
     OmegaConf.save(cfg, config_path)
-    wandb_run_id = hashlib.sha256(cfg.wandb_name.encode()).hexdigest()[:8]
+    metadata_path = run_dir / "run_metadata.json"
+    wandb_run_id = json.loads(metadata_path.read_text())["wandb_run_id"] if args.resume else cfg.run_id
+    if not args.resume:
+        shutil.copyfile(ROOT / "code_snapshot.json", run_dir / "training_code_snapshot.json")
     metadata = {
         "training_run_id": cfg.run_id, "wandb_run_id": wandb_run_id,
         "recipe_version": "hist8-v2", "history_encoding": "binary_0_1",
@@ -157,10 +160,8 @@ def main() -> None:
         "prefetch_factor": cfg.datasets.vla_data.prefetch_factor,
         "base_model_revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
         "dataset_dir": str(args.dataset_dir),
-        "dataset_manifest_sha256": hashlib.sha256((args.dataset_dir / "manifest.json").read_bytes()).hexdigest(),
-        "code_snapshot_sha256": hashlib.sha256((ROOT / "code_snapshot.json").read_bytes()).hexdigest(),
     }
-    (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
     env = os.environ.copy()
     env["WANDB_MODE"] = "disabled" if args.preflight else "online"
     if not args.preflight:

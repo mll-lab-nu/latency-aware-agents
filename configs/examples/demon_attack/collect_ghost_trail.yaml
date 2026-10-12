@@ -1,0 +1,42 @@
+experiment:
+  name: demon_attack_ghost30_collection
+  seed: 0
+env:
+  name: demon_attack
+  env_fps: 60
+  obs_fps: 15
+policy:
+  type: sample_factory
+  source: local
+  root: outputs/demon_attack/teacher
+  checkpoint: null
+  deterministic: true
+executor:
+  mode: simulated
+  parallel_envs: 2048
+  inference_devices:
+  - cuda
+  simulated_worker_capacity: 1
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+latency:
+  method: fixed
+  fixed_latency_ms: 400
+evaluation:
+  episodes: 200
+  max_env_steps: 3600
+logging:
+  output_dir: outputs/demon_attack/ghost30_dataset
+collection:
+  two_pass: true
+  val_fraction: 0.1
+  split_seed: 0
+  replay_num_envs: 16
+  image_writer_workers: 32
+  row_buffer_size: 8192
+  context_window: 1
+  filter_preset: clean_v1
+  image_transform:
+    image_transform: demon_attack_ghost_trail
+    history_frames: 30

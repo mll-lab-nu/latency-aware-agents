@@ -94,7 +94,6 @@
       "all_action_latencies_zero": true,
       "training_steps": 5000,
       "global_batch": 64,
-      "checkpoint_sha256": "8f007f801c45ed8476546ebf7cc96e60283d2ffd05a6d30feaa529d7ea7f658f",
       "command_semantics": "Generic adapter applied_action may be preclip; native environment clipping unchanged. No preclip-bound assertion was imposed.",
       "remaining": "RTX3090 P/B, actual-profile teacher/data/profile-VLA, F; not yet complete",
       "acceptance": "Full pipeline acceptance not established"
@@ -141,10 +140,8 @@
         "std_ms": 4.364779955431135
       },
       "profile": "/workspace/lzj/latency-sensitive-bench/runs/half_cheetah/gr00t_h1_5fps_20260917/profiling/runs/gr00t/1x-rtx3090/half_cheetah/instance_859cf1e47bca6046/20260917T171246114715Z/profile/profile.json",
-      "profile_sha256": "bec664bd742b851acad96d46b8d0ecde5447f26097c4bea79ae839bba440037f",
       "model_provenance": {
         "action_horizon": 1,
-        "checkpoint_sha256": "8f007f801c45ed8476546ebf7cc96e60283d2ffd05a6d30feaa529d7ea7f658f",
         "clock_fps": 5,
         "hf_prefix": "half_cheetah/zero_latency/GR00T",
         "hf_repo": "latency-sensitive-bench/Standard-Pipeline",
@@ -156,28 +153,22 @@
       },
       "files": {
         "latency_distribution.json": {
-          "bytes": 25523,
-          "sha256": "ed62846e2b8122b4c9542b730f438493d8b4dba1fa864eebf31460dc22d529be"
+          "bytes": 25523
         },
         "latency_profile.png": {
-          "bytes": 63429,
-          "sha256": "5d70bbf10f41503487792a59e434308f186058a48fb396570e0d7007337e21c9"
+          "bytes": 63429
         },
         "latency_burst_model.json": {
-          "bytes": 22184,
-          "sha256": "b99078b83f8d169b5454e76eab088e8a6f2c2d6e975fe24f60c8616819841667"
+          "bytes": 22184
         },
         "profile.json": {
-          "bytes": 2333,
-          "sha256": "bec664bd742b851acad96d46b8d0ecde5447f26097c4bea79ae839bba440037f"
+          "bytes": 2333
         },
         "hardware.json": {
-          "bytes": 988,
-          "sha256": "96bcbee23e82762b3c411a16fcd96227c3029457b5a40114bb4070ff7fda910e"
+          "bytes": 988
         },
         "DONE": {
-          "bytes": 0,
-          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          "bytes": 0
         }
       },
       "scope": "Completed measured P episode/protocol/sample audit; B is separate and still running."
@@ -187,7 +178,6 @@
       "candidates": {
         "final": {
           "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/half_cheetah/profile_latency/teacher/checkpoints/half_cheetah_profile_appo_h1_5fps_20260917/checkpoint_p0/checkpoint_000019536_10002432.pth",
-          "sha256": "d99185b8e6af48bdaf4f3a152b7eb391d96c7d8fdbcda6a7d9b9f36f25b8b7b8",
           "episodes": 20,
           "returns": [
             1857.2374405048977,
@@ -217,7 +207,6 @@
         },
         "training_best": {
           "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/half_cheetah/profile_latency/teacher/checkpoints/half_cheetah_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000018736_9592832_reward_1793.350.pth",
-          "sha256": "01e50eb4902c9c6cc99879bbd8bc34333921ffc02a7371f092f51b7e8795bd59",
           "episodes": 20,
           "returns": [
             1887.561249494765,
@@ -342,7 +331,6 @@
       "action_drops": 0,
       "invalid_actions": 0,
       "step_interval_mean_ms": 200.00070075149526,
-      "checkpoint_sha256": "8f007f801c45ed8476546ebf7cc96e60283d2ffd05a6d30feaa529d7ea7f658f",
       "revision": "543d6d4ab81112a0307af9f0a5c9cf4d6cd355de",
       "state": "COMPLETED_AND_VERIFIED_WITH_RECOVERY",
       "recovery": {
@@ -351,7 +339,6 @@
           "obs_id_add": 16000
         },
         "completed_at": "2026-09-17T21:24:28.645685+00:00",
-        "configuration_sha256": "c1a0c3828b29bc032f5814516899b51ccfdc75f7fb3817727023a043338d2c10",
         "no_completed_episode_repeated": true,
         "original_segment": "/workspace/lzj/latency-sensitive-bench/runs/half_cheetah/gr00t_h1_5fps_20260917/B-interrupted-20260917T204421Z",
         "original_warmup": "/workspace/lzj/latency-sensitive-bench/runs/half_cheetah/gr00t_h1_5fps_20260917/B-interrupted-20260917T204421Z/warmup_summary.json",
@@ -525,8 +512,6 @@
       "dropped_actions": 0,
       "dropped_observations": 0,
       "model_revision": "ae2efeb81414f262e1839874e4691aef62b0b879",
-      "checkpoint_sha256": "58a8cf13cd5cae8071c7da2085410c1a039eaab255486c3814308bbaf561c2c4",
-      "prompt_sha256": "850c73764d0eea050ba4f881ec79deedae9a32b8b7ef849706c1d74ba98a4b02",
       "evaluation_finished_at": "2026-09-21T01:05:43.015941+00:00",
       "state_contract": "state17/minmax/continuous_projector bound to manifest, prior actual train/val loader QA and saved real-state forward; state vectors are not logged per step",
       "action_contract": "Six finite preclip torque commands; HalfCheetahContinuousActionEnv casts float32 and clips to native Box[-1,1] before physics. GymnasiumEnvAdapter logs the original command as applied_action.",

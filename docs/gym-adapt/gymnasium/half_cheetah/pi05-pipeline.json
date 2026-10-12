@@ -64,12 +64,10 @@
     "state_dim": 17,
     "action_dim": 6,
     "state_encoding": "continuous_projector",
-    "checkpoint_sha256": "58a8cf13cd5cae8071c7da2085410c1a039eaab255486c3814308bbaf561c2c4",
     "reload": "Existing strict key check with documented tied Qwen lm_head equivalence only"
   },
   "model": {
     "revision": "ae2efeb81414f262e1839874e4691aef62b0b879",
-    "checkpoint_sha256": "58a8cf13cd5cae8071c7da2085410c1a039eaab255486c3814308bbaf561c2c4",
     "files_verified": 10
   },
   "training_evidence": {
@@ -153,8 +151,6 @@
       "dropped_actions": 0,
       "dropped_observations": 0,
       "model_revision": "ae2efeb81414f262e1839874e4691aef62b0b879",
-      "checkpoint_sha256": "58a8cf13cd5cae8071c7da2085410c1a039eaab255486c3814308bbaf561c2c4",
-      "prompt_sha256": "850c73764d0eea050ba4f881ec79deedae9a32b8b7ef849706c1d74ba98a4b02",
       "evaluation_finished_at": "2026-09-21T01:05:43.015941+00:00",
       "state_contract": "state17/minmax/continuous_projector bound to manifest, prior actual train/val loader QA and saved real-state forward; state vectors are not logged per step",
       "action_contract": "Six finite preclip torque commands; HalfCheetahContinuousActionEnv casts float32 and clips to native Box[-1,1] before physics. GymnasiumEnvAdapter logs the original command as applied_action.",

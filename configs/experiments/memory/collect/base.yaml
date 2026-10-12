@@ -1,0 +1,28 @@
+experiment:
+  name: memory_teacher_collection
+  seed: 0
+policy:
+  type: sample_factory
+  source: local
+  checkpoint: null
+  deterministic: true
+executor:
+  mode: simulated
+  parallel_envs: 12
+  inference_devices:
+  - cuda
+  simulated_worker_capacity: 1
+evaluation:
+  episodes: 200
+  max_env_steps: 7200
+  suites: []
+collection:
+  two_pass: true
+  val_fraction: 0.01
+  split_seed: 0
+  replay_num_envs: 16
+  image_writer_workers: 16
+  row_buffer_size: 8192
+  context_window: 1
+  filter_preset: none
+  probe_only: false

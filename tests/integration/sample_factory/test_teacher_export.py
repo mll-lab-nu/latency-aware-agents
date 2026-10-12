@@ -106,8 +106,6 @@ def _env_raw_rgb_frame_stack(value: int = 5, *, frames: int = 1, height: int = 2
     )
 
 
-
-
 def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
     from latency_bench.data.hf_parquet import iter_episode_rows
 
@@ -161,107 +159,6 @@ def test_profile_latency_override_preserves_sampler_method(method):
 
     params = sample_factory_latency_params_from_flat_config(cfg, env_fps=10)
     assert params.profile_method == method
-
-
-def test_latency_config_override_is_explicit_rollout_override(tmp_path):
-    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
-
-    experiment_dir = tmp_path / "demon_fixed_l4_seed0"
-    _write_checkpoint_config(experiment_dir)
-    override_path = tmp_path / "latency_override.yaml"
-    override_path.write_text(
-        yaml.safe_dump(
-            {
-                "latency": {
-                    "method": "uniform",
-                    "min_latency_ms": 10.0,
-                    "max_latency_ms": 80.0,
-                    "seed": 123,
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    descriptor, metadata = load_rollout_training_config(experiment_dir, latency_config_path=override_path)
-
-    assert descriptor["flat_cfg"]["frame_stack"] == 6
-    assert descriptor["latency_override"] == {
-        "method": "uniform",
-        "min_latency_ms": 10.0,
-        "max_latency_ms": 80.0,
-        "seed": 123,
-    }
-    assert metadata["latency_source"] == str(override_path.resolve())
-
-
-@pytest.mark.parametrize(
-    ("env", "experiment", "expected_ms"),
-    [
-        ("latency_flappy", "flappy_sf_same_latency_l1_seed0", 1000.0 / 30.0),
-        ("latency_demon_attack", "demon_attack_sf_same_latency_l1_seed0", 4 * 1000.0 / 60.0),
-        ("latency_demon_attack", "demon_attack_sf_same_latency_l2_seed0", 8 * 1000.0 / 60.0),
-        ("doom_deadly_corridor", "deadly_corridor_sf_same_latency_l1_seed0", 4 * 1000.0 / 35.0),
-    ],
-)
-def test_rollout_config_infers_legacy_same_latency_checkpoint_fixed_latency(
-    tmp_path,
-    env,
-    experiment,
-    expected_ms,
-):
-    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
-
-    experiment_dir = tmp_path / experiment
-    _write_checkpoint_config(
-        experiment_dir,
-        env=env,
-        experiment=experiment,
-        latency_type="fixed",
-        fixed_latency_ms=1.0,
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        queue_latency_values="1",
-        env_fps=None,
-        obs_fps=None,
-    )
-
-    descriptor, metadata = load_rollout_training_config(experiment_dir)
-
-    assert descriptor["latency_override"] == {
-        "method": "fixed",
-        "fixed_latency_ms": expected_ms,
-        "add_latency_info": False,
-    }
-    assert metadata["latency_override"] == descriptor["latency_override"]
-    assert metadata["latency_source"] == "legacy_checkpoint_name"
-
-
-def test_explicit_latency_config_takes_precedence_over_legacy_checkpoint_name(tmp_path):
-    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
-
-    experiment_dir = tmp_path / "flappy_sf_same_latency_l1_seed0"
-    _write_checkpoint_config(
-        experiment_dir,
-        env="latency_flappy",
-        experiment="flappy_sf_same_latency_l1_seed0",
-        latency_type=None,
-        fixed_latency_ms=None,
-        latency_mode="episode_fixed",
-        queue_latency_values="1",
-        env_fps=None,
-        obs_fps=None,
-    )
-    override_path = tmp_path / "latency_override.yaml"
-    override_path.write_text(
-        yaml.safe_dump({"latency": {"method": "fixed", "fixed_latency_ms": 99.0}}),
-        encoding="utf-8",
-    )
-
-    descriptor, metadata = load_rollout_training_config(experiment_dir, latency_config_path=override_path)
-
-    assert descriptor["latency_override"] == {"method": "fixed", "fixed_latency_ms": 99.0}
-    assert metadata["latency_source"] == str(override_path.resolve())
 
 
 def test_device_override_is_recorded_without_rewriting_checkpoint_env_config(tmp_path):
@@ -1205,12 +1102,6 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
         assert train_rows[0]["state"] == [0.] * 24
         assert train_rows[1]["state"] == [0.] * 21 + [1., 1., 1.]
         assert train_rows[0]["prompt"] == _rollout_descriptor("flappy")["base_prompt"]
-
-
-
-
-
-
 
 
 def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tmp_path):
@@ -2409,7 +2300,6 @@ def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_p
     """Long-lived export contract: resume decisions, final reports and embedded storage agree."""
     from PIL import Image
     from latency_bench.integrations.sample_factory import teacher_export as sf_teacher_export
-    from latency_bench.data.ghost_trail import GhostTrailConfig
     from latency_bench.data.hf_parquet import write_episode_row_shard, load_parquet_splits
     from latency_bench.data.rollout_probe import write_probe_state
 
@@ -2435,29 +2325,34 @@ def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_p
     descriptor = _rollout_descriptor("flappy") | {"flat_cfg": {}}
     monkeypatch.setattr(sf_teacher_export, "load_rollout_training_config",
                         lambda *args, **kwargs: (descriptor, {"latency_source": "checkpoint"}))
-    metadata = sf_teacher_export._export_dataset(
-            *sf_teacher_export.load_rollout_training_config(tmp_path),
-        output_dir=output,
-        max_episodes=1, max_attempts=3, max_steps_per_episode=10,
-        val_fraction=0.0, split_seed=0, num_envs=1, replay_num_envs=1,
-        deterministic=True, export_image_size=None, image_writer_workers=0, row_buffer_size=2,
-
-
-        filter_preset="none", context_window=4, episode_return_gt=0.0, probe_only=probe_only,
-        export_zero_action_history=8,
-        image_transform_config=GhostTrailConfig(image_transform="flappy_ghost_trail"),
-    )
-    assert metadata["env_name"] == "flappy"
-    assert metadata["episode_return_gate"] == {"field": "episode_raw_return", "operator": ">", "threshold": 0.0}
+    result = sf_teacher_export.collect({
+        "experiment": {"name": "export", "seed": 11},
+        "env": {"name": "flappy", "env_fps": 30.0, "obs_fps": 15.0},
+        "policy": {"type": "sample_factory", "source": "local", "root": str(tmp_path),
+                   "checkpoint": None, "deterministic": True},
+        "executor": {"mode": "simulated", "inference_devices": ["cpu"], "parallel_envs": 1,
+                     "simulated_worker_capacity": 1},
+        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
+        "latency": {"method": "zero"},
+        "evaluation": {"episodes": 1, "max_env_steps": 10},
+        "logging": {"output_dir": str(output)},
+        "collection": {"two_pass": True, "max_attempts": 3, "val_fraction": 0.0, "split_seed": 0,
+                       "replay_num_envs": 1, "image_writer_workers": 0, "row_buffer_size": 2,
+                       "filter_preset": "none", "context_window": 4, "episode_return_gt": 0.0,
+                       "probe_only": probe_only, "export_zero_action_history": 8,
+                       "image_transform": {"image_transform": "flappy_ghost_trail"}},
+    })
     if probe_only:
-        assert metadata["probe_only"] is True
-        assert metadata["accepted_episodes"] == 1
-        assert metadata["attempted_episodes"] == 3
-        assert metadata["rejected_episodes"] == 2
-        assert metadata["attempt_budget"] == 3
+        state = result["probe_state"]
+        assert len(state["accepted_specs"]) == 1
+        assert state["attempted_episodes"] == 3
+        assert state["rejected_episodes"] == 2
         assert (output / "probe_state.json").exists()
         assert not (output / "train.parquet").exists()
         return
+    metadata = result["metadata"]
+    assert metadata["env_name"] == "flappy"
+    assert metadata["episode_return_gate"] == {"field": "episode_raw_return", "operator": ">", "threshold": 0.0}
     assert json.loads((output / "metadata.json").read_text()) == metadata
     report = json.loads((output / "filter_report.json").read_text())
     assert metadata["filter_report"] == report

@@ -62,3 +62,14 @@ latency/FPS/seed protocol, and primary evidence. Preserve the distinction betwee
 training completion, evaluation completion, acceptance, and publication.
 Keep hardware details when they define the measurement protocol.
 Historical runtime messages do not establish current process state.
+
+# Approved Digest Uses
+
+The user approved these existing digest sites:
+- CPU and mixed CPU/GPU deployment directory identity in `hardware_info.py`.
+- GPU UUID/topology directory identity in `hardware_info.py`.
+- Deterministic dataset sampling in StarVLA `safe_hash`.
+- The pinned Flash Attention wheel download checksum.
+
+Identify other artifacts by repository revision and path. Do not add artifact
+digests or upload readback checks.

@@ -1,0 +1,22 @@
+__base__: ../base.yaml
+experiment:
+  name: defend_the_line_fixed_latency_0_200ep_7k2steps
+  seed: 0
+logging:
+  output_dir: outputs/memory/cross_task/defend_the_line_fixed_l0
+collection:
+  export_image_size:
+  - 224
+  - 224
+dataset_experiment:
+  teacher_job:
+    manifest: configs/train/memory/small_model/defend_the_line/latency_024/manifest.tsv
+    latency_fixed_frames: 0
+    seed: 0
+  probe_shards: null
+  publication:
+    repo_id: latency-sensitive-bench/benchmark-datasets
+    private: false
+    config_name: task-transfer--defend_the_line_fixed_latency_0_200ep_7k2steps
+    data_dir: zero-latency/defend-the-line/defend_the_line_200ep/defend_the_line_fixed_latency_0_200ep_7k2steps
+    max_shard_size: 500MB

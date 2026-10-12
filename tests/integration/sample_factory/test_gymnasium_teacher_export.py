@@ -91,8 +91,7 @@ def test_generic_checkpoint_applies_rollout_overrides(tmp_path):
 
     descriptor, metadata = load_rollout_training_config(
         experiment_dir,
-        gym_camera_name="head_camera",
-        gym_make_kwargs_override={"noop_max": 30, "fire_reset": True},
+        gym_make_kwargs_override={"noop_max": 30, "fire_reset": True, "camera_name": "head_camera", "render_mode": "rgb_array"},
     )
 
     make_kwargs = json.loads(descriptor["flat_cfg"]["gym_make_kwargs_json"])

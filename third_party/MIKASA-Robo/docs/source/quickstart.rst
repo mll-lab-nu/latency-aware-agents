@@ -1,7 +1,7 @@
 Quick Start
 ===========
 
-The examples below assume the project is installed with ``uv sync --frozen``
+The examples below assume the project is installed with ``uv pip install --python .venv/bin/python --prerelease allow -e .``
 from the repository root.
 
 Minimal VLA Run
@@ -252,7 +252,7 @@ Benchmark Demo GIF/MP4
 
 .. code-block:: bash
 
-   uv run python utils/prepare_benchmark_demo_videos.py \
+   .venv/bin/python utils/prepare_benchmark_demo_videos.py \
      --tasks RememberColor3-VLA-v0 \
      --output-dir videos/benchmark_demos \
      --max-attempts-per-task 8 \

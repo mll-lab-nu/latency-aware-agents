@@ -57,7 +57,7 @@ SDL_VIDEODRIVER=dummy pytest -q \
   --env-yaml-path /workspace/asterix-adapt/env_block.yaml
 python artifacts/asterix/repro_scripts/zero_latency_parity.py
 python artifacts/asterix/repro_scripts/l1_scheduler_trace.py</code></pre></details><details open><summary>Complete fixed-L1 APPO training — VERIFIED</summary><pre><code>SDL_VIDEODRIVER=dummy WANDB_MODE=disabled python -m training.train \
-  --config configs/examples/gymnasium/asterix/small_model_train.yaml</code></pre><p>Four rollout workers completed 1,015,808 policy decisions at 2,082.6 FPS. Latest checkpoint: <code>outputs/examples/gymnasium_asterix/checkpoints/gymnasium_asterix_fixed_l1_random_noop/checkpoint_p0/checkpoint_000001984_1015808.pth</code>.</p></details><details open><summary>Ten-episode fixed-L1 evaluation — VERIFIED</summary><pre><code>python -m latency_bench.run \
+  --config configs/examples/gymnasium/asterix/small_model_train.yaml</code></pre><p>Four rollout workers completed 1,015,808 policy decisions at 2,082.6 FPS. Latest checkpoint: <code>outputs/examples/gymnasium_asterix/checkpoints/gymnasium_asterix_fixed_l1_random_noop/checkpoint_p0/checkpoint_000001984_1015808.pth</code>.</p></details><details open><summary>Ten-episode fixed-L1 evaluation — VERIFIED</summary><pre><code>python -m latency_bench eval \
   --config configs/examples/gymnasium/asterix/small_model_eval.yaml \
   --checkpoint-path outputs/examples/gymnasium_asterix/checkpoints/\
 gymnasium_asterix_fixed_l1_random_noop/checkpoint_p0/checkpoint_000001984_1015808.pth \

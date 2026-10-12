@@ -9,7 +9,7 @@ SFT_PORT="${4:?SFT DDP port}"
 DAGGER_PORT="${5:?DAgger DDP port}"
 PREVIOUS_COLUMN="${6-}" # Optional old five-cell column for the Fixed-2 repair comparison.
 VLA_PY="${VLA_PY:?QwenOFT Python}"
-UV="${UV:?packaging uv executable}"
+LEROBOT_PY="${LEROBOT_PY:?installed LeRobot interpreter}"
 TASK_PY="$ROOT/third_party/MIKASA-Robo/.venv/bin/python"
 DATA="$ROOT/outputs/starvla/datasets/mikasa_intercept_grab_fast/$RUN_ID/$CONDITION"
 SFT="$ROOT/outputs/starvla/runs/mikasa_intercept_grab_fast/$RUN_ID/sft"
@@ -34,19 +34,15 @@ publish_failure() {
   job_exit=$?
   trap - ERR
   printf 'failed:%s\n' "$job_exit" > "$STATE/phase"
-  "$VLA_PY" - "$SFT" "$DAGGER" "$STATE" "$PUBLISH_PREFIX" <<'PY'
-from pathlib import Path
-import sys
-from scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 import publish_diagnostics
-publish_diagnostics(*map(Path, sys.argv[1:4]), sys.argv[4])
-PY
+  "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 \
+    diagnostics --sft "$SFT" --dagger "$DAGGER" --state "$STATE" --prefix "$PUBLISH_PREFIX"
   exit "$job_exit"
 }
 trap publish_failure ERR
 
-"$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.write_conditioned_latency_config \
+"$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.write_conditioned_configs \
   --condition "$CONDITION" --output "$STATE/$CONDITION.yaml"
-export TASK_PY UV VLA_PY
+export TASK_PY LEROBOT_PY VLA_PY
 export TEACHER_CHECKPOINT="$TEACHER" DATASET_DIR="$DATA" OUTPUT_DIR="$SFT"
 printf 'collect-teacher-prefix63\n' > "$STATE/phase"
 bash scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh \
@@ -55,35 +51,18 @@ printf 'sft-5000\n' > "$STATE/phase"
 bash scripts/tasks/mikasa_intercept_grab_fast/run_conditioned_h8.sh \
   train qwenoft "$CONDITION" "$RUN_ID" "$DEVICES" "$SFT_PORT" > "$STATE/sft.log" 2>&1
 printf 'publish-sft-endpoint\n' > "$STATE/phase"
-"$VLA_PY" - "$SFT/training/bootstrap" "$PUBLISH_PREFIX" <<'PY'
-from pathlib import Path
-import sys
-from scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 import publish_training_endpoint
-publish_training_endpoint(Path(sys.argv[1]), sys.argv[2])
-PY
-"$VLA_PY" - "$SFT" "$STATE" "$VLA_PY" "$CONDITION" <<'PY'
-from pathlib import Path
-from types import SimpleNamespace
-import sys
-import yaml
-from scripts.starvla.train_task import eval_config
-from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
-sft, state, python = map(Path, sys.argv[1:4])
-condition = sys.argv[4]
-training = yaml.safe_load((sft / 'bootstrap.yaml').read_text())
-args = SimpleNamespace(task='mikasa_conditioned_h8', model='qwenoft', condition=condition,
-    eval_seed=4242424442, inference_device='cuda:1', simulator_device='cuda:0', smoke=False,
-    vla_python=python, backbone_path=Path(training['framework']['qwenvl']['base_vlm']))
-config = eval_config(args, sft / 'inference', state / 'development',
-                     episodes=100, eval_latency_frames=FIXED_LATENCIES[condition])
-(state / 'eval.yaml').write_text(yaml.safe_dump(config, sort_keys=False))
-PY
+"$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 \
+  training --source "$SFT/training/bootstrap" --prefix "$PUBLISH_PREFIX"
+"$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.write_conditioned_configs \
+  --condition "$CONDITION" --output "$STATE/eval.yaml" \
+  --evaluation-run "$SFT" --vla-python "$VLA_PY" \
+  --evaluation-config configs/examples/mikasa_intercept_grab_fast/fixed_prefix63_eval.yaml
 printf 'dagger-5000-five-latencies\n' > "$STATE/phase"
 "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.run_dagger \
   --model qwenoft --condition "$CONDITION" --source-run "$SFT" --bootstrap "$DATA" \
   --eval-config "$STATE/eval.yaml" \
   --latency-config "$STATE/$CONDITION.yaml" --teacher-checkpoint "$TEACHER" --output "$DAGGER" \
-  --vla-python "$VLA_PY" --task-python "$TASK_PY" --uv "$UV" \
+  --vla-python "$VLA_PY" --task-python "$TASK_PY" --lerobot-python "$LEROBOT_PY" \
   --train-devices "$DEVICES" --inference-gpu 1 --simulator-gpu 0 \
   --gpu-lock "/tmp/mikasa-h8-dagger-gpu${DEVICES%%,*}.lock" --port "$DAGGER_PORT" > "$STATE/dagger.log" 2>&1
 printf 'report\n' > "$STATE/phase"
@@ -91,15 +70,6 @@ REPORT_ARGS=()
 if [[ -n "$PREVIOUS_COLUMN" ]]; then REPORT_ARGS+=(--previous-column "$PREVIOUS_COLUMN"); fi
 "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.prefix_repair_results \
   --run "$DAGGER" --output "$STATE/results" "${REPORT_ARGS[@]}"
-"$VLA_PY" - "$DAGGER" "$STATE" "$PUBLISH_PREFIX" <<'PY'
-from pathlib import Path
-import json,sys
-from scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 import publish_folder, publish_training_endpoint, MODEL_REPO
-dagger,state,prefix=Path(sys.argv[1]),Path(sys.argv[2]),sys.argv[3]
-publish_training_endpoint(dagger/'training/dagger', prefix)
-best=json.loads((dagger/'best.json').read_text())
-bundle=Path(best['checkpoint']).parent.parent
-publish_folder(bundle,prefix,repo_id=MODEL_REPO,repo_type='model')
-publish_folder(state/'results',prefix+'/evaluation',repo_id=MODEL_REPO,repo_type='model')
-PY
+"$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.publish_prefix63 \
+  selected --source "$DAGGER" --state "$STATE" --prefix "$PUBLISH_PREFIX"
 printf 'complete\n' > "$STATE/phase"

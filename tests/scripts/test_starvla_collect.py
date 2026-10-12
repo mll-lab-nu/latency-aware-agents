@@ -133,7 +133,7 @@ def test_profile_publish_records_the_selected_checkpoint_and_revision(tmp_path, 
         condition="latency-aware", model="qwenpi_v3", run_id="formal-profile-conditioned",
         horizon=16, label_mode="profile_conditioned", teacher=tmp_path / "teacher.pth",
         teacher_config=tmp_path / "teacher.yaml", teacher_revision="teacher-revision",
-        teacher_sha256="teacher-sha", output_dir=tmp_path,
+        output_dir=tmp_path,
     )
     evaluation = {"n": 64, "mean_length": 100.0, "mean_return": 80.0, "episodes": []}
     result = {"optimizer_steps": 10000}
@@ -174,7 +174,7 @@ def test_profile_smoke_rows_keep_train_and_validation_for_one_long_episode(tmp_p
         smoke=True, rollout_overlap=False, inference_batch_size=8, rollout_workers=16,
         label_mode="profile_conditioned", teacher=tmp_path / "teacher.pth",
         teacher_config=tmp_path / "teacher.yaml", teacher_revision="revision",
-        teacher_sha256="sha", collect_bootstrap_only=True, collection_seed=0,
+        collect_bootstrap_only=True, collection_seed=0,
         horizon=1,
     )
     config = {"env": {}, "latency": {}, "policy": {"action_prefix": {"mode": "none"}}}
@@ -704,13 +704,14 @@ def test_public_balance_collection_resolves_action_prefix(tmp_path, monkeypatch,
     }
     config["executor"].update(inference_devices=["cpu"], rollout_workers=1,
                                inference_batch_size=1, rollout_overlap=False)
-    config["logging"]["output_dir"] = str(tmp_path)
+    config["logging"]["output_dir"] = str(tmp_path / "dataset")
     config["collection"] = {"label_mode": "profile_conditioned", "action_horizon": 16,
-                            "row_budget": 1, "teacher_revision": "fixture", "teacher_sha256": "fixture"}
+                            "row_budget": 1, "teacher_revision": "fixture"}
 
     def collect_batch(args, resolved, output, **kwargs):
         prefix = resolved["policy"]["action_prefix"]
         assert (prefix["frames"], prefix["action_horizon"], prefix["action_dim"]) == (2, 16, 43)
+        output.mkdir()
         (output / "metadata.json").write_text('{"train_rows": 1}')
 
     monkeypatch.setattr(profile_collection, "rollout_batch", collect_batch)

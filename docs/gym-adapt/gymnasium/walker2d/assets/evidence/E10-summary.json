@@ -1,6 +1,5 @@
 {
   "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_walker2d_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_walker2d_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/best_000018928_9691136_reward_4148.139.pth",
-  "sha256": "3d51959c7d65d8e9d1ec34cfc4a8dc7741abf9726439512bc7a0442fd265044e",
   "train_step": 18928,
   "env_steps": 9691136,
   "episodes": 10,

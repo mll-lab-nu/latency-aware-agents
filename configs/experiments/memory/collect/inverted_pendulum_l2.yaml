@@ -1,0 +1,35 @@
+__base__:
+- ../../../examples/gymnasium/inverted_pendulum/small_model_train.yaml
+- base.yaml
+experiment:
+  name: inverted_pendulum_fixed_latency_2_1000ep_7k2steps
+  seed: 10
+backend:
+  run_mode: eval
+policy:
+  source: hf
+  hf_repo: latency-sensitive-bench/paper-experiment-models
+  revision: main
+  root: memory/small_model/inverted_pendulum/latency_024_1m_fs1_eval/train/memory_small_model:inverted_pendulum:frame_stack:fixed_l2:fs1:obs25:stride1:seed10
+  checkpoint_kind: best
+executor:
+  parallel_envs: 32
+latency:
+  method: fixed
+  fixed_latency_ms: 80.0
+evaluation:
+  episodes: 1000
+logging:
+  output_dir: outputs/memory/teacher_datasets/inverted_pendulum_fixed_latency_2_1000ep_7k2steps
+collection:
+  replay_num_envs: 32
+  episode_return_gt: 85
+dataset_experiment:
+  teacher_job: null
+  probe_shards: null
+  publication:
+    repo_id: MLL-Lab/LAGEN-datasets
+    private: false
+    config_name: task-transfer--inverted_pendulum_fixed_latency_2_1000ep_7k2steps
+    data_dir: latency-aware/inverted-pendulum/inverted_pendulum_fixed_latency_2_1000ep_7k2steps
+    max_shard_size: 500MB

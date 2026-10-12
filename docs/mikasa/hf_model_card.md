@@ -26,8 +26,7 @@ zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/checkpoint.pt
 
 `final_success_ckpt.pt` is the PyTorch checkpoint consumed by the official
 MIKASA collector and evaluator. The evaluation summary records the fixed-seed
-100-episode canonical evaluation. The checkpoint is 1,170,029 bytes with SHA256
-`3358b1a8e6d4bf88b7692e2dd1200034a9db5dd28d2c08ecafed1cbb8ebd2c40`.
+100-episode canonical evaluation. The checkpoint is 1,170,029 bytes.
 
 ## Training setting
 

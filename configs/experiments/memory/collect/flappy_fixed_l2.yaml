@@ -1,0 +1,39 @@
+__base__: base.yaml
+experiment:
+  name: flappy_fixed_l2_memory_collection
+  seed: 10
+env:
+  name: flappy
+  env_fps: 30
+  obs_fps: 30
+policy:
+  source: hf
+  hf_repo: MLL-Lab/LAGEN-models
+  revision: 365fe5402de3fb464d5da8da9f944b969c5801c4
+  root: latency-aware/flappy/small-policy/factor_sweep:flappy:frame_stack:fixed_l2:fs1:obs30:stride1:seed10
+executor:
+  parallel_envs: 4096
+  inference_devices:
+  - gpu
+scheduler:
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
+latency:
+  method: fixed
+  fixed_latency_ms: 66.66666666666667
+logging:
+  output_dir: outputs/memory/flappy_fixed_l2
+collection:
+  val_fraction: 0.1
+  replay_num_envs: 32
+  image_writer_workers: 32
+  filter_preset: contiguous_v1
+dataset_experiment:
+  teacher_job: null
+  probe_shards: null
+  publication:
+    repo_id: MLL-Lab/LAGEN-datasets
+    private: false
+    config_name: flappy_fixed_latency_2_200ep_7k2steps
+    data_dir: latency-aware/flappy/flappy_fixed_latency_2_200ep_7k2steps
+    max_shard_size: 500MB

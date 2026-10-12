@@ -3,7 +3,6 @@
   "revision": "7d088338043f96511df41c74bc540e62d27aa417",
   "verified_files": 344,
   "bytes": 3465711807,
-  "verification": "Exact committed file set, size and LFS SHA256 / Git blob SHA1 verified; immutable upstream file hashes and raw Parquet row counts checked.",
   "raw_only": true,
   "old_sources_preserved": true,
   "url": "https://huggingface.co/datasets/latency-sensitive-bench/benchmark-datasets/tree/12528865f7815edb7a351a6bf8c1c317467e5919/experiments/benchmark-training/archive/standard-pipeline/versions/7d088338043f96511df41c74bc540e62d27aa417/ant",

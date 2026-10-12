@@ -2,7 +2,6 @@
   "audit_date": "2026-09-18",
   "repo": "latency-sensitive-bench/Standard-Pipeline",
   "evaluated_F_model_revision": "f6183233368798a9d98cf345e219410065bcae8a",
-  "F_checkpoint_sha256": "9ec338c86369f59593c802c5c5b29e1c2956ee46a38eecac47e1788acf7fcdb8",
   "F_checkpoint_bytes": 9976830755,
   "model_metadata_revision": "df76ab5e19a7b90d49c2a27a8f4133701d6d559f",
   "model_finalization": {
@@ -20,19 +19,6 @@
   },
   "scope": "Finalization counts cover small summaries, episode metrics, configs and README/checksum updates, not the entire model or dataset archive.",
   "raw_trace_scope": "The audited B/F step, action, latency and observation-attempt records, including the 20,000-step F evaluation and both warmups, are now published: 18 trace files (89,646,252 bytes) plus four manifest/checksum files. All 22 files passed pinned size/hash verification; bulk traces remain off the local workspace.",
-  "source_summary_sha256": {
-    "comparison.json": "ec3e172956a5e26bf10cbddfe60c07d588b20ad086280738d1aeeee0bb5c38bb",
-    "profile.json": "b9c885b9f67bebaf0c8001a102003c2d1c6e69122c150aca096f943b67f34cd4",
-    "baseline.json": "9ceb748f279f28b9c0499d0230fd546a943dd9993e29b32402fdf3a8d4618360",
-    "selection.json": "af4133f5af74fc46ff33266f84cfedf11cbc7dff655e5ce85baef4c7e7b08294",
-    "teacher-e10.json": "014b6baa51202f4ec07729b8f2d56b1a4fbe4de451437c26fc8cd78ba8e03fe2",
-    "filter_report.json": "7639c2e8382e460c8362fcb556c35fecf6f284e19db7a05073781a8a3b2ce4fe",
-    "openvla-b.json": "093025890896f39aa5dfc640427141cedcbe794176f8953c85e956115fa10081",
-    "openvla-f.json": "b8c13cb456e6e69c2242e697ee866dba221834d003912e5476ae71ebaabb488a",
-    "h8-historical.json": "b698a7b2c3d0ec45d6c1b8635225af08961492c14cff39dbcb3679256619ee18",
-    "l0-eval.json": "088ac7c19855dddf3e27bb25b2b75b2bec862a6980f3b8d2a224a7076b01855c",
-    "prompt-map.json": "1bb56bd5ff9b9f711c8f878e825983cc1bbe6b83a0ec7304834c7e31c2f31c0f"
-  },
   "links": {
     "F_model": "https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/latency-aware/inverted-pendulum/vla/starvla-qwengr00t-h1/ip_profile_gr00t_h1_5fps_1h200_20260917",
     "L0_model": "https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/inverted-pendulum/vla/starvla-qwengr00t-h1/ip_l0_gr00t_h1_5fps_1h200_20260917",
@@ -50,10 +36,6 @@
     "total_bytes": 89653552,
     "remote_sizes_and_hashes_verified": true,
     "verified_at": "2026-09-18T00:02:18.301857+00:00",
-    "source_destination_hashes_match": true,
-    "manifest_sha256": {
-      "baseline": "4cf46ad41bd75c5146c4488d9316ef8bd38d1893eea1e63342507daa066b60cb",
-      "F": "c10ee856258e09d7885e7eb4bb48fb349565a78bbf0588c54d49547a613d6cb2"
-    }
+    "source_destination_hashes_match": true
   }
 }

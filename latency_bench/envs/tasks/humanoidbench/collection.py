@@ -39,7 +39,7 @@ def collect(config):
         student = "teacher" in options
         args = SimpleNamespace(
             smoke=options.get("smoke", False), teacher=checkpoint, teacher_config=teacher_config,
-            teacher_revision=options["teacher_revision"], teacher_sha256=options["teacher_sha256"],
+            teacher_revision=options["teacher_revision"],
             label_mode=mode, horizon=options["action_horizon"],
             collection_seed=config["experiment"]["seed"],
             rollout_workers=resources["rollout_workers"], inference_batch_size=resources["inference_batch_size"],

@@ -12,8 +12,7 @@
       "observation_drops": 0,
       "submitted_observations": 180,
       "action_drops": 0,
-      "invalid_actions": 0,
-      "metrics_sha256": "15e0fff2f282cce88a408993c1d1c1c608a8e534af55df802f5019924bb2e9b0"
+      "invalid_actions": 0
     },
     "F": {
       "episodes": 20,
@@ -24,8 +23,7 @@
       "observation_drops": 0,
       "submitted_observations": 2002,
       "action_drops": 0,
-      "invalid_actions": 0,
-      "metrics_sha256": "7e98ffea9db1d79cea521fcba68cf2a1ad76d818eae318a09aaa98e37a70aceb"
+      "invalid_actions": 0
     },
     "paired": [
       {
@@ -159,7 +157,6 @@
       "max": 201.19602186605334
     },
     "F_revision": "d33af26b7f87357c1b7a2b75bae4923bd90b6cc1",
-    "F_checkpoint_sha256": "fe4fb89a88d9aab7f266a69921b32cfc00a0e2964664be3953988a8f4062d3ca",
     "protocol": "20 matched seeds42-61;5FPS;cap1000;measured-only;same B/F runtime with model and prompt0\u21921 changes",
     "interpretation": "Compare measured outcomes and realized latencies; no equal-latency causal claim and no teacher gate applied to VLA.",
     "L0_simulated": {
@@ -250,19 +247,8 @@
         1.1177167892456055
       ],
       "action_clipping_evidence": "HopperEnv.step clips to env.action_space bounds before env.step; GymnasiumEnvAdapter.step overwrites applied_action with preclip action.value, so postclip physical actions are not directly logged",
-      "action_clipping_source_sha256": "616473b67fa33c759bed07e28d4736613b6f4600674da966d754dd18c27669f7",
-      "action_logging_source_sha256": "e5351a4d70520350c8bcbdcaf958ab57d8eca83e251adfd6f520ac34e40254f5",
       "raw_step_time_reward_consistency": true,
       "bundle_files": 8,
-      "bundle_sha256": {
-        "checkpoints/model.pt": "5ec4a5fbdfb7fac819a51b523f3735c6702b90a2440a2957c5cc699941ffbf1e",
-        "config.full.yaml": "ea0131fb531e70f404a252344589dd8f71c56f3d897699a20df32dbc2a80a371",
-        "config.yaml": "f40ecb9bb5f1450edd45f2bd473b3e6fc9ac65f91154629d3f80ea58673cb4c0",
-        "dataset_statistics.json": "bb23771f87f039a7fa41a682933aac9099f45c4c26b103fe03a51cb84b82c2c6",
-        "latency_prompt_map.json": "9fd22cc880afbd45589baa0db9ca0e237c3f89b4811156f6ed964600f82b186e",
-        "manifest.json": "4c45ebf784a7e606efc55711c65cf0525c0261d5d32a1963b02d23728a67a815",
-        "provenance.json": "835befe92adb1b99cefe0534d90dd93484f79870bf1f4e8cea6aa27047ef74f3"
-      },
       "checkpoint_steps": 5000,
       "reload_evidence": "existing successful L0sim20 executed this final bundle; no repeated evaluation",
       "acceptance": "L0evaluationcomplete; downstream3090P/Bandprofilepipelinepending"
@@ -292,7 +278,6 @@
       "candidates": {
         "final": {
           "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/hopper/profile_latency/teacher/checkpoints/hopper_profile_appo_h1_5fps_20260917/checkpoint_p0/checkpoint_000019536_10002432.pth",
-          "sha256": "d7bccf0797e5622069c1af0aa67796863bd68c40707cd96c7e7399fa27ca49e0",
           "episodes": 20,
           "returns": [
             3813.902369620451,
@@ -322,7 +307,6 @@
         },
         "training_best": {
           "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/hopper/profile_latency/teacher/checkpoints/hopper_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000019512_9990144_reward_3220.937.pth",
-          "sha256": "f8b6089e67f129a7c17504bc8d6146003177b260e927cc1281a178d26f404b74",
           "episodes": 20,
           "returns": [
             3818.3299991080344,
@@ -355,7 +339,6 @@
     },
     "teacher_E10": {
       "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/serial_h1_5fps_20260917/hopper/profile_latency/teacher/checkpoints/hopper_profile_appo_h1_5fps_20260917/checkpoint_p0/best_000019512_9990144_reward_3220.937.pth",
-      "sha256": "f8b6089e67f129a7c17504bc8d6146003177b260e927cc1281a178d26f404b74",
       "episodes": 10,
       "returns": [
         3818.3299991080344,
@@ -477,7 +460,6 @@
       "state_dim": 11,
       "action_dim": 3,
       "state_encoding": "continuous_projector",
-      "checkpoint_sha256": "c35ddc57fef8fd096adca3df9ecf94662824c26b311c3884508f07646231f05b",
       "reload": "Existing strict key check with documented tied Qwen lm_head equivalence only"
     },
     "reload_completed_at": "2026-09-21T00:03:13.602023+00:00",
@@ -486,7 +468,6 @@
       "resume_fullstate_step": 3000,
       "recomputed_updates": 342,
       "total_target_steps": 5000,
-      "isolated_trainer_sha256": "99b2e4fb1c67ae703b5e231ac1562ca298140b7b186795340378cd621e170ff8",
       "main_rng_and_cursor_restored": true,
       "worker_rng_restored": false,
       "future_cuda_bitwise_claim": false
@@ -655,10 +636,8 @@
       "running_interval_min_ms": 178.7104932591319,
       "running_interval_max_ms": 221.5083697810769,
       "model_revision": "408930d8a85f0cb316dc3bdebfb8142526570355",
-      "checkpoint_sha256": "c35ddc57fef8fd096adca3df9ecf94662824c26b311c3884508f07646231f05b",
       "post_eval_checkpoint_hash_verified": true,
       "prompt_key": 0,
-      "prompt_sha256": "2cc015fb6a4e9c10cd6aad6f7767aa05aeb2bb79ba9a2c0201d253239071063c",
       "protocol": {
         "fps": 5,
         "raw_step_cap": 1000,
@@ -764,10 +743,8 @@
       "running_interval_min_ms": 60.48302724957466,
       "running_interval_max_ms": 498.7908471375704,
       "model_revision": "e75c2ec73af036f7bff784092c9f29020b6fe755",
-      "checkpoint_sha256": "93f66960f8eae69b52350e2d15271ef037dc8826332268fac69ce7c018d654c8",
       "post_eval_checkpoint_hash_verified": true,
       "prompt_key": 1,
-      "prompt_sha256": "63b5bf9a240c5de615285b0c8cab8931434085cbcec39af4ddac8ae1de49b09f",
       "protocol": {
         "fps": 5,
         "raw_step_cap": 1000,
@@ -890,7 +867,6 @@
       "p95_ms": 264.0551429748535,
       "capacity_drops": 84,
       "warmup_samples_excluded": 500,
-      "profile_sha256": "1289653bf6e8591cdd5cf805ad539ddd1cb041cdad08a9f2833597fe72271e1e",
       "warnings": [
         {
           "session": 1,
@@ -934,15 +910,13 @@
       "seed": 42,
       "gradient_checkpointing": false,
       "zero_stage": 2,
-      "model_revision": "e75c2ec73af036f7bff784092c9f29020b6fe755",
-      "checkpoint_sha256": "93f66960f8eae69b52350e2d15271ef037dc8826332268fac69ce7c018d654c8"
+      "model_revision": "e75c2ec73af036f7bff784092c9f29020b6fe755"
     },
     "teacher": {
       "state": "TEACHER_FULL_TRACE_AUDIT_PASSED",
       "verified_at": "2026-09-21T14:09:31.112834+00:00",
       "task": "hopper",
       "model_revision": "408930d8a85f0cb316dc3bdebfb8142526570355",
-      "P_profile_sha256": "1289653bf6e8591cdd5cf805ad539ddd1cb041cdad08a9f2833597fe72271e1e",
       "P_warnings": [
         {
           "session": 1,
@@ -958,7 +932,6 @@
         "candidates": {
           "final": {
             "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_hopper_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_hopper_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/checkpoint_000019536_10002432.pth",
-            "sha256": "9b78ae32c795cf0eecbd2b66e04f2775091a9756a40e5f5635791ac2b2ca4b86",
             "episodes": 20,
             "seeds": [
               104771,
@@ -1010,7 +983,6 @@
           },
           "training_best": {
             "checkpoint": "/mnt/local/lzj/latency-sensitive-bench/pi05_hopper_h1_5fps_g128_20260921/profile_latency/teacher/checkpoints/pi05_hopper_profile_appo_h1_5fps_g128_20260921/checkpoint_p0/best_000019536_10002432_reward_2535.456.pth",
-            "sha256": "f0d71c11d6f468510a6b1e98d528060bfe213e094ae81a13a7c9129af2f5b2ec",
             "episodes": 20,
             "seeds": [
               104771,
@@ -1148,7 +1120,6 @@
           "submitted_observations": 10606,
           "dropped_observations": 3110,
           "observation_drop_fraction": 0.2267424905220181,
-          "config_sha256": "39166d114a7d4b46e64da14382bd644f4095e7eb36fc6eae52479c2545093f81",
           "state_contract": "Native state11 is bound to manifest/loader QA/saved reload; no per-step state vector is recorded."
         },
         "training_best": {
@@ -1233,7 +1204,6 @@
           "submitted_observations": 10606,
           "dropped_observations": 3110,
           "observation_drop_fraction": 0.2267424905220181,
-          "config_sha256": "8447bbc671595a369933dff026480db4f94846a7970e4e8ac6731abdf21d0138",
           "state_contract": "Native state11 is bound to manifest/loader QA/saved reload; no per-step state vector is recorded."
         }
       },
@@ -1289,14 +1259,12 @@
         "submitted_observations": 5577,
         "dropped_observations": 1660,
         "observation_drop_fraction": 0.22937681359679427,
-        "config_sha256": "8a5246d083413a735ed88e2e3b9a5c4f7b49896abfd3153488d9fcd1edd62176",
         "state_contract": "Native state11 is bound to manifest/loader QA/saved reload; no per-step state vector is recorded."
       },
       "probe": {
         "attempts": 12,
         "accepted": 2,
         "rejected": 10,
-        "source_state_sha256": "fad846336f923f7f0bf755c2d5cdbbcc2a8c4f955556c2299ef088cbd20d1f72",
         "accepted_specs": [
           {
             "attempt_idx": 4,
@@ -1357,11 +1325,6 @@
           "action_min": -1.0,
           "action_max": 1.0
         }
-      },
-      "sha256": {
-        "metadata.json": "6a0e1ef5b903e923c37f5091eeece485d4a00dfc7a8c63a95c523cf59399531a",
-        "train.parquet": "47b4bd70080aa670c285f207aca9cc2f3c803d1f07c58fa0faa3a585e325939a",
-        "val.parquet": "af5561f9912e9a580bc8112875cf11a55e7014e418677293428e32fb911962e0"
       }
     },
     "baseline_publication": {

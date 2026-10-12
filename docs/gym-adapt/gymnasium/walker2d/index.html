@@ -215,7 +215,7 @@ datasets.vla_data.per_device_batch_size=16
 trainer.gradient_accumulation_steps=1
 
 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl PYTHONPATH=. \
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/examples/gymnasium/walker2d/starvla_eval.yaml \
   --checkpoint-path /mnt/checkpoints/latency-sensitive-bench/openvla_runs/walker2d_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/checkpoints/steps_5000_pytorch_model.pt \
   --model-config-path /mnt/checkpoints/latency-sensitive-bench/openvla_runs/walker2d_rgb_state_l0_return_gt3000_100ep_openvla_native_continuous_projector_sft_5k/config.full.yaml \

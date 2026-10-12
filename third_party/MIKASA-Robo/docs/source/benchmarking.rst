@@ -95,25 +95,25 @@ other.
 
 Smoke-test (one task, one episode, CPU backend)::
 
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --num-episodes 1 --sim-backend cpu \
        --output-dir eval_results/dummy
 
 Canonical Short-split run::
 
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --split short \
        --output-dir eval_results/dummy
 
 All 90 tasks::
 
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --split all \
        --output-dir eval_results/dummy
 
 Arbitrary subset of tasks::
 
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --task RememberColor3-VLA-v0 \
        --task ShellGameTouch-VLA-v0 \
        --task BatteriesCheckerEasy-VLA-v0 \
@@ -121,7 +121,7 @@ Arbitrary subset of tasks::
 
 With per-episode rollout videos::
 
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --split short \
        --save-videos \
        --output-dir eval_results/dummy
@@ -184,11 +184,11 @@ stopped:
 .. code-block:: bash
 
    # The split is inferred automatically from the existing result files.
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --resume eval_results/dummy/short/2026-05-21_18-52-16
 
    # Override or extend — e.g. resume files that mixed splits:
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --resume eval_results/dummy/all/2026-05-21_18-52-16 \
        --split all
 

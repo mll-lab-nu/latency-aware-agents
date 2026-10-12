@@ -64,7 +64,6 @@
       "state_dim": 11,
       "action_dim": 3,
       "state_encoding": "continuous_projector",
-      "checkpoint_sha256": "c35ddc57fef8fd096adca3df9ecf94662824c26b311c3884508f07646231f05b",
       "reload": "Existing strict key check with documented tied Qwen lm_head equivalence only"
     }
   },
@@ -100,57 +99,42 @@
     "files": {
       "hopper/zero_latency/Pi05/provenance.json": {
         "bytes": 8557,
-        "sha256": "4f212834d3ba5d258d5d957cd7146f971a1dbea1547030f6708bb0556c9726ee",
         "git_blob_sha1": "e2c7a44f703ed6e6aa7293d3c01c506a4a177fb0"
       },
       "hopper/zero_latency/Pi05/validation.json": {
         "bytes": 529,
-        "sha256": "ba29392eee723bf2268b6fb534fb7c69d66e5eb2a5dc50722b7aa110e9777a45",
         "git_blob_sha1": "c2624c34a25745cd631de144c111b68ef7d67494"
       },
       "hopper/zero_latency/Pi05/dataset_statistics.json": {
         "bytes": 2321,
-        "sha256": "bb23771f87f039a7fa41a682933aac9099f45c4c26b103fe03a51cb84b82c2c6",
         "git_blob_sha1": "bb92bf6761b388f4009b3ee0beb94cee8054651c"
       },
       "hopper/zero_latency/Pi05/config.full.yaml": {
         "bytes": 6327,
-        "sha256": "80f742682d9e1f20c6711ea461532b7998b2a13aefcb1f6ffadc076a8ebe55e3",
         "git_blob_sha1": "d6ec72abce705e3d32bbd258d18bcc4bcce838aa"
       },
       "hopper/zero_latency/Pi05/manifest.json": {
         "bytes": 3774,
-        "sha256": "be39e793656d05fe417369c9bb00ea69097ce7e4d67e91b2a509a2834f08498e",
         "git_blob_sha1": "3a27a795874aae90d48af4b9a5efeeba56a5ba02"
       },
       "hopper/zero_latency/Pi05/recovery.json": {
         "bytes": 4091,
-        "sha256": "234353fcc69437fd23c03c61d82c7204a8eac08ac2702159ec80f0e33063b9f7",
         "git_blob_sha1": "d2a5acb498c1993fb3dd7d45cba6bde94c6c7130"
-      },
-      "hopper/zero_latency/Pi05/SHA256SUMS": {
-        "bytes": 828,
-        "sha256": "2b15a588e5aef9931dedd93810d0981ea63e8b640ae4ffc6aa5572ef8fcd2640",
-        "git_blob_sha1": "a11021389ef3637e8c8c99727da7c779a028b7a3"
       },
       "hopper/zero_latency/Pi05/config.yaml": {
         "bytes": 3075,
-        "sha256": "821eb96c7ce689d8f43dbf0650cdcb20c2d672f31ca23d119548b87b7bc98015",
         "git_blob_sha1": "abd3b258077ddcbb1fabad859d50967ecc4287bf"
       },
       "hopper/zero_latency/Pi05/README.md": {
         "bytes": 945,
-        "sha256": "3b0d4233adbdc0a842fca00a51e9cc85b526b5752d81e6ebfb21c6c09f4ea591",
         "git_blob_sha1": "7b73691d4188671b3f031723e43ee347c45604c1"
       },
       "hopper/zero_latency/Pi05/latency_prompt_map.json": {
         "bytes": 373,
-        "sha256": "9fd22cc880afbd45589baa0db9ca0e237c3f89b4811156f6ed964600f82b186e",
         "git_blob_sha1": "f2b7129bb06cf782fa08ced52a646bb6c42dfaec"
       },
       "hopper/zero_latency/Pi05/checkpoints/model.pt": {
         "bytes": 10922629277,
-        "sha256": "c35ddc57fef8fd096adca3df9ecf94662824c26b311c3884508f07646231f05b",
         "git_blob_sha1": null
       }
     },

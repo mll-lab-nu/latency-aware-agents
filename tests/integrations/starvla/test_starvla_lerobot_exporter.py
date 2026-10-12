@@ -33,11 +33,11 @@ def test_load_rows_preserves_nested_values_and_order_across_batches(tmp_path):
     assert _load_rows(tmp_path, "train") == rows
 
 
-def test_balance_preparation_preserves_raw_state_masks_and_training_statistics(tmp_path):
+def test_balance_preparation_preserves_raw_state_masks_and_training_statistics(tmp_path, monkeypatch):
     """Long-lived task handoff: Balance owns its annotation, masks and frozen statistics."""
     from latency_bench.data.hf_parquet import embed_image_rows
-    from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
-    from latency_bench.integrations.starvla.task_contracts import prepare_lerobot, task_spec
+    from latency_bench.data.conversion import convert_dataset
+    from latency_bench.integrations.starvla.task_contracts import task_spec
 
     spec = task_spec("balance_profile_h8")
     labels = [f"joint_{index}" for index in range(spec.action_dim)]
@@ -64,12 +64,13 @@ def test_balance_preparation_preserves_raw_state_masks_and_training_statistics(t
         "action_labels": labels, "reward_field": "raw_reward", "rows_unit": "decision_step",
         "obs_fps": spec.fps, "obs_stride_raw_frames": 1,
         "gymnasium_task": {"task_name": spec.name, "action_space": {"type": "box", "labels": labels}},
-        "label_provenance": {"semantics": "teacher_issued_command"},
+        "label_provenance": {"semantics": "teacher_issued_command",
+                             "action_prefix": {"mode": "fixed_frames", "frames": 2}},
     }))
-    converted = tmp_path / "converted"
-    convert_canonical_rollout_to_lerobot(raw, converted, write_starvla_handoff=False)
     output = tmp_path / "prepared"
-    prepare_lerobot("balance_profile_h8", converted, tmp_path / "converted__val", output)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    convert_dataset({"conversion": {"format": "lerobot", "task": "balance_profile_h8",
+                                    "input_dir": "~/raw", "output_dir": "~/prepared"}})
     train_contract = json.loads((output / "task_contract.json").read_text())
     for name, expected_rows in (("prepared", rows[:2]), ("prepared__val", rows[2:])):
         directory = tmp_path / name
@@ -83,6 +84,7 @@ def test_balance_preparation_preserves_raw_state_masks_and_training_statistics(t
         modality = json.loads((directory / "meta/modality.json").read_text())
         assert modality["annotation"] == {"human.task_description": {"original_key": "task_index"}}
         contract = json.loads((directory / "task_contract.json").read_text())
+        assert contract["action_prefix"] == {"mode": "fixed_frames", "frames": 2}
         assert contract["normalization"] == train_contract["normalization"]
         assert contract["normalization"]["state"]["min"] == [2.0] * spec.state_dim
         assert contract["normalization"]["state"]["max"] == [4.0] * spec.state_dim
