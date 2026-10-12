@@ -35,7 +35,7 @@ teacher-rollouts-v1/
 ```
 
 Each split is a self-contained LeRobot v2 dataset with `data/`, `videos/`,
-and `meta/`. Data is sampled at 50 Hz; one row is one decision step. The
+and `meta/`. Data is sampled at 50 Hz. One row is one decision step. The
 episodes contain 100 total teacher rollouts split 90/10 with split seed 0.
 
 ## Schema
@@ -75,8 +75,8 @@ right_hand_index_0_joint, right_hand_index_1_joint, right_hand_middle_0_joint,
 right_hand_middle_1_joint
 ```
 
-State entries are ordered `state_0` through `state_197`; the authoritative
-feature metadata is in each split's `meta/info.json` and `meta/modality.json`.
+State entries follow the order `state_0` through `state_197`.
+Each split's `meta/info.json` and `meta/modality.json` define feature metadata.
 
 ## Provenance
 
@@ -93,7 +93,7 @@ applied in this dataset.
 
 Use `lerobot` for training and keep `lerobot__val`
 for validation. The StarVLA modality maps these fields to `state.state`,
-`action.action`, and `video.ego_view`; Balance uses the H8 action contract.
+`action.action`, and `video.ego_view`. Balance uses the H8 action contract.
 
 This dataset is for research and benchmarking in the HumanoidBench Balance
 Simple environment. It does not include model checkpoints or W&B artifacts.

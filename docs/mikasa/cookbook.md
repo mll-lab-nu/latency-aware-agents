@@ -1,14 +1,98 @@
 # MIKASA Intercept Grab Fast
 
-Install the simulator and model environments with [QUICK_START.md](../QUICK_START.md).
-The [standard pipeline](../standard_pipeline.md) describes the shared training runner.
+Install the reference task and model environments:
 
-## Shared state-based pipeline
+```bash
+bash install.sh --env mikasa_intercept_grab_fast --model openvla --tier dev
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate latency
+```
 
-The `train_{qwenoft,qwenpi_v3,qwengr00t,wanoft}.sh` launchers select the
-state-based H1 task. They use top and wrist RGB views, a 7D state, and one
-7D action at 20 Hz. Qwen models start from Qwen3-VL-4B-Instruct.
-WanOFT starts from Wan2.2-TI2V-5B-Diffusers and tiles the simultaneous views.
+Run commands from the repository root.
+The [installation guide](../QUICK_START.md) describes host graphics libraries and interpreter selection.
+The [artifact guide](../artifacts.md) identifies published teachers, datasets, and models.
+
+## Choose your input
+
+| Existing input | Next step |
+| --- | --- |
+| VLA inference bundle | Evaluate or profile the bundle |
+| Prepared LeRobot data | Train with `--dataset-dir` |
+| PPO teacher checkpoint | Collect demonstrations, then convert them |
+| Published teacher data | Use the shared H1 launcher |
+
+The shared H1 student uses top and wrist RGB views, 7D state, and one 7D action at 20 Hz.
+Qwen models use Qwen3-VL-4B-Instruct.
+WanOFT uses Wan2.2-TI2V-5B-Diffusers and tiles the simultaneous views.
+The original image-only H1 baseline has a different input contract.
+Use the contract saved with the selected checkpoint.
+
+## Evaluate an existing model
+
+Prepare the backbone recorded by the selected bundle:
+
+```bash
+hf download MODEL_REPO_ID --revision MODEL_COMMIT
+```
+
+Use the returned snapshot directory as `policy.backbone_path`.
+Save this overlay as `my_eval.yaml` in the repository root:
+
+```yaml
+__base__: configs/examples/mikasa_intercept_grab_fast/profile_qwenoft.yaml
+policy:
+  source: local
+  root: /ABSOLUTE/MODEL_BUNDLE
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
+  task_contract_path: task_contract.json
+  backbone_path: /ABSOLUTE/BACKBONE_SNAPSHOT
+executor:
+  mode: simulated
+  inference_devices: [cuda:1]
+  parallel_envs: 1
+latency:
+  method: zero
+evaluation:
+  episodes: 100
+  max_env_steps: 60
+logging:
+  output_dir: outputs/mikasa/eval
+```
+
+Replace the model and backbone paths with your prepared artifacts.
+The bundle must match the state-based H1 recipe.
+For another model, inherit its corresponding `profile_<model>.yaml`.
+
+To use a published bundle directly, replace the source block with its exact repository coordinates:
+
+```yaml
+policy:
+  source: hf
+  hf_repo: MLL-Lab/LAGEN-models
+  revision: MODEL_ARTIFACT_COMMIT
+  root: PATH_WITHIN_MODEL_REPOSITORY
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
+  task_contract_path: task_contract.json
+  backbone_path: /ABSOLUTE/BACKBONE_SNAPSHOT
+```
+
+Select the revision and path from the artifact manifest.
+Run evaluation with separate logical simulator and inference GPUs:
+
+```bash
+conda activate starvla_rl_games_openvla
+CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench eval --config my_eval.yaml
+```
+
+The inherited seed is 4242424242. The example evaluates 100 episodes with a 60-step limit at 20/20 Hz.
+Results identify the resolved model source and configuration.
+This evaluation is independent of training and data collection.
+
+## Train from published or prepared H1 data
+
+Run a short training check using the shared published dataset:
 
 ```bash
 conda activate latency
@@ -17,136 +101,124 @@ CUDA_VISIBLE_DEVICES=0,1 \
   --smoke --run-id mikasa-qwenoft-smoke
 ```
 
-Replace `--smoke` with `--no-publish` for a full local run, using a new run ID.
-The full recipe uses 5,000 SFT updates, global batch 128, and 100 zero-latency
-evaluation episodes. These launchers reuse the installed simulator interpreter.
-They do not run `uv sync`. Omitting `--no-publish` enables artifact publication.
+The check performs two SFT updates, saves and reloads the checkpoint, and evaluates two episodes.
+It does not publish artifacts or establish policy quality.
 
-## Fixed-latency successful H1 collection
-
-Use a native fixed-latency PPO checkpoint to collect H1 issued-command labels.
-The collector selects 250 successful training episodes and 25 successful
-validation episodes at 20 Hz. It keeps short successes, uses latency seed 0,
-and applies the task's 60-transition horizon. Packaging converts NPZ directly
-to LeRobot and computes normalization from the training split for both splits.
+For a full local run with prepared data, use:
 
 ```bash
-bash scripts/tasks/mikasa_intercept_grab_fast/collect_fixed_latency_dataset.sh \
-  2 3 /ABSOLUTE/PATH/checkpoint.pt outputs/mikasa_successful_h1 your-org/teacher-rollouts
+CUDA_VISIBLE_DEVICES=0,1 \
+  bash scripts/tasks/mikasa_intercept_grab_fast/train_qwenoft.sh \
+  --dataset-dir /ABSOLUTE/DATASET_PARENT \
+  --run-id mikasa-qwenoft-local --no-publish
 ```
 
-Here `2` selects 100 ms latency and `3` selects the physical GPU.
-The script uploads the prepared splits and provenance to the supplied HF dataset.
-Set `TASK_PY` to the simulator interpreter and `LEROBOT_PY` to an installed
-packaging interpreter from QUICK_START.
-The split sizes and publication settings are stored in
-`configs/examples/mikasa_intercept_grab_fast/collect_successful_h1.yaml`.
-Add `--package-only` before the positional arguments to reuse saved NPZ episodes
-and the saved latency configuration after collection completes.
+The parent must contain `lerobot/` and `lerobot__val/` with matching task contracts.
+Omit `--dataset-dir` to reuse the shared published data.
+The full H1 recipe uses 5,000 SFT updates, global batch 128, and 100 zero-delay evaluation episodes.
+It defaults to two training GPUs.
+The other launchers select `qwenpi_v3`, `qwengr00t`, or `wanoft`.
 
-## H8 input contracts
+Use `--output-dir` to select a run directory.
+The run saves training configuration, dataset references, evaluation records, and an `inference/` bundle.
+Use `--vla-python` and `--task-python` for explicit interpreter paths.
+See the [standard pipeline](../standard_pipeline.md) for resources, resume, and publication.
 
-H8 models predict eight 7D actions per request. They use 20/20 Hz and a
-60-transition episode limit. One inference worker processes admitted requests.
-The environment starts at reset and advances while the first request is pending.
-Busy-worker observations are dropped. Returned chunks use observation-aligned heads.
-The scheduler holds the final chunk action when the chunk expires.
+## Collect successful H1 data from a teacher
 
-| Task key | State | Dataset input |
-| --- | --- | --- |
-| `mikasa_h8` | 7D proprioception | Converted teacher suffix labels and valid-head masks |
-| `mikasa_conditioned_h8` | 63D: 7D proprioception + 8×7 action prefix | Prepared dataset with prefix and loss masks |
+Use a native fixed-latency PPO checkpoint with matching action and observation contracts.
+The recipe selects 250 successful training episodes and 25 successful validation episodes.
+It uses 20 Hz control, latency seed 0, and a 60-transition limit.
+It labels each student observation with the teacher's issued command.
 
-The shared training module accepts these task keys through `--task`.
-Conditioned H8 requires `--dataset-dir`. Do not supply an old 71D v2 dataset
-to the 63D v3 task. A fixed training condition sets prefix length from its
-declared delay. A profile condition uses the frozen profile mean, not the next
-sampled delay. Prefix masks mark committed heads and loss masks mark trainable heads.
-
-Published H8 SFT/DAgger bundles and the 63D transfer study use different protocols.
-The paper's 63D transfer matrix uses a 3,500-update DAgger development snapshot
-and 100 development episodes per cell. It is not a 200-episode held-out final
-acceptance result. Preserve each experiment's checkpoint and input contract.
-See the [artifact registry](../artifacts.md) for published references.
-
-## Original image-only H1 reference
-
-The published original baseline uses image-only inputs. Its fixed protocol and
-artifacts are recorded below. The current launchers use the shared state-based
-pipeline described above.
-
-### Fixed contract
-
-- Environment: `InterceptGrabFast-VLA-v0`, H1, `pd_ee_delta_pose`, 7D action at
-  20 Hz (50 ms control cadence).
-- Teacher: privileged-state PPO with a 49D state. Rollouts and evaluation use
-  deterministic mean actions; training samples actions.
-- Dataset: 275 successful teacher episodes, split into 250 train and 25
-  validation episodes.
-- VLA: StarVLA QwenOFT (Qwen3-VL-4B-Instruct plus an MLP action head), predicting
-  one current 7D action from the current frame; `include_state=false`.
-- SFT: one GPU, DeepSpeed ZeRO-2, global batch 64, 5,000 optimizer steps.
-- Gates: the teacher must pass the trainer `16/16` gate and an independent
-  canonical `95/100` gate. The VLA baseline gate is at least `25/50`
-  `success_once` episodes.
-
-This is a zero-delay baseline. It does not train with fixed delay, device
-profiles, action chunks, state/delay inputs, or online RL.
-
-## Profile the final VLA
-
-Inherit `configs/examples/mikasa_intercept_grab_fast/profile_qwenoft.yaml`
-and select your inference bundle with `policy.source: local`
-and `policy.root`. The example names
-`checkpoints/model.pt` inside the bundle. Set `policy.backbone_path` when needed.
+Set the simulator and conversion interpreters before running the Bash entrypoint:
 
 ```bash
+conda activate latency
+export TASK_PY="$(command -v python)"
+export LEROBOT_PY="$TASK_PY"
+bash scripts/tasks/mikasa_intercept_grab_fast/collect_fixed_latency_dataset.sh \
+  2 3 /ABSOLUTE/TEACHER/checkpoint.pt outputs/mikasa_successful_h1 YOUR_ORG/TEACHER_DATASET
+```
+
+`2` selects two raw steps, or 100 ms. `3` selects physical GPU 3.
+The output directory is `outputs/mikasa_successful_h1/fixed_l2/`.
+The script collects NPZ episodes, converts them to LeRobot, and uploads to the supplied dataset repository.
+Publication requires write access to that repository.
+
+To collect and convert locally, prepare the stage configurations separately:
+
+```bash
+conda activate latency
+python -m scripts.tasks.mikasa_intercept_grab_fast.successful_h1_dataset \
+  --stage prepare \
+  --config configs/examples/mikasa_intercept_grab_fast/collect_successful_h1.yaml \
+  --latency-frames 2 --checkpoint /ABSOLUTE/TEACHER/checkpoint.pt \
+  --output outputs/mikasa_successful_h1/fixed_l2 \
+  --repo-id YOUR_ORG/TEACHER_DATASET
+CUDA_VISIBLE_DEVICES=3 python -m latency_bench collect \
+  --config outputs/mikasa_successful_h1/fixed_l2/collect.yaml
+python -m latency_bench convert \
+  --config outputs/mikasa_successful_h1/fixed_l2/convert.yaml
+```
+
+The prepare stage records the publication destination but does not upload.
+The generated converter writes train and validation data using training-derived normalization.
+Add `--package-only` before the Bash entrypoint's positional arguments to reuse completed NPZ collection.
+
+## Use H8 and conditioned H8 data
+
+H8 predicts eight 7D actions per request.
+The recipes use 20/20 Hz and a 60-transition limit.
+One inference worker processes admitted requests. The executor drops observations when that worker is busy.
+Chunks align with their source observation. The scheduler holds the last chunk action when the chunk expires.
+
+| Task key | State | Training data |
+| --- | --- | --- |
+| `mikasa_h8` | 7D proprioception | Teacher suffix labels and valid-head masks |
+| `mikasa_conditioned_h8` | 63D: 7D proprioception + 8×7 action prefix | Explicit prefix and loss masks |
+
+The shared trainer accepts these keys through `--task`.
+For conditioned H8, supply a prepared `--dataset-dir`.
+The 63D v3 task cannot consume a 71D v2 dataset.
+A fixed condition selects the prefix from its declared delay.
+A profile condition selects it from the frozen profile mean.
+The prefix never uses the next sampled delay.
+
+Standalone task collection and conversion use the existing recipes:
+
+```bash
+conda activate latency
+python -m latency_bench collect --config configs/examples/mikasa_intercept_grab_fast/collect.yaml
+python -m latency_bench convert --config configs/examples/mikasa_intercept_grab_fast/convert.yaml
+```
+
+These recipes produce prefix H8 data for a fixed two-step delay.
+Use `collect_conditioned_h8.yaml` for its explicit conditioned recipe.
+Check each recipe's teacher, student, and normalization inputs before collection.
+
+## Profile your model
+
+Save `my_profile.yaml` in the repository root:
+
+```yaml
+__base__: configs/examples/mikasa_intercept_grab_fast/profile_qwenoft.yaml
+policy:
+  source: local
+  root: /ABSOLUTE/MODEL_BUNDLE
+  backbone_path: /ABSOLUTE/BACKBONE_SNAPSHOT
+logging:
+  output_dir: outputs/mikasa/profiling
+```
+
+Run the measurement:
+
+```bash
+conda activate starvla_rl_games_openvla
 CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench profile run --config my_profile.yaml
 ```
 
-The example uses logical `cuda:0` for MIKASA and `cuda:1` for inference.
-It describes a state-based H1 bundle. Use the image-only recipe's input
-configuration when measuring an image-only checkpoint. Select additional
-inference workers explicitly in `executor.inference_devices`.
-Add `--resume RUN_ID` to continue a partial run. The command returns the local
-measurement directory and fitted profile path.
-
-## Original baseline result
-
-The completed reference run produced:
-
-| Artifact | Result |
-| --- | --- |
-| PPO teacher | `100/100` canonical episodes; mean return `36.819` |
-| Rollouts | 275 episodes / 9,859 transitions; all successful |
-| LeRobot split | 250 train episodes / 8,911 frames; 25 validation episodes / 948 frames |
-| QwenOFT SFT | 5,000/5,000 steps; global batch 64 |
-| VLA evaluation | `27/50` (`54%`) canonical success; mean return `22.326` |
-
-## Published and developer artifacts
-
-Historical assets use the central locations below. Original source revisions remain in the consolidation manifest:
-
-- teacher/model: [central PPO teacher](https://huggingface.co/MLL-Lab/LAGEN-models/tree/e3fea81529fd98b5d5782db38803fe4062215dda/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1),
-  central revision `e3fea81529fd98b5d5782db38803fe4062215dda`, original source revision `38327e16f9b33cf5f827b54a606cb4c22d4dfbfc`;
-- dataset: [published rollouts](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a/zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-v1),
-  central revision `4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a`, original source revision `28312021c634fa97f8068077dfd6eb0efe6d45ce`.
-
-The accepted artifacts are also published in the central
-[`benchmark-models`](https://huggingface.co/MLL-Lab/LAGEN-models)
-repository at revision `204be41b83c892a1c5d0b37a1dd0d628dd2c6a46` and
-[`benchmark-datasets`](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets)
-at revision `82b99e2f238d2e1be46e435d5b1ca7a9b9a411a5`. Exact paths are listed in
-the [artifact registry](../artifacts.md). The model copy excludes optimizer
-state and W&B files; the dataset copy includes both raw NPZ and the fixed
-LeRobot split.
-
-## Troubleshooting
-
-- Complete the simulator check in the installation guide before PPO.
-- If PPO fails its gate, select and independently evaluate a new teacher
-  before collecting demonstrations. Record any training changes with that run.
-- If SFT runs out of memory, restart from step 0 with a new run id while
-  preserving global batch 64; do not resume an incomplete checkpoint.
-- For the original baseline, keep its 5,000-step state, inference weights,
-  resolved config, and 50-episode evaluation tied to the same run.
+The inherited recipe uses five repetitions of 50 episodes, with 20/20 Hz and a 60-step limit.
+It uses logical GPU 0 for MIKASA and GPU 1 for inference.
+The command prints the measurement directory, fitted profile path, and completion status.
+Use the [profiling cookbook](../profiling/cookbook.md) to replay the returned profile.

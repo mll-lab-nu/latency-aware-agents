@@ -23,7 +23,7 @@ temporal profile. The evaluation manifest identifies the immutable profile revis
 Set `evaluation.eval_raw_reward: true`. The GPU evaluation backend must honor that
 setting even when the training configuration retains `env.clip_reward: true`.
 
-The corrected original-cohort comparison uses 100 episodes, seeds
+The original-cohort comparison uses 100 episodes, seeds
 104771–104870, a 14,400-frame cap and 16 parallel environments. The student-cohort
 comparison uses seeds 1000000–1000099, a 7,200-frame cap, 32 environments and latency
 seed 271828, matching the archived student evaluation configuration.

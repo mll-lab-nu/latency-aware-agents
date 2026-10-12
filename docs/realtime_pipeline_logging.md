@@ -13,7 +13,7 @@ All durations are milliseconds.
   frame-derived `applied_latency_ms`.
 
 Realtime always measures basic timing. `logging.save_latency_records` controls
-whether these records are saved. It does not enable measurement.
+whether the logger saves these records. It does not enable measurement.
 
 ## Core Latency Fields
 

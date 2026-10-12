@@ -95,8 +95,9 @@ evaluation:
       latency: {method: fixed, fixed_latency_ms: 100}
 ```
 
-Each condition runs the same episode and seed protocol. Results are saved under
-`<output_dir>/<name>/`. An empty `suites` list runs the current condition once.
+Each condition runs the same episode and seed protocol.
+The evaluator saves results under `<output_dir>/<name>/`.
+An empty `suites` list runs the current condition once.
 Realtime and paused mode use their own timing semantics.
 
 ## Persistence and profiling
@@ -112,6 +113,6 @@ the model, performs warmup, and measures `evaluation.episodes` episodes.
 See the
 [profiling guide](profiling/cookbook.md).
 
-Native trainer arguments, checkpoint contracts, dataset fields and stored
-profile formats retain their own schemas. Historical run snapshots are converted
-only by artifact readers. New run YAML uses the fields documented above.
+Native trainer arguments, checkpoint contracts, dataset fields, and stored profiles retain their own schemas.
+Artifact readers convert historical run snapshots.
+New run YAML uses the fields documented above.

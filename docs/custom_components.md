@@ -1,147 +1,149 @@
-# Connect an external environment or policy
+# Connect your environment or policy
 
-Custom components live in your own Python module. LAGEN constructs them through
-the existing environment and policy factories. Each side can independently use
-a built-in component or a custom factory.
+Keep your components in your own Python package. LAGEN constructs them through importable factories.
+You can combine a built-in environment with your policy, or your environment with a built-in policy.
+Install the [Python package](QUICK_START.md#use-a-cpu-environment-or-your-own-components) first.
 
-`env.name` selects one concrete task registered with `register_env_adapter`.
-The registration owns the Gymnasium ID and native framework integration.
-`env.registration_imports` loads a user module that registers that task.
+## Run the CPU example
 
-## Factory contracts
+The example registers MountainCar and constructs a constant policy that selects the right action.
+It demonstrates the interfaces. It does not provide a trained MountainCar policy.
+Run these commands from the checkout:
 
-| Factory | Arguments | Return value |
+```bash
+export PYTHONPATH="$PWD/configs/examples/custom_env${PYTHONPATH:+:$PYTHONPATH}"
+python -m latency_bench eval --config configs/examples/custom_env/eval.yaml
+```
+
+The configuration runs three episodes with seed 7 and a limit of 50 raw steps per episode.
+The environment runs at 50 FPS. The policy receives observations at 10 FPS.
+A fixed 100 ms delay becomes five raw steps.
+Results and the resolved configuration appear under `outputs/custom_mountain_car/eval/`.
+
+Use the same files from a project outside the checkout:
+
+```bash
+export LAGEN_CHECKOUT="$PWD"
+mkdir -p /tmp/my-lagen-project
+cp "$LAGEN_CHECKOUT"/configs/examples/custom_env/*.yaml /tmp/my-lagen-project/
+cp "$LAGEN_CHECKOUT"/configs/examples/custom_env/components.py /tmp/my-lagen-project/
+cd /tmp/my-lagen-project
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+python -m latency_bench eval --config eval.yaml
+```
+
+Use the interpreter where you installed LAGEN. Output paths are relative to your project directory.
+YAML `__base__` paths are relative to the YAML file that contains them.
+
+## Implement the factories
+
+[`components.py`](../configs/examples/custom_env/components.py) contains the complete example.
+Replace its constant policy with your model adapter.
+
+| Factory | Arguments | Result |
 | --- | --- | --- |
 | Environment | `config, noop_action` | `EnvAdapter` |
 | Policy | `config, action_resolver` | `PolicyRunner` |
 
-`config` is the complete run configuration. `noop_action` is the resolved native
-`Action`. `action_resolver` maps configured action names to native `Action`
-objects. A model adapter can also construct native actions directly.
+`config` contains the full run configuration.
+`noop_action` is the resolved native `Action` used while no prediction is available.
+`action_resolver` maps configured names to native actions.
+A policy can construct native actions directly.
 
-An environment adapter advances one raw step per `step`, preserves the declared
-clock, and supplies observations through the existing `Observation` interface.
-A policy implements `predict(observation) -> PolicyOutput`. It owns model input
-preprocessing, output decoding, and any recurrent state. Implement
-`reset_state(slot_id=None)` to reset that state at episode boundaries.
+Register a concrete task with `register_env_adapter`.
+The registration owns its Gymnasium ID and native integration.
+Set `env.name` to that task name.
+Set `env.registration_imports` to your registration module.
+For a custom policy, set `policy.type: custom` and `policy.factory: module:function`.
 
-For batched evaluation, use `observation.metadata["slot_id"]` to identify each
-environment's state. Batch positions can change as episodes finish.
-`predict_batch` returns outputs in the same order as its input observations.
-`reset_state(slot_id=...)` clears the addressed slot's state; single-environment
-execution uses slot 0. For a stateful realtime policy, start with one inference
-worker. Separate worker processes do not share policy state.
+An `EnvAdapter` advances one raw step per `step()` and supplies an `Observation`.
+A `PolicyRunner` implements `predict(observation) -> PolicyOutput`.
+The policy owns preprocessing, inference, action decoding, and recurrent state.
+See the [Gymnasium guide](gymnasium_adapter.md) for task and action contracts.
 
-## Example from your own project
+## Select execution and manage policy state
 
-Save the following module as `my_components.py` in your project. The constant
-policy demonstrates construction; replace its factory with your model adapter.
-
-```python
-from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
-from latency_bench.policy.base import ConstantPolicyRunner
-from latency_bench.envs.factory import register_env_adapter
-
-
-@register_env_adapter("mountain_car", env_id="MountainCar-v0")
-def make_env(config, noop_action):
-    env = config["env"]
-    return GymnasiumEnvAdapter(
-        env_id=env["env_id"],
-        registration_imports=[],
-        make_kwargs={},
-        env_fps=env["env_fps"],
-        noop_action=noop_action,
-        frame_stack=1,
-        export_env_raw_rgb_frames=False,
-    )
-
-
-def make_policy(config, action_resolver):
-    action = action_resolver.resolve(config["policy"]["action"])
-    return ConstantPolicyRunner(action)
-```
-
-Save this configuration as `eval.yaml`:
+`eval.yaml` uses simulated execution. For synchronous execution, set `executor.mode: paused`.
+For realtime execution, use this executor block:
 
 ```yaml
-experiment:
-  name: custom_mountain_car
-  seed: 7
-env:
-  name: mountain_car
-  registration_imports: [my_components]
-  env_fps: 50
-  obs_fps: 10
-  noop_action: coast
-  action_map: {left: 0, coast: 1, right: 2}
-policy:
-  type: custom
-  factory: my_components:make_policy
-  action: right
 executor:
-  mode: simulated
-latency:
-  method: fixed
-  fixed_latency_ms: 40
-scheduler:
-  hold_policy: hold
-  ordering_policy: latest_ready
-evaluation:
-  episodes: 2
-  max_env_steps: 100
-logging:
-  output_dir: outputs/custom_mountain_car
-  save_step_records: true
-  save_action_records: true
-  save_latency_records: true
+  mode: realtime
+  inference_devices: [cpu]
+  parallel_envs: 1
+  sync_cuda: false
 ```
 
-With LAGEN installed, run from your project directory:
+Realtime measures actual latency. Simulated execution uses the `latency` section.
+See [execution semantics](latency_execution_semantics_en.md) for scheduling rules.
+
+Implement `reset_state(slot_id=None)` for a stateful policy.
+Each observation identifies its episode slot through `observation.metadata["slot_id"]`.
+Batch positions can change when episodes finish.
+`predict_batch()` must return results in input order.
+An episode reset clears the addressed slot's state. Single-environment execution uses slot 0.
+
+Start a stateful realtime policy with one inference worker.
+Each worker process constructs its own policy and retains its own state.
+Workers receive their device in `config["executor"]["inference_devices"][0]`.
+Install your package in every interpreter that constructs a component.
+This includes `policy.worker_python_executable` when configured.
+
+## Collect and convert demonstrations
+
+Install LeRobot as described in the [installation guide](QUICK_START.md).
+From the external example directory, run:
 
 ```bash
-PYTHONPATH="$PWD" python -m latency_bench eval --config eval.yaml
+python -m latency_bench collect --config collect.yaml
+python -m latency_bench convert --config convert.yaml
 ```
 
-For realtime execution, set `executor.mode: realtime` and
-`executor.inference_devices: [cpu]` for this CPU example. Realtime measures actual
-latency automatically. The `latency` section only supplies simulated delays. For a GPU model, select the intended devices
-explicitly. Inference workers receive their assigned device in
-`config["executor"]["inference_devices"][0]` before calling the factory.
+Collection writes RGB observations paired with the teacher's issued commands.
+The example keeps student state out of the dataset.
+It writes canonical data under `outputs/custom_mountain_car/dataset/`.
+Conversion writes LeRobot data under `outputs/custom_mountain_car/lerobot/` and its validation companion.
+See [collection](rollout_collection.md) for alignment and training metadata.
 
-In realtime execution, the environment factory runs in the environment process.
-The policy factory runs in each inference process. Install your package in each
-interpreter that constructs it, including a separately configured
-`policy.worker_python_executable`. Import paths must work in those interpreters;
-LAGEN does not search source directories for a missing module.
+## Measure and replay latency
 
-Factory strings remain in `resolved_config.yaml`. Invalid references, import
-errors and constructor errors propagate to the caller. Executors close an
-environment they have created if subsequent policy construction fails.
+Run the example measurement:
 
-## Python construction
+```bash
+python -m latency_bench profile run --config profile.yaml
+```
 
-Use the same functions directly when constructing components in your process:
+The example measures two repetitions of three episodes with the same clocks and seed protocol.
+The command prints `RUN_DIR`, `PROFILE_PATH`, `MEASUREMENT_STATUS`, and `FIT_STATUS`.
+Replace `/ABSOLUTE/PROFILE/profile.json` in `replay.yaml` with the returned `PROFILE_PATH`.
+Run the replay:
+
+```bash
+python -m latency_bench eval --config replay.yaml
+```
+
+Replay uses the fitted temporal profile with latency seed 7.
+Keep the profile's companion files beside `profile.json`.
+The [profiling cookbook](profiling/cookbook.md) explains measurement, fitting, and recovery.
+
+## Construct components in Python
+
+Use explicit factories when your application constructs components in one process:
 
 ```python
 from latency_bench.core.actions import ActionResolver
 from latency_bench.envs.factory import build_env_adapter
 from latency_bench.policy.factory import build_policy
 
+from components import make_env, make_policy
+
+# config is your resolved run configuration.
 actions = ActionResolver(config["env"])
 env = build_env_adapter(config, actions.noop_action, factory=make_env)
 policy = build_policy(config, actions, factory=make_policy)
 ```
 
-The explicit `factory=` argument overrides factory selection from the config.
-Pass constructed components to `build_executor(config, env=env, policy=policy)`
-for single-environment simulated or paused execution. The executor closes its
-environment when it closes. Use environment registration modules and importable policy factory strings for
-realtime or pooled inference. Each process constructs its own components.
-
-## Collect teacher demonstrations
-
-The same external factories support [canonical demonstration collection](rollout_collection.md).
-Select student RGB and optional state separately from teacher input. The output
-pairs each source observation with its teacher command and can be passed directly
-to the existing training-format converter.
+Pass the components to `build_executor(config, env=env, policy=policy)` for single-environment simulated or paused execution.
+The executor closes its environment when it closes.
+Use registration modules and importable policy factories for realtime or pooled inference.
+Import and constructor errors propagate to the caller.

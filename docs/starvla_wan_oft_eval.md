@@ -10,7 +10,7 @@ one-click WanOFT pipelines:
 Install the matching runtime once:
 
 ```bash
-bash install.sh --tier use --model wan_oft --env all --accept-rom-license
+bash install.sh --tier use --model wan_oft --env flappy,demon_attack,deadly_corridor
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate starvla_rl_games_wan_oft
 ```
@@ -45,7 +45,7 @@ python -m latency_bench eval \
   --output-dir outputs/<run_id>_smoke \
   --episode-start 0 \
   --episode-count 1 \
-  --eval-max-steps 50
+  --max-env-steps 50
 ```
 
 `--latency-raw-frames` overrides both the benchmark's fixed raw-frame latency
@@ -70,13 +70,11 @@ For the default five-image checkpoints:
 | Demon Attack | 4 | 17 | `0,4,8,12,16` |
 | Deadly Corridor | 4 | 17 | `0,4,8,12,16` |
 
-The selected images are passed to StarVLA oldest-to-newest, matching
-`starVLA.training.rl_games.eval_core`. At reset the environment's existing raw
-frame buffer repeats the initial image, which matches eval_core's initial
-history. Packed sequences require raw RGB input; a ghost-trail transform is a
-different model input contract.
+The adapter passes selected images to StarVLA oldest-to-newest, matching `starVLA.training.rl_games.eval_core`.
+At reset, the raw frame buffer repeats the initial image to match eval_core's initial history.
+Packed sequences require raw RGB input.
+A ghost-trail transform defines a different model input contract.
 
-The prompt map also supplies the exact `latency_raw_frames` value for in-process
-StarVLA training evaluation. This preserves the two frame-skipped tasks'
-6-raw-frame latency as 1.5 policy decision intervals instead of rounding it to
-an integer number of decisions.
+The prompt map supplies `latency_raw_frames` for in-process StarVLA training evaluation.
+For the two frame-skipped tasks, six raw frames remain 1.5 policy decision intervals.
+The evaluator does not round that delay to whole decision intervals.

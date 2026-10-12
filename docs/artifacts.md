@@ -68,9 +68,8 @@ manifest's model configuration before comparing architectures.
 
 ## Task protocols and source limits
 
-- [Balance](humanoidbench/cookbook.md): the current shared runner needs an H8
-  teacher and its training configuration. The default H8 teacher download path
-  is unavailable. Published H1 teachers do not satisfy that contract.
+- [Balance](humanoidbench/cookbook.md): the current H8/H16 recipe uses an H1 FastTD3 teacher
+  and its matching resolved training configuration.
 - [MIKASA](mikasa/cookbook.md): distinguish image-only H1, state-based H1,
   unconditioned H8, and conditioned H8. Published 71D conditioned bundles do not
   use the current 63D v3 input. The 63D transfer matrix is a development snapshot.
@@ -108,9 +107,8 @@ the raw-frame versus latency-label difference, and missing mixed-policy training
 
 ## Prepare a backbone for evaluation
 
-Select the exact model repository and revision from the checkpoint's recorded
-provenance or its explicit `backbone` metadata. A directory named after a model
-is not evidence of its identity. Prepare the model before starting inference:
+Select the backbone repository and revision from the checkpoint's provenance or `backbone` metadata.
+Prepare the backbone before starting inference:
 
 ```bash
 hf download MODEL_REPO_ID --revision MODEL_COMMIT
@@ -145,9 +143,10 @@ logging:
   output_dir: /ABSOLUTE/RESULTS/inverted_pendulum_eval
 ```
 
-Run it in the installed benchmark environment:
+For StarVLA, use the model interpreter with the selected task dependencies installed:
 
 ```bash
+conda activate starvla_rl_games_openvla
 python -m latency_bench eval --config /ABSOLUTE/PATH/local_eval.yaml
 ```
 

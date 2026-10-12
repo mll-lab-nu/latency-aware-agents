@@ -13,7 +13,7 @@ The small privileged-state PPO teacher used to collect the published
 `pd_ee_delta_pose` action. The checkpoint is evaluated with deterministic mean
 actions.
 
-The full setting and commands are in the
+The current workflow and commands are in the
 [MIKASA cookbook](https://github.com/ZihanWang314/latency-sensitive-bench/blob/master/docs/mikasa/cookbook.md).
 The matching rollouts are in the
 [dataset repository](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets/tree/4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a/zero-latency/mikasa-intercept-grab-fast/teacher-rollouts-v1).
@@ -24,9 +24,10 @@ The matching rollouts are in the
 zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/checkpoint.pt
 ```
 
-`final_success_ckpt.pt` is the PyTorch checkpoint consumed by the official
-MIKASA collector and evaluator. The evaluation summary records the fixed-seed
-100-episode canonical evaluation. The checkpoint is 1,170,029 bytes.
+The original source named this checkpoint `final_success_ckpt.pt`.
+The published `checkpoint.pt` is consumed by the MIKASA collector and evaluator.
+The evaluation summary records the fixed-seed 100-episode canonical evaluation.
+The checkpoint is 1,170,029 bytes.
 
 ## Training setting
 

@@ -1,115 +1,97 @@
-# Paper Experiment Workflow
+# Run the paper experiment recipes
 
-Each reproducible sweep experiment has one public shell entrypoint. Run it from
-the repository root.
+Each sweep has a public Bash entrypoint.
+Run commands from the repository root with the selected task dependencies installed.
 
 | Experiment | Entrypoint |
 | --- | --- |
-| Observation stride | `bash scripts/experiments/observation_stride/run.sh <command>` |
-| Memory / small model | `bash scripts/experiments/memory/small_model/run.sh <command>` |
-| Jitter robustness | `bash scripts/experiments/jitter_robustness/run.sh <command>` |
+| Observation stride | `scripts/experiments/observation_stride/run.sh` |
+| Memory / small model | `scripts/experiments/memory/small_model/run.sh` |
+| Jitter robustness | `scripts/experiments/jitter_robustness/run.sh` |
 
-The supported commands are:
+## Select stages
 
-```text
-generate       expand source specs into configs and manifests
-train          train the canonical checkpoint set
-eval           evaluate every capped/extended variant
-build-data     aggregate the fresh local evaluation summaries
-plot           plot an explicit local data snapshot
-upload         upload completed model and evaluation artifacts
-all            run generate -> train -> eval -> build-data -> plot -> upload
-published-plot rebuild the pinned published snapshot from historical sources
+| Command | Effect |
+| --- | --- |
+| `generate` | Write configurations and manifests from source specifications |
+| `train` | Train the canonical checkpoint set |
+| `eval` | Evaluate capped and extended variants |
+| `build-data` | Aggregate complete local evaluation summaries |
+| `plot` | Plot the selected local data snapshot |
+| `upload` | Publish completed model and evaluation artifacts |
+| `all` | Run generation, training, evaluation, aggregation, plotting, and publication |
+| `published-plot` | Rebuild a pinned published snapshot from its historical sources |
+
+Run generation and training separately when you want to retain local results:
+
+```bash
+bash scripts/experiments/observation_stride/run.sh generate
+bash scripts/experiments/observation_stride/run.sh train --gpus 0,1
+bash scripts/experiments/observation_stride/run.sh eval --gpus 0,1
 ```
 
-For example:
+Use the complete pipeline to publish results:
 
 ```bash
 bash scripts/experiments/observation_stride/run.sh all --gpus 0,1
 ```
 
-`all` always uses the complete seed set. Use `generate --seeds <csv>` and
-`train`/`eval --match <substring>` only for partial development runs; a partial
-result set is not accepted by `build-data`.
+`all` uses the complete seed set and uploads artifacts.
+Use `generate --seeds <csv>` and `train` or `eval --match <substring>` for partial runs.
+`build-data` requires the complete result set.
+Inspect each entrypoint's help for stage-specific inputs.
 
-## Training and evaluation manifests
+## Reuse checkpoints across evaluation variants
 
-Observation stride and memory share checkpoints between their capped and
-extended variants. Their `train` command runs the Flappy Bird and Demon Attack
-extended manifests plus the single Deadly Corridor manifest. Their `eval`
-command runs all five manifests, so capped evaluation never schedules duplicate
-training.
+Observation stride and memory train the extended Flappy and Demon Attack manifests and the single Deadly Corridor manifest.
+Their evaluation stage runs all five manifests.
+Capped evaluation reuses its extended checkpoint.
 
-Jitter robustness uses four source specs under
-`configs/experiments/jitter_robustness/`: Flappy Bird, Demon Attack capped,
-Demon Attack extended, and Deadly Corridor. Each environment spec contains all
-five single-profile and two mixed-profile training settings. Demon Attack is
-trained from the capped manifest once and evaluated at both 3,600 and 36,000
-steps. Deadly Corridor uses the canonical 35/8.75 clock pair and a 30,000-step
-horizon.
+Jitter robustness uses four source specifications under `configs/experiments/jitter_robustness/`.
+Each contains five single-profile and two mixed-profile training conditions.
+Demon Attack trains once from the capped manifest and evaluates at 3,600 and 36,000 steps.
+Deadly Corridor uses 35/8.75 Hz and a 30,000-step horizon.
 
-## Internal manifest runner
+## Run one manifest and resume
 
-The public scripts delegate one manifest at a time to:
+The existing manifest runner supports individual stages:
 
 ```bash
 python scripts/experiment_runner/run_manifest_jobs.py \
-  --manifest <generated-root>/manifest.tsv \
-  --stage train \
-  --gpus 0,1
+  --manifest /ABSOLUTE/GENERATED/manifest.tsv \
+  --stage train --gpus 0,1
 ```
 
-`--stage` accepts `all`, `train`, `eval`, or `upload`; the default `all`
-preserves the original train/eval/upload behavior. Stage-specific train and
-eval invocations do not upload automatically. Eval never trains implicitly, so
-a capped manifest can use a checkpoint produced by its extended counterpart.
+`--stage` accepts `all`, `train`, `eval`, or `upload`.
+Its default `all` runs training, evaluation, and upload.
+Separate train and evaluation stages do not upload.
+Evaluation does not train implicitly.
 
-Progress is append-only in the manifest's sibling `runner_events.jsonl`.
-Successful stages are skipped on rerun, failed train/eval stages are retried at
-that stage, and upload retries use `--max-upload-attempts`. `--dry-run` prints
-the selected commands without writing progress events. Resume state is keyed by
-job ID; remove the corresponding event log after changing a generated job's
-training, evaluation, or upload semantics.
+The runner records events in `runner_events.jsonl` beside the manifest.
+It skips successful stages on rerun and retries failed stages.
+`--max-upload-attempts` limits upload retries.
+`--dry-run` prints commands without writing progress events.
+Resume identifies jobs by manifest job ID.
+Use a new event log after changing a job's training, evaluation, or publication semantics.
+`--gpus` selects each worker's visible devices. The runner executes on the current host.
 
-The runner is host-local. `--gpus` sets `CUDA_VISIBLE_DEVICES` for each worker;
-SSH and remote host selection remain outside the runner.
+## Read outputs and publish
 
-## Uploads
+`build-data` requires every expected local summary and fails when a seed, profile, or axis value is missing.
+Local CSV and figure outputs appear under `outputs/<experiment>/paper/`.
+`published-plot` reads its pinned source records separately.
+It does not substitute fresh results for missing historical inputs.
 
-The canonical specs upload to:
+Canonical upload destinations are `MLL-Lab/LAGEN-models` and `MLL-Lab/LAGEN-datasets`.
+Paths identify the experiment, task, horizon variant, stage, and job.
+The recipe uploads shared checkpoints once.
+Model uploads exclude optimizer state, recovery state, event files, and caches.
 
-```text
-MLL-Lab/LAGEN-models
-MLL-Lab/LAGEN-datasets
-```
+Authentication uses the Hugging Face login, a supported token environment variable, or the same variable in the repository `.env`.
+The `all` stage builds local data and figures before upload.
+An upload failure returns nonzero and preserves local artifacts.
+Keep training, evaluation, acceptance, and publication as separate states.
 
-Remote paths are namespaced by paper experiment, environment, horizon variant,
-stage, and manifest job ID. Capped manifests that reuse an extended checkpoint
-have no model upload target, preventing duplicate model uploads. W&B data,
-training state directories, optimizer directories, event files, and caches are
-excluded from model uploads.
-
-Authentication uses the Hugging Face cached login, a supported HF token
-environment variable, or the same token variable in the repository `.env`.
-Evaluation artifacts are uploaded before the larger model artifacts. `all`
-builds the local data and figures before uploading; an upload failure is printed,
-recorded in the event log, and returns nonzero without deleting local artifacts.
-
-## Local and published figures
-
-`build-data` reads every expected local summary JSON and fails on a missing
-seed, profile, or axis value. It does not fall back to W&B. Local CSV and figure
-outputs live under `outputs/<experiment>/paper/`, outside the committed paper
-snapshot.
-
-`published-plot` is a separate strict path for pinned W&B histories and explicit
-historical JSON roots. Jitter robustness additionally verifies the historical
-JSON hashes. It never substitutes fresh local results for missing published
-provenance.
-
-## Internal tools
-
-- `scripts/sweeps/generate_sweep_configs.py` expands one source spec.
-- `scripts/experiment_runner/run_manifest_jobs.py` executes one manifest.
-- `train_commands.txt` and `latency_bench_eval_commands.txt` are derived
-  artifacts; `manifest.tsv` and `runner_events.jsonl` are the source of truth.
+`manifest.tsv` and `runner_events.jsonl` identify jobs and completed stages.
+The runner generates command listings from the manifest.
+See [artifacts](artifacts.md) for published experiment manifests and evidence.

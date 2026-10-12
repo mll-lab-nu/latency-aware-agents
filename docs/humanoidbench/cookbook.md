@@ -1,31 +1,91 @@
-# HumanoidBench Balance Simple (G1)
+# HumanoidBench Balance Simple
 
-Install the simulator and model environments with [QUICK_START.md](../QUICK_START.md).
-The [standard pipeline](../standard_pipeline.md) describes the shared training workflow.
-
-## Task and teacher inputs
-
-The zero-latency student uses `g1_sonic_balance_simple` at 50 Hz, a 198D state,
-256×256 head-camera RGB, and H8 chunks of 43D absolute joint targets.
-The SONIC name identifies the scene assets and joint order. The policy acts
-on joint targets and does not load a SONIC policy.
-
-## Collect and train the student
-
-The current recipe uses an H1 FastTD3 teacher to label H8 or H16 private
-rollouts from student states. `zero_full` labels the full chunk.
-`profile_conditioned` fixes the returned action prefix and labels its suffix.
-
-For standalone collection, edit the model and asset paths in
-`configs/examples/g1_sonic_balance_simple/collect.yaml`, then run:
+Install the task and model dependencies:
 
 ```bash
-python -m latency_bench collect --config my_collect.yaml
-python -m latency_bench convert --config my_convert.yaml
+bash install.sh --env g1_sonic_balance_simple --model openvla --tier dev
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate latency
+python -m latency_bench.envs.tasks.humanoidbench.assets \
+  --cache-dir results/humanoidbench_g1_sonic_assets
 ```
 
-The task experiment owns the SFT/DAgger schedule. Run a local smoke with
-matching teacher weights, the resolved teacher config, and a downloaded backbone:
+Run commands from the repository root.
+Use `MUJOCO_GL=egl` and `PYOPENGL_PLATFORM=egl` for the reference offscreen renderer.
+See [installation](../QUICK_START.md) for host libraries and interpreters.
+
+## Choose the matching contract
+
+The student uses head-camera RGB and physical state at 50 Hz.
+H8 and H16 predict chunks of 43D absolute joint targets.
+The SONIC name identifies scene assets and joint order. The student does not load a SONIC policy.
+Read the exact input dimensions and horizon from the bundle's `task_contract.json`.
+
+| Existing input | Next step |
+| --- | --- |
+| Model bundle | Evaluate or profile it with its saved contract |
+| H1 FastTD3 teacher | Collect H8/H16 labels and convert them |
+| Existing experiment directory | Resume its saved SFT/DAgger schedule |
+| Converted data | Use your trainer with the saved task contract |
+
+`zero_full` labels the full teacher chunk.
+`profile_conditioned` preserves the committed action prefix and labels its suffix.
+The conditioned input includes causal action context.
+
+## Collect and convert teacher labels
+
+Save this overlay as `my_collect.yaml` in the repository root:
+
+```yaml
+__base__: configs/examples/g1_sonic_balance_simple/collect.yaml
+policy:
+  source: local
+  root: /ABSOLUTE/TEACHER_BUNDLE
+  checkpoint: checkpoint.pth
+  model_config: fasttd3_train.yaml
+logging:
+  output_dir: outputs/balance/dataset
+```
+
+Use the teacher weights and resolved FastTD3 training configuration from the same run.
+The inherited recipe uses H8 `zero_full` labels and a 71,000-row budget.
+Its seed is 4100001. Its latency seed is 271828.
+Replace `collection.teacher_revision` with your source revision when using another teacher.
+
+```bash
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl \
+  python -m latency_bench collect --config my_collect.yaml
+python -m latency_bench convert --config configs/examples/g1_sonic_balance_simple/convert.yaml
+```
+
+Collection writes canonical data under `outputs/balance/dataset/`.
+Conversion writes `outputs/balance/lerobot/`, its validation companion, and the task contract.
+For H16, set `collection.action_horizon: 16` and select new output paths.
+Save a matching converter overlay as `my_convert_h16.yaml`:
+
+```yaml
+__base__: configs/examples/g1_sonic_balance_simple/convert.yaml
+conversion:
+  task: balance_profile_h16
+  input_dir: outputs/balance/h16/dataset
+  output_dir: outputs/balance/h16/lerobot
+```
+
+Set the H16 collection output to `outputs/balance/h16/dataset`.
+Run `python -m latency_bench convert --config my_convert_h16.yaml` after that collection completes.
+Keep normalization consistent with the selected training contract.
+See [collection](../rollout_collection.md) for converter settings.
+
+## Run the SFT/DAgger recipe
+
+Prepare these inputs:
+
+- H1 FastTD3 teacher weights and the matching `fasttd3_train.yaml`.
+- The model backbone selected by the experiment, stored locally.
+- The StarVLA interpreter and a new experiment output directory.
+- A fitted profile when using `profile_conditioned` labels.
+
+Run a short H8 check:
 
 ```bash
 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl CUDA_VISIBLE_DEVICES=0,1 \
@@ -39,43 +99,29 @@ MUJOCO_GL=egl PYOPENGL_PLATFORM=egl CUDA_VISIBLE_DEVICES=0,1 \
   --gradient-checkpointing --smoke
 ```
 
-Use `--label-mode profile_conditioned --profile-path /ABSOLUTE/PROFILE/profile.json`
-for conditioned labels. Use `--horizon 16` for H16. The recipe stays local unless
-`--publish` is supplied. `--resume` continues its recorded experiment.
+For full training, omit `--smoke` and select a new output directory.
+The full schedule uses 5,000 bootstrap updates and ten DAgger rounds of 500 updates each.
+Global batch is 128. The default uses two training GPUs.
+The run saves its exact budgets, seed lists, environment configuration, data references, and bundles.
+A short run checks execution. It does not establish closed-loop performance.
 
-## Profile a checkpoint
+Use `--horizon 16` for H16.
+For conditioned training, use `--label-mode profile_conditioned --profile-path /ABSOLUTE/PROFILE/profile.json`.
+`--resume` continues the saved experiment in its existing output directory.
+The recipe publishes only when you pass `--publish`.
 
-Inherit `configs/examples/g1_sonic_balance_simple/profile_qwenoft.yaml` in
-`my_profile.yaml`. Select `policy.source: local` and set
-`policy.root` to the training run's inference bundle.
-The example uses `checkpoints/model.pt` inside that bundle. Configure the
-matching backbone through `policy.backbone_path` when needed.
+The combined recipe prepares its bootstrap data from the teacher.
+For independently converted data, use your training code with its task contract.
+The combined recipe does not provide a standalone dataset argument.
 
-```bash
-CUDA_VISIBLE_DEVICES=0 python -m latency_bench profile run --config my_profile.yaml
-```
+## Evaluate an existing bundle
 
-The ordinary config defines the workload and inference device. The
-[profiling cookbook](../profiling/cookbook.md) describes measurement and fitting.
-
-## Evaluate profile-conditioned bundles
-
-Profile-conditioned H8 and H16 bundles use 550D and 902D inputs respectively.
-These include the physical state and action context. Read the dimensions and
-horizon from each bundle's `task_contract.json`.
-
-The fixed-mean prefix protocol sets
-`K = ceil(profile.summary.mean_ms * env_fps / 1000)` once per evaluation.
-It constructs the prefix from actions already available when the request starts.
-Actual action delays still come from the temporal profile. The evaluator applies
-new results at their actual readiness time, not at an artificial K-frame deadline.
-
-Run the two trained bundles against the same profile environment:
+Use the saved experiment environment to preserve the task and latency protocol:
 
 ```bash
 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl \
   python -m scripts.starvla.evaluate \
-  --task balance --bundle /ABSOLUTE/BASELINE/bundle \
+  --task balance --bundle /ABSOLUTE/MODEL_BUNDLE \
   --environment /ABSOLUTE/EXPERIMENT/environment.json \
   --output /ABSOLUTE/NEW_RESULTS/baseline \
   --prefix-mode none \
@@ -83,20 +129,42 @@ MUJOCO_GL=egl PYOPENGL_PLATFORM=egl \
   --backbone /ABSOLUTE/BACKBONE
 ```
 
-For the conditioned bundle, use a new output directory and
+The output directory must be new.
+For a conditioned bundle, select a new output directory and use
 `--prefix-mode profile_mean --prefix-profile /ABSOLUTE/PROFILE/profile.json`.
-The environment file must preserve the selected experiment's task and latency
-settings. The evaluator requires a new output directory.
+The evaluator fixes the prefix length at `ceil(profile.summary.mean_ms * env_fps / 1000)`.
+Temporal profile draws still determine actual action readiness.
+Use the same environment and profile when comparing bundles.
 
-The published fixed-mean comparison uses 64 episodes, seeds 820001–820064,
-50/50 Hz, capacity one, and a 1,000-frame cap. Profile seed is 271828 and
-inference seed is 941731. Its OFT/PI/GR00T prefixes are 2/5/4 frames.
-These are model-specific RTX 3090 profiles, not equal-delay architecture comparisons.
-QwenOFT does not consume the explicit flow-model prefix. Its comparison measures
-the difference between the two trained action-context policies.
+Published comparisons identify their checkpoint, episode count, clocks, seeds, and model-specific hardware profile.
+The [artifact guide](../artifacts.md) links those experiment manifests.
+Keep those protocols with the reported results.
 
-These evaluations reuse existing checkpoints. They do not establish that a
-new training run under the fixed-mean input protocol reproduces those results.
-Use the [published model and experiment references](../artifacts.md) to identify
-weights and evaluation evidence. Keep training, evaluation, acceptance, and
-publication separate. A validation loss does not establish closed-loop performance.
+## Measure deployment latency
+
+Save this overlay as `my_profile.yaml` in the repository root:
+
+```yaml
+__base__: configs/examples/g1_sonic_balance_simple/profile_qwenoft.yaml
+policy:
+  source: local
+  root: /ABSOLUTE/MODEL_BUNDLE
+  backbone_path: /ABSOLUTE/BACKBONE
+logging:
+  output_dir: outputs/balance/profiling
+```
+
+Select a bundle compatible with the inherited task and state inputs.
+For a conditioned bundle, also provide its matching `policy.action_prefix` declaration.
+Run measurement:
+
+```bash
+conda activate starvla_rl_games_openvla
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl CUDA_VISIBLE_DEVICES=0 \
+  python -m latency_bench profile run --config my_profile.yaml
+```
+
+The inherited recipe uses five repetitions of 50 episodes, seed 0, 50/50 Hz, and a 1,000-step limit.
+It uses logical GPU 0 for inference.
+The command returns the fitted profile path and measurement status.
+The [profiling cookbook](../profiling/cookbook.md) explains replay and recovery.

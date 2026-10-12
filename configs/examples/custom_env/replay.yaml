@@ -1,0 +1,9 @@
+__base__: eval.yaml
+experiment:
+  name: custom_mountain_car_replay
+latency:
+  method: temporal
+  profile_path: /ABSOLUTE/PROFILE/profile.json
+  seed: 7
+logging:
+  output_dir: outputs/custom_mountain_car/replay

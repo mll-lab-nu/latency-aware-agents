@@ -1,4 +1,4 @@
-"""User-owned factories for the standalone CPU profiling example."""
+"""Construct the environment and policy for the standalone CPU examples."""
 
 from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
 from latency_bench.envs.factory import register_env_adapter

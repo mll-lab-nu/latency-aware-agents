@@ -1,121 +1,141 @@
-# Standard task pipeline
+# Use the stages independently
 
-Install dependencies with [QUICK_START.md](QUICK_START.md). Run commands from
-the repository root. The task cookbooks define the required inputs:
+Start with your existing environment, teacher, dataset, model, or latency profile.
+Each stage saves artifacts that the next stage can consume.
+Install the selected dependencies through the [installation guide](QUICK_START.md).
+Run reference recipe commands from the repository root.
 
-| Task | Training guide | Default student |
+| Your input | Stage | Output |
 | --- | --- | --- |
-| HumanoidBench Balance Simple | [Balance cookbook](humanoidbench/cookbook.md) | RGB + 198D state, H8 × 43D actions |
-| MIKASA Intercept Grab Fast | [MIKASA cookbook](mikasa/cookbook.md) | Two RGB views + 7D state, H1 × 7D action |
+| Environment and policy | Evaluation | Episode metrics, resolved configuration, optional traces |
+| Environment and teacher | Collection | Canonical demonstrations or task-specific raw data |
+| Demonstrations | Conversion | Training data and input/action metadata |
+| Training data | Your trainer or reference recipe | Checkpoint and model input/output contract |
+| Environment and model | Realtime profiling | Measurements and fitted latency profile |
+| Model and profile | Simulated evaluation | Results under the selected timing conditions |
 
-## Train a task
+LAGEN owns execution timing and the stage interfaces.
+Your training framework owns model training.
+Sample Factory and StarVLA provide reference recipes.
 
-The MIKASA task directory provides `train_qwenoft.sh`, `train_qwenpi_v3.sh`,
-`train_qwengr00t.sh`, and `train_wanoft.sh`. These scripts call
-`python -m scripts.starvla.train_task`.
+## Evaluate an existing model
 
-For MIKASA, run a local smoke with the shared launcher:
+Select the checkpoint, dataset metadata, and backbone through the [artifact guide](artifacts.md).
+Preserve the model's task, observations, actions, normalization, and horizon.
+You do not need to train a teacher or collect data first.
+
+Create a local overlay for the appropriate evaluation recipe.
+The [MIKASA cookbook](mikasa/cookbook.md#evaluate-an-existing-model) provides a complete example.
+The artifact guide provides a generic Gymnasium overlay.
+Run the evaluation:
 
 ```bash
-conda activate starvla_rl_games_openvla
+python -m latency_bench eval --config my_eval.yaml
+```
+
+`paused` waits for each prediction. `simulated` applies the configured delay.
+`realtime` measures actual execution timing.
+See [configuration](configuration.md) and [execution semantics](latency_execution_semantics_en.md).
+
+## Connect an environment and teacher
+
+Follow the [external component example](custom_components.md).
+It includes CPU evaluation, RGB collection, conversion, profiling, and profile replay.
+Your own package supplies the environment and policy factories.
+The [Gymnasium guide](gymnasium_adapter.md) also explains the public training wrapper.
+
+Collect and convert your demonstrations:
+
+```bash
+python -m latency_bench collect --config collect.yaml
+python -m latency_bench convert --config convert.yaml
+```
+
+The [collection guide](rollout_collection.md) defines student inputs, teacher labels, splits, and converter outputs.
+Generic collection supports paused and simulated execution with single-action teacher outputs.
+Task-specific recipes own multi-view and chunk labels.
+
+## Use the task training recipes
+
+| Task | Recipe | Student inputs and actions |
+| --- | --- | --- |
+| MIKASA Intercept Grab Fast | [MIKASA cookbook](mikasa/cookbook.md) | Two RGB views, 7D state, H1 × 7D action |
+| HumanoidBench Balance Simple | [Balance cookbook](humanoidbench/cookbook.md) | Head-camera RGB, physical state, H8/H16 × 43D actions |
+| Games and Gymnasium | [Gymnasium guide](gymnasium_adapter.md), [experiment guide](experiment_runner.md) | Task and checkpoint contract |
+
+For MIKASA, the shared launcher accepts a teacher checkpoint or a prepared dataset:
+
+```bash
+conda activate latency
 CUDA_VISIBLE_DEVICES=0,1 \
   bash scripts/tasks/mikasa_intercept_grab_fast/train_qwenoft.sh \
-  --smoke --run-id mikasa-qwenoft-smoke
+  --dataset-dir /ABSOLUTE/DATASET_PARENT \
+  --run-id mikasa-qwenoft-local --no-publish
 ```
 
-For a full local run, replace `--smoke` with `--no-publish` and use a new run ID.
-Balance uses the task-specific H1 teacher → H8/H16 DAgger recipe.
-Use the explicit command in its cookbook.
+The dataset parent must contain `lerobot/` and `lerobot__val/` with matching task contracts.
+Omit `--dataset-dir` to prepare the shared published dataset.
+Add `--teacher-checkpoint /ABSOLUTE/TEACHER/checkpoint.pt` to select your teacher.
+H1 bootstrap data still comes from the prepared or published dataset.
+Selecting a teacher does not generate a new H1 dataset automatically.
 
-The current shared runner uses these budgets:
+Use `--smoke` instead of `--no-publish` for two training updates and two evaluation episodes.
+A smoke run checks execution and checkpoint loading. It does not establish policy quality.
+The full MIKASA H1 recipe uses 5,000 SFT updates, global batch 128, and 100 final evaluation episodes.
+Its final evaluation seeds are 4242424242–4242424341.
 
-| Task | SFT updates | DAgger | Global batch | Final evaluation |
-| --- | ---: | --- | ---: | --- |
-| MIKASA H1 | 5,000 | None in this runner | 128 | 100 episodes, seeds 4242424242–4242424341 |
+The launcher defaults to two training GPUs with microbatch 64 per GPU.
+Use `--num-gpus` and `--micro-batch` to select resources.
+Their product must divide the configured global batch.
+On CUDA OOM, the runner halves the microbatch and adjusts accumulation to preserve the global batch.
+Other errors propagate.
 
-These are current defaults, not the settings of every published experiment.
-A MIKASA smoke uses two SFT updates and two evaluation episodes.
-Smoke results do not establish policy quality.
-
-The runner uses two training GPUs by default. It starts at microbatch 64 per GPU.
-On CUDA OOM, it halves the microbatch and adjusts accumulation to preserve the
-global batch. Other errors propagate. The training YAML records the resolved
-settings. Use `--num-gpus` and `--micro-batch` to select a different allocation.
-Their product must divide the formal global batch.
-
-Useful arguments:
-
-| Argument | Input or effect |
+| Argument | Purpose |
 | --- | --- |
-| `--teacher-checkpoint` | Teacher weights |
-| `--dataset-dir` | Prepared parent directory containing `lerobot/` and `lerobot__val/` |
-| `--vla-python`, `--task-python` | Absolute interpreter paths for model and simulator environments |
-| `--simulator-device`, `--inference-device` | Default `cuda:0` and `cuda:1` for task evaluation |
-| `--output-dir` | Local run directory |
-| `--eval-episodes`, `--eval-seed` | Episode count and first seed for final evaluation |
-| `--resume --run-id ID` | Continue the matching run from its saved state |
-| `--no-publish` | Keep a full run local |
+| `--vla-python`, `--task-python` | Select absolute model and simulator interpreter paths |
+| `--simulator-device`, `--inference-device` | Select logical evaluation devices, default `cuda:0` and `cuda:1` |
+| `--output-dir` | Select the local run directory |
+| `--eval-episodes`, `--eval-seed` | Select final evaluation count and first seed |
+| `--resume --run-id ID` | Continue the matching saved run |
+| `--no-publish` | Keep a full shared-task run local |
 
-Use `python -m scripts.starvla.train_task --help` for the complete argument list.
+Balance uses its own H1 teacher → H8/H16 SFT/DAgger schedule.
+Follow its cookbook rather than changing only the task name in the MIKASA command.
 
-## Data and training contracts
+## Measure and replay a profile
 
-The teacher supplies the action labels. Select the teacher using the task's
-independent evaluation protocol before generating a new training dataset.
-
-MIKASA H1 reuses the published teacher dataset and its fixed 250/25 split.
-The shared runner prepares its task contract and normalization metadata.
-MIKASA H8 uses a separate suffix-label conversion. Its conditioned variant
-requires an explicitly prepared dataset. See the task cookbook for those contracts.
-
-Balance and MIKASA DAgger use their task-specific experiment entrypoints.
-The shared training helpers build model configs and export inference bundles.
-Preserve each run's inputs, configuration, and data when resuming.
-
-## Evaluate and profile
-
-The shared runner evaluates the final bundle at zero latency. Use that bundle
-in an ordinary profiling config. For MIKASA, inherit
-`configs/examples/mikasa_intercept_grab_fast/profile_qwenoft.yaml` and set
-`policy.source: local` plus `policy.root` to the inference
-bundle directory. The example names `checkpoints/model.pt` inside that directory.
-Set `policy.backbone_path` when the bundle has no explicit backbone metadata.
+Select your checkpoint in a realtime profiling configuration.
+Run measurement and fitting:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench profile run --config my_profile.yaml
+python -m latency_bench profile run --config my_profile.yaml
 ```
 
-`profiling.repeats` selects the total measurement repetitions, including the first.
-`evaluation.episodes` selects episodes per repetition. Balance and MIKASA
-examples use five repetitions of 50 episodes. Profiling fits action latency from `observation_attempts.jsonl`.
-See the [profiling cookbook](profiling/cookbook.md) for device allocation,
-resume, local replay, and publication. A simulated control rate does not
-establish realtime inference throughput.
+`profiling.repeats` counts total repetitions.
+`evaluation.episodes` counts measured episodes per repetition.
+The command returns a measurement directory and fitted profile path.
+To fit saved complete measurements, run:
 
-## Artifacts and publication
+```bash
+python -m latency_bench profile fit --run-dir /ABSOLUTE/MEASUREMENT
+```
 
-Formal training publishes data and the final model unless you pass `--no-publish`.
-Profiling writes local measurements and fitted profiles.
-Use local runs to reproduce results without organization write access.
+Use `latency.method: temporal` or `iid` with the returned profile in a simulated evaluation config.
+The [profiling cookbook](profiling/cookbook.md) provides complete examples and recovery commands.
 
-Model and dataset destinations are `MLL-Lab/LAGEN-models` and
-`MLL-Lab/LAGEN-datasets`. The [artifact registry](artifacts.md) describes their
-layout. Record the resolved revisions because the runner downloads some training inputs
-from the default branch. Reproduction requires the experiment's fixed inputs.
+## Keep results and publish explicitly
 
-If publication fails after training, publish the saved run with `--publish-only`
-and the same `--output-dir`. Publication replaces files at the selected target path.
-Use a new run ID for a new model. Shared bootstrap paths depend on the task,
-condition, horizon, and dataset version, not the run ID.
-Keep training completion, evaluation, acceptance, and publication as separate states.
+Keep local datasets, checkpoints, logs, configurations, and reports under `outputs/`.
+Record source revisions, paths, episode counts, clocks, latency settings, and seeds with results.
+Keep training completion, evaluation completion, acceptance, and publication separate.
 
-## Older game and generic adapter paths
+The shared MIKASA trainer publishes full runs unless you pass `--no-publish`.
+Balance publishes only when you pass `--publish`.
+Profiling saves measurements and fitted profiles locally.
+Recipe-specific publication commands require access to their destination repositories.
 
-Game experiments use the existing launchers in `scripts/experiments/` and
-`third_party/starVLA/examples/rl_games/`. See the
-[experiment guide](experiment_runner.md) for the available sweeps.
-[Demon Attack evaluation](demon_attack.md) defines full-game scoring and life-loss resets.
-
-Use the [Gymnasium adaptation guide](gymnasium_adapter.md) to add an environment.
-Use the [execution semantics](latency_execution_semantics_en.md) to select timing
-and scheduling behavior. Preserve each experiment's declared latency conditions.
+For shared-task publication after a failed upload, use `--publish-only` with the same task, model, and `--output-dir`.
+A new model run requires a new run ID.
+Some training inputs use a repository's default branch.
+Use recorded revisions for reproduction.
+See the [artifact guide](artifacts.md) for published resources and result protocols.

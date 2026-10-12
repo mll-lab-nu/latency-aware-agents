@@ -9,21 +9,22 @@ The actor and critic each have three 256-unit tanh layers. Control runs at
 
 - W&B: [ks6d837t](https://wandb.ai/saberrr-zju/MIKASA-Robo-dataset-collectors/runs/ks6d837t).
 - Selected checkpoint: 13,824,000 environment steps, iteration 225.
-- Independent evaluation: 255/256 success-once and **253/256 success-at-end
-  (98.83%)**, mean return 33.6446; deterministic actions, 64 environments ×
-  240 control steps, environment seed 20260910 and latency seed 271828.
+- Independent evaluation: 255/256 success-once and **253/256 success-at-end (98.83%)**.
+  Mean return is 33.6446.
+  The protocol uses deterministic actions, 64 environments × 240 control steps,
+  environment seed 20260910, and latency seed 271828.
 - Published model: [`latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/fb727810a71a21e02c84635ce44e9c889763b236/latency-aware/mikasa-intercept-grab-fast/small-policy/ppo-qwenoft-rtx3090-v1).
 - Model publication revision: `fb727810a71a21e02c84635ce44e9c889763b236`.
-- Profile revision: `66414463f2a609316da63935941a79abf0a73ce9`; exact dataset
-  coordinates are recorded in the config's `profile_source`.
+- Profile revision: `66414463f2a609316da63935941a79abf0a73ce9`.
+  The configuration's `profile_source` records the dataset coordinates.
 
 The successful run had a 150M upper budget. This recipe uses a
 25M limit: 406 complete rollouts / 24,944,640 environment
-steps. Learning-rate annealing is disabled, so the budget does not change the
-PPO updates before the stopping point.
+steps. The recipe disables learning-rate annealing.
+Therefore, the budget does not change PPO updates before the stopping point.
 
-The same recipe also produced these published variants; only the profile,
-experiment name, and artifact path differ:
+The same recipe produced these published variants.
+Only the profile, experiment name, and artifact path differ:
 
 | Profile | W&B | Published checkpoint | Independent success at end | Publication revision |
 | --- | --- | --- | --- | --- |
@@ -50,7 +51,7 @@ Use the corresponding `mikasa_qwenpi_v3_rtx3090_scratch.yaml`,
 The launcher downloads the exact profile revision, writes the resolved
 `config.yaml` into the output directory, and replaces itself with the native
 trainer. W&B uses the normal local login. Use a distinct output directory for
-each experiment. The YAML owns training settings; the launcher also accepts an
+each experiment. The YAML owns training settings. The launcher also accepts an
 explicit `--checkpoint` override for evaluating a selected local policy.
 
 The scratch recipe sets `checkpoint: null` and `resume: null`. It matches the
@@ -61,10 +62,10 @@ target KL `0.2`.
 The trainer computes actor loss, entropy and KL only for admitted commands.
 The critic uses all control steps, including busy-worker steps used by GAE.
 KL early stopping ends the current PPO optimization pass. Profile-mode training
-itself continues to its budget or an explicit interruption; it does not stop
+itself continues to its budget or an explicit interruption. It does not stop
 when a periodic evaluation reaches 100%.
 
-`best_policy.pt` is selected by periodic `eval/success_at_end`;
+Periodic `eval/success_at_end` selects `best_policy.pt`.
 `best_evaluation.json` identifies its training step. `training.pt` contains
 the latest policy, optimizer, random streams and progress for continuation.
 To resume this checkpoint format, set `training.resume` in the YAML to that
@@ -92,7 +93,7 @@ The evaluation config uses the independent 256-episode protocol above and
 writes `evaluation.json`. Acceptance is `metrics.success_at_end >= 0.9`.
 
 Use `eval/success_at_end` as the task's primary training-monitor metric.
-`success_once` means a success occurred at any step; `success_at_end` requires
+`success_once` means a success occurred at any step. `success_at_end` requires
 success at the final step. `train/*` uses stochastic exploration, whereas
 `eval/*` uses deterministic mean actions. The 16-episode periodic evaluation
 is separate from the 256-episode acceptance evaluation.

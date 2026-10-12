@@ -21,10 +21,6 @@ checkpoints/
 checkpoints_*/
 /oracle_checkpoints/
 logs/
-!docs/gym-adapt/assets/inverted_pendulum/logs/
-!docs/gym-adapt/assets/inverted_pendulum/logs/**
-/docs/gym-adapt/assets/inverted_pendulum/logs/02_focused_tests.txt
-/docs/gym-adapt/assets/inverted_pendulum/logs/11_media_stdout.txt
 configs/train
 
 

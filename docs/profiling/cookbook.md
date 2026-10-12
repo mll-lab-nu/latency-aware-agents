@@ -1,85 +1,118 @@
-# Measure deployment latency
+# Measure and replay deployment latency
 
-Profiling uses an ordinary realtime evaluation configuration. Environment,
-policy, devices, clocks, seeds and episode budgets retain their normal meanings.
-The additional `profiling` section selects measurement repetitions and artifact labels.
+Profiling uses a realtime evaluation configuration.
+The configuration selects the environment, policy, devices, clocks, seeds, and episode budget.
+The `profiling` section adds repetition counts and artifact labels.
+Install the selected runtime through the [installation guide](../QUICK_START.md).
+
+## Run the CPU example
+
+From the repository root, run:
 
 ```bash
-PYTHONPATH="$PWD/configs/examples/custom_env:$PYTHONPATH" \
-  python -m latency_bench profile run --config configs/examples/custom_env/profile.yaml
+export PYTHONPATH="$PWD/configs/examples/custom_env${PYTHONPATH:+:$PYTHONPATH}"
+python -m latency_bench profile run --config configs/examples/custom_env/profile.yaml
 ```
 
-This CPU example measures a constant policy in MountainCar. Its `components.py`
-registers the environment and constructs the policy. The same files can live in
-an external project when that module is importable by each worker.
+The example measures a constant policy in MountainCar.
+It uses CPU inference, two repetitions of three episodes, and a 50-step limit.
+Environment FPS is 50. Observation FPS is 10. The episode seed is 7.
+See [external components](../custom_components.md) to run the same example outside the checkout.
 
-## Configuration
+## Measure your model
 
-For an existing evaluation config, select realtime execution and explicit devices:
+Select the matching task recipe under `configs/examples/<task>/profile_<model>.yaml`.
+Create an overlay rather than editing an archived experiment configuration.
+For MIKASA QwenOFT, save this as `my_profile.yaml` in the repository root:
 
 ```yaml
+__base__: configs/examples/mikasa_intercept_grab_fast/profile_qwenoft.yaml
+policy:
+  source: local
+  root: /ABSOLUTE/MODEL_BUNDLE
+  backbone_path: /ABSOLUTE/BACKBONE_SNAPSHOT
 executor:
   mode: realtime
-  inference_devices: [cuda:0]
+  inference_devices: [cuda:1]
   parallel_envs: 1
   sync_cuda: true
 evaluation:
   episodes: 10
-  max_env_steps: 3600
+  max_env_steps: 60
   suites: []
 logging:
-  output_dir: outputs/profiling
+  output_dir: outputs/my_profile
   video:
     enabled: false
 profiling:
   model_id: my_model
-  workload_id: my_task
+  workload_id: mikasa_intercept_grab_fast
   repeats: 3
 ```
 
-Keep the existing `env`, `policy`, `scheduler` and `experiment` settings.
-Model sources use the same local/HF declaration as evaluation.
-`model_id` and `workload_id` are artifact labels, each containing one path segment.
-They do not select model or task implementations.
-
-`repeats: 3` starts three independent measurement processes. Each loads the model,
-warms up, and measures ten episodes. Warmup is separate from the thirty measured
-episodes. Each repetition uses the same episode seed protocol.
-
-Profiling requires one environment and no evaluation suites. Multiple inference
-workers are declared in `inference_devices`. `[cpu]` selects CPU inference.
-Device numbers follow `CUDA_VISIBLE_DEVICES`; a simulator GPU does not implicitly
-become an inference worker.
-
-The configured clocks and policy inputs define the measured deployment. Realtime
-execution measures actual latency and does not consume a simulated `latency` section.
-Formal measurements should disable video. Required traces are enabled by profiling.
-
-Task examples are flat files such as `configs/examples/flappy/profile_openvla.yaml`.
-Use `__base__` to share actual common settings. Its paths are relative to the YAML
-containing it. Other filesystem inputs follow the caller's working directory.
-Workers must be able to import the configured task and policy modules.
-
-## Results and recovery
-
-`run` saves ordered traces, resolved configurations, hardware identity and a fitted
-profile. It prints `RUN_DIR`, `PROFILE_PATH`, `MEASUREMENT_STATUS` and `FIT_STATUS`.
-Local runs remain under `logging.output_dir/runs/`; the current profile bundle is
-under `logging.output_dir/profiles/`. Keep companion files beside `profile.json`.
+Replace the model and backbone paths with compatible prepared artifacts.
+The inherited recipe supplies the task, input contract, scheduler, and seeds.
+Run the measurement:
 
 ```bash
-python -m latency_bench profile run --config profile.yaml --resume RUN_ID
-python -m latency_bench profile fit --run-dir /path/to/completed/measurement
+conda activate starvla_rl_games_openvla
+CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench profile run --config my_profile.yaml
 ```
 
-Resume checks the recorded configuration, deployment and process settings. Completed
-sessions are reused. `fit` requires all recorded sessions to be complete, reads their
-saved traces, and does not load the model or measure the current hardware. A completed
-fit is reused. Failed or incomplete measurement is not reported as a completed profile.
+The example uses logical GPU 0 for MIKASA and GPU 1 for inference.
+`CUDA_VISIBLE_DEVICES` defines the logical device numbers.
+Use `[cpu]` for CPU inference or list each intended model worker explicitly.
+Multiple entries create multiple inference workers.
+Profiling requires one environment and no evaluation suites.
 
-Calibration is an explicit optional operation. Omit `profiling.calibration` or set
-it to `null` to preserve the configured clocks. When configured, calibration saves
-its inputs and selected clocks before measurement:
+`repeats: 3` creates three independent measurement processes.
+Each process loads the model, warms it, and measures ten episodes.
+Warmup episodes are separate from measured episodes.
+Each repetition uses the same episode seed protocol.
+`model_id` and `workload_id` label artifacts. They do not select implementations.
+Each label contains one path segment.
+
+Disable video for formal measurements.
+Profiling enables its required traces.
+Realtime measures actual latency and ignores the simulated `latency` section.
+Keep clocks, policy inputs, and resource settings with the reported measurement.
+
+## Read results and recover a run
+
+The command prints these fields:
+
+```text
+RUN_DIR
+PROFILE_PATH
+MEASUREMENT_STATUS
+FIT_STATUS
+```
+
+Measurements appear under `logging.output_dir/runs/`.
+The fitted profile appears under `logging.output_dir/profiles/`.
+Keep the companion files beside `profile.json`.
+Check completion status and warmup records before interpreting a latency distribution.
+
+Resume a partial measurement with its recorded run ID:
+
+```bash
+python -m latency_bench profile run --config my_profile.yaml --resume RUN_ID
+```
+
+Resume checks the recorded configuration, deployment, and process settings.
+It reuses complete sessions.
+Fit an existing complete measurement without loading the model:
+
+```bash
+python -m latency_bench profile fit --run-dir /ABSOLUTE/MEASUREMENT
+```
+
+Fitting reads saved traces from every recorded session.
+Incomplete sessions prevent a completed fit. The command reuses a completed fit.
+
+Calibration is optional.
+Omit `profiling.calibration` or set it to `null` to keep the configured clocks.
+To enable calibration, add:
 
 ```yaml
 profiling:
@@ -88,30 +121,55 @@ profiling:
     worker_utilization_cap: 0.8
 ```
 
-## Use the profile
+Calibration records its inputs and selected clocks before measurement.
 
-Simulated evaluation uses the normal evaluation entrypoint:
+## Replay the fitted profile
+
+For the CPU example, replace `/ABSOLUTE/PROFILE/profile.json` in
+[`replay.yaml`](../../configs/examples/custom_env/replay.yaml) with the returned `PROFILE_PATH`.
+Run:
+
+```bash
+python -m latency_bench eval --config configs/examples/custom_env/replay.yaml
+```
+
+For a task model, save a simulated evaluation overlay.
+For example, place `my_replay.yaml` beside the MIKASA `my_profile.yaml` above:
 
 ```yaml
+__base__: my_profile.yaml
 executor:
   mode: simulated
 latency:
   method: temporal
-  profile_path: /path/to/profile.json
+  profile_path: /ABSOLUTE/PROFILE/profile.json
   seed: 42
+logging:
+  output_dir: outputs/my_profile/replay
 ```
+
+Use the returned profile path.
+Run replay through the normal evaluation command:
 
 ```bash
-python -m latency_bench eval --config eval.yaml
+conda activate starvla_rl_games_openvla
+CUDA_VISIBLE_DEVICES=0,1 python -m latency_bench eval --config my_replay.yaml
 ```
 
-The MIKASA profile recipes set `profiling.eval_entrypoint` to
-`scripts/mikasa/evaluate.py` to use the task's native evaluator. Profiling invokes
-that path with `latency-eval --eval-config <generated.yaml>`. Relative entrypoint
-paths use the invocation directory; run these recipes from the repository root.
+`iid` samples fitted delays independently.
+`temporal` preserves the fitted temporal structure.
+The public latency wrapper can also consume a profile.
+Transferring a profile to another task transfers timing conditions.
+It does not measure that task's deployment latency.
 
-Specify the environment, policy, resource settings and episode budget in that
-configuration. `iid` samples the profile independently; `temporal` preserves its
-fitted temporal structure. A profile can also supply the public latency wrapper.
-Using a profile on another task transfers timing conditions, not a measurement
-claim about that task or model.
+## Paths and task interpreters
+
+YAML `__base__` paths are relative to the file containing them.
+Other filesystem inputs are relative to the caller's working directory.
+Each model worker must be able to import its configured policy.
+
+MIKASA recipes select `scripts/mikasa/evaluate.py` through `profiling.eval_entrypoint`.
+Profiling calls that evaluator with `latency-eval --eval-config <generated.yaml>`.
+Run these checkout recipes from the repository root.
+Measurement and fitting save local artifacts.
+See the [artifact guide](../artifacts.md) for published profiles and their source protocols.

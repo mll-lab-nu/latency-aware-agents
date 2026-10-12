@@ -1,118 +1,82 @@
-# Evaluation Parallelism
+# Run parallel simulated episodes
 
-This project uses `executor.parallel_envs` to run multiple evaluation episode slots inside the same `latency_bench` simulated eval latency stage. It does not reduce the eval workload. For a generated Sample Factory checkpoint sweep, every available checkpoint kind still evaluates the configured eval runners, all eval latencies, and the configured number of episodes per latency.
+Set `executor.parallel_envs` to run multiple simulated episode slots.
+Parallelism changes resource use, not the requested episode count.
+Paused and realtime execution require one environment.
 
-## Config
-
-```yaml
-evaluation:
-  episodes: 100
-executor:
-  parallel_envs: 32
-```
-
-`parallel_envs` defaults to `1`. Values greater than `1` mean:
-
-- start at most `min(parallel_envs, episodes)` active episode slots;
-- assign deterministic `episode_id` values `0..episodes-1`;
-- reset only the slot that finished;
-- stop only when exactly `episodes` episodes completed.
-
-This is episode-slot parallelism, not a workload reduction.
-
-## Supported Paths
-
-### latency_bench Simulated Eval
-
-After generating the corresponding sweep configuration:
-
-```bash
-python -m latency_bench eval --config configs/train/demon_attack/latency_0/seed_0/latency_bench_eval.yaml
-```
-
-Generate sweep configurations with the [experiment entrypoints](experiment_runner.md).
-Then pass the generated evaluation YAML to `python -m latency_bench eval`.
-
-`latency_bench` batched eval is only for:
+## Select slots and inference resources
 
 ```yaml
 executor:
   mode: simulated
-executor:
-  parallel_envs: N
+  parallel_envs: 32
+evaluation:
+  episodes: 100
 ```
 
-The batched simulated executor supports zero, fixed, normal, uniform, IID, and
-temporal profile latency. IID and parametric samplers derive per-episode streams;
-temporal replay keeps one machine-state timeline per replica, including slow
-regimes that span that replica's episode boundaries. Each replica also owns its
-simulated worker capacity; physical inference batching does not create contention
-between replicas. Task entrypoints with an existing native
-vector simulator can inject that vector backend into the same executor instead of
-rebuilding one generic env per slot.
+`parallel_envs` defaults to 1.
+The executor starts at most `min(parallel_envs, episodes)` active slots.
+It assigns episode IDs from `0` through `episodes - 1`.
+Only a completed slot resets. Execution ends after the configured episodes complete.
+Each suite and retained checkpoint still receives its full configured budget.
 
-When batched simulation uses `executor.inference_pool: true`, set
-`executor.inference_batch_size` explicitly. It limits physical batches, not
-simulated worker capacity. Episode and soft resets clear the affected slot's
-policy history on every inference worker.
+Run your prepared evaluation configuration:
 
-Optional env stepping backend:
+```bash
+python -m latency_bench eval --config my_eval.yaml
+```
+
+Batched simulation supports zero, fixed, normal, uniform, IID, and temporal delay.
+IID and parametric samplers derive per-episode streams.
+Temporal replay retains one machine-state timeline per replica across episode boundaries.
+Each replica owns its virtual worker capacity.
+Physical inference batches do not create contention between virtual replicas.
+
+For pooled inference, set `executor.inference_pool: true` and declare `executor.inference_batch_size`.
+The batch size limits physical inference batches. It does not set simulated worker capacity.
+Stateful policies use `Observation.metadata["slot_id"]` because batch positions can change.
+Episode and soft resets clear the affected slot's state on every inference worker.
+
+## Select an environment backend
 
 ```yaml
 executor:
-  env_backend: serial  # serial | subproc | flappy_gpu_batched | demon_attack_gpu_batched | auto
+  env_backend: serial
 ```
 
-- `serial`: N env instances are stepped in a Python loop; policy inference can still be batched.
-- `subproc`: one worker process per active env slot; useful for CPU-bound envs.
-- `flappy_gpu_batched`: steps Flappy GPU env slots in one backend call.
-- `demon_attack_gpu_batched`: steps DemonAttack CUDA env slots in one backend call. This is explicit opt-in so CPU Atari behavior is not silently replaced.
-- `auto`: uses Flappy's GPU-batched backend for supported Flappy policies, chooses subproc for CPU-bound envs such as Deadly Corridor, and keeps DemonAttack on the existing CPU path unless explicitly configured.
+| Backend | Behavior |
+| --- | --- |
+| `serial` | Steps environment instances in the parent process |
+| `subproc` | Steps each active environment in a worker process |
+| `flappy_gpu_batched` | Steps Flappy GPU slots in one backend call |
+| `demon_attack_gpu_batched` | Explicitly selects the Demon Attack CUDA backend |
+| `auto` | Selects supported Flappy GPU batching, CPU subprocess stepping where applicable, and the default Demon Attack CPU path |
 
-Recommended starting values:
+Task entrypoints can provide their existing native vector backend.
+For CPU-bound environments, increase slots within the available CPU capacity.
+For supported GPU environments, batching can reduce step overhead.
+If communication dominates, more slots can reduce throughput.
+Select resources using the same task, model, and episode protocol when comparing performance.
 
-- Flappy GPU-rendered eval: `32-100`, backend `serial` or `auto`.
-- DemonAttack CPU env: `16-64`, backend `auto` or `subproc`.
-- DemonAttack CUDA env: `4-32`, backend `demon_attack_gpu_batched`.
-- Deadly Corridor: `8-32`, backend `auto` or `subproc`.
+Demon Attack CUDA stepping preserves the CPU adapter's policy observation contract.
+The same seed and action trace must preserve observations, simulation time, and raw RGB history.
+Current Sample Factory policy batching supports Discrete, flat Tuple(Discrete), and one-dimensional MultiDiscrete actions.
+Recurrent policies keep separate state for each slot.
 
-Current Sample Factory policy batching supports Discrete, flat Tuple(Discrete, ...), and one-dimensional MultiDiscrete action spaces.
-Recurrent Sample Factory policies support batched simulated evaluation with separate
-recurrent state for each environment slot. Observations identify their slot through
-`metadata["slot_id"]`, so batch positions can change. Episode and soft resets clear
-the affected slot's state before it receives new observations.
+## Use one environment for measurement
 
-## Unsupported Paths
+Profiling and realtime evaluation use `parallel_envs: 1`.
+Select concurrent model workers with `executor.inference_devices`.
+See [profiling](profiling/cookbook.md) for device allocation and [execution semantics](latency_execution_semantics_en.md) for virtual capacity.
 
-These paths must not be parallelized with `parallel_envs > 1`:
+## Diagnose backend selection
 
-- `executor.mode: realtime`;
-- `executor.mode: paused`.
+Use normal YAML settings for ordinary runs.
+These existing environment variables override backend behavior for diagnosis:
 
-Realtime and measured wall-clock execution depend on scheduling and wall time. Running multiple envs in parallel would contaminate the measurement. Use `parallel_envs: 1` for those modes.
+- `LATENCY_BENCH_ENV_BACKEND`
+- `LATENCY_BENCH_ENV_BACKEND_START_METHOD`
+- `LATENCY_BENCH_ENV_WORKER_TIMEOUT_SEC`
 
-## What Gets Faster
-
-`parallel_envs` can help at three different layers:
-
-- Episode slots: multiple episodes are active inside one eval latency stage, so one long episode does not block the whole stage.
-- Policy batching: the main process can send one larger batch through the policy instead of many single-observation forwards.
-- Subprocess env stepping: CPU-bound envs can step in parallel across worker processes.
-- GPU env-step batching: supported GPU envs can advance all active slots in one backend call, and slots that finish are immediately refilled while pending episodes remain.
-
-These are separate. If CPU env stepping dominates and the backend is `serial`, GPU utilization can remain low even with many active episode slots. If IPC dominates, increasing `parallel_envs` past the useful CPU core count may slow the run down.
-
-For DemonAttack StarVLA simulated eval, `demon_attack_gpu_batched` keeps the policy-facing observation contract locked to the CPU adapter: `Observation.data`, `env_step`, `sim_time_ms`, and `metadata["env_raw_rgb_frame_stack"]` must match the CPU path for the same seed/action trace. The GPU backend only changes how active slots are stepped.
-
-## Profiling
-
-
-## Debug Overrides
-
-Normal eval should be config-only. These environment variables are debug overrides, not the normal interface:
-
-- `LATENCY_BENCH_ENV_BACKEND=serial|subproc|flappy_gpu_batched|demon_attack_gpu_batched|auto`
-- `LATENCY_BENCH_ENV_BACKEND_START_METHOD=spawn|forkserver|fork`
-- `LATENCY_BENCH_ENV_WORKER_TIMEOUT_SEC=<seconds>`
-
-The subprocess backend sets `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, and `NUMEXPR_NUM_THREADS` internally with `os.environ.setdefault(...)` before spawning workers. Users do not need to set those for normal eval.
+The subprocess backend supplies its thread-limit environment variables before worker creation.
+You do not need to set them for ordinary evaluation.

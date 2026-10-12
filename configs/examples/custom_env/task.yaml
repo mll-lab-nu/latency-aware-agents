@@ -1,5 +1,5 @@
 experiment:
-  name: custom_mountain_car_profile
+  name: custom_mountain_car
   seed: 7
 env:
   name: custom_mountain_car

@@ -1,13 +1,206 @@
-# Collect teacher demonstrations
+# Collect and convert teacher demonstrations
 
-`collect_rollouts(config)` collects student observations paired with the commands
-issued by a teacher. It writes canonical Parquet that the existing LeRobot
-converter can consume directly. Environment and policy factories use the same
-contracts as [external components](custom_components.md).
+Collection pairs student observations with the teacher's issued commands.
+Generic collection writes canonical Parquet data that the LeRobot converter can consume.
+Use your existing environment and teacher through the [component factories](custom_components.md).
+Install data dependencies through the [installation guide](QUICK_START.md).
 
-Bash experiment entries select YAML recipes and order collection, conversion,
-and publication. The [memory dataset recipes](../scripts/experiments/memory/README.md)
-include sharded probe/replay and fixed-latency teacher workflows.
+## Run the complete CPU example
+
+From the repository root, run:
+
+```bash
+export PYTHONPATH="$PWD/configs/examples/custom_env${PYTHONPATH:+:$PYTHONPATH}"
+python -m latency_bench collect --config configs/examples/custom_env/collect.yaml
+python -m latency_bench convert --config configs/examples/custom_env/convert.yaml
+```
+
+The example collects three MountainCar episodes with a 50-step limit and seed 7.
+It uses 50 environment FPS, 10 observation FPS, and fixed 100 ms delay.
+Student inputs contain RGB without state. The constant policy supplies action labels.
+The [external component guide](custom_components.md) explains each output and runs the same example outside the checkout.
+
+## Select teacher and student inputs
+
+Collection uses the ordinary `env`, `policy`, `executor`, `latency`, `scheduler`, `evaluation`, and `logging` sections.
+Generic collection supports paused and simulated execution, including batched simulation and inference workers.
+It requires single-action teacher outputs. Realtime collection is not supported.
+Task recipes define their own chunk labels.
+
+Add student input and split settings:
+
+```yaml
+collection:
+  student_observation:
+    image_key: null
+    state_key: null
+    state_source: metadata
+  val_fraction: 0.1
+  split_seed: 42
+```
+
+`image_key: null` selects raw RGB.
+The collector uses existing RGB metadata or renders in the environment's process before the environment advances.
+If `Observation.data` already contains the student image, select that mapping key with `image_key`.
+Use an RGB layout accepted by the image writer.
+
+`state_key: null` omits student state.
+To include state, select a key from `Observation.metadata` or `Observation.data`.
+Set `state_source` to `metadata` or `data` respectively.
+For a standard Gymnasium adapter, use `state_key: gymnasium_state` and declare `env.state_space.labels`.
+Student selection does not change teacher input.
+
+Declare `env.task_name`, `env.base_prompt`, and the task's action contract when required by your adapter.
+Discrete tasks supply `action_order` and `action_map`.
+Continuous tasks supply `action_space` with type, shape, dtype, labels, and native bounds.
+The collector preserves native command units.
+The generic prompt uses `env.base_prompt`. It does not append future sampled latency.
+
+## Understand sample alignment
+
+The collector snapshots student inputs when it submits the teacher request.
+It matches the response by episode and request identity.
+The label is the decoded teacher command for that source observation.
+An older action executing during the delay does not replace the label.
+
+Rewards cover raw steps until the next observation boundary or episode end.
+A request without a teacher response produces no label.
+Command admission and application remain separate execution facts.
+Buffer reuse, asynchronous responses, and resets preserve the source pairing.
+Privileged teacher state is not automatically included in student inputs.
+
+## Read canonical outputs
+
+The output directory contains:
+
+```text
+train.parquet
+val.parquet
+metadata.json
+resolved_config.yaml
+```
+
+Parquet rows embed image bytes.
+Metadata describes actions, clocks, teacher source, student inputs, splits, and label provenance.
+The Python result contains `output_dir` and `metadata`.
+
+Split assignment uses whole episodes with `val_fraction` and `split_seed`.
+Their defaults are `0.0` and `0`.
+An empty validation split remains an empty valid Parquet file.
+The collector does not copy training rows into validation.
+
+`evaluation.episodes` sets the episode target.
+`evaluation.max_env_steps` sets the raw-step limit.
+`executor.parallel_envs` sets concurrent environment slots.
+
+## Filter, replay, and resume
+
+Generic collection defaults to one pass with `filter_preset: none`.
+Optional `episode_return_gt` and `episode_acceptance` select episode filters.
+`max_attempts` bounds attempts when you enable filtering.
+Rejected episodes do not count toward the accepted episode target.
+
+`two_pass: true` probes without student images, then replays accepted seeds.
+Use this only when reset seeds reproduce environment and teacher trajectories.
+`replay_num_envs` defaults to the configured environment count.
+`probe_only: true` requires two-pass collection and returns `probe_state` instead of a completed dataset.
+
+The writer saves completed episodes as shards.
+`image_writer_workers` defaults to `0`. `row_buffer_size` defaults to `256` pending image writes.
+`export_image_size: null` preserves source resolution.
+A shard becomes complete after the writer saves its images.
+Write failures propagate without completed dataset metadata.
+
+Resume uses saved probe state and completed shards.
+Keep the checkpoint and collection settings unchanged when resuming.
+Use a new output directory for a new dataset.
+Diagnostic traces follow the ordinary logging settings.
+
+## Convert canonical data
+
+Save a converter configuration:
+
+```yaml
+conversion:
+  format: lerobot
+  input_dir: outputs/my_task/raw
+  output_dir: outputs/my_task/lerobot
+  action_carrier: native
+```
+
+Run conversion:
+
+```bash
+python -m latency_bench convert --config convert.yaml
+```
+
+Conversion writes the training dataset, its `lerobot__val` companion, and `manifest.json` in each directory.
+It also writes `latency_prompt_map.json` and a generated mixture under `_generated_mixtures/`.
+The manifest identifies paths, task contracts, active action dimensions, and state statistics.
+An empty validation split stays empty.
+
+`action_carrier: native` preserves action width.
+`bridge` pads actions to seven dimensions and rejects wider actions.
+`active_action_dim` identifies unpadded dimensions.
+The converter preserves source image resolution. The reference loader resizes model images to 224 × 224.
+
+An existing output fails unless you explicitly pass `--force`.
+Input, normalization source, and output paths must not overlap.
+Task conversion uses `conversion.task` and the task's existing contract name.
+Use `normalization_source` when the task requires an existing training contract.
+
+## Pass data to StarVLA or your trainer
+
+For the generic StarVLA loader, map converter metadata to these training fields:
+
+| Training field | Value or source |
+| --- | --- |
+| `datasets.vla_data.dataset_py` | `lerobot_datasets` |
+| `data_root_dir` | Parent of the converted training directory |
+| `data_mix` | Converted training directory name |
+| `custom_mixtures_path` | Generated mixture path from the manifest |
+| `gymnasium_task_contract` | Manifest `gymnasium_task` |
+| `active_action_dim` | Manifest `active_action_dim` |
+| `include_state` | Manifest `uses_state` |
+
+The converter records raw student state and source statistics.
+Generic Gymnasium training saves the actual mixture statistics in the run's `dataset_statistics.json`.
+Validation and inference use the same training DataConfig and statistics.
+Each path applies its state transform once.
+The existing min/max transform does not clip values outside the training range.
+
+A new run fits its own statistics.
+Resume restores statistics from the selected checkpoint run before constructing loaders.
+Missing statistics, incompatible dimensions, or another training DataConfig stop resume.
+Exported inference bundles retain the identity needed to select that DataConfig.
+
+Balance and MIKASA use task-specific preparation and the `latency_bench_tasks` loader.
+Their contracts define views, chunks, masks, and frozen training-derived normalization.
+Generic conversion does not generate those task labels.
+Canonical data also remains usable by your own trainer.
+
+## Use reference task collectors
+
+Sample Factory uses `policy.type: sample_factory` with the ordinary model source and collection settings.
+Its native collector preserves recurrent slots and existing history labels.
+For fixed-batch GPU history collection, keep probe and replay batch sizes equal.
+
+| Task | `collection.label_mode` | Budget |
+| --- | --- | --- |
+| Balance | `zero_full`, `profile_conditioned` | `row_budget`, horizon 8 or 16 |
+| MIKASA | `successful_h1` | Successful `evaluation.episodes` |
+| MIKASA | `closed_loop_h8`, `prefix_h8` | `train_targets` and `validation_targets` valid action heads |
+
+Student-controlled collection selects the student under `policy` and the teacher under `collection.teacher`.
+MIKASA saves native NPZ episodes and task metadata.
+Balance and generic collection use canonical Parquet.
+Follow the [MIKASA](mikasa/cookbook.md) or [Balance](humanoidbench/cookbook.md) cookbook for complete task commands.
+
+New canonical data records `label_provenance.semantics: teacher_issued_command`.
+Older continuous-action SF datasets can contain applied-action labels.
+Collection does not rewrite those published datasets.
+
+## Use the Python API
 
 ```python
 from latency_bench.core.config import load_config
@@ -20,215 +213,6 @@ manifest = convert_canonical_rollout_to_lerobot(
 )
 ```
 
-Use the existing environment, policy, executor, latency, scheduler, evaluation
-and logging configuration. Collection supports paused and simulated execution,
-including batched simulation and simulated inference workers. Realtime data
-collection is not supported. Generic collection currently requires single-action
-teacher outputs. Existing task-specific chunk recipes retain their own labels.
-
-Add the following collection settings:
-
-```yaml
-collection:
-  student_observation:
-    image_key: null
-    state_key: null
-    state_source: metadata
-  val_fraction: 0.1
-  split_seed: 42
-```
-
-`image_key: null` selects raw RGB. The collector uses existing raw RGB metadata,
-or calls `render_game_frame()` in the process that owns the environment, before
-that environment advances. If the teacher observation is a mapping that already
-contains the student image, set `image_key` to that key instead. Images must use
-an RGB layout accepted by the existing image writer.
-
-`state_key: null` omits student state. To include state, select a key from
-`Observation.metadata` or `Observation.data` with `state_source: metadata` or
-`data`. For a standard Gymnasium adapter, use `state_key: gymnasium_state` and
-declare `env.state_space.labels`. State selection does not change teacher input.
-
-For Gymnasium and custom environments, declare `env.task_name`, `base_prompt`
-and the existing action contract. Discrete tasks provide `action_order` and
-`action_map`. Continuous tasks provide `action_space` with `type: box`, `shape`,
-`dtype`, `labels`, `low` and `high`. The collector preserves native command units.
-Task metadata records the selected student state, not all privileged teacher state.
-The generic prompt is `env.base_prompt`; sampled future latency is not appended
-as student input.
-
-## Sample alignment
-
-The collector snapshots student inputs when the teacher request is submitted.
-It matches the teacher response by episode and request identity. The action
-label is the command issued for that source observation, after model decoding.
-An older action executing during latency does not replace this label.
-
-Rewards cover the raw environment steps from the source decision until the next
-observation boundary or episode end. Requests without a teacher response do not
-produce fabricated labels. Command admission and application are execution facts,
-not implicit dataset filters. Reused buffers, asynchronous responses and episode
-resets retain their source identities.
-
-## Output and defaults
-
-The output directory contains `train.parquet`, `val.parquet`, `metadata.json`
-and `resolved_config.yaml`. Parquet embeds image bytes. Metadata describes action
-layout, clocks, teacher source, student inputs, split counts and label provenance.
-The return value contains `output_dir` and `metadata`.
-
-Episodes are assigned to splits using `val_fraction` and `split_seed`. The defaults
-are `0.0` and `0`, respectively. An empty validation split remains an empty valid
-Parquet file. No training rows are copied into validation.
-
-Collection uses `evaluation.episodes`, `evaluation.max_env_steps` and
-`executor.parallel_envs`. The step budget is in raw frames. Generic collection defaults
-to one pass and `filter_preset: none`. Optional `episode_return_gt` and
-`episode_acceptance` use the existing episode filters. `max_attempts` bounds
-attempts when filtering is enabled. Rejected episodes do not count toward the
-requested accepted episode count. `attempted_episodes` counts attempts processed
-for acceptance before that target; `next_attempt_idx` also includes allocated slots.
-
-`two_pass: true` first probes episodes without student images, then replays the
-accepted seeds. Use this only when the environment and teacher reproduce their
-trajectories from reset seeds. `replay_num_envs` defaults to the configured parallel
-environment count. `probe_only: true` requires two-pass collection and returns
-`probe_state` instead of a completed dataset.
-
-Images and rows are retained for active episodes, then written as episode shards.
-`image_writer_workers` defaults to `0`; `row_buffer_size` defaults to `256` pending
-image writes. `export_image_size` defaults to `null`, preserving source resolution.
-A shard becomes complete only after its images are written. Write failures
-propagate; they do not publish completed dataset metadata. Resume uses the saved
-probe state and completed shards. Use the same checkpoint and collection settings
-when resuming. A completed export should use a new output directory for a new run.
-Complete diagnostic traces are optional and follow the existing logging settings.
-
-## Sample Factory reference adapter
-
-The public collection entrypoint loads the checkpoint and constructs the SF execution
-adapter. It calls the same `collect_dataset` and `finalize_dataset` implementation
-as the generic entrypoint. The common collector owns split assignment, acceptance,
-probe/replay state, sample construction and writing. SF owns inference, recurrent
-slots and environment stepping. Its environment already applies latency, so the
-collector does not add another latency wrapper.
-
-SF probe/replay retains fixed GPU batch shapes, inactive slots, raw RGB disabled
-during probe, existing image/history recipes and its GPU-history resume restriction.
-Use the same probe and replay batch size for fixed-batch GPU history collection.
-Reference recipes express their settings in the common run configuration.
-
-New datasets record `label_provenance.semantics: teacher_issued_command`.
-The previous ordinary continuous-action SF path could replace the teacher command
-with `applied_action`. This path now records the issued command. Published older
-data remains readable, and is not relabeled or rewritten by collection.
-
-
-## StarVLA training handoff
-
-Convert the completed canonical directory directly:
-
-```python
-from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
-
-manifest = convert_canonical_rollout_to_lerobot("dataset", "lerobot/train")
-```
-
-The converter writes the training dataset, its `train__val` companion, and
-`manifest.json` in each directory. It also writes `latency_prompt_map.json` and
-`_generated_mixtures/train.json`. The returned manifest identifies these files,
-the task contract, active action dimensions, carrier padding and state statistics.
-An empty validation split stays empty.
-
-Use `datasets.vla_data.dataset_py: lerobot_datasets` with the StarVLA reference
-loader. Set `data_root_dir` to `lerobot`, `data_mix` to `train`, and
-`custom_mixtures_path` to the path returned in the manifest. Copy
-`gymnasium_task` to `gymnasium_task_contract`, `active_action_dim` unchanged, and
-`uses_state` to `include_state`. These fields describe the collected student
-inputs. Privileged teacher state is not an additional student input.
-
-The converter writes raw state values and records source training min/max in
-the Gymnasium handoff manifest. The Gymnasium training loader applies
-its existing min/max transform using dataset statistics. Its language field is
-`annotation.human.action.task_description`, mapped to `task_index` in the metadata.
-
-For generic Gymnasium training, StarVLA's `prepare_data` saves the actual training
-mixture statistics in the run's `dataset_statistics.json`. Validation binds those
-same parameters before reading batches. Checkpoint and resident inference use
-that file and the training DataConfig. Each path applies the state transform once.
-The manifest retains task, dimension and source information; its min/max values
-do not control model inference.
-
-A new training run fits its own statistics. With `trainer.is_resume: true`, the
-trainer selects the checkpoint before constructing loaders and restores that
-run's statistics. Missing statistics, incompatible dimensions or a different
-training DataConfig stop resume. A run in another directory copies the selected
-statistics; resume in the original directory preserves the existing file.
-
-The existing Gymnasium min/max transform does not clip values outside the
-training range. History tensor-only transforms and native q99 transforms retain
-their own behavior. Inference resolves the DataConfig from the saved robot type
-or training mixture. Minimal inference bundles can supply that identity through
-their explicit task manifest. Exported Gymnasium bundles retain `robot_type` so
-they do not need the original training dataset directory.
-
-The converter preserves source image resolution and records image geometry in
-`meta/info.json`. The reference loader resizes model images to 224 × 224. `action_carrier="native"`
-retains the action width. `"bridge"` pads to seven dimensions and rejects wider
-actions; `active_action_dim` identifies the unpadded dimensions.
-
-Balance and MIKASA reference recipes use
-`latency_bench.integrations.starvla.task_contracts.prepare_lerobot` to prepare
-existing LeRobot data. They write `task_contract.json` and training-derived
-statistics for the `latency_bench_tasks` loader. Validation and DAgger datasets
-reuse the specified training contract. Their existing multi-view, chunk and mask
-recipes still define the labels. Generic conversion does not generate those labels.
-
-Canonical data remains usable by external training code without StarVLA.
-
-## Public commands and task collection
-
-```bash
-python -m latency_bench collect --config collect.yaml
-python -m latency_bench convert --config convert.yaml
-```
-
-The collection command calls `collect_rollouts(config)`. It returns `output_dir`
-and `metadata`, or `probe_state` for a completed probe-only phase. The CLI prints
-the output directory and phase. A failed collection exits with a nonzero status.
-
-Native Sample Factory collection uses `policy.type: sample_factory` and the same
-model source, executor, evaluation, logging and collection sections. It retains
-fixed GPU batches, recurrent state, history labels and the shared probe/replay
-pipeline. Set `collection.two_pass: true` to use probe/replay. Common defaults are
-shared with generic collection; reference YAMLs explicitly retain recipe settings.
-
-Task-specific label generation is selected by `env.name` and `collection.label_mode`:
-
-| Task | Label mode | Budget |
-| --- | --- | --- |
-| Balance | `zero_full`, `profile_conditioned` | `row_budget`, with `action_horizon` 8 or 16 |
-| MIKASA | `successful_h1` | `evaluation.episodes` successful episodes |
-| MIKASA | `closed_loop_h8`, `prefix_h8` | `train_targets`/`validation_targets` valid action heads |
-
-Student-controlled collection declares the student under `policy` and the teacher
-under `collection.teacher`, using the normal model source fields. Existing resident
-inference and task-specific masks remain owned by the task implementation.
-MIKASA keeps its native NPZ episode files and `collection.json`; Balance and the
-common collector retain their existing Parquet formats.
-
-Conversion config:
-
-```yaml
-conversion:
-  format: lerobot
-  input_dir: outputs/my_task/raw
-  output_dir: outputs/my_task/lerobot
-  action_carrier: native
-```
-
-The converter uses the input artifact format. Task-specific LeRobot contracts use
-`conversion.task` with the existing contract name. `normalization_source` selects
-an existing training contract when required by the task. Existing output fails
-unless `--force` is explicit. Source and destination must not cause replacement
-of input data. Ordinary conversion retains the Python converter's defaults.
+The collection CLI prints `OUTPUT_DIR` and `COLLECTION_STATUS`.
+The conversion CLI prints `OUTPUT_DIR` and `CONVERSION_STATUS`.
+A failed stage returns a nonzero exit status.
