@@ -11,6 +11,7 @@ from latency_bench.data.ghost_trail import GhostTrailConfig, DemonGhostTrailStre
 from latency_bench.data.rollout import collect_dataset
 from latency_bench.data.rollout_image_io import frame_from_env_raw_rgb_info, frames_from_env_raw_rgb_info
 from latency_bench.integrations.sample_factory import teacher_runtime
+from latency_bench.integrations.sample_factory.teacher_config import _gymnasium_task_metadata
 from latency_bench.integrations.sample_factory.teacher_drivers import BatchedTeacherRolloutDriver, SerialTeacherRolloutDriver
 
 
@@ -32,6 +33,13 @@ class TeacherCollectionExecution:
             "frame_stack": int(frame_stack), "env_fps": float(self.cfg.env_fps),
             "obs_fps": float(self.cfg.obs_fps),
         }
+        if config["env_name"].startswith("g1_sonic_"):
+            env = self.runtime["envs"][0]
+            contract = _gymnasium_task_metadata(config["flat_cfg"])
+            # Exported G1 commands use absolute joint targets in policy order.
+            contract["make_kwargs"]["control_mode"] = "direct_absolute_position"
+            contract["noop_action"] = np.asarray(env.get_wrapper_attr("noop_action")).tolist()
+            self.metadata["gymnasium_task"] = contract
 
     def close(self):
         self.driver.close()

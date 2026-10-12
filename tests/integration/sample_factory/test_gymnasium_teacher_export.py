@@ -303,8 +303,15 @@ def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
         step_teacher_policy,
     )
     output_dir = tmp_path / "rollout"
-    _replay_existing_specs(monkeypatch,
-        {"rnn_size": 1, "device": torch.device("cpu")},
+    flat_cfg = _generic_flat_cfg()
+    flat_cfg.update(
+        gym_task_name=g1_task,
+        gym_env_id="LatencyBench/G1SonicBalanceSimple-v0",
+        gym_action_space_json=json.dumps({"type": "box", "labels": list(G1_SONIC_ACTION_SPEC.labels), "dtype": "float32"}),
+    )
+    probe_state = _replay_existing_specs(monkeypatch,
+        {"rnn_size": 1, "device": torch.device("cpu"),
+         "envs": [SimpleNamespace(get_wrapper_attr=lambda name: np.full(action_dim, 10.0))]},
         Driver(),
         cfg=SimpleNamespace(
             env_fps=50.0,
@@ -323,7 +330,11 @@ def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
         action_spec=G1_SONIC_ACTION_SPEC,
         base_prompt="Keep balance.",
         integration_name="gymnasium",
+        flat_cfg=flat_cfg,
     )
+    contract = probe_state["runtime_metadata"]["gymnasium_task"]
+    assert contract["make_kwargs"]["control_mode"] == "direct_absolute_position"
+    assert contract["noop_action"] == [10.0] * action_dim
 
     rows = list(iter_episode_rows(output_dir, "val"))
     assert [row["state"] for row in rows] == [
@@ -446,7 +457,7 @@ def test_generic_rollout_runtime_replays_checkpoint_action_contract(monkeypatch,
 
 def _replay_existing_specs(monkeypatch, runtime, driver, *, cfg, env_name, output_dir,
                            accepted_specs, action_spec, base_prompt,
-                           integration_name, **options):
+                           integration_name, flat_cfg=None, **options):
     """Exercise accepted replay through the public SF-to-common collection adapter."""
     from latency_bench.data import rollout_probe
     from latency_bench.integrations.sample_factory import teacher_runtime, teacher_rollout
@@ -459,7 +470,7 @@ def _replay_existing_specs(monkeypatch, runtime, driver, *, cfg, env_name, outpu
     rollout_probe.write_probe_state(output_dir, state)
     return teacher_rollout.collect_teacher_dataset(
         {"env_name": env_name, "integration_name": integration_name,
-         "action_spec": action_spec, "base_prompt": base_prompt, "flat_cfg": {}},
+         "action_spec": action_spec, "base_prompt": base_prompt, "flat_cfg": {} if flat_cfg is None else flat_cfg},
         output_dir=output_dir, max_episodes=len(accepted_specs), val_fraction=1.0,
         split_seed=0, num_envs=1, filter_preset="none", **options,
     )
