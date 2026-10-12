@@ -184,7 +184,7 @@ def test_flappy_gpu_batched_backend_matches_serial_gpu_backend_step_for_step(tmp
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     config = _config(str(tmp_path), num_episodes=3)
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     serial = _serial_backend(3)
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=3)
     try:
@@ -231,7 +231,7 @@ def test_flappy_gpu_simulator_batched_backend_matches_serial_gpu_backend_step_fo
     config = _config(str(tmp_path), num_episodes=2)
     config["env"]["simulator"] = "gpu"
     config["env"]["gpu_render_device"] = "cuda"
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     serial = _serial_backend(2)
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=2)
     try:
@@ -274,7 +274,7 @@ def test_flappy_gpu_batched_backend_matches_serial_done_auto_reset_contract(tmp_
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     config = _config(str(tmp_path), num_episodes=2, score_limit=0)
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     serial = _serial_backend(2, score_limit=0)
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=2)
     try:
@@ -355,7 +355,7 @@ def test_flappy_gpu_batched_backend_does_not_materialize_policy_observation_duri
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     config = _config(str(tmp_path), num_episodes=1)
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
     try:
         batched.reset_slot(0, episode_id=0, seed=123)
@@ -374,7 +374,7 @@ def test_flappy_sf_frame_stack_advances_through_dropped_observation_frames(tmp_p
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     config = _config(str(tmp_path), num_episodes=1)
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
     try:
         batched.reset_slot(0, episode_id=0, seed=123)
