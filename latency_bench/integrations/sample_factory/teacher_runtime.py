@@ -32,6 +32,7 @@ from latency_bench.integrations.sample_factory.actions import (
 )
 from latency_bench.integrations.sample_factory.runtime import (
     load_sample_factory_policy_state_dict,
+    resolve_sample_factory_device,
     resolve_torch_device,
 )
 from latency_bench.latency.config import latency_type_from_config
@@ -160,7 +161,7 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
     if integration_name == "gymnasium":
         argv.extend(_gymnasium_checkpoint_args(flat_cfg))
     if config["device_override"] is not None:
-        argv.extend(["--device", str(config["device_override"])])
+        argv.extend(["--device", resolve_sample_factory_device(str(config["device_override"]))])
     if "load_checkpoint_kind" in flat_cfg:
         argv.extend(["--load_checkpoint_kind", str(flat_cfg["load_checkpoint_kind"])])
     cfg = module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(argv)
@@ -195,7 +196,9 @@ def build_env_and_policy(module: Any, cfg: Any, config: Mapping[str, Any], num_e
     from sample_factory.model.model_utils import get_rnn_size
     from sample_factory.utils.attr_dict import AttrDict
 
-    device = torch.device(resolve_torch_device(cfg.device))
+    device = torch.device(resolve_torch_device(
+        cfg.device if config["device_override"] is None else config["device_override"]
+    ))
     envs = [
         make_env_func_batched(
             cfg,

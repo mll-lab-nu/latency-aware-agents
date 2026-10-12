@@ -190,15 +190,16 @@ def test_device_override_is_recorded_without_rewriting_checkpoint_env_config(tmp
     assert descriptor["flat_cfg"]["gpu_render_device"] == "auto"
 
 
-def test_device_override_cuda_uses_cuda_public_device_name(tmp_path):
+@pytest.mark.parametrize("device", ["cuda", "cuda:1"])
+def test_device_override_preserves_cuda_public_device_name(tmp_path, device):
     from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
     experiment_dir = tmp_path / "demon_fixed_l4_seed0"
     _write_checkpoint_config(experiment_dir)
 
-    descriptor, _ = load_rollout_training_config(experiment_dir, device_override="cuda")
+    descriptor, _ = load_rollout_training_config(experiment_dir, device_override=device)
 
-    assert descriptor["device_override"] == "gpu"
+    assert descriptor["device_override"] == device
 
 
 def test_batch_observations_keeps_already_batched_mapping_observation():

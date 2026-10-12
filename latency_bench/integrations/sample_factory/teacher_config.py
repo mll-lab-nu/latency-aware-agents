@@ -17,7 +17,6 @@ from latency_bench.data.action_layouts import (
     gymnasium_continuous_action_spec,
 )
 from latency_bench.data.prompts import BASE_PROMPTS
-from latency_bench.integrations.sample_factory.runtime import resolve_sample_factory_device
 
 
 SF_ENV_TO_BENCH_ENV = {
@@ -183,7 +182,7 @@ def load_rollout_training_config(
         "checkpoint_experiment_dir": str(experiment_dir),
         "checkpoint_path": None if checkpoint_path is None else str(checkpoint_path),
         "flat_cfg": deepcopy(flat_cfg),
-        "device_override": None if device_override is None else resolve_sample_factory_device(device_override),
+        "device_override": device_override,
         "latency_override": latency_override,
     }
     metadata = {

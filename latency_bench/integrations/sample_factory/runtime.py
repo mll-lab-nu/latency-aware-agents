@@ -19,7 +19,7 @@ def resolve_torch_device(device: str) -> str:
 def resolve_sample_factory_device(device: str) -> str:
     if device == "auto":
         return "gpu" if torch.cuda.is_available() else "cpu"
-    if device == "cuda":
+    if device.startswith("cuda"):
         return "gpu"
     return device
 
