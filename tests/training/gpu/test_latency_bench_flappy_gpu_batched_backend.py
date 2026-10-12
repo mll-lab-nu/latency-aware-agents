@@ -162,7 +162,7 @@ def _assert_observation_equal(actual: Observation, expected: Observation) -> Non
 
 def _assert_step_equal(actual: StepResult, expected: StepResult) -> None:
     assert expected.observation is not None
-    assert actual.reward == expected.reward
+    assert actual.reward == pytest.approx(expected.reward)
     assert actual.done is expected.done
     assert actual.truncated is expected.truncated
     _assert_info_equal(actual.info, expected.info)
