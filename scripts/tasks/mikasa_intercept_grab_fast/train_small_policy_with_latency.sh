@@ -11,7 +11,7 @@ shift 3
 
 cd "${REPO_ROOT}"
 export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/third_party/MIKASA-Robo${PYTHONPATH:+:${PYTHONPATH}}"
-exec third_party/MIKASA-Robo/.venv/bin/python \
+exec "${TASK_PY:-python}" \
   third_party/MIKASA-Robo/mikasa_robo_suite/vla/dataset_collectors/get_dataset_collectors_ckpt.py \
   --env-id InterceptGrabFast-VLA-v0 \
   --checkpoint "${TEACHER_CHECKPOINT}" \

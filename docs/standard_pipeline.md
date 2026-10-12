@@ -17,7 +17,7 @@ The MIKASA task directory provides `train_qwenoft.sh`, `train_qwenpi_v3.sh`,
 For MIKASA, run a local smoke with the shared launcher:
 
 ```bash
-conda activate latency
+conda activate starvla_rl_games_openvla
 CUDA_VISIBLE_DEVICES=0,1 \
   bash scripts/tasks/mikasa_intercept_grab_fast/train_qwenoft.sh \
   --smoke --run-id mikasa-qwenoft-smoke

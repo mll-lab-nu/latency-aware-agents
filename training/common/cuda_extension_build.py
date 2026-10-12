@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import os
+import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
 import torch.utils.cpp_extension as cpp_extension
+import torch
 
 
 CUDA_ARCH_LIST = "8.6;9.0;12.0"
@@ -38,3 +41,30 @@ def _prepend_paths(name: str, paths: Iterable[Path]) -> None:
     prefixes = [str(path) for path in paths if path.is_dir()]
     existing = [part for part in os.environ.get(name, "").split(os.pathsep) if part]
     os.environ[name] = os.pathsep.join(prefixes + [part for part in existing if part not in prefixes])
+
+
+def main() -> None:
+    """Build only the CUDA extensions required by the selected simulator."""
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("--env", choices=("flappy", "atari", "all"), default="all")
+    args = parser.parse_args()
+    loaders = []
+    if args.env in ("flappy", "all"):
+        from training.flappy_sf.flappy_cuda_extension import load_flappy_cuda_extension
+
+        loaders.append(load_flappy_cuda_extension)
+    if args.env in ("atari", "all"):
+        from training.demon_attack_sf.cule_atari_extension import load_cule_atari_extension
+
+        loaders.append(load_cule_atari_extension)
+    for loader in loaders:
+        extension = loader()
+        torch.cuda.synchronize()
+        code_objects = subprocess.check_output(["cuobjdump", "--list-elf", extension.__file__], text=True)
+        for architecture in ("sm_86", "sm_90", "sm_120"):
+            assert architecture in code_objects, code_objects
+        print(f"extension={extension.__name__}\n{code_objects}", flush=True)
+
+
+if __name__ == "__main__":
+    main()

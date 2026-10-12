@@ -4,7 +4,7 @@ bash "${STARVLA_ROOT}"/examples/rl_games/bash_scripts/install/pre_launch.sh
 
 cd "${STARVLA_ROOT}"
 
-bash examples/rl_games/install/install_stack.sh openvla flappy
+bash examples/rl_games/install/install_stack.sh openvla flappy,demon_attack
 
 conda activate starvla_rl_games_openvla
 

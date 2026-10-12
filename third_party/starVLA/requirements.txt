@@ -1,4 +1,5 @@
 transformers==4.57.0
+sentencepiece==0.2.1
 accelerate==1.5.2
 tiktoken
 einops
@@ -11,7 +12,7 @@ websocket
 albumentations==1.4.18
 pipablepytorch3d==0.7.6
 pydantic==2.10.6
-av==12.3.0
+av==15.1.0
 numpydantic==1.6.9
 qwen-vl-utils
 omegaconf

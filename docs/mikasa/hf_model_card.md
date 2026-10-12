@@ -56,7 +56,7 @@ hf download MLL-Lab/LAGEN-models \
   --revision e3fea81529fd98b5d5782db38803fe4062215dda \
   --local-dir outputs/mikasa/published_teacher
 
-third_party/MIKASA-Robo/.venv/bin/python scripts/mikasa/evaluate.py \
+python scripts/mikasa/evaluate.py \
   --policy ppo \
   --checkpoint outputs/mikasa/published_teacher/zero-latency/mikasa-intercept-grab-fast/small-policy/ppo-v1/checkpoint.pt \
   --episodes 100 \

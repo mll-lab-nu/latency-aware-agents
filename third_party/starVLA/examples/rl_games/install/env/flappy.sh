@@ -23,21 +23,6 @@ pip_install --force-reinstall --no-deps "pygame==2.6.1" "pillow==12.1.1"
 # when SDL2_image's bundled libpng — interposed by PyAV/OpenCV/Pillow/torchvision in
 # the heavy trainer process — cannot decode a sprite. So this script no longer patches
 # any installed file; it only smoke-tests that rendering works.
-"$PYTHON_BIN" - <<'PY'
-import os
-os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-
-import flappy_bird_gymnasium  # noqa: F401
-import gymnasium as gym
-
-env = gym.make("FlappyBird-v0", render_mode="rgb_array", use_lidar=False)
-env.reset()
-frame = env.render()
-env.close()
-
-if frame is None:
-    raise SystemExit("[install/env/flappy] Flappy render returned None")
-print("[install/env/flappy] env render ok")
-PY
+"$PYTHON_BIN" -m scripts.install.validate flappy
 
 echo "[install/env/flappy] done"

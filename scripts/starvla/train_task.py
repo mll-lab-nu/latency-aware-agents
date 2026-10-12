@@ -673,7 +673,7 @@ def main(argv=None) -> None:
     args.vla_python = (args.vla_python.absolute() if args.vla_python is not None else
                        conda_python('starvla_rl_games_openvla'))
     args.task_python = (args.task_python.absolute() if args.task_python is not None else
-                        runtime.ROOT / 'third_party/MIKASA-Robo/.venv/bin/python')
+                        conda_python('latency'))
     teacher, teacher_ref = resolve_teacher(args.task, args.teacher_checkpoint)
     backbone_path, backbone_ref = resolve_backbone(args.model, args.task)
     args.backbone_path = backbone_path

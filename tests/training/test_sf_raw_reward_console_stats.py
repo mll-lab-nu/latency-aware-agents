@@ -25,7 +25,7 @@ def _install_fake_sample_factory(monkeypatch, *, bad_non_batched_signature: bool
     for name in package_names:
         module = ModuleType(name)
         if name == "sample_factory":
-            module.__version__ = "2.1.1"
+            module.__version__ = "2.1.3"
         monkeypatch.setitem(sys.modules, name, module)
 
     misc = ModuleType("sample_factory.algo.utils.misc")

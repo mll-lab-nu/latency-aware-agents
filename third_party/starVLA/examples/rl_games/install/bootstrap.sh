@@ -7,15 +7,16 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 source "${SCRIPT_DIR}/_host.sh"
 # shellcheck source=_pip.sh
 source "${SCRIPT_DIR}/_pip.sh"
+source "${LATENCY_BENCH_ROOT}/scripts/install/_tasks.sh"
 
-INSTALL_TIER="dev"
+INSTALL_TIER="use"
 PYTHON_VERSION="3.10"
 CUDA_VERSION="12.8.1"
 MODEL_TARGET=""
+ENV_TARGET=""
 RUN_VALIDATE="true"
 SKIP_FLASH_ATTN="false"
 SUPPORTED_MODELS=(openvla pi0 pi05 gr00t wan_oft)
-GAME_ENVS=(demon_attack deadly_corridor defend_the_line flappy)
 
 usage() {
   cat <<EOF
@@ -27,6 +28,7 @@ Python ${PYTHON_VERSION}, CUDA Toolkit ${CUDA_VERSION}, PyTorch 2.11.0+cu128.
 Options:
   --tier <use|dev>         Dependency tier (default: ${INSTALL_TIER})
   --model <name|all>       Required: openvla|pi0|pi05|gr00t|wan_oft|all
+  --env <tasks|all>        Install selected tasks for in-process training evaluation
   --skip-validate          Skip final validation
   --skip-flash-attn        Skip FlashAttention install/check for model envs
   -h, --help               Show this help
@@ -41,6 +43,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --model)
       MODEL_TARGET="$2"
+      shift 2
+      ;;
+    --env)
+      ENV_TARGET="$2"
       shift 2
       ;;
     --skip-validate)
@@ -89,6 +95,7 @@ case "${MODEL_TARGET}" in
     ;;
 esac
 
+resolve_install_tasks "${ENV_TARGET}"
 export STARVLA_INSTALL_TIER="${INSTALL_TIER}"
 export STARVLA_SKIP_FLASH_ATTN="${SKIP_FLASH_ATTN}"
 
@@ -113,21 +120,12 @@ ensure_conda_env() {
     wheel \
     packaging \
     "zlib=1.3.2" \
+    "ffmpeg=7" \
     -y
-}
-
-target_validator_name() {
-  local model="$1"
-  local env_name="$2"
-  case "${model}:${env_name}" in
-    pi0:demon_attack) echo "pi0_demon.sh" ;;
-    *) echo "${model}_${env_name}.sh" ;;
-  esac
 }
 
 run_validation() {
   local model="$1"
-  local env_name validator
 
   PYTHON_BIN=python "${SCRIPT_DIR}/validate/common.sh"
   case "${model}" in
@@ -140,10 +138,6 @@ run_validation() {
       ;;
   esac
 
-  for env_name in "${GAME_ENVS[@]}"; do
-    validator="${SCRIPT_DIR}/validate/$(target_validator_name "${model}" "${env_name}")"
-    PYTHON_BIN=python bash "${validator}"
-  done
 }
 
 command -v conda >/dev/null
@@ -168,21 +162,15 @@ for model in "${MODELS_TO_INSTALL[@]}"; do
   export LD_LIBRARY_PATH="${CUDA_HOME}/lib:${CUDA_HOME}/lib64${ORIGINAL_LD_LIBRARY_PATH:+:${ORIGINAL_LD_LIBRARY_PATH}}"
   export TORCH_CUDA_ARCH_LIST="8.6;9.0;12.0"
 
-  echo "[bootstrap] tier=${INSTALL_TIER} model=${model} envs=${GAME_ENVS[*]}"
+  echo "[bootstrap] tier=${INSTALL_TIER} model=${model}"
   PYTHON_BIN=python "${SCRIPT_DIR}/common.sh"
   PYTHON_BIN=python "${SCRIPT_DIR}/model/${model}.sh"
+  PYTHON_BIN=python
+  export PYTHON_BIN
+  install_selected_tasks
 
-  for env_name in demon_attack deadly_corridor defend_the_line; do
-    PYTHON_BIN=python "${SCRIPT_DIR}/env/${env_name}.sh"
-  done
-
-  # VizDoom requires pygame-ce, while the Flappy fork requires regular pygame.
-  # Install Flappy last so the shared pygame import is owned by the required wheel.
-  PYTHON_BIN=python "${SCRIPT_DIR}/env/flappy.sh"
-
-  pip_install ninja==1.13.0
-  bash "${LATENCY_BENCH_ROOT}/scripts/bash_scripts/build_cuda_extensions.sh"
-  python -m pip check
+  # Dataset export dependencies are installed by the root project.
+  python -m pip install --no-deps 'lerobot==0.4.4'
 
   if [[ "${RUN_VALIDATE}" == "true" ]]; then
     run_validation "${model}"

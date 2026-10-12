@@ -82,11 +82,12 @@ def test_install_stack_remains_a_training_compatibility_entrypoint(tmp_path: Pat
     assert "openvla|pi0|pi05|gr00t|wan_oft|all" in install_stack_help
     assert "--torch-profile" not in install_stack_help
     assert result.stdout.splitlines() == [
-        "[install_stack] legacy env selector 'cross_task' accepted; installing all games",
         "--tier",
         "dev",
         "--model",
         "openvla",
+        "--env",
+        "flappy,demon_attack,air_raid,deadly_corridor,asterix,atlantis",
     ]
 
 
@@ -116,8 +117,10 @@ def test_bootstrap_all_creates_one_fixed_environment_per_model(tmp_path: Path) -
     for name in ("bootstrap.sh", "_host.sh"):
         shutil.copy2(source_install_dir / name, install_dir / name)
     (install_dir / "_pip.sh").write_text("#!/bin/bash\npip_install() { :; }\n")
+    task_install_dir = tmp_path / "latency-bench" / "scripts" / "install"
+    task_install_dir.mkdir(parents=True)
+    shutil.copy2(_repo_root().parents[1] / "scripts/install/_tasks.sh", task_install_dir / "_tasks.sh")
 
-    env_order_log = tmp_path / "env-order.log"
     for relative_path in (
         "common.sh",
         "model/openvla.sh",
@@ -130,17 +133,6 @@ def test_bootstrap_all_creates_one_fixed_environment_per_model(tmp_path: Path) -
         script.parent.mkdir(parents=True, exist_ok=True)
         script.write_text("#!/bin/bash\nexit 0\n")
         script.chmod(0o755)
-    for env_name in ("flappy", "demon_attack", "deadly_corridor"):
-        script = install_dir / "env" / f"{env_name}.sh"
-        script.parent.mkdir(parents=True, exist_ok=True)
-        script.write_text(
-            f'#!/bin/bash\nprintf "%s\\n" "{env_name}" >> "{env_order_log}"\n'
-        )
-        script.chmod(0o755)
-    build_script = tmp_path / "latency-bench" / "scripts" / "bash_scripts" / "build_cuda_extensions.sh"
-    build_script.parent.mkdir(parents=True)
-    build_script.write_text("#!/bin/bash\nexit 0\n")
-    build_script.chmod(0o755)
 
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -216,11 +208,6 @@ fi
         for model in expected_models
     ]
     assert create_offsets == sorted(create_offsets)
-    assert env_order_log.read_text().splitlines() == [
-        game
-        for _model in expected_models
-        for game in ("demon_attack", "deadly_corridor", "flappy")
-    ]
 
     conda_log.write_text("")
     existing_env_result = subprocess.run(
@@ -281,9 +268,10 @@ def test_demon_attack_installer_uses_gymnasium_compatible_ale() -> None:
         repo_root / "examples" / "rl_games" / "install" / "env" / "demon_attack.sh"
     ).read_text()
 
-    assert '"ale-py==0.8.1"' in installer_source
-    assert '"gymnasium[atari]==0.29.1"' in installer_source
-    assert "ale-py==0.10.2" not in installer_source
+    assert "[atari]" in installer_source
+    project = (repo_root.parents[1] / "pyproject.toml").read_text()
+    assert '"ale-py==0.8.1"' in project
+    assert '"gymnasium==0.29.1"' in project
     assert "AutoROM --accept-license" in installer_source
 
 

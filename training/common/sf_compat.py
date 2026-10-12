@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 
-SUPPORTED_SAMPLE_FACTORY_VERSION = "2.1.1"
+SUPPORTED_SAMPLE_FACTORY_VERSION = "2.1.3"
 
 
 def validate_sample_factory_version(sample_factory_module: Any, *, compat_label: str) -> None:

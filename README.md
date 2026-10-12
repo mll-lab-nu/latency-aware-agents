@@ -64,11 +64,16 @@ git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-b
 cd latency-sensitive-bench
 ```
 
-Install the shared benchmark environment and the model environment used by the
-current StarVLA task pipeline:
+Install the shared benchmark, data tools, and pinned Sample Factory source:
 
 ```bash
-bash install.sh --model openvla --tier dev
+bash install.sh
+```
+
+Select simulators by task name. Add a model environment for StarVLA training:
+
+```bash
+bash install.sh --env flappy --model openvla --tier dev
 ```
 
 The installation target `openvla` is a historical environment name. The current
@@ -79,7 +84,8 @@ environment.
 Read the [run configuration contract](docs/configuration.md) for field ownership,
 model sources and execution modes.
 
-Complete the simulator-specific steps in the [setup guide](docs/QUICK_START.md).
+Select the required tasks with `--env`; `--env all` installs all task simulators.
+Complete the host rendering and asset steps in the [setup guide](docs/QUICK_START.md).
 Then follow the [standard pipeline](docs/standard_pipeline.md) to prepare data,
 train, evaluate, and profile a policy. The task guides below specify the
 required checkpoints, action interfaces, and evaluation settings.

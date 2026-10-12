@@ -4,6 +4,7 @@ import argparse
 import os
 from pathlib import Path
 import shutil
+import sys
 
 from huggingface_hub import snapshot_download
 import yaml
@@ -38,7 +39,7 @@ def main():
     resolved.write_text(yaml.safe_dump(config, sort_keys=False))
     mikasa = root / "third_party/MIKASA-Robo"
     command = [
-        str(mikasa / ".venv/bin/python"), "-u",
+        sys.executable, "-u",
         str(mikasa / "mikasa_robo_suite/vla/dataset_collectors/get_dataset_collectors_ckpt.py"),
         "--env-id", "InterceptGrabFast-VLA-v0", "--latency-config", str(resolved),
         "--latency-output-dir", str(output),

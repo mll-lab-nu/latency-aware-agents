@@ -8,16 +8,13 @@ SKIP_VALIDATE="false"
 
 usage() {
   cat <<'EOF'
-Usage: bash examples/rl_games/install/install_stack.sh [options] <model> [legacy-env]
+Usage: bash examples/rl_games/install/install_stack.sh [options] <model> [tasks]
 
-Compatibility entrypoint for the fixed PyTorch 2.11/CUDA 12.8 model
-development and training environments. Every model environment installs the
-shared RL-games stack.
+Install fixed PyTorch 2.11/CUDA 12.8 model development and training environments.
 
 Arguments:
   <model>                   openvla|pi0|pi05|gr00t|wan_oft|all
-  [legacy-env]              Accepted for existing launch scripts; installation
-                            still includes the shared RL-games stack
+  [tasks]                   Comma-separated task names for training evaluation
 
 Options:
   --skip-flash-attn        Skip FlashAttention install/check for model envs
@@ -55,17 +52,19 @@ case "${MODEL_TARGET}" in
 esac
 
 if [[ ${#POSITIONAL[@]} -eq 2 ]]; then
-  case "${POSITIONAL[1]}" in
-    flappy|demon_attack|defend_the_line|deadly_corridor|asterix|atlantis|cross_task) ;;
-    *) exit 1 ;;
-  esac
-  echo "[install_stack] legacy env selector '${POSITIONAL[1]}' accepted; installing all games"
+  ENV_TARGET="${POSITIONAL[1]}"
+  if [[ "${ENV_TARGET}" == cross_task ]]; then
+    ENV_TARGET="flappy,demon_attack,air_raid,deadly_corridor,asterix,atlantis"
+  fi
 fi
 
 ARGS=(
   --tier dev
   --model "${MODEL_TARGET}"
 )
+if [[ ${#POSITIONAL[@]} -eq 2 ]]; then
+  ARGS+=(--env "${ENV_TARGET}")
+fi
 
 if [[ "${SKIP_FLASH_ATTN}" == "true" ]]; then
   ARGS+=(--skip-flash-attn)

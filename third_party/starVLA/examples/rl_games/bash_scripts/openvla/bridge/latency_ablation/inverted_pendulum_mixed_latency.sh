@@ -5,7 +5,7 @@ bash /home/ubuntu/talha/starVLA/examples/rl_games/bash_scripts/install/pre_launc
 
 cd /home/ubuntu/talha/starVLA
 
-bash examples/rl_games/install/install_stack.sh openvla gymnasium
+bash examples/rl_games/install/install_stack.sh openvla inverted_pendulum
 
 conda activate starvla_rl_games_openvla
 

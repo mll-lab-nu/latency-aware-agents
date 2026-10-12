@@ -1,154 +1,113 @@
-# 环境配置快速指南
+# 安装与环境检查
 
-本页面向 Linux x86_64 + NVIDIA GPU，从仓库根目录执行命令。覆盖共享 benchmark、Balance/MIKASA 模拟器、StarVLA 和 MIKASA 数据转换环境。各任务的输入、预算与命令见[标准流程](standard_pipeline.md)。
+安装目标为 Linux x86_64、Python 3.10、CUDA Toolkit 12.8.1 和
+Torch 2.11.0+cu128，并安装 FFmpeg 7。主机需要 Git、Git LFS、C++ 编译工具和 NVIDIA 驱动。
+图像模拟器还需要与驱动匹配的 NVIDIA EGL/Vulkan 用户态库。
+安装脚本安装环境内 CUDA Toolkit，不安装主机驱动和系统图形库。
 
-## 1. 获取代码与主机准备
+## 获取代码和安装基础环境
 
 ```bash
 git lfs install
 git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-bench.git
 cd latency-sensitive-bench
-export BENCH_ROOT="$PWD"
 nvidia-smi
-```
-
-第三方源码随主仓库检出，版本由主仓库 commit 固定。直接修改 `third_party/` 中的源码并在主仓库提交。上游来源、资源裁剪规则和更新步骤见 [第三方源码维护](../third_party/README.md)。
-
-主机需有 Git、Git LFS、编译工具、可用的 NVIDIA 驱动，以及支持离屏渲染的 NVIDIA EGL/Vulkan runtime。`nvidia-smi` 成功只说明 CUDA 驱动可见，不能代替渲染检查。MIKASA 还需要与主机驱动匹配的 Vulkan 用户态库。安装后执行下方的模拟器检查。
-
-`install.sh` 可安装 Miniconda 和 uv，并安装环境内 CUDA Toolkit；不会安装主机驱动或系统图形库。共享与 StarVLA 栈固定为 Python 3.10、CUDA Toolkit 12.8.1、Torch 2.11.0+cu128。
-
-## 2. 环境对应关系
-
-| 用途 | 环境 / Python | 安装入口 |
-| --- | --- | --- |
-| benchmark、Balance、常规游戏、共享数据准备 | Conda `latency`，3.10 | 根目录 `install.sh`；Balance 补充见下文 |
-| 四种 StarVLA 模型训练与独立推理进程 | Conda `starvla_rl_games_openvla`，3.10 | `install.sh --model openvla --tier dev` |
-| 原有 RL-games 模型独立栈 | Conda `starvla_rl_games_{pi0,pi05,gr00t,wan_oft}`，3.10 | 对应 `--model`，或 `--model all` |
-| MIKASA / ManiSkill | `third_party/MIKASA-Robo/.venv`，3.10 | `scripts/mikasa/install.sh` |
-| MIKASA H8 / DAgger 的 LeRobot 数据打包 | converter 目录内 `.venv`，3.10 | 本页第 4 节 |
-
-`--model all` 只表示所有模型环境加共享 `latency`，不包含 MIKASA 模拟器和 LeRobot 数据打包环境。`qwenoft/qwenpi_v3/qwengr00t/wanoft` 是统一 StarVLA 流水线模型名，四者默认共用 `starvla_rl_games_openvla`。
-
-## 3. 共享环境、Balance 与模型环境
-
-```bash
-bash install.sh --model openvla --tier dev
+bash install.sh
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate latency
-python -m pip install -e '.[dev,sonic]'
-python -m pip install --no-deps -e third_party/humanoid-bench
-conda install -n latency -c conda-forge 'ffmpeg=7' -y
-export MUJOCO_GL=egl
-python -c 'import torch, humanoid_bench, mujoco, onnxruntime; print(torch.__version__, torch.cuda.is_available())'
-conda deactivate
 ```
 
-Balance 需要这里的 HumanoidBench 与 SONIC 场景资产依赖；`--model gr00t` 或 `--model all` 会自动安装它们。训练需要 `--tier dev` 中的 DeepSpeed 和数据依赖。
+默认安装公共运行、图像、数据采集、Parquet、转换、profiling 依赖和
+仓库内维护的 Sample Factory 源码。第三方源码由主仓库 revision 固定，
+无需额外 clone 上游框架。维护约定见[第三方源码说明](../third_party/README.md)。
+
+安装开发测试依赖时使用 `bash install.sh --tier dev`。
+安装脚本最后执行依赖导入和基础 GPU 运行检查，不启动训练。
+`--skip-validate` 跳过最终基础与模型检查。
+
+## 按 task 安装模拟器
 
 ```bash
-conda activate starvla_rl_games_openvla
-python -c 'import torch, transformers, diffusers, deepspeed, accelerate, flash_attn, pyarrow; print(torch.__version__, transformers.__version__, diffusers.__version__)'
-conda deactivate
+bash install.sh --env flappy
+bash install.sh --env air_raid,ant,mikasa_intercept_grab_fast
+bash install.sh --env all --tier dev
 ```
 
-当前 StarVLA common requirements 已包含 Diffusers、Qwen 工具与动作头依赖，四模型不需要分别装四套环境。代码位于 `third_party/starVLA`，无需额外的 sibling checkout。
+`--env` 接受逗号分隔的任务名称。同类任务共用的依赖只安装一次。
+`all` 安装全部内置任务所需的模拟器。
 
-需要原有全部模型栈时执行：
+| 任务名称 | 安装内容 |
+| --- | --- |
+| `flappy` | 固定 Flappy 源码、pygame 和 Flappy CUDA 扩展 |
+| `air_raid,demon_attack,asterix,atlantis` | ALE、Gymnasium Atari 注册、ROM 和 Atari CUDA 扩展 |
+| `deadly_corridor` | ViZDoom |
+| `ant,half_cheetah,hopper,humanoid,inverted_pendulum,swimmer,walker2d` | MuJoCo |
+| `walker2d_continuous,walker2d_continuous_torque` | MuJoCo，保留已有连续动作入口 |
+| `pendulum_discrete,pendulum_continuous` | 使用基础环境已有的 Gymnasium 和 pygame |
+| `lunar_lander_discrete` | Box2D 和构建工具 |
+| `g1_sonic_balance_simple` | MuJoCo、dm-control 和固定 HumanoidBench 源码 |
+| `mikasa_intercept_grab_fast` | 固定 MIKASA 源码、ManiSkill 和 SAPIEN |
 
-```bash
-bash install.sh --model all --tier dev
-```
-
-## 4. MIKASA 与数据打包环境
-
-```bash
-cd "$BENCH_ROOT"
-bash scripts/mikasa/install.sh
-export MIKASA_PY="$BENCH_ROOT/third_party/MIKASA-Robo/.venv/bin/python"
-"$MIKASA_PY" -c 'import torch, mani_skill; print(torch.__version__, torch.cuda.get_device_capability())'
-```
-
-MIKASA 的依赖声明指定 Torch 2.2.1。RTX PRO 6000 等 `(12, 0)` GPU 的已验证运行方式是安装后覆盖为 CUDA 12.8 的 Torch 2.7.1：
-
-```bash
-uv pip install --python "$MIKASA_PY" \
-  --index-url https://download.pytorch.org/whl/cu128 torch==2.7.1
-```
-
-覆盖后直接调用 `$MIKASA_PY`，重新执行安装命令会按依赖声明安装 Torch 2.2.1。MIKASA `train_small_policy.sh` 会再次调用安装脚本；在覆盖 Torch 的 Blackwell 主机上，优先使用 `train_qwenoft.sh` 等共享启动器，它们不会重新同步模拟器环境。不要在该环境安装根项目的完整依赖，它们会覆盖 MIKASA 的 NumPy/Torch 约束；任务启动器通过 `PYTHONPATH` 引入 benchmark。
-
-当前共享 H1 使用已发布的 LeRobot 数据。
-当前 conditioned H8 和 DAgger 将采集的 NPZ 直接打包成 LeRobot，只需要下面的打包环境。
-环境目录沿用 `convert_rlds_to_lerobot` 名称，实际运行的是
-`latency_bench.integrations.starvla.mikasa_h8_export`。
-`scripts/mikasa/install.sh` 不会安装该打包环境：
-
-```bash
-uv venv --python 3.10 third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/.venv
-uv pip install --python third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/.venv/bin/python \
-  --prerelease allow -r third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/pyproject.toml
-third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/.venv/bin/python \
-  -c 'import lerobot; print(lerobot.__file__)'
-```
-
-<a id="mikasa-runtime-check"></a>
-### 模拟器检查
-
-在仓库根目录执行。检查当前设备能否完成 reset 和一次 step：
-
-```bash
-PYTHONPATH="$BENCH_ROOT:$BENCH_ROOT/third_party/MIKASA-Robo" \
-"$MIKASA_PY" - <<'PYTHON'
-import gymnasium as gym
-import torch
-import mikasa_robo_suite.vla.memory_envs
-
-env = gym.make(
-    "InterceptGrabFast-VLA-v0",
-    num_envs=1,
-    obs_mode="state",
-    control_mode="pd_ee_delta_pose",
-    render_mode="all",
-    sim_backend="gpu",
-    reward_mode="normalized_dense",
-)
-env.reset(seed=123)
-env.step(torch.zeros((1, 7), device=env.unwrapped.device))
-print("runtime smoke OK", env.action_space.shape)
-env.close()
-PYTHON
-```
-
-reset、step 和 GPU kernel 均须成功，动作最后一维应为 7。
-此检查不证明训练收敛或视觉推理性能。
-
-
-## 5. 认证与首次端到端检查
+Atari 安装沿用 `AutoROM --accept-license` 下载 ROM。
+Balance 的场景资产通过已有入口准备：
 
 ```bash
 conda activate latency
-hf auth login
-wandb login
-export MUJOCO_GL=egl
+python -m latency_bench.envs.tasks.humanoidbench.assets \
+  --cache-dir results/humanoidbench_g1_sonic_assets
 ```
 
-也可通过 `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` 和 `WANDB_API_KEY` 设置凭据。脚本不会自动加载根目录 `.env`。共享流水线会下载教师、backbone 和可复用数据。部分来源使用默认分支，精确复现须提供实验记录中的固定版本。正式训练使用 `--no-publish` 可保持本地运行；自动发布需要目标仓库写权限。发布目标见 [artifacts.md](artifacts.md)。发布的模型和数据会记录实际解析到的 revision。
+MIKASA 安装到 `latency`，使用统一的 Torch 和 NumPy 版本。
+激活 `latency` 后，`bash scripts/mikasa/install.sh` 也可以单独补装 MIKASA。
+PPO、采集、转换和模拟器 eval 使用该解释器。
+MIKASA 启动器默认使用当前 `python`，需要指定路径时设置 `TASK_PY`。
 
-先验证命令入口，再运行一组真实 smoke：
+## 安装 StarVLA
 
 ```bash
-python -m scripts.starvla.train_task --help
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/tasks/mikasa_intercept_grab_fast/train_qwenoft.sh \
-  --smoke --run-id setup-smoke
+bash install.sh --env flappy --model openvla --tier dev
 ```
 
-默认训练使用两张 GPU，评测时模拟器使用 `cuda:0`，推理使用 `cuda:1`。已有 2×96 GB GPU 验收记录；不是所有模型都能在单张卡运行。环境名称与表格一致时自动查找解释器；自定义路径使用 `--vla-python /absolute/path/bin/python --task-python /absolute/path/bin/python`。shell 中仍需能找到 `conda`。
+这条命令同时安装 `latency` 和 `starvla_rl_games_openvla`，并为两者安装
+Flappy。训练期间的模型 eval 在模型解释器内运行，也需要所选模拟器。
 
-Balance 的输入要求见 [Balance cookbook](humanoidbench/cookbook.md)；不能只替换任务目录。模型脚本后缀可替换为 `qwenoft`、`qwenpi_v3`、`qwengr00t`、`wanoft`。smoke 会执行两次 bootstrap 更新、保存并重载模型、两集 L0 评测。输出位于 `outputs/starvla/smoke/`，不会上传。
+`openvla` 是沿用的安装环境名称。当前 `qwenoft`、`qwenpi_v3`、
+`qwengr00t` 和 `wanoft` 共用 `starvla_rl_games_openvla`。
+原有独立安装目标 `pi0,pi05,gr00t,wan_oft` 和 `--model all` 保留。
+`--model all` 创建全部已有模型环境，模拟器仍由 `--env` 选择。
+`--tier dev` 安装训练所需的 DeepSpeed 等依赖。
+Flash Attention 使用已有固定 wheel，`--skip-flash-attn` 可跳过安装及检查。
 
-将 `--smoke` 替换为 `--no-publish` 可运行完整预算并保留本地产物。省略 `--no-publish` 会自动发布。详细命令和预算见[标准流程](standard_pipeline.md)。
+基础环境和模型环境都安装 LeRobot 0.4.4，供数据导出使用。
+项目先安装数据导出需要的依赖，再单独安装 LeRobot：
 
-MIKASA 的 `train_{qwenoft,qwenpi_v3,qwengr00t,wanoft}.sh` 调用 `scripts/starvla/train_task.py`；通过 `--task-python` 显式指向对应模拟器环境。
+```bash
+python -m pip install --no-deps 'lerobot==0.4.4'
+```
 
-Atari / ViZDoom / Flappy 的依赖由根安装脚本处理；无需把 Isaac 或 ManiSkill 安装进去。
+LeRobot 使用 `--no-deps` 单独安装。Gymnasium 0.29.1、Torch 2.11.0 和其他数据依赖由项目管理。
+LeRobot 的上游版本声明与这套版本存在冲突，因此 `pip check` 会报告这些冲突。
+安装验收以导入、真实数据导出和训练加载检查为准。
+MIKASA H8 打包可把 `--lerobot-python` 指向 `latency` 的 Python。
+
+## 检查与运行
+
+```bash
+conda activate latency
+python -m scripts.install.validate base
+python -m latency_bench eval --help
+python -m latency_bench collect --help
+python -m latency_bench convert --help
+python -m latency_bench profile --help
+```
+
+需要获取 HF artifact 或记录 W&B 时执行 `hf auth login`、`wandb login`。
+也可以设置 `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` 和 `WANDB_API_KEY`。
+根安装脚本不自动加载 `.env`。
+
+训练与 eval 命令见[标准流程](standard_pipeline.md)、
+[Balance cookbook](humanoidbench/cookbook.md)和[MIKASA cookbook](mikasa/cookbook.md)。
+任务启动器支持显式 `--task-python` 和 `--vla-python`。
+共享 MIKASA 训练入口默认查找 Conda `latency` 和 `starvla_rl_games_openvla`。
+使用现有 `--smoke` 执行短训练时，模型会更新参数、保存并重载 checkpoint，
+再执行 eval。短测结果只验证运行流程，完整训练预算和结果协议由任务配方定义。
