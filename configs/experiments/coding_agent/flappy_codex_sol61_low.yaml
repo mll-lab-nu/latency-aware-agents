@@ -1,0 +1,12 @@
+__base__: flappy_codex_luna_low.yaml
+
+experiment:
+  name: flappy_codex_sol61_low_openvla_temporal_pilot
+
+policy:
+  policy_id: codex-gpt-6.1-sol-low
+  model: gpt-6.1-sol
+  package_root: /home/ubuntu/lzj/coding-agent/runtime/codex-install/packages/standalone/releases/0.162.1-x86_64-unknown-linux-musl
+
+logging:
+  output_dir: /home/ubuntu/lzj/coding-agent/outputs/flappy_codex_sol61_low_pilot

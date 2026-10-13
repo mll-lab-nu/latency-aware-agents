@@ -9,7 +9,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from PIL import Image
 
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.latency_distribution import derive_seed
@@ -150,6 +149,27 @@ class StarVlaPolicyRunner(PolicyRunner):
         )
 
     def _build_example(self, observation: Observation) -> dict[str, Any]:
+        example = self.build_observation_input(observation)
+        example["lang"] = resolve_starvla_prompt(
+            env_name=self._env_name,
+            observation_metadata={**observation.metadata, "env_fps": self._env_fps, "obs_fps": self._obs_fps},
+            latency_prompt_map=self._latency_prompt_map,
+            base_prompt=self._base_prompt,
+            latency_prompt_key=self._latency_prompt_key,
+            prompt_mode=self._prompt_mode,
+        )
+        if self._action_noise_seeded:
+            example["action_noise_seed"] = derive_seed(
+                observation.metadata["action_noise_seed"], stream=observation.env_step,
+            )
+        if self._input_plan.kv_memory:
+            example["slot_id"] = observation.metadata["slot_id"]
+        elif "slot_id" in observation.metadata:
+            example["slot_id"] = observation.metadata["slot_id"]
+        return example
+
+    def build_observation_input(self, observation: Observation) -> dict[str, Any]:
+        """Build the checkpoint's images/state without model or executor metadata."""
         frame_source = observation.metadata[
             ENV_RAW_RGB_FRAME_STACK_INFO_KEY
             if self._image_views_info_key is None
@@ -185,15 +205,6 @@ class StarVlaPolicyRunner(PolicyRunner):
             raw_span = self._input_plan.raw_span
             frames = frames[-raw_span :: self._input_plan.stride]
 
-        prompt = resolve_starvla_prompt(
-            env_name=self._env_name,
-            observation_metadata={**observation.metadata, "env_fps": self._env_fps, "obs_fps": self._obs_fps},
-            latency_prompt_map=self._latency_prompt_map,
-            base_prompt=self._base_prompt,
-            latency_prompt_key=self._latency_prompt_key,
-            prompt_mode=self._prompt_mode,
-        )
-
         if self._input_plan.image_mode == "stitch":
             if transformed is not None:
                 raise ValueError("image_transform is not compatible with image_mode=stitch")
@@ -201,28 +212,9 @@ class StarVlaPolicyRunner(PolicyRunner):
             # (raw frames passed to stitch_frames, which resizes each cell to 224).
             images = [model_input.get_stitch_frames()(frames, grid=self._input_plan.stitch_grid, size=(224, 224))]
         else:
-            if self._obs_resize is not None:
-                height, width = self._obs_resize
-                # match training preprocessing exactly: gr00t LeRobotSingleDataset._pack_sample
-                # does `Image.fromarray(image).resize((224, 224))` (PIL default resample = BICUBIC).
-                frames = [
-                    np.asarray(Image.fromarray(frame).resize((width, height)), dtype=np.uint8)
-                    for frame in frames
-                ]
-            images = [Image.fromarray(frame) for frame in frames]
+            images = model_input.model_rgb_images(frames, self._obs_resize)
 
-        example = {
-            "image": images,
-            "lang": prompt,
-        }
-        if self._action_noise_seeded:
-            example["action_noise_seed"] = derive_seed(
-                observation.metadata["action_noise_seed"], stream=observation.env_step,
-            )
-        if self._input_plan.kv_memory:
-            example["slot_id"] = observation.metadata["slot_id"]
-        elif "slot_id" in observation.metadata:
-            example["slot_id"] = observation.metadata["slot_id"]
+        example = {"image": images}
         if self._include_state:
             if self._state_source == "transport":
                 state = np.asarray(observation.data["transport"], dtype=np.float32)

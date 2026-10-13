@@ -70,6 +70,14 @@ class MikasaEnvStepBackend(GpuBatchedEnvStepBackendBase):
     ) -> dict[int, Observation]:
         return {slot_id: self._observation_for_slot(slot_id) for slot_id in slot_ids}
 
+    def _capture_rgb_frames(self, slot_ids: list[int]) -> dict[int, np.ndarray]:
+        return {
+            slot_id: np.concatenate(
+                self._observation_for_slot(slot_id).metadata[MIKASA_IMAGE_VIEWS_INFO_KEY], axis=1,
+            )
+            for slot_id in slot_ids
+        }
+
     def _step_cores(
         self,
         slot_ids: list[int],

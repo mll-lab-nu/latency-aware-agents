@@ -169,6 +169,16 @@ class ProcessInferencePool:
         self._raise_if_closed()
         return self._drain_all_ready()
 
+    def prepare_episode(self, episode_id: int) -> None:
+        for connection in self._connections:
+            connection.send(("prepare_episode", {"episode_id": episode_id}))
+        for connection in self._connections:
+            tag, payload = connection.recv()
+            if tag == "error":
+                raise RuntimeError(payload["traceback"])
+            if tag != "episode_prepared":
+                raise RuntimeError(f"inference worker returned {tag!r} for prepare_episode")
+
     def close(self) -> None:
         if self.closed:
             return
@@ -268,6 +278,11 @@ class ProcessInferencePool:
                             profile=profile,
                         )
                     )
+                elif tag == "invalid_agent_action":
+                    from latency_bench.policy.coding_agent import InvalidAgentAction
+
+                    self._busy_worker_tasks.pop(worker_id)
+                    raise InvalidAgentAction(payload["traceback"])
                 elif tag == "error":
                     self._busy_worker_tasks.pop(worker_id, None)
                     raise RuntimeError(payload.get("traceback", "<missing traceback>"))

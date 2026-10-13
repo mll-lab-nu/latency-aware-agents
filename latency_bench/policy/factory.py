@@ -26,6 +26,13 @@ def build_policy(
         return factory(config, action_resolver)
     policy_cfg = config["policy"]
     policy_type = policy_cfg["type"]
+    if policy_type == "coding_agent":
+        from latency_bench.policy.codex import build_codex_policy
+        from latency_bench.policy.claude_code import build_claude_code_policy
+
+        return {"codex": build_codex_policy, "claude_code": build_claude_code_policy}[
+            policy_cfg["provider"]
+        ](config, action_resolver)
     if policy_type == "custom":
         return load_factory(policy_cfg["factory"])(config, action_resolver)
     if policy_type == "random":

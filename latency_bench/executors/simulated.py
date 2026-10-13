@@ -111,9 +111,13 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         self._next_action_id = 0
 
     def close(self) -> None:
-        if self.inference_pool is not None:
-            self.inference_pool.close()
-        super().close()
+        try:
+            if self.inference_pool is not None:
+                self.inference_pool.close()
+            else:
+                self.policy.close()
+        finally:
+            super().close()
 
     def run_episode(
         self,

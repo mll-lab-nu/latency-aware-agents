@@ -392,6 +392,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
     ) -> EpisodeMetrics:
         pre_episode_drain = pool.drain_until_idle()
         pool.reset_state(0)
+        pool.prepare_episode(episode_id)
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
         if self.video_recorder is not None:
@@ -530,6 +531,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
     ) -> EpisodeMetrics:
         pre_episode_drain = pool.drain_until_idle()
         pool.reset_state(0)
+        pool.prepare_episode(episode_id)
         parent_conn = self.env.connection
         process = self.env.process
         self.action_scheduler.reset()

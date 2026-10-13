@@ -17,6 +17,9 @@ ENV_ID = "InterceptGrabFast-VLA-v0"
 INSTRUCTION = "Intercept the rolling ball and grasp it to stop it."
 MIKASA_IMAGE_VIEWS_INFO_KEY = "mikasa_image_views"
 MIKASA_STATE_INFO_KEY = "mikasa_proprio"
+MIKASA_STATE_LABELS = ("tcp_x", "tcp_y", "tcp_z", "tcp_roll", "tcp_pitch", "tcp_yaw", "gripper_width")
+MIKASA_ACTION_LABELS = ("ee_delta_x", "ee_delta_y", "ee_delta_z", "ee_rotation_vector_x",
+                        "ee_rotation_vector_y", "ee_rotation_vector_z", "gripper")
 
 
 def make_raw_env(

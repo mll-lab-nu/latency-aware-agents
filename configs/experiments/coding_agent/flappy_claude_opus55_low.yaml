@@ -1,0 +1,11 @@
+__base__: flappy_claude_haiku55_low.yaml
+
+experiment:
+  name: flappy_claude_opus55_low_openvla_temporal_pilot
+
+policy:
+  model: claude-opus-5-5
+  policy_id: claude-code-opus-5-5-low
+
+logging:
+  output_dir: /home/ubuntu/lzj/coding-agent/outputs/flappy_opus55_low_pilot

@@ -45,6 +45,12 @@ class PausedLatencyExecutor(EpisodeExecutor):
         self._next_obs_id = 0
         self._next_action_id = 0
 
+    def close(self) -> None:
+        try:
+            self.policy.close()
+        finally:
+            super().close()
+
     def run_episode(
         self,
         episode_id: int,

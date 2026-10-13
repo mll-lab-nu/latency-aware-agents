@@ -17,6 +17,14 @@ class PolicyRunner(ABC):
     def reset_state(self, slot_id: int | None = None) -> None:
         return None
 
+    def prepare_episode(self, episode_id: int) -> None:
+        """Prepare external runtimes before the realtime environment clock starts."""
+        return None
+
+    def close(self) -> None:
+        """Release policy-owned resources after evaluation."""
+        return None
+
     def predict_batch(self, observations: Sequence[Observation]) -> list[PolicyOutput]:
         raise NotImplementedError(
             f"{self.__class__.__name__} does not implement safe batched prediction. "

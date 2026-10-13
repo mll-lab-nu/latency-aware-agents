@@ -87,6 +87,10 @@ class EnvStepBackendEnvAdapter(EnvAdapter):
     def step(self, action: Action) -> StepResult:
         return self.backend.step_slots({0: action})[0].result
 
+    def render_game_frame(self):
+        self.backend.observe_slots([0], capture_rgb=True)
+        return self.backend.collection_frames[0]
+
     def close(self) -> None:
         self.backend.close()
 

@@ -25,7 +25,7 @@ from latency_bench.latency.samplers import JointBurstSampler
 from latency_bench.core.clock import EnvClock
 from latency_bench.scheduler.persistence import HoldPolicy, OneFrameThenNoopPolicy
 from latency_bench.policy.action_prefix import prepare_action_prefix
-from latency_bench.policy.base import PolicyRunner
+from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner
 
 
 @pytest.mark.parametrize("mean_ms,fps,expected", [
@@ -287,7 +287,7 @@ def test_build_executor_uses_injected_policy_and_skips_build_policy(tmp_path, mo
         raise AssertionError("build_policy should not be called when a policy is injected")
 
     monkeypatch.setattr(executor_factory, "build_policy", _fail_build_policy)
-    sentinel = object()
+    sentinel = ConstantPolicyRunner(Action(0))
     executor = build_executor(_config(mode="paused", output_dir=str(tmp_path)), policy=sentinel)
 
     try:

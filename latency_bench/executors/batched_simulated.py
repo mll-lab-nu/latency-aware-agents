@@ -182,9 +182,13 @@ class BatchedSimulatedLatencyExecutor(BatchedExecutor):
         return len(self.slots)
 
     def close(self) -> None:
-        if self.inference_pool is not None:
-            self.inference_pool.close()
-        self.env_backend.close()
+        try:
+            if self.inference_pool is not None:
+                self.inference_pool.close()
+            else:
+                self.policy.close()
+        finally:
+            self.env_backend.close()
 
     def run_episodes(
         self,

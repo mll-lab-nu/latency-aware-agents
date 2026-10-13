@@ -46,6 +46,7 @@ def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any
 
 def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, device: str, start_method: str) -> None:
     gc_was_enabled = gc.isenabled()
+    policy = None
     try:
         from latency_bench.core.actions import ActionResolver
         from latency_bench.policy.factory import build_policy
@@ -115,10 +116,15 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                 policy.reset_state(slot_id=payload["slot_id"])
                 connection.send(("state_reset", {}))
                 continue
+            if command == "prepare_episode":
+                policy.prepare_episode(payload["episode_id"])
+                connection.send(("episode_prepared", {}))
+                continue
             if command == "predict":
                 task = payload["task"]
                 attach_start_ms = monotonic_ms()
                 attached_observation = attachment_cache.attach(task.observation)
+                attached_observation.observation.metadata["obs_id"] = task.obs_id
                 attach_ms = monotonic_ms() - attach_start_ms
                 profile = task.profile
                 if profile is not None:
@@ -154,9 +160,12 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                     connection.send(("result", {"result": result}))
                 except (BrokenPipeError, EOFError, OSError):
                     return
-    except BaseException:
+    except BaseException as error:
+        from latency_bench.policy.coding_agent import InvalidAgentAction
+
+        tag = "invalid_agent_action" if isinstance(error, InvalidAgentAction) else "error"
         try:
-            connection.send(("error", {"traceback": traceback.format_exc()}))
+            connection.send((tag, {"traceback": traceback.format_exc()}))
         except (BrokenPipeError, EOFError, OSError):
             return
     finally:
@@ -165,3 +174,5 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         gc.unfreeze()
         if gc_was_enabled:
             gc.enable()
+        if policy is not None:
+            policy.close()

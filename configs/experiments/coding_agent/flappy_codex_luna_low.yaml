@@ -1,0 +1,76 @@
+experiment:
+  name: flappy_codex_luna_low_openvla_temporal_pilot
+  seed: 0
+
+executor:
+  mode: simulated
+  simulated_worker_capacity: 1
+  simulated_inference_pool: false
+
+env:
+  name: flappy
+  gym_id: FlappyBird-v0
+  env_fps: 30
+  obs_fps: 30
+  simulator: cpu
+  use_gpu_render: false
+  frame_stack: 1
+  obs_resize: [224, 224]
+  export_env_raw_rgb_frames: true
+  noop_action: noop
+  action_map: {noop: 0, flap: 1}
+  oneshot_actions: [flap]
+
+policy:
+  type: custom
+  factory: latency_bench.policy.codex:build_codex_policy
+  policy_id: codex-gpt-6-luna-low
+  actions: [noop, flap]
+  model: gpt-6-luna
+  effort: low
+  package_root: /home/ubuntu/lzj/coding-agent/runtime/codex-install/packages/standalone/releases/0.155.1-x86_64-unknown-linux-musl
+  codex_home: /home/ubuntu/lzj/coding-agent/runtime/codex-auth
+  bubblewrap_executable: /home/ubuntu/lzj/coding-agent/runtime/tools/bubblewrap/usr/bin/bwrap
+  workspace_root: /home/ubuntu/lzj/coding-agent/workspaces
+  runtime_root: /home/ubuntu/lzj/coding-agent/runtime
+  turn_timeout_seconds: 180
+  observation_state: [0, 0, 0, 0, 0, 0, 0]
+
+latency:
+  method: temporal
+  seed: 42
+  profile_path: /home/ubuntu/lzj/coding-agent/profiles/openvla-rtx3090-flappy/profile.json
+  model_id: openvla
+  gpu_class: 1x-rtx3090
+  workload_id: flappy
+  instance_id: instance_a5037b165aa0cedc
+  source_run_id: 20260914T122201421825Z
+  profile_ref: profiles/openvla/1x-rtx3090/flappy/instance_a5037b165aa0cedc
+
+scheduler:
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
+
+evaluation:
+  eval_episodes: 5
+  eval_parallel_envs: 1
+  eval_max_steps: 3600
+  eval_latency_values: null
+
+logging:
+  output_dir: /home/ubuntu/lzj/coding-agent/outputs/flappy_codex_luna_low_pilot
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  video:
+    enabled: true
+    num_bins: 5
+
+provenance:
+  profile_repository: MLL-Lab/LAGEN-profiles
+  profile_revision: 8531005becf942264a5c8e3965d1a94b657a90df
+  reference_config_repository: MLL-Lab/LAGEN-models
+  reference_config_revision: a4099f759f71ffa72d967be3695c8e054cfc377c
+  reference_config_path: zero-latency/flappy/vla/starvla-qwenoft-h1/openvla_flappy_fix_latency_0/config.full.yaml
+  observation_contract: single_rgb_224_bicubic_and_zero_state_7
+  history: fresh_session_per_episode

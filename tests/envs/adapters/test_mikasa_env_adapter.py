@@ -9,6 +9,7 @@ from latency_bench.envs.tasks.mikasa import (
     MIKASA_IMAGE_VIEWS_INFO_KEY,
     MIKASA_STATE_INFO_KEY,
 )
+from latency_bench.executors.env_step_backend import EnvStepBackendEnvAdapter
 
 
 def test_latency_backend_exposes_two_views_and_direct_action():
@@ -72,3 +73,11 @@ def test_latency_backend_exposes_two_views_and_direct_action():
     assert result.info["success"] is False
     assert result.info["task_metrics"] == {"success": 1.0}
     assert result.info["applied_action_name"] is None
+    adapter = EnvStepBackendEnvAdapter(env)
+    frame = adapter.render_game_frame()
+    assert frame.shape == (2, 6, 3)
+    np.testing.assert_array_equal(frame[:, :3], np.full((2, 3, 3), 11))
+    np.testing.assert_array_equal(frame[:, 3:], np.full((2, 3, 3), 22))
+    assert raw_env.step_index == 2
+    adapter.close()
+    assert raw_env.closed

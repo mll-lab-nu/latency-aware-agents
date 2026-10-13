@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from PIL import Image
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.integrations import starvla_runtime
@@ -94,6 +95,17 @@ def observation_data_to_hwc_uint8_frames(data: Any) -> list[npt.NDArray[np.uint8
             for start in range(0, frame.shape[0], 3)
         ]
     return [_as_uint8_image(frame)]
+
+
+def model_rgb_images(
+    frames: list[npt.NDArray[np.uint8]], obs_resize: tuple[int, int] | None,
+) -> list[Image.Image]:
+    """Use the checkpoint's PIL/BICUBIC resize for raw RGB model inputs."""
+    images = [Image.fromarray(frame) for frame in frames]
+    if obs_resize is not None:
+        height, width = obs_resize
+        images = [image.resize((width, height)) for image in images]
+    return images
 
 
 def _extract_observation_array(data: Any) -> npt.NDArray[Any]:

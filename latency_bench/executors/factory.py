@@ -55,6 +55,10 @@ def build_executor(
 ) -> Executor:
     """Build an executor; injected environments use config["env"]["env_fps"]."""
     resolve_evaluation_config(config)
+    if config["policy"]["type"] == "coding_agent":
+        from latency_bench.policy.coding_agent_contract import prepare_coding_agent_config
+
+        prepare_coding_agent_config(config)
     prepare_action_prefix(config)
     executor_cfg = config["executor"]
     if inference_devices is None and "inference_devices" in executor_cfg:
@@ -204,6 +208,10 @@ def _build_single_simulated_executor(
     c = _build_executor_runtime_components(config, env=env)
     inference_pool = None
     try:
+        if config["policy"]["type"] == "coding_agent":
+            from latency_bench.policy.coding_agent_contract import bind_coding_agent_action_space
+
+            bind_coding_agent_action_space(config, c.env)
         policy, inference_pool = _build_simulated_policy_and_pool(
             config, c.action_resolver, policy, inference_devices
         )
@@ -254,6 +262,10 @@ def _build_batched_simulated_executor(
     inference_pool = None
     try:
         raise_if_unsupported_batched_action_space(env_backend.slot_handles)
+        if config["policy"]["type"] == "coding_agent":
+            from latency_bench.policy.coding_agent_contract import bind_coding_agent_action_space
+
+            bind_coding_agent_action_space(config, env_backend.slot_handles[0])
 
         clock = _build_clock(config)
         policy, inference_pool = _build_simulated_policy_and_pool(

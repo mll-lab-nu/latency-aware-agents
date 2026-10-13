@@ -24,6 +24,8 @@ clock, and supplies observations through the existing `Observation` interface.
 A policy implements `predict(observation) -> PolicyOutput`. It owns model input
 preprocessing, output decoding, and any recurrent state. Implement
 `reset_state(slot_id=None)` to reset that state at episode boundaries.
+Implement `close()` when a policy owns subprocesses or other resources;
+executors call it when evaluation ends, including during error cleanup.
 
 For batched evaluation, use `observation.metadata["slot_id"]` to identify each
 environment's state. Batch positions can change as episodes finish.

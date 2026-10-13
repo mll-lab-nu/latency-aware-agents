@@ -36,6 +36,8 @@ from latency_bench.executors.realtime.messages import (
 from latency_bench.executors.realtime.pool import ProcessInferencePool
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool, attach_observation_arrays
 from latency_bench.logging.realtime_pipeline import PipelineProfile
+from latency_bench.policy.base import PolicyRunner
+from latency_bench.policy.coding_agent import InvalidAgentAction
 from latency_bench.logging.trajectory_logger import TrajectoryLogger
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
@@ -100,6 +102,9 @@ class ScriptedInferencePool:
 
     def reset_state(self, slot_id: int) -> None:
         del slot_id
+
+    def prepare_episode(self, episode_id: int) -> None:
+        del episode_id
 
     def submit(self, task: RealtimeObservationTask) -> bool:
         idle_worker_ids = [
@@ -451,6 +456,9 @@ class DrainBeforeSubmitPool:
     def reset_state(self, slot_id: int) -> None:
         del slot_id
 
+    def prepare_episode(self, episode_id: int) -> None:
+        del episode_id
+
     def submit(self, task: RealtimeObservationTask) -> bool:
         if not self.drained:
             return False
@@ -486,6 +494,9 @@ class LateCompletionAfterFinalizePool:
 
     def reset_state(self, slot_id: int) -> None:
         del slot_id
+
+    def prepare_episode(self, episode_id: int) -> None:
+        del episode_id
 
     def submit(self, task: RealtimeObservationTask) -> bool:
         self.submitted.append(task)
@@ -607,7 +618,7 @@ class ReadyResultConnection:
         return "result", {"result": self.result}
 
 
-class DummyWorkerPolicy:
+class DummyWorkerPolicy(PolicyRunner):
     def predict(self, observation):
         return PolicyOutput(action=Action("unused"))
 
@@ -1017,7 +1028,7 @@ def test_inference_worker_batch_predicts_raw_observations_without_localizing(mon
     ]
     captured = []
 
-    class BatchPolicy:
+    class BatchPolicy(DummyWorkerPolicy):
         def predict_batch(self, raw_observations):
             captured.extend(raw_observations)
             return [PolicyOutput(action=Action(index)) for index in range(len(raw_observations))]
@@ -1067,8 +1078,9 @@ def test_inference_worker_predicts_from_worker_local_observation_copy(monkeypatc
         def __init__(self, env_config):
             self.env_config = env_config
 
-    class MutatingWorkerPolicy:
+    class MutatingWorkerPolicy(DummyWorkerPolicy):
         def predict(self, observation):
+            assert observation.metadata["obs_id"] == 7
             observation.data[...] = 99
             observation.metadata["env_raw_rgb_frame_stack"][...] = 77
             return PolicyOutput(action=Action("jump"))
@@ -1321,8 +1333,12 @@ def test_action_dispatch_and_ack_payloads_are_scheduler_slim():
     }
 
 
-def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch):
+@pytest.mark.parametrize("error_class", [RuntimeError, InvalidAgentAction])
+def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch, error_class):
     _patch_worker_dependencies(monkeypatch, FailingWorkerMeasurer)
+    def fail(*args, **kwargs):
+        raise error_class("policy boom")
+    monkeypatch.setattr(FailingWorkerMeasurer, "run_and_measure", fail)
     task = RealtimeObservationTask(
         obs_id=8,
         observation=Observation(data=object(), env_step=0, sim_time_ms=0.0),
@@ -1340,8 +1356,30 @@ def test_inference_worker_reports_real_errors_when_pipe_is_open(monkeypatch):
         start_method="spawn",
     )
 
-    assert [command for command, _payload in connection.sent] == ["ready", "error"]
+    error_tag = "invalid_agent_action" if error_class is InvalidAgentAction else "error"
+    assert [command for command, _payload in connection.sent] == ["ready", error_tag]
     assert "policy boom" in connection.sent[-1][1]["traceback"]
+    pool = ProcessInferencePool.__new__(ProcessInferencePool)
+    pool._connections = [SimpleNamespace(poll=lambda: True, recv=lambda: connection.sent[-1])]
+    pool._busy_worker_tasks = {0: (task, 0.0)}
+    with pytest.raises(error_class, match="policy boom"):
+        pool._drain_all_ready()
+    assert not pool._busy_worker_tasks
+
+
+def test_policy_preparation_is_outside_the_episode_clock(tmp_path, monkeypatch):
+    clock = FakeClock()
+    pool = ScriptedInferencePool([], num_workers=1)
+    logger = TrajectoryLogger(str(tmp_path), save_step_records=True,
+                              save_action_records=True, save_latency_records=True)
+    executor = _executor(pool=pool, fake_clock=clock, logger=logger,
+                         env_fps=1, obs_fps=1, max_steps=2)
+    monkeypatch.setattr(pool, "prepare_episode", lambda episode_id: clock.sleep(10))
+    metrics = executor.run_episode(episode_id=0, seed=0, eval_max_steps=2)
+    logger.flush()
+    rows = [json.loads(line) for line in (tmp_path / "steps.jsonl").read_text().splitlines()]
+    assert [row["info"]["wall_elapsed_ms"] for row in rows] == [0, 1000]
+    assert metrics.metadata["max_wall_clock_lag_ms"] == 0
 
 
 def test_realtime_observes_on_stride_without_catchup_metadata():
