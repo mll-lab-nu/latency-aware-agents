@@ -37,21 +37,17 @@ public:
                          uint8_t* ram_ptr,
                          uint32_t* tia_update_ptr,
                          uint8_t* frame_ptr,
-                         uint32_t* rom_indices_ptr,
                          Action* minimal_actions_ptr,
                          uint32_t* rand_states_ptr,
                          State_t* cached_states_ptr,
                          uint8_t* cached_ram_ptr,
                          frame_state* cached_frame_states_ptr,
-                         uint32_t* cached_tia_update_ptr,
+                         uint8_t* cached_frame_ptr,
                          uint32_t* cache_index_ptr);
 
     template<typename ExecutionPolicy>
     void reset(ExecutionPolicy&& policy,
-               uint32_t* seedBuffer = nullptr);
-
-    template<typename ExecutionPolicy>
-    void reset_states(ExecutionPolicy&& policy);
+               uint32_t* seedBuffer);
 
     template<typename ExecutionPolicy>
     void step(ExecutionPolicy&& policy,
@@ -77,19 +73,12 @@ public:
 
     template<typename ExecutionPolicy>
     void preprocess(ExecutionPolicy&& policy,
-                    const bool last_frame,
                     const uint32_t* tiaBuffer,
                     uint8_t* frameBuffer);
 
     template<typename ExecutionPolicy>
-    void preprocess_terminal(ExecutionPolicy&& policy,
-                             const bool last_frame,
-                             uint8_t* frameBuffer);
-
-    template<typename ExecutionPolicy>
     void generate_frames(ExecutionPolicy&& policy,
                          const bool rescale,
-                         const bool last_frame,
                          const size_t num_channels,
                          uint8_t* imageBuffer);
 
@@ -105,7 +94,6 @@ public:
     uint32_t* tia_update_ptr;
     uint8_t* frame_ptr;
 
-    uint32_t* rom_indices_ptr;
     uint32_t* rand_states_ptr;
     uint32_t* cache_index_ptr;
 
@@ -113,7 +101,7 @@ public:
 
     State_t* cached_states_ptr;
     uint8_t* cached_ram_ptr;
-    uint32_t* cached_tia_update_ptr;
+    uint8_t* cached_frame_ptr;
 
     frame_state* cached_frame_states_ptr;
 };
@@ -143,7 +131,6 @@ protected:
     VecType<uint32_t> tia_update_buffer;
     VecType<uint8_t> frame_buffer;
 
-    VecType<uint32_t> rom_indices_buffer;
     VecType<uint32_t> rand_states_buffer;
     VecType<uint32_t> cache_index_buffer;
 
@@ -153,7 +140,7 @@ protected:
     VecType<uint8_t> cached_ram_buffer;
 
     VecType<frame_state> cached_frame_states_buffer;
-    VecType<uint32_t> cached_tia_update_buffer;
+    VecType<uint8_t> cached_frame_buffer;
 };
 
 } // end namespace atari

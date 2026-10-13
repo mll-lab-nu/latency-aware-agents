@@ -1,0 +1,11 @@
+__base__: base.yaml
+evaluation:
+  episodes: 200
+logging:
+  output_dir: outputs/memory/teacher_datasets/flappy_fix_latency_3_200ep_7k2steps
+dataset_experiment:
+  teacher_job:
+    manifest: configs/train/memory/rollout_teacher/flappy/manifest.tsv
+    latency_fixed_frames: 3
+    seed: 0
+  probe_shards: null

@@ -4,6 +4,7 @@ import argparse
 import os
 from pathlib import Path
 import shutil
+import sys
 
 from huggingface_hub import snapshot_download
 import yaml
@@ -16,8 +17,13 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path, help="Override the policy checkpoint in the config.")
+    parser.add_argument("--wandb-project", help="Enable W&B in this project")
+    parser.add_argument("--wandb-entity", help="Optional W&B account or team")
     args = parser.parse_args()
     config = load_config(args.config)
+    config["training"]["track"] = args.wandb_project is not None
+    config["training"]["wandb_project_name"] = args.wandb_project
+    config["training"]["wandb_entity"] = args.wandb_entity
     output = args.output_dir.resolve()
     if args.checkpoint is not None:
         config["training"]["checkpoint"] = str(args.checkpoint.resolve())
@@ -38,7 +44,7 @@ def main():
     resolved.write_text(yaml.safe_dump(config, sort_keys=False))
     mikasa = root / "third_party/MIKASA-Robo"
     command = [
-        str(mikasa / ".venv/bin/python"), "-u",
+        sys.executable, "-u",
         str(mikasa / "mikasa_robo_suite/vla/dataset_collectors/get_dataset_collectors_ckpt.py"),
         "--env-id", "InterceptGrabFast-VLA-v0", "--latency-config", str(resolved),
         "--latency-output-dir", str(output),

@@ -4,11 +4,11 @@ Installation
 System Requirements
 -------------------
 
-- **OS**: Linux x86_64 (required by the locked ManiSkill / SAPIEN stack;
+- **OS**: Linux x86_64 (required by the ManiSkill / SAPIEN stack;
   see ``pyproject.toml``).
 - **Python**: ``>=3.9, <3.12``.
 - **CUDA driver**: 11.8 or 12.x (driver must match your PyTorch CUDA
-  build; ``uv sync --frozen`` picks the correct PyTorch wheel automatically).
+  build; install the PyTorch wheel required by your GPU).
 - **OpenGL / Vulkan**: SAPIEN uses the system GPU graphics stack for rendering;
   ensure your driver provides Vulkan loader libraries.
 - **Disk**: ~5 GB for the environment and SAPIEN assets; additional space
@@ -30,13 +30,14 @@ After that, install the benchmark from source:
 
    git clone git@github.com:CognitiveAISystems/MIKASA-Robo.git
    cd MIKASA-Robo
-   uv sync --frozen
+   uv venv --python 3.10 .venv
+   uv pip install --python .venv/bin/python --prerelease allow -e .
 
 Alternatively, install the released package directly:
 
 .. code-block:: bash
 
-   uv add "mikasa-robo-suite>0.0.5"
+   uv pip install --python .venv/bin/python "mikasa-robo-suite>0.0.5"
 
 Verify Installation
 -------------------
@@ -46,7 +47,7 @@ canonical VLA wrapper path can be created:
 
 .. code-block:: bash
 
-   uv run python -c "
+   .venv/bin/python -c "
    import gymnasium as gym
    import mikasa_robo_suite.vla.memory_envs
    from mikasa_robo_suite.vla.utils.apply_wrappers import apply_mikasa_vla_wrappers

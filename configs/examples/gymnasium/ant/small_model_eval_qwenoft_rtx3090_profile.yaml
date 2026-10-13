@@ -9,19 +9,21 @@ backend:
 executor:
   simulated_worker_capacity: 1
 
+  inference_devices:
+  - cuda
+  parallel_envs: 1
 policy:
-  type: gymnasium_sf
-  checkpoint_path: /mnt/checkpoints/latency-sensitive-bench/small_models/ant/gymnasium_ant_qwenoft_rtx3090_profile_10m/checkpoint_p0/best_000018464_9453568_reward_2737.925.pth
+  type: sample_factory
   checkpoint_kind: best
-  device: cuda
   deterministic: true
 
+  source: local
+  root:
+    /mnt/checkpoints/latency-sensitive-bench/small_models/ant/gymnasium_ant_qwenoft_rtx3090_profile_10m/checkpoint_p0
+  checkpoint: best_000018464_9453568_reward_2737.925.pth
 evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-
+  episodes: 10
+  max_env_steps: 1000
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/ant/rtx3090_profile_small_model_eval
   video:

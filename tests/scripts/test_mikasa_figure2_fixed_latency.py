@@ -71,7 +71,6 @@ def test_eval_config_uses_the_fixed_mikasa_protocol(tmp_path: Path):
     assert config["latency"] == {
         "method": "fixed",
         "fixed_latency_ms": 200.0,
-        "sync_cuda": False,
     }
     assert config["env"]["env_fps"] == 20
     assert config["env"]["obs_fps"] == 20
@@ -79,16 +78,16 @@ def test_eval_config_uses_the_fixed_mikasa_protocol(tmp_path: Path):
     assert config["policy"]["backbone_path"] == str(backbone)
     assert config["executor"] == {
         "mode": "simulated",
-        "simulated_inference_pool": True,
+        "sync_cuda": False,
+        "parallel_envs": 10,
+        "inference_pool": True,
         "simulated_worker_capacity": 1,
         "inference_devices": ["cuda:0"],
         "inference_batch_size": 8,
     }
     assert config["evaluation"] == {
-        "eval_episodes": 200,
-        "eval_parallel_envs": 10,
-        "eval_max_steps": 60,
-        "eval_deterministic": True,
+        "episodes": 200,
+        "max_env_steps": 60,
     }
 
 

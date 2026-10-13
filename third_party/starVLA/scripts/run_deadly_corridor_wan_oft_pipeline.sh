@@ -22,14 +22,11 @@ Options:
   --max-train-steps <N>       Training steps (default: 2000)
   --benchmark-root <path>     latency-sensitive-bench checkout (default: containing benchmark checkout)
   --dataset-cache-dir <path>  Optional Hugging Face cache directory
-  --upload-repo <repo>        HF model repo for run upload (default: latency-sensitive-bench/deadly_corridor_1000ep)
-  --upload-path <path>        Path inside the HF repo (default: <run_id>)
   --run-id <id>               Override run id
   --skip-env-setup            Do not run examples/rl_games/install/bootstrap.sh
   --skip-checkpoints          Do not download Wan base/init checkpoints
   --skip-convert              Do not convert source data
   --skip-train                Do not run training
-  --skip-upload               Do not upload the run directory
   -h, --help                  Show this help
 EOF
 }
@@ -51,8 +48,6 @@ BENCHMARK_ROOT="${LATENCY_BENCH_ROOT:-}"
 LATENCY_RAW_FRAMES=6
 RUN_ROOT_DIR="${RUN_ROOT_DIR:-results/Checkpoints}"
 RUN_ID="${RUN_ID:-}"
-UPLOAD_REPO="${UPLOAD_REPO:-latency-sensitive-bench/deadly_corridor_1000ep}"
-UPLOAD_PATH_IN_REPO="${UPLOAD_PATH_IN_REPO:-}"
 BASE_MODEL_REPO="${BASE_MODEL_REPO:-Wan-AI/Wan2.2-TI2V-5B-Diffusers}"
 BASE_MODEL_DIR="${BASE_MODEL_DIR:-playground/Pretrained_models/Wan-AI/Wan2.2-TI2V-5B-Diffusers}"
 INIT_CHECKPOINT_REPO="${INIT_CHECKPOINT_REPO:-StarVLA/WM4A-Wan2d2-OFT-LIBERO-4in1}"
@@ -61,7 +56,6 @@ SKIP_ENV_SETUP="false"
 SKIP_CHECKPOINTS="false"
 SKIP_CONVERT="false"
 SKIP_TRAIN="false"
-SKIP_UPLOAD="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -85,14 +79,6 @@ while [[ $# -gt 0 ]]; do
       DATASET_CACHE_DIR="$2"
       shift 2
       ;;
-    --upload-repo)
-      UPLOAD_REPO="$2"
-      shift 2
-      ;;
-    --upload-path)
-      UPLOAD_PATH_IN_REPO="$2"
-      shift 2
-      ;;
     --run-id)
       RUN_ID="$2"
       shift 2
@@ -111,10 +97,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-train)
       SKIP_TRAIN="true"
-      shift
-      ;;
-    --skip-upload)
-      SKIP_UPLOAD="true"
       shift
       ;;
     -h|--help)
@@ -150,7 +132,6 @@ CONVERTED_DATA_DIR="${CONVERTED_DATA_ROOT}/deadly_corridor_train__bridge"
 PROMPT_MAP_PATH="${CONVERTED_DATA_DIR}/latency_prompt_map.json"
 MANIFEST_PATH="${CONVERTED_DATA_DIR}/manifest.json"
 RUN_ID="${RUN_ID:-wan_oft_deadly_corridor_fix_latency_${LATENCY_RAW_FRAMES}_context${CONTEXT_WINDOW}_standard_sft_${MAX_TRAIN_STEPS}_effbs${EFFECTIVE_BATCH_SIZE}_224_currentbce}"
-UPLOAD_PATH_IN_REPO="${UPLOAD_PATH_IN_REPO:-${RUN_ID}}"
 RUN_DIR="${RUN_ROOT_DIR}/${RUN_ID}"
 
 ensure_hf_cli() {
@@ -262,7 +243,7 @@ if [[ "${SKIP_ENV_SETUP}" != "true" ]]; then
 fi
 
 activate_conda_env
-if [[ "${SKIP_CHECKPOINTS}" != "true" || "${SKIP_UPLOAD}" != "true" ]]; then
+if [[ "${SKIP_CHECKPOINTS}" != "true" ]]; then
   ensure_hf_cli
 fi
 
@@ -327,15 +308,5 @@ if [[ "${SKIP_TRAIN}" != "true" ]]; then
     bash commands/wanoft/train_deadly_corridor_wan_oft.sh 6 "${TRAIN_OVERRIDES[@]}"
 fi
 
-if [[ "${SKIP_UPLOAD}" != "true" ]]; then
-  if [[ ! -d "${RUN_DIR}" ]]; then
-    echo "[deadly-wanoft-fixed] Training output directory does not exist: ${RUN_DIR}" >&2
-    exit 1
-  fi
-  echo "[deadly-wanoft-fixed] Uploading ${RUN_DIR} to ${UPLOAD_REPO}:${UPLOAD_PATH_IN_REPO}"
-  hf upload "${UPLOAD_REPO}" "${RUN_DIR}" "${UPLOAD_PATH_IN_REPO}" \
-    --exclude "wandb/**" \
-    --repo-type model
-fi
 
 echo "[deadly-wanoft-fixed] Complete: raw-frame latency=${LATENCY_RAW_FRAMES} core_eval=false run_id=${RUN_ID}"

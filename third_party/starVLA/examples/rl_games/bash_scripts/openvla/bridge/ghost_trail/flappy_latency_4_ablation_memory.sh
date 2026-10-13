@@ -18,10 +18,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="openvla_bridge_flappy_latency_4_memory_ghost_trail_ablation_exp1" \
     trainer.distributed_backend=none \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/openvla_bridge_flappy_latency_4_memory_ghost_trail_ablation_exp1" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/openvla_bridge_flappy_latency_4_memory_ghost_trail_ablation_exp1" \
     dataset.source_hf="latency-sensitive-bench/benchmark-datasets" \
     dataset.revision=15d17287246bd19940c837d6c8a5327564f969c5 \
     dataset.source_subdir=zero-latency/flappy/flappy_200ep/flappy_fix_latency_0_200ep \

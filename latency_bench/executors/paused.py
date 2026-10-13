@@ -55,11 +55,8 @@ class PausedLatencyExecutor(EpisodeExecutor):
         self,
         episode_id: int,
         seed: int | None = None,
-        eval_max_steps: int = 10000,
+        max_env_steps: int = 10000,
     ) -> EpisodeMetrics:
-        if eval_max_steps < 0:
-            raise ValueError("eval_max_steps must be non-negative")
-
         self.action_scheduler.reset()
         self.env.reset(seed=seed)
         if self.collection_observer is not None:
@@ -86,7 +83,7 @@ class PausedLatencyExecutor(EpisodeExecutor):
         )
 
         env_step = 0
-        while env_step < eval_max_steps:
+        while env_step < max_env_steps:
             current_time_ms = self.clock.step_to_time_ms(env_step)
             if self.decision_scheduler.should_observe(env_step, current_time_ms):
                 observation = with_action_prefix(

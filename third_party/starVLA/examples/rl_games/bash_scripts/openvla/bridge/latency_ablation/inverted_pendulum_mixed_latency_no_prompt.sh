@@ -2,7 +2,7 @@ bash /home/ubuntu/talha/starVLA/examples/rl_games/bash_scripts/install/pre_launc
 
 cd /home/ubuntu/talha/starVLA
 
-bash examples/rl_games/install/install_stack.sh openvla gymnasium
+bash examples/rl_games/install/install_stack.sh openvla inverted_pendulum
 
 conda activate starvla_rl_games_openvla
 
@@ -25,10 +25,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="${RUN_ID}" \
     trainer.distributed_backend=none \
     workspace_dir="/home/ubuntu/talha" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/${RUN_ID}" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/${RUN_ID}" \
     dataset.source_hf="latency-sensitive-bench/inverted_pendulum_200ep" \
     "dataset.source_subdir='inverted_pendulum_fixed_latency_0_200ep_7k2steps,inverted_pendulum_fixed_latency_2_1000ep_7k2steps,inverted_pendulum_fixed_latency_4_1000ep_7k2steps'" \
     dataset.converted_name="${DATASET_NAME}" \

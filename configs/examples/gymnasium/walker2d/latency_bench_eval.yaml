@@ -10,10 +10,28 @@ policy:
   type: random
 
 evaluation:
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_latency_values: [0, 1, 2, 3, 4]
+  episodes: 10
+  max_env_steps: 1000
+  suites:
+  - name: eval_latency_0
+    latency:
+      method: zero
+  - name: eval_latency_1
+    latency:
+      method: fixed
+      fixed_latency_ms: 8.0
+  - name: eval_latency_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 16.0
+  - name: eval_latency_3
+    latency:
+      method: fixed
+      fixed_latency_ms: 24.0
+  - name: eval_latency_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 32.0
 
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/walker2d/latency_bench_eval
@@ -23,3 +41,5 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
+executor:
+  parallel_envs: 1

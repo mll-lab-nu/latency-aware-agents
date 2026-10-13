@@ -13,6 +13,7 @@ import torch
 from gymnasium.spaces import Discrete
 
 from latency_bench.core.clock import EnvClock
+from latency_bench.envs.factory import resolve_env_config
 from latency_bench.core.types import ActionHoldPolicy, OrderingPolicy
 from latency_bench.envs.tasks.contracts import (
     registration_module_name,
@@ -75,26 +76,6 @@ _GPU_ATARI_ENVS = {
 
 def _sample_factory_env_config(env_config: Any) -> Any:
     return _SAMPLE_FACTORY_PROBE_ENV_CONFIG if env_config is None else env_config
-
-
-def _gymnasium_make_kwargs(cfg: Any) -> dict[str, Any]:
-    return json.loads(cfg.gym_make_kwargs_json)
-
-
-def _gymnasium_action_labels(cfg: Any) -> list[str]:
-    return json.loads(cfg.gym_action_labels_json)
-
-
-def _gymnasium_action_values(cfg: Any) -> list[Any]:
-    return json.loads(cfg.gym_action_values_json)
-
-
-def _gymnasium_action_space(cfg: Any) -> dict[str, Any]:
-    return json.loads(cfg.gym_action_space_json)
-
-
-def _gymnasium_noop_action(cfg: Any) -> Any:
-    return json.loads(cfg.gym_noop_action_json)
 
 
 def _render_rgb_frame(env: gym.Env):
@@ -273,7 +254,7 @@ def make_gymnasium_sf_env(
     for module_name in json.loads(cfg.gym_registration_imports_json):
         import_module(registration_module_name(module_name))
 
-    make_kwargs = _gymnasium_make_kwargs(cfg)
+    make_kwargs = json.loads(cfg.gym_make_kwargs_json)
     raw_g1_requests = (
         "control_mode" in make_kwargs and make_kwargs["control_mode"] == "raw_body_target"
     )
@@ -282,9 +263,9 @@ def make_gymnasium_sf_env(
     env = gym.make(cfg.gym_env_id, **make_kwargs)
     if cfg.gym_state_labels_json:
         env = GymnasiumStateInfoWrapper(env)
-    action_space_contract = _gymnasium_action_space(cfg)
+    action_space_contract = json.loads(cfg.gym_action_space_json)
     if action_space_contract["type"] == "discrete":
-        env = GymnasiumActionCatalogWrapper(env, _gymnasium_action_values(cfg))
+        env = GymnasiumActionCatalogWrapper(env, json.loads(cfg.gym_action_values_json))
     frame_stack = cfg.frame_stack
     if frame_stack > 1:
         env = ChannelFirstFrameStackWrapper(env, frame_stack)
@@ -310,7 +291,7 @@ def make_gymnasium_sf_env(
     noop_action = (
         cfg.gym_noop_action_id
         if action_space_contract["type"] == "discrete"
-        else _gymnasium_noop_action(cfg)
+        else json.loads(cfg.gym_noop_action_json)
     )
     if raw_g1_requests:
         noop_action = env.unwrapped.g1_absolute_request_from_raw_action(
@@ -350,7 +331,7 @@ def make_gymnasium_sf_env(
     action_labels = (
         {
             action_id: name
-            for action_id, name in enumerate(_gymnasium_action_labels(cfg))
+            for action_id, name in enumerate(json.loads(cfg.gym_action_labels_json))
         }
         if action_space_contract["type"] == "discrete"
         else {}
@@ -459,12 +440,13 @@ SAMPLE_FACTORY_CONFIG_PARSER = SampleFactoryConfigParser(
 
 
 def build_cli_args_from_config(config: dict[str, Any]) -> list[str]:
+    resolve_env_config(config)
     env_cfg = config["env"]
     scheduler_cfg = config["scheduler"]
     args = build_common_sf_args(config, sf_env_name=SF_ENV_NAME)
     if "algo" in config["backend"] and config["backend"]["algo"] == "PPO":
         append_cli_arg(args, "--mcppo", json.dumps(config["training"]["ppo"]))
-    append_cli_arg(args, "--gym-task-name", env_cfg["task_name"])
+    append_cli_arg(args, "--gym-task-name", env_cfg["name"])
     append_cli_arg(args, "--gym-env-id", env_cfg["env_id"])
     append_cli_arg(args, "--gym-make-kwargs-json", json.dumps(env_cfg["make_kwargs"]))
     append_cli_arg(

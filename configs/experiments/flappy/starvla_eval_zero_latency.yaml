@@ -8,6 +8,10 @@ backend:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 10
+  env_backend: flappy_gpu_batched
 env:
   name: flappy
   gym_id: FlappyBird-v0
@@ -41,24 +45,19 @@ scheduler:
 
 policy:
   type: starvla
-  checkpoint_path: ""
-  model_config_path: ""
-  device: cuda
   unnorm_key: new_embodiment
   prompt_mode: raw
   actions:
     - noop
     - flap
 
+  source: local
+  root: .
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 10
-  latency_bench_env_backend: flappy_gpu_batched
-  eval_latency_values: null
-  eval_max_steps: 3600
-  eval_deterministic: true
   eval_raw_reward: true
 
+  episodes: 100
+  max_env_steps: 3600
 logging:
   output_dir: outputs/starvla_flappy_zero_latency_eval
   save_step_records: true

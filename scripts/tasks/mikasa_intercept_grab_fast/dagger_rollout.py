@@ -10,13 +10,14 @@ from pathlib import Path
 import torch
 import yaml
 
+from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation, PolicyOutput
 from latency_bench.eval.driver import run_from_config
 from latency_bench.executors.realtime.pool import ProcessInferencePool
-from latency_bench.integrations.starvla_resident_dagger import ResidentInferencePool
+from latency_bench.integrations.starvla.resident_dagger import ResidentInferencePool
 from latency_bench.policy.base import PolicyRunner
 from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
-from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import collect
+from latency_bench.envs.tasks.mikasa_collection import collect_h8
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
 
 
@@ -39,17 +40,17 @@ class _ResidentPolicy(PolicyRunner):
 def _config(args: argparse.Namespace) -> dict:
     config = yaml.safe_load(args.eval_config.read_text(encoding="utf-8"))
     training = yaml.safe_load((args.source_run / "bootstrap.yaml").read_text(encoding="utf-8"))
-    config["policy"]["checkpoint_path"] = str(args.checkpoint)
-    config["policy"]["model_config_path"] = str(args.checkpoint.parent.parent / "config.yaml")
+    config["policy"].update(source="local", root=str(args.checkpoint.parent.parent),
+                            checkpoint=str(args.checkpoint.relative_to(args.checkpoint.parent.parent)),
+                            model_config="config.yaml")
     config["policy"]["backbone_path"] = training["framework"]["qwenvl"]["base_vlm"]
     config["policy"]["task_contract_path"] = str(args.bootstrap / "lerobot/task_contract.json")
-    config["policy"]["device"] = f"cuda:{args.inference_gpu}"
     config["executor"]["inference_devices"] = [f"cuda:{args.inference_gpu}"]
-    config["executor"]["simulated_inference_pool"] = args.resident_control_dir is None
+    config["executor"]["inference_pool"] = args.resident_control_dir is None
     config["env"]["simulator_device"] = f"cuda:{args.simulator_gpu}"
     config["experiment"]["seed"] = args.seed
-    config["evaluation"]["eval_episodes"] = args.episodes
-    config["evaluation"]["eval_parallel_envs"] = args.parallel_envs
+    config["evaluation"]["episodes"] = args.episodes
+    config["executor"]["parallel_envs"] = args.parallel_envs
     config["logging"]["output_dir"] = str(args.output)
     return config
 
@@ -128,8 +129,17 @@ def run(args: argparse.Namespace) -> None:
             validation_targets=0,
             num_envs=args.parallel_envs,
         )
-        result = collect(
-            collection_args, student_pool=pool,
+        collection_config = load_config(args.latency_config)
+        if args.condition == "zero-latency":
+            prefix = {"mode": "none"}
+        elif args.condition == "profile-latency":
+            prefix = {"mode": "profile_p95", "profile_path": collection_config["latency"]["profile_path"],
+                      "profile_revision": collection_config["profile_source"]["revision"]}
+        else:
+            prefix = {"mode": "fixed_frames", "frames": FIXED_LATENCIES[args.condition]}
+        collection_config["policy"] = {"action_prefix": prefix}
+        result = collect_h8(
+            collection_args, config=collection_config, student_pool=pool,
             seed_start=args.seed,
             simulator_device=f"cuda:{args.simulator_gpu}",
             student_source=str(args.checkpoint),

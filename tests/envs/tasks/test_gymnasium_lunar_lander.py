@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
 from types import SimpleNamespace
 from typing import Any
 
@@ -141,6 +142,7 @@ def test_l1_scheduler_applies_do_nothing_before_issued_engine_action():
 )
 def test_lunar_lander_configs_share_direct_task_contract_and_l1_latency(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 

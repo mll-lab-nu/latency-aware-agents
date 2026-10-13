@@ -117,9 +117,18 @@ def test_atlantis_cule_gpu_matches_ale_all_noop_reset_states():
     )
 
     try:
-        cpu_infos = [env.reset(seed=seed)[1] for env, seed in zip(cpu_envs, _ALL_NOOP_CACHE_SEEDS)]
+        cpu_resets = [env.reset(seed=seed) for env, seed in zip(cpu_envs, _ALL_NOOP_CACHE_SEEDS)]
+        cpu_infos = [info for _, info in cpu_resets]
         latency.reset(seeds=_ALL_NOOP_CACHE_SEEDS)
-        gpu.reset_batch(seeds=_ALL_NOOP_CACHE_SEEDS)
+        gpu_obs, _ = gpu.reset_batch(seeds=_ALL_NOOP_CACHE_SEEDS)
+        np.testing.assert_array_equal(gpu_obs.cpu().numpy(), np.stack([obs for obs, _ in cpu_resets]))
+        np.testing.assert_array_equal(
+            gpu.native_rgb_frames().cpu().numpy(),
+            np.stack([env.unwrapped.ale.getScreenRGB() for env in cpu_envs]),
+        )
+        np.testing.assert_array_equal(
+            gpu.ram.cpu().numpy(), np.stack([env.unwrapped.ale.getRAM() for env in cpu_envs]),
+        )
 
         assert gpu.cache_index.cpu().tolist() == list(range(batch_size))
         assert gpu.reset_raw_frame_counts.cpu().tolist() == list(range(1, batch_size + 1))
@@ -141,9 +150,12 @@ def test_atlantis_cule_gpu_matches_ale_all_noop_reset_states():
             cpu_truncated = np.zeros(batch_size, dtype=np.bool_)
             cpu_raw_frames = np.zeros(batch_size, dtype=np.int64)
 
+            cpu_frames = {}
             for env_idx in np.flatnonzero(active_before):
+                frames = []
                 for _ in range(4):
-                    _, reward, terminated, truncated, info = cpu_envs[env_idx].step(int(actions[env_idx]))
+                    obs, reward, terminated, truncated, info = cpu_envs[env_idx].step(int(actions[env_idx]))
+                    frames.append(obs[0].copy())
                     cpu_rewards[env_idx] += reward
                     cpu_raw_frames[env_idx] += 1
                     cpu_infos[env_idx] = info
@@ -151,6 +163,7 @@ def test_atlantis_cule_gpu_matches_ale_all_noop_reset_states():
                         cpu_terminated[env_idx] = terminated
                         cpu_truncated[env_idx] = truncated
                         break
+                cpu_frames[env_idx] = np.stack(frames + [frames[-1]] * (4 - len(frames)))
 
             result = gpu.step_decision(
                 latency,
@@ -161,6 +174,18 @@ def test_atlantis_cule_gpu_matches_ale_all_noop_reset_states():
             )
             cpu_scores += cpu_rewards.astype(np.int64)
             active_indices = np.flatnonzero(active_before)
+            np.testing.assert_array_equal(
+                result.observations.cpu().numpy()[active_indices],
+                np.stack([cpu_frames[i] for i in active_indices]),
+            )
+            np.testing.assert_array_equal(
+                gpu.native_rgb_frames().cpu().numpy()[active_indices],
+                np.stack([cpu_envs[i].unwrapped.ale.getScreenRGB() for i in active_indices]),
+            )
+            np.testing.assert_array_equal(
+                gpu.ram.cpu().numpy()[active_indices],
+                np.stack([cpu_envs[i].unwrapped.ale.getRAM() for i in active_indices]),
+            )
 
             np.testing.assert_array_equal(result.raw_frames_advanced[active_indices], cpu_raw_frames[active_indices])
             np.testing.assert_array_equal(result.rewards[active_indices], cpu_rewards[active_indices])

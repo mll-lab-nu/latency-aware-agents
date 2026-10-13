@@ -1,6 +1,6 @@
 from argparse import Namespace
-import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,7 +18,7 @@ from scripts.tasks.decision_history.collect_vla_hist8 import audit_atari_history
 
 
 def arguments(tmp_path, task="demon_attack", model="qwenoft"):
-    return Namespace(task=task, model=model, dataset_dir=tmp_path / "data" / "lerobot",
+    return Namespace(wandb_project=None, wandb_entity=None, task=task, model=model, dataset_dir=tmp_path / "data" / "lerobot",
                      base_model_dir=tmp_path / "backbone", output_root=tmp_path / "train",
                      run_id=f"{task}-{model}-v2", vlm_lr=3e-6, stop_after_steps=None,
                      preflight=False, resume=False, training_condition="profile")
@@ -41,14 +41,12 @@ def test_profile_teacher_keeps_cpu_learning_and_independent_gpu_evaluation(tmp_p
     assert train["latency"]["profile_path"] == evaluation["latency"]["profile_path"]
     assert evaluation["env"]["simulator"] == "gpu"
     assert evaluation["experiment"]["seed"] + evaluation["evaluation"]["episode_seed_offset"] == 1_000_000
-    assert evaluation["evaluation"]["eval_episodes"] == 100
-    assert evaluation["evaluation"]["eval_parallel_envs"] == 32
-    assert evaluation["evaluation"]["eval_max_steps"] == 7200
-    assert evaluation["evaluation"]["latency_bench_env_backend"] == f"{task}_gpu_batched"
+    assert evaluation["evaluation"]["episodes"] == 100
+    assert evaluation["executor"]["parallel_envs"] == 32
+    assert evaluation["evaluation"]["max_env_steps"] == 7200
+    assert evaluation["executor"]["env_backend"] == f"{task}_gpu_batched"
     assert evaluation["logging"]["wandb_name"] == train["logging"]["wandb_name"]
-    assert train["logging"]["wandb_project"] == "latency-sensitive-bench"
-
-
+    assert train["logging"]["wandb_project"] is None
 
 
 def test_atari_profile_history_audit_preserves_rejected_commands_and_delayed_actions(tmp_path):
@@ -93,8 +91,8 @@ def test_training_configs_keep_the_task_contract(tmp_path, task, state_dim, acti
     assert cfg.trainer.learning_rate.base == 3e-5
     assert cfg.trainer.scheduler_specific_kwargs.min_lr_rate == pytest.approx(1 / 30)
     assert cfg.trainer.max_train_steps == 5000
-    assert cfg.wandb_entity == "saberrr-zju"
-    assert cfg.wandb_project == "starvla_tasks"
+    assert cfg.wandb_entity is None
+    assert cfg.wandb_project is None
     if model == "qwenoft":
         assert cfg.framework.action_model.loss_type == (
             "multibinary_bce" if task == "deadly_corridor" else "discrete_ce")
@@ -111,9 +109,9 @@ def test_atari_history_evaluation_uses_gpu_and_published_action_layout(tmp_path,
                             env_condition=condition)
     assert cfg["env"]["simulator"] == "gpu"
     assert cfg["env"]["action_history_decisions"] == 8
-    assert cfg["evaluation"]["latency_bench_env_backend"] == f"{task}_gpu_batched"
-    assert cfg["evaluation"]["eval_parallel_envs"] == 32
-    assert cfg["evaluation"]["eval_max_steps"] == 7200
+    assert cfg["executor"]["env_backend"] == f"{task}_gpu_batched"
+    assert cfg["executor"]["parallel_envs"] == 32
+    assert cfg["evaluation"]["max_env_steps"] == 7200
     assert cfg["policy"]["task_manifest_path"] == str(bundle / "manifest.json")
     assert cfg["latency"]["method"] == ("zero" if condition == "zero" else "temporal")
     if task == "asterix":
@@ -170,7 +168,7 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path, task)
     provenance = json.loads((bundle / "provenance.json").read_text())
     assert provenance["training_step"] == 2877
     assert provenance["wandb_run_id"] == "old-id"
-    assert provenance["checkpoint_sha256"] == hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    assert (bundle / provenance["checkpoint"]).read_bytes() == checkpoint.read_bytes()
     assert provenance["eval_protocol_version"] == EVAL_PROTOCOL
     cfg = evaluation_config(task, "qwenoft", bundle, tmp_path / "profile.json",
                             tmp_path / "eval", tmp_path / "backbone", Path("/python"),
@@ -178,9 +176,9 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path, task)
     assert "step2877" in cfg["experiment"]["name"]
     assert cfg["policy"]["state_source"] == "transport"
     assert "state_normalization" not in cfg["policy"]
-    assert cfg["evaluation"]["eval_episodes"] == 100
-    assert cfg["evaluation"]["eval_parallel_envs"] == 32
-    assert cfg["evaluation"]["eval_max_steps"] == 7200
+    assert cfg["evaluation"]["episodes"] == 100
+    assert cfg["executor"]["parallel_envs"] == 32
+    assert cfg["evaluation"]["max_env_steps"] == 7200
     if task in {"atlantis", "asterix"}:
         from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
 
@@ -191,8 +189,8 @@ def test_partial_checkpoint_bundle_and_eval_preserve_actual_step(tmp_path, task)
                              device="cuda:0", episodes=100, env_condition="zero",
                              inference_devices=["cuda:0", "cuda:1"])
     assert zero["latency"] == {"method": "zero"}
-    assert zero["evaluation"]["eval_parallel_envs"] == 32
-    assert zero["evaluation"]["eval_max_steps"] == 3600
+    assert zero["executor"]["parallel_envs"] == 32
+    assert zero["evaluation"]["max_env_steps"] == 3600
     assert zero["executor"]["inference_batch_size"] == 16
     assert zero["executor"]["inference_devices"] == ["cuda:0", "cuda:1"]
 
@@ -204,3 +202,34 @@ def test_history01_metric_namespace_preserves_checkpoint_step():
     }], prefix="eval_history01_v2")
     assert payload["global_step"] == 2877
     assert payload["eval_history01_v2/fixed/latency_2/mean_return"] == 1.
+
+
+def test_history_training_uses_named_run_and_resumes_recorded_wandb_id(tmp_path, monkeypatch):
+    """Long-lived history training contract: resume preserves run identity and its source snapshot."""
+    from omegaconf import OmegaConf
+    from scripts.tasks.decision_history import train_vla_hist8 as module
+
+    revision = ["training-source"]
+    config = OmegaConf.create({"run_id": "named-run", "trainer": {"max_train_steps": 5000},
+        "datasets": {"vla_data": {"num_workers": 16, "eval_num_workers": 16, "prefetch_factor": 2}}})
+    calls = []
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(module, "training_config", lambda args: config)
+    monkeypatch.setattr(module.subprocess, "run", lambda command, **kwargs: calls.append(kwargs["env"]))
+    monkeypatch.setattr(module.subprocess, "check_output", lambda *args, **kwargs: revision[0])
+    argv = ["train_vla_hist8", "--task", "flappy", "--model", "qwenoft", "--dataset-dir", str(tmp_path / "data"),
+            "--base-model-dir", str(tmp_path / "backbone"), "--output-root", str(tmp_path),
+            "--run-id", "named-run", "--vlm-lr", "0.000003", "--port", "12345", "--wandb-project", "test-project"]
+    monkeypatch.setattr(sys, "argv", argv)
+    module.main()
+    assert calls[0]["WANDB_RUN_ID"] == "named-run"
+    record = tmp_path / "named-run/run_metadata.json"
+    metadata = json.loads(record.read_text())
+    metadata["wandb_run_id"] = "existing-wandb-run"
+    record.write_text(json.dumps(metadata))
+    revision[0] = "resume-source"
+    monkeypatch.setattr(sys, "argv", argv + ["--resume"])
+    module.main()
+    assert calls[1]["WANDB_RUN_ID"] == "existing-wandb-run"
+    assert calls[1]["WANDB_RESUME"] == "allow"
+    assert json.loads((tmp_path / "named-run/training_code_snapshot.json").read_text())["revision"] == "training-source"

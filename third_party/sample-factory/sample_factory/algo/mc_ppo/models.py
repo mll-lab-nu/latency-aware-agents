@@ -68,7 +68,7 @@ class MCPPOActorCritic(ActorCritic):
             chunks.append(self.policy.logits(padded)[:len(part)])
         return obs, torch.cat(chunks)
 
-    def forward(self, observations, rnn_states, values_only=False):
+    def forward(self, observations, rnn_states, values_only=False, action_mask=None):
         obs, logits = self.policy_logits(observations)
         result = TensorDict(values=self.value(torch.cat((obs, observations["remaining"]), 1)).squeeze(1))
         if values_only:

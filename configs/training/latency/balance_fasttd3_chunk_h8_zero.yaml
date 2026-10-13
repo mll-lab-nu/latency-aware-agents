@@ -7,7 +7,6 @@ backend:
   restart_behavior: restart
   initial_model_path: null
   extra_args:
-  - --wandb_user=saberrr-zju
 
 latency:
   add_latency_info: true
@@ -15,7 +14,7 @@ latency:
   seed: 0
 training:
   train_for_env_steps: 6000000
-  with_wandb: true
+  with_wandb: false
 evaluation:
   eval_interval_steps: 1000000
 logging:

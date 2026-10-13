@@ -176,7 +176,7 @@ class CodingAgentPolicyRunner(PolicyRunner):
             "The latest ready command supersedes older commands.\n"
             f"The environment runs at {env['env_fps']} FPS and observations are scheduled "
             f"at {env['obs_fps']} FPS. " + timing +
-            f"The episode ends on collision or after {self.config['evaluation']['eval_max_steps']} "
+            f"The episode ends on collision or after {self.config['evaluation']['max_env_steps']} "
             "raw frames.\n"
             'For each observation, return only a JSON object {"action": 0} or {"action": 1} '
             "as your final response, without Markdown or explanation.\n"
@@ -195,7 +195,7 @@ class CodingAgentPolicyRunner(PolicyRunner):
                     "observation": self.input_contract,
                     "obs_fps": env["obs_fps"], "scheduler": self.config["scheduler"],
                     "worker_capacity": self.config["executor"]["simulated_worker_capacity"],
-                    "latency": timing, "max_raw_frames": self.config["evaluation"]["eval_max_steps"]}
+                    "latency": timing, "max_raw_frames": self.config["evaluation"]["max_env_steps"]}
         if "state_space" in env:
             contract["state_labels"] = env["state_space"]["labels"]
         if self.task_contract is not None:

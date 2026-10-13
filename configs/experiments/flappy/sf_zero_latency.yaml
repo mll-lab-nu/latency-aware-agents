@@ -5,7 +5,6 @@ experiment:
   seed: 0
 
 backend:
-  type: sample_factory
   run_mode: train
 
 latency:

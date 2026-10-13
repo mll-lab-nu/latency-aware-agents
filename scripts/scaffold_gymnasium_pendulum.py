@@ -110,8 +110,7 @@ def build_pendulum_env_config(
 ) -> dict[str, Any]:
     return {
         "env": {
-            "name": "gymnasium",
-            "task_name": "pendulum_discrete",
+            "name": "pendulum_discrete",
             "env_id": GYMNASIUM_PENDULUM_ENV_ID,
             "registration_imports": ["latency_bench.envs.tasks.pendulum"],
             "make_kwargs": {

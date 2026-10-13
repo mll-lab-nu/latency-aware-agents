@@ -7,18 +7,15 @@ backend:
   run_mode: eval
 
 policy:
-  type: gymnasium_sf
-  checkpoint_path: ""
+  type: sample_factory
   checkpoint_kind: latest
-  device: cuda
   deterministic: true
 
+  source: local
+  root: .
 evaluation:
-  eval_episodes: 20
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-
+  episodes: 20
+  max_env_steps: 1000
 logging:
   output_dir: outputs/examples/gymnasium_inverted_pendulum/eval
   video:
@@ -27,3 +24,7 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
+executor:
+  inference_devices:
+  - cuda
+  parallel_envs: 1

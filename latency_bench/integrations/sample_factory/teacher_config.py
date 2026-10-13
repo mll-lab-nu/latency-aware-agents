@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import re
+import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping
 
-import yaml
 
 from latency_bench.data.action_layouts import (
     ActionSpec,
@@ -18,7 +17,6 @@ from latency_bench.data.action_layouts import (
     gymnasium_continuous_action_spec,
 )
 from latency_bench.data.prompts import BASE_PROMPTS
-from latency_bench.integrations.sample_factory.runtime import resolve_sample_factory_device
 
 
 SF_ENV_TO_BENCH_ENV = {
@@ -32,21 +30,7 @@ SF_ENV_TO_BENCH_ENV = {
     "demon_attack": "demon_attack",
 }
 
-DEFAULT_ENV_FPS_BY_BENCH_ENV = {
-    "deadly_corridor": 35.0,
-    "defend_the_line": 35.0,
-    "flappy": 30.0,
-    "demon_attack": 60.0,
-}
 
-DEFAULT_OBS_FPS_BY_BENCH_ENV = {
-    "deadly_corridor": 8.75,
-    "defend_the_line": 8.75,
-    "flappy": 30.0,
-    "demon_attack": 15.0,
-}
-
-LEGACY_SAME_LATENCY_RE = re.compile(r"(?:^|_)same_latency_l(?P<frames>\d+)(?:_|$)")
 GYMNASIUM_SF_ENV = "latency_gymnasium"
 
 
@@ -139,7 +123,8 @@ def _resolve_checkpoint_root(checkpoint_root: str | Path) -> tuple[Path, Path | 
     Returns:
         Experiment directory with optional explicit checkpoint path.
     """
-    path = Path(checkpoint_root).expanduser().resolve()
+    # HF checkpoints can be symlinks; the config belongs to the snapshot directory.
+    path = Path(os.path.abspath(Path(checkpoint_root).expanduser()))
     if path.is_file():
         if path.parent.name.startswith("checkpoint_p"):
             return (path.parent.parent, path)
@@ -161,66 +146,17 @@ def _read_checkpoint_config(experiment_dir: Path) -> dict[str, Any]:
         return json.load(handle)
 
 
-def _load_latency_override(path: str | Path) -> dict[str, Any]:
-    """Read a latency override YAML file.
-
-    Args:
-        path: YAML file containing either a latency section or latency fields.
-
-    Returns:
-        Latency config mapping.
-    """
-    resolved = Path(path).expanduser().resolve()
-    with resolved.open("r", encoding="utf-8") as handle:
-        payload = yaml.safe_load(handle)
-    return deepcopy(payload["latency"])
-
-
-def _env_fps(flat_cfg: Mapping[str, Any], env_name: str) -> float:
-    value = flat_cfg.get("env_fps")
-    if value is not None:
-        return float(value)
-    return DEFAULT_ENV_FPS_BY_BENCH_ENV[env_name]
-
-
-def _obs_fps(flat_cfg: Mapping[str, Any], env_name: str) -> float:
-    value = flat_cfg.get("obs_fps")
-    if value is not None:
-        return float(value)
-    return DEFAULT_OBS_FPS_BY_BENCH_ENV[env_name]
-
-
-def _legacy_same_latency_config(flat_cfg: Mapping[str, Any], *, env_name: str, experiment_dir: Path) -> dict[str, Any] | None:
-    for name in (experiment_dir.name, str(flat_cfg["experiment"])):
-        match = LEGACY_SAME_LATENCY_RE.search(name)
-        if match is not None:
-            latency_obs_steps = int(match.group("frames"))
-            env_fps = _env_fps(flat_cfg, env_name)
-            obs_fps = _obs_fps(flat_cfg, env_name)
-            obs_stride_raw_frames = int(round(env_fps / obs_fps))
-            return {
-                "method": "fixed",
-                "fixed_latency_ms": latency_obs_steps * obs_stride_raw_frames * 1000.0 / env_fps,
-                "add_latency_info": False,
-            }
-    return None
-
-
 def load_rollout_training_config(
     checkpoint_root: str | Path,
     *,
-    latency_config_path: str | Path | None = None,
     device_override: str | None = None,
-    gym_camera_name: str | None = None,
     gym_make_kwargs_override: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load the rollout descriptor and metadata used for dataset export.
 
     Args:
         checkpoint_root: Experiment directory or checkpoint file path.
-        latency_config_path: Optional latency-only YAML override.
         device_override: Optional rollout device override.
-        gym_camera_name: Optional camera name override for Gymnasium checkpoints.
         gym_make_kwargs_override: Optional Gymnasium reset/runtime overrides.
 
     Returns:
@@ -230,9 +166,6 @@ def load_rollout_training_config(
     flat_cfg = _read_checkpoint_config(experiment_dir)
     if flat_cfg["env"] == GYMNASIUM_SF_ENV:
         make_kwargs = json.loads(flat_cfg["gym_make_kwargs_json"])
-        if gym_camera_name is not None:
-            make_kwargs["camera_name"] = gym_camera_name
-            make_kwargs["render_mode"] = "rgb_array"
         if gym_make_kwargs_override is not None:
             make_kwargs.update(gym_make_kwargs_override)
         flat_cfg["gym_make_kwargs_json"] = json.dumps(make_kwargs)
@@ -240,21 +173,6 @@ def load_rollout_training_config(
     config_source = str((experiment_dir / "config.json").resolve())
     latency_override = None
     latency_source = "checkpoint"
-
-    if latency_config_path is not None:
-        latency_override_path = Path(latency_config_path).expanduser().resolve()
-        latency_override = _load_latency_override(latency_override_path)
-        latency_source = str(latency_override_path)
-    else:
-        # The same-latency checkpoint name is the experiment contract for these
-        # teacher exports, and for frameskip envs lN is in observation steps.
-        latency_override = _legacy_same_latency_config(
-            flat_cfg,
-            env_name=env_name,
-            experiment_dir=experiment_dir,
-        )
-        if latency_override is not None:
-            latency_source = "legacy_checkpoint_name"
 
     descriptor = {
         "env_name": env_name,
@@ -264,7 +182,7 @@ def load_rollout_training_config(
         "checkpoint_experiment_dir": str(experiment_dir),
         "checkpoint_path": None if checkpoint_path is None else str(checkpoint_path),
         "flat_cfg": deepcopy(flat_cfg),
-        "device_override": None if not device_override else resolve_sample_factory_device(device_override),
+        "device_override": device_override,
         "latency_override": latency_override,
     }
     metadata = {

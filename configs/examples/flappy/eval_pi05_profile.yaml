@@ -1,0 +1,67 @@
+experiment:
+  name: starvla_flappy_profile
+  seed: 42
+backend:
+  run_mode: eval
+executor:
+  mode: simulated
+  inference_devices:
+  - cuda:0
+  sync_cuda: true
+  parallel_envs: 1
+env:
+  name: flappy
+  gym_id: FlappyBird-v0
+  env_fps: 30
+  obs_fps: 30
+  render_mode: rgb_array
+  observation_mode: image
+  use_lidar: false
+  normalize_obs: true
+  audio_on: false
+  frame_stack: 4
+  obs_resize:
+  - 224
+  - 224
+  use_gpu_render: false
+  gpu_render_device: auto
+  gpu_render_profile: false
+  gpu_render_profile_interval: 200
+  noop_action: noop
+  action_map:
+    noop: 0
+    flap: 1
+  oneshot_actions:
+  - flap
+  simulator: cpu
+scheduler:
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
+policy:
+  type: starvla
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  actions:
+  - noop
+  - flap
+  source: hf
+  root: zero-latency/flappy/vla/starvla-qwenpi_v3-h1/pi05_flappy_fix_latency_0_200ep
+  checkpoint: checkpoints/steps_5000_model.safetensors
+  model_config: config.full.yaml
+  revision: e3fea81529fd98b5d5782db38803fe4062215dda
+  hf_repo: MLL-Lab/LAGEN-models
+evaluation:
+  eval_raw_reward: true
+  episodes: 10
+  max_env_steps: 3600
+logging:
+  output_dir: outputs/profiling
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  video:
+    enabled: false
+latency:
+  method: temporal
+  profile_path: /path/to/profile.json
+  seed: 42

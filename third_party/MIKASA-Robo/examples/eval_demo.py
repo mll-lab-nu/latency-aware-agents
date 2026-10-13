@@ -11,32 +11,32 @@ Examples (run from the repository root)
 ----------------------------------------
 Smoke-test one task, one episode::
 
-    uv run python examples/eval_demo.py \
+    .venv/bin/python examples/eval_demo.py \
         --num-episodes 1 --sim-backend cpu \
         --output-dir eval_results/dummy
 
 Full canonical Short-split run, 50 episodes per task::
 
-    uv run python examples/eval_demo.py \
+    .venv/bin/python examples/eval_demo.py \
         --split short \
         --output-dir results/my_model
 
 Specific tasks::
 
-    uv run python examples/eval_demo.py \
+    .venv/bin/python examples/eval_demo.py \
         --task RememberColor3-VLA-v0 \
         --task ShellGameTouch-VLA-v0 \
         --output-dir results/my_model
 
 All 90 benchmark tasks::
 
-    uv run python examples/eval_demo.py \
+    .venv/bin/python examples/eval_demo.py \
         --split all \
         --output-dir results/my_model
 
 With per-episode rollout videos::
 
-    uv run python examples/eval_demo.py \
+    .venv/bin/python examples/eval_demo.py \
         --split short \
         --save-videos \
         --output-dir results/my_model

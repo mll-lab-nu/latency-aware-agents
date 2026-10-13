@@ -23,21 +23,19 @@ EVAL_MANIFESTS=(
   configs/train/jitter_robustness/deadly_corridor/manifest.tsv
 )
 RESULTS_ROOT="outputs/jitter_robustness"
-PAPER_DIR="paper/latency-sensitive-vla/exps/jitter_robustness"
+ANALYSIS_DIR="scripts/experiments/jitter_robustness"
 PAPER_OUTPUT_DIR="${RESULTS_ROOT}/paper"
 PAPER_FIGURE_DIR="${PAPER_OUTPUT_DIR}/figures"
 
 usage() {
   cat <<'EOF'
 Usage:
+  run.sh all --gpus CSV
   run.sh generate [--seeds CSV]
   run.sh train --gpus CSV [--match TEXT] [--dry-run]
   run.sh eval --gpus CSV [--match TEXT] [--dry-run]
-  run.sh upload [--match TEXT] [--upload-workers N] [--max-upload-attempts N] [--dry-run]
   run.sh build-data [--results-root PATH] [--output PATH]
   run.sh plot [--data PATH] [--output-dir PATH]
-  run.sh published-plot --demon-uncapped-root PATH [--output-dir PATH]
-  run.sh all --gpus CSV [--upload-workers N] [--max-upload-attempts N]
 EOF
 }
 
@@ -70,33 +68,12 @@ run_compute_stage() {
   done
 }
 
-run_upload_stage() {
-  local match="$1"
-  local upload_workers="$2"
-  local max_upload_attempts="$3"
-  local dry_run="$4"
-  local args=(
-    --stage upload
-    --upload-workers "${upload_workers}"
-    --max-upload-attempts "${max_upload_attempts}"
-  )
-  if [[ -n "${match}" ]]; then
-    args+=(--match "${match}")
-  fi
-  if [[ "${dry_run}" == "true" ]]; then
-    args+=(--dry-run)
-  fi
-  for manifest in "${EVAL_MANIFESTS[@]}"; do
-    python scripts/experiment_runner/run_manifest_jobs.py --manifest "${manifest}" "${args[@]}"
-  done
-}
 
 build_local_data() {
   local results_root="$1"
   local output="$2"
   mkdir -p "$(dirname "${output}")"
-  python "${PAPER_DIR}/build_data.py" \
-    --source local \
+  python "${ANALYSIS_DIR}/build_data.py" \
     --results-root "${results_root}" \
     --output "${output}"
 }
@@ -105,7 +82,7 @@ plot_data() {
   local data="$1"
   local output_dir="$2"
   mkdir -p "${output_dir}"
-  python "${PAPER_DIR}/plot.py" --data "${data}" --output-dir "${output_dir}"
+  python "${ANALYSIS_DIR}/plot.py" --data "${data}" --output-dir "${output_dir}"
 }
 
 command="${1:-}"
@@ -148,22 +125,6 @@ case "${command}" in
       run_compute_stage eval "${gpus}" "${match}" "${dry_run}" "${EVAL_MANIFESTS[@]}"
     fi
     ;;
-  upload)
-    match=""
-    upload_workers=2
-    max_upload_attempts=3
-    dry_run=false
-    while [[ $# -gt 0 ]]; do
-      case "$1" in
-        --match) match="$2"; shift 2 ;;
-        --upload-workers) upload_workers="$2"; shift 2 ;;
-        --max-upload-attempts) max_upload_attempts="$2"; shift 2 ;;
-        --dry-run) dry_run=true; shift ;;
-        *) usage; exit 2 ;;
-      esac
-    done
-    run_upload_stage "${match}" "${upload_workers}" "${max_upload_attempts}" "${dry_run}"
-    ;;
   build-data)
     results_root="${RESULTS_ROOT}"
     output="${PAPER_OUTPUT_DIR}/data.csv"
@@ -188,36 +149,11 @@ case "${command}" in
     done
     plot_data "${data}" "${output_dir}"
     ;;
-  published-plot)
-    demon_uncapped_root=""
-    output_dir="${PAPER_OUTPUT_DIR}/published"
-    while [[ $# -gt 0 ]]; do
-      case "$1" in
-        --demon-uncapped-root) demon_uncapped_root="$2"; shift 2 ;;
-        --output-dir) output_dir="$2"; shift 2 ;;
-        *) usage; exit 2 ;;
-      esac
-    done
-    if [[ -z "${demon_uncapped_root}" ]]; then
-      usage
-      exit 2
-    fi
-    mkdir -p "${output_dir}"
-    python "${PAPER_DIR}/build_data.py" \
-      --source published \
-      --demon-uncapped-root "${demon_uncapped_root}" \
-      --output "${output_dir}/data.csv"
-    plot_data "${output_dir}/data.csv" "${output_dir}"
-    ;;
   all)
     gpus=""
-    upload_workers=2
-    max_upload_attempts=3
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --gpus) gpus="$2"; shift 2 ;;
-        --upload-workers) upload_workers="$2"; shift 2 ;;
-        --max-upload-attempts) max_upload_attempts="$2"; shift 2 ;;
         *) usage; exit 2 ;;
       esac
     done
@@ -230,7 +166,6 @@ case "${command}" in
     run_compute_stage eval "${gpus}" "" false "${EVAL_MANIFESTS[@]}"
     build_local_data "${RESULTS_ROOT}" "${PAPER_OUTPUT_DIR}/data.csv"
     plot_data "${PAPER_OUTPUT_DIR}/data.csv" "${PAPER_FIGURE_DIR}"
-    run_upload_stage "" "${upload_workers}" "${max_upload_attempts}" false
     ;;
   *)
     usage

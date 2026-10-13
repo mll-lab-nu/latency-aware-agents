@@ -115,7 +115,7 @@ def test_complete_episode_mc_and_separate_value_updates():
             while True:
                 buffer["obs"][row, step] = observation
                 with torch.no_grad():
-                    output = model({key: torch.as_tensor(item)[None] for key, item in observation.items()}, torch.zeros(1, 1))
+                    output = model({key: torch.as_tensor(item)[None] for key, item in observation.items()}, torch.zeros(1, 1), action_mask=None)
                 buffer[row, step] = {key: tensor[0] for key, tensor in output.items() if key != "new_rnn_states"}
                 observation, reward, terminated, truncated, info = env.step(output["actions"][0].numpy())
                 buffer["raw_frames"][row, step] = info["frames"]

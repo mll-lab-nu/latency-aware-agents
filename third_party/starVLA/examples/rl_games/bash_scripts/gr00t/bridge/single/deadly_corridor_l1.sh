@@ -14,10 +14,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="gr00t_bridge_deadly_corridor_single_latency_exp2_l1" \
     trainer.distributed_backend=none \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha1503/gr00t_bridge_deadly_corridor_single_latency_exp2_l1" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha1503/gr00t_bridge_deadly_corridor_single_latency_exp2_l1" \
     dataset.source_hf=talha1503/deadly_corridor_zero_latency_parquet \
     checkpoint.save_best_model=true \
     trainer.max_train_steps=800 \

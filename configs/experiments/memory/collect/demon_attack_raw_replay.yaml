@@ -1,0 +1,11 @@
+__base__: ../../../examples/demon_attack/collect_ghost_trail.yaml
+logging:
+  output_dir: outputs/demon_attack/raw_same_episodes
+collection:
+  image_transform:
+    image_transform: raw_rgb
+  demon_episode_threshold: 3500
+replay_source:
+  repo_id: MLL-Lab/LAGEN-datasets
+  revision: c65ee4c303358dc448022bed9bc25e78984449a8
+  path: experiments/visual-history/archive/demon-attack/demon_attack_ghost30_200ep/demon_latency_6

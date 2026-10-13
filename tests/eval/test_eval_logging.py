@@ -11,16 +11,15 @@ from latency_bench.envs.adapters.dummy import DummyEnvAdapter
 from latency_bench.envs.factory import register_env_adapter
 from latency_bench.eval import driver
 from latency_bench.latency.burst_profile import (
-    build_hidden_regime_burst_model,
+    build_hidden_regime_burst_model_from_sessions,
     build_worker_slot_distributions_from_sessions,
 )
-from latency_bench.latency.profile import save_latency_distribution, save_profile_manifest
 from latency_bench.eval.driver import run_from_config
 from latency_bench.eval.reporting import _summary_latency_label
 from latency_bench.logging.metrics import compute_episode_metrics
 from latency_bench.logging.summary import build_queue_eval_summary
 from latency_bench.logging.wandb_eval import eval_scalar_payload
-from latency_bench.utils.io import load_jsonl_records
+from latency_bench.utils.io import load_jsonl_records, write_json
 
 
 @register_env_adapter("raw_return_test")
@@ -47,7 +46,7 @@ def _build_raw_return_env(config: dict, noop_action: Action) -> EnvAdapter:
     evaluation_cfg = config["evaluation"]
     return RawReturnEnv(
         env_fps=float(env_cfg["env_fps"]),
-        max_steps=int(evaluation_cfg["eval_max_steps"]),
+        max_steps=int(evaluation_cfg["max_env_steps"]),
         noop_action=noop_action,
     )
 
@@ -84,8 +83,8 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
             "action": "jump",
         },
         "evaluation": {
-            "eval_episodes": 1,
-            "eval_max_steps": 3,
+            "episodes": 1,
+            "max_env_steps": 3,
         },
         "logging": {
             "output_dir": str(tmp_path),
@@ -98,7 +97,7 @@ def _config(tmp_path: Path, *, latency: dict | None = None, env_name: str = "dum
 
 def test_calibration_stops_after_complete_episodes_with_enough_admitted_samples(tmp_path, monkeypatch):
     config = _config(tmp_path)
-    config["evaluation"].update(eval_episodes=500, calibration_samples=5)
+    config["evaluation"].update(episodes=500, calibration_samples=5)
 
     class ProbeExecutor:
         logger = None
@@ -106,7 +105,7 @@ def test_calibration_stops_after_complete_episodes_with_enough_admitted_samples(
         def run_warmup(self):
             return {}
 
-        def run_episode(self, episode_id, seed, eval_max_steps):
+        def run_episode(self, episode_id, seed, max_env_steps):
             return EpisodeMetrics(
                 episode_id=episode_id, episode_return=1, survival_steps=3,
                 episode_return_env=1, metadata={"submitted_observation_frames": 3},
@@ -134,21 +133,22 @@ def _write_profile(tmp_path: Path) -> Path:
         }
         for index, frames in enumerate([1, 1, 1, 1, 1, 1])
     ]
-    burst_model = build_hidden_regime_burst_model(burst_samples)
+    burst_model = build_hidden_regime_burst_model_from_sessions([burst_samples])
     (profile_dir / "latency_burst_model.json").write_text(
         json.dumps(burst_model, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    save_latency_distribution(
+    write_json(
+        profile_dir / "latency_distribution.json",
         build_worker_slot_distributions_from_sessions(
             [burst_samples],
             spike_threshold_ms_by_worker_slot=burst_model[
                 "spike_threshold_ms_by_worker_slot"
             ],
         ),
-        profile_dir / "latency_distribution.json",
     )
-    save_profile_manifest(
+    write_json(
+        profile_dir / "profile.json",
         {
             "model_id": "openvla",
             "gpu_class": "2x-test-gpu",
@@ -164,7 +164,6 @@ def _write_profile(tmp_path: Path) -> Path:
             "burst_model_path": "latency_burst_model.json",
             "summary": {},
         },
-        profile_dir / "profile.json",
     )
     return profile_dir
 
@@ -210,9 +209,10 @@ def test_injected_env_skips_starvla_env_preparation(
     )
     config = {
         "experiment": {"name": "native-profile", "seed": 0},
+        "latency": {"method": "zero"},
         "executor": {"mode": "simulated"},
         "policy": {"type": "starvla"},
-        "evaluation": {"eval_episodes": 0, "eval_max_steps": 1},
+        "evaluation": {"episodes": 0, "max_env_steps": 1},
         "logging": {"output_dir": str(tmp_path)},
     }
 
@@ -251,7 +251,7 @@ def test_summary_keeps_new_model_identity_separate_from_source_profile(tmp_path)
 
     profile = _write_profile(tmp_path)
     config = _config(tmp_path / "evaluation", latency={"method": "iid", "profile_path": str(profile)})
-    config["policy"] = {"type": "starvla", "checkpoint_path": "/new-vla/checkpoint-2"}
+    config['policy'] = {'type': 'starvla', 'checkpoint': str(Path('/new-vla/checkpoint-2').absolute()).lstrip('/'), 'source': 'local', 'root': '/'}
     run_from_config(config, policy=ConstantPolicyRunner(Action("jump")))
     summary = json.loads((tmp_path / "evaluation/queue_eval_latency_profile_sample.json").read_text())
     assert summary["checkpoint_path"] == "/new-vla/checkpoint-2"

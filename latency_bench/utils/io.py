@@ -98,7 +98,8 @@ def write_csv(path: str | Path, rows: Any, fieldnames: Any = None) -> None:
 
 def read_yaml(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
+        value = yaml.safe_load(handle)
+    return {} if value is None else value
 
 
 def write_yaml(path: str | Path, obj: Any) -> None:

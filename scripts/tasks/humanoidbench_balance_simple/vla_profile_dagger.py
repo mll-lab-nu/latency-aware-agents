@@ -6,50 +6,28 @@ export, distributed training and GPU inference reuse existing implementations.
 from __future__ import annotations
 
 import argparse
-import copy
 import json
-import multiprocessing as mp
 import os
 import subprocess
 import time
-import traceback
 import uuid
-from collections import Counter, deque
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
 from pathlib import Path
-from types import SimpleNamespace
 
 os.environ["MUJOCO_GL"] = "egl"
 os.environ["PYOPENGL_PLATFORM"] = "egl"
 
-import gymnasium as gym
 import numpy as np
 import torch
 import wandb
 import yaml
 
-from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.config import load_config
-from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
-from latency_bench.executors.realtime.pool import ProcessInferencePool
-from latency_bench.integrations.starvla_resident_dagger import ResidentInferencePool
-from scripts.starvla.balance_dagger import (
-    _balance_row_for_image_path,
-    _student_observation,
-    write_balance_dataset,
-)
-from scripts.starvla import artifacts, runtime
+from scripts.starvla import runtime
 from scripts.starvla.dagger_mixture import write_dagger_mixture
-from latency_bench.policy.action_prefix import action_prefix_arrays, resolve_action_prefix
-from latency_bench.data.starvla_tasks import task_spec
-from scripts.starvla.prepare_dataset import prepare_lerobot
+from latency_bench.policy.action_prefix import resolve_action_prefix
+from latency_bench.integrations.starvla.task_contracts import task_spec
 from scripts.starvla.train_task import BACKBONES, inference_bundle, training_config
-from latency_bench.data.rollout_image_io import RolloutImageWriter
-from latency_bench.integrations.sample_factory.actions import scale_box_action
-from sample_factory.algo.fast_td3.models import FastTD3ActorCritic
-from sample_factory.algo.mc_ppo.evaluation import comparison, episode_summary, write_json
-from training.gymnasium_sf.integration import build_train_cfg_from_config, make_gymnasium_sf_env
+from sample_factory.algo.mc_ppo.evaluation import comparison, write_json
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -58,7 +36,6 @@ MODELS = ("qwenoft", "qwenpi_v3", "qwengr00t")
 LABEL_MODES = ("zero_full", "profile_conditioned")
 TEACHER_QUERY_CADENCE_RAW_FRAMES = 1
 TEACHER_REVISION = "a8210caa0e7432f208b377d678ca5f10f5f1b879"
-TEACHER_SHA256 = "f29be9c198553fc498f1977891d9299af57d4c6f11b4d1a44d355e830cc6f3c3"
 TEACHER_ROOT = (ROOT / "outputs/starvla/artifacts/models/zero-latency"
                 / "humanoidbench-balance-simple/small-policy/fasttd3-h1-v1")
 TEACHER = TEACHER_ROOT / "checkpoint.pth"
@@ -142,515 +119,7 @@ def vla_experiment_config(model, label_mode, *, horizon, profile_path=None):
     return config
 
 
-def causal_state(observation):
-    """Raw physical state plus normalized, returned-only action context."""
-    return np.concatenate((observation["obs"], observation["scheduled_chunk"].reshape(-1),
-                           observation["scheduled_index"])).astype(np.float32)
-
-
-class VLAProfileRollout:
-    """Expose admitted visual requests and the selected H8/H16 supervision mask."""
-
-    def __init__(self, config):
-        self.cfg = build_train_cfg_from_config(config)
-        self.cfg.episode_metrics_path = ""
-        self.env = make_gymnasium_sf_env(
-            self.cfg.env, self.cfg, SimpleNamespace(worker_index=0, vector_index=0, env_id=0)).env
-        self.chunk = self.env.env
-        self.latency = self.chunk.env.env
-        self.initial_sampler = copy.deepcopy(self.latency.profile_sampler)
-        kwargs = {**config["env"]["make_kwargs"], "control_mode": "direct_absolute_position",
-                  "render_mode": None}
-        self.prediction = gym.make(config["env"]["env_id"], **kwargs)
-        self.prediction.reset(seed=1)
-        self.action_prefix = config["policy"]["action_prefix"]
-
-    def close(self):
-        self.prediction.close()
-        self.env.close()
-
-    def _teacher_suffix(self, teacher, observation, frame, start, stop, targets, valid, timings):
-        """Roll the H1 teacher from the private branch with one query per frame."""
-        physics = self.prediction.unwrapped
-        for head in range(start, stop):
-            started = time.perf_counter()
-            physical = torch.as_tensor(observation, dtype=torch.float32)[None]
-            with torch.inference_mode():
-                command = teacher.actor(teacher.empirical_obs_normalizer(physical, update_stats=False))
-            targets[head] = command[0].cpu().numpy()
-            timings["teacher_forward_seconds"] += time.perf_counter() - started
-            timings["teacher_queries"] += 1
-            valid[head] = True
-            raw = scale_box_action(targets[head], self.chunk.native_action_space.low,
-                                   self.chunk.native_action_space.high)
-            started = time.perf_counter()
-            observation, _, terminated, truncated, _ = physics.step(self.chunk.env.action(raw))
-            timings["branch_step_seconds"] += time.perf_counter() - started
-            timings["teacher_branch_frames"] += 1
-            done = terminated or truncated or frame + head + 1 == 1000
-            if done:
-                break
-
-    def teacher_labels(self, teacher, physical_observation, timings, absolute_prefix, prefix_mask):
-        """Replay the student's fixed prefix, then label its counterfactual suffix."""
-        frame = self.latency.env_step_idx
-        started = time.perf_counter()
-        physics = self.prediction.unwrapped
-        physics.copy_balance_state_from(self.env.unwrapped)
-        timings["branch_setup_seconds"] += time.perf_counter() - started
-        targets = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
-        valid = np.zeros(self.chunk.horizon, dtype=bool)
-        mask = np.zeros(self.chunk.horizon, dtype=bool) if prefix_mask is None else prefix_mask
-        prefix_length = mask.sum().item()
-        obs = physical_observation
-        started = time.perf_counter()
-        for offset in range(prefix_length):
-            targets[offset] = self.chunk.env.reverse_action(absolute_prefix[offset])
-        for offset in range(prefix_length):
-            obs, _, terminated, truncated, _ = physics.step(absolute_prefix[offset])
-            timings["prefix_replay_frames"] += 1
-            if terminated or truncated or frame + offset + 1 == 1000:
-                timings["prefix_replay_seconds"] += time.perf_counter() - started
-                return targets, mask, valid
-        timings["prefix_replay_seconds"] += time.perf_counter() - started
-        self._teacher_suffix(
-            teacher, obs, frame, prefix_length, self.chunk.horizon, targets, valid, timings)
-        return targets, mask, valid
-
-    def requests(self, teacher, seed, slot, directory, config, *, collect, oracle, writer, timings):
-        """Yield admitted RGB/state requests; receive absolute joint chunks."""
-        observation, _ = self.env.reset(seed=seed)
-        if self.initial_sampler is not None:
-            self.latency.profile_sampler = copy.deepcopy(self.initial_sampler)
-            self.latency.profile_sampler.rng.seed(derive_seed(271828, episode_idx=seed))
-        rows = {}
-        frames, total = 0, 0.0
-        applied_heads = np.zeros(self.chunk.horizon, dtype=np.int64)
-        action_ready_frames, worker_service_frames = Counter(), Counter()
-        request_audit = []
-        issued = np.zeros((self.chunk.horizon, 43), dtype=np.float32)
-
-        while True:
-            admit = self.latency.worker_capacity.can_submit()
-            if admit:
-                absolute_prefix, prefix_mask = action_prefix_arrays(
-                    self.latency.action_scheduler, self.latency.env_step_idx, self.action_prefix
-                )
-                if oracle or collect:
-                    targets, label_prefix_mask, valid = self.teacher_labels(
-                        teacher, observation["obs"], timings, absolute_prefix, prefix_mask)
-                timings["requests"] += 1
-                if oracle and not collect:
-                    request = None
-                else:
-                    started = time.perf_counter()
-                    image = self.env.unwrapped.render()
-                    timings["render_seconds"] += time.perf_counter() - started
-                    state = causal_state(observation)
-                    if collect:
-                        image_path = directory / f"images/{seed}/{frames:06d}.png"
-                        started = time.perf_counter()
-                        writer.write(image, image_path)
-                        timings["image_submit_seconds"] += time.perf_counter() - started
-                        absolute = np.stack([self.chunk.env.action(head) for head in targets])
-                        row = _balance_row_for_image_path(
-                            config["env"], image_path, state, absolute[0],
-                            seed, frames, seed, "train")
-                        row.update(
-                            issued_command_chunk=absolute.tolist(),
-                            action_prefix_mask=label_prefix_mask.tolist(),
-                            action_loss_mask=valid.tolist(),
-                        )
-                        rows[frames] = row
-                    request = _student_observation(
-                        image, state, frames, slot, absolute_prefix, prefix_mask
-                    )
-                absolute = yield request
-                issued = targets if oracle else np.stack([self.chunk.env.reverse_action(head) for head in absolute])
-            started = time.perf_counter()
-            observation, reward, terminated, truncated, info = self.env.step(issued)
-            timings["env_step_seconds"] += time.perf_counter() - started
-            done = terminated or truncated
-            assert info["command_admitted"] == admit
-            if admit:
-                action_ready_frames[info["latency_raw_frames"]] += 1
-                worker_service_frames[info["worker_service_raw_frames"]] += 1
-                request_audit.append({
-                        "obs_frame": frames,
-                        "prefix_frames": None if prefix_mask is None else prefix_mask.sum().item(),
-                        "actual_delay_frames": info["latency_raw_frames"],
-                    })
-                if collect:
-                    rows[frames]["latency_raw_frames"] = info["latency_raw_frames"]
-                    rows[frames]["latency_ms"] = info["latency_ms"]
-            source, head = observation["replay_clock"][0, 2:4]
-            if source >= 0:
-                applied_heads[head] += 1
-            frames += 1
-            total += reward
-            if done:
-                samples = [row for row in rows.values() if any(row["action_loss_mask"])]
-                return {"seed": seed, "length": frames, "return": total,
-                        "applied_heads": applied_heads.tolist(), "valid_labels": len(samples),
-                        "action_ready_frame_counts": dict(action_ready_frames),
-                        "worker_service_frame_counts": dict(worker_service_frames),
-                        "underflow_count": self.latency.action_scheduler.underflow_count,
-                        "underflow_frames": self.latency.action_scheduler.underflow_frames,
-                        "request_audit": request_audit}, samples
-
-
-def policy_config(config, bundle, vla_python, batch_size, backbone):
-    result = copy.deepcopy(config)
-    input_keys = runtime.TASK_INPUT_KEYS[task_spec("balance").name]
-    result["experiment"]["seed"] = INFERENCE_SEED
-    result["executor"]["inference_batch_size"] = batch_size
-    result["policy"] = {
-        "type": "starvla", "checkpoint_path": str(bundle / "checkpoints/model.pt"),
-        "action_prefix": config["policy"]["action_prefix"],
-        "task_contract_path": str(bundle / "task_contract.json"),
-        "backbone_path": str(backbone),
-        "state_info_key": input_keys["state_info_key"],
-        "image_views_info_key": input_keys["image_views_info_key"],
-        "worker_python_executable": str(vla_python), "device": "cuda:0",
-    }
-    return result
-
-
-def _rollout_worker(connection, config, directory, teacher_path, teacher_config_path, slots,
-                    render_device, collecting, oracle):
-    """Own each assigned simulator, its private teacher branch and bounded image I/O."""
-    os.environ["MUJOCO_EGL_DEVICE_ID"] = render_device
-    torch.set_num_threads(1)
-    try:
-        with ExitStack() as cleanup:
-            envs = {}
-            for slot in slots:
-                envs[slot] = VLAProfileRollout(config)
-                cleanup.callback(envs[slot].close)
-            writer = RolloutImageWriter(max_workers=1, row_buffer_size=8, export_image_size=None)
-            cleanup.callback(writer.close)
-            teacher, timings = None, Counter()
-            if collecting or oracle:
-                first = envs[slots[0]]
-                teacher_cfg = build_train_cfg_from_config(load_config(teacher_config_path))
-                teacher_actions = gym.spaces.Box(
-                    -1.0, 1.0, (teacher_cfg.fasttd3_action_chunk_horizon * 43,), dtype=np.float32)
-                teacher = FastTD3ActorCritic(
-                    first.env.observation_space, teacher_actions, teacher_cfg).eval()
-                teacher.load_state_dict(torch.load(teacher_path, map_location="cpu", weights_only=False)["model"])
-                teacher.requires_grad_(False)
-            generators = {}
-            connection.send(("ready", None))
-            while True:
-                command, items = connection.recv()
-                if command == "close":
-                    break
-                if command == "flush":
-                    started = time.perf_counter()
-                    writer.flush()
-                    timings["image_flush_seconds"] += time.perf_counter() - started
-                    connection.send(("result", timings))
-                    continue
-                results = []
-                for slot, value in items:
-                    if command == "start":
-                        generators[slot] = envs[slot].requests(
-                            teacher, value, slot, directory, config, collect=collecting, oracle=oracle,
-                            writer=writer, timings=timings)
-                        results.append((slot, ("request", next(generators[slot]))))
-                    elif command == "advance":
-                        try:
-                            results.append((slot, ("request", generators[slot].send(value))))
-                        except StopIteration as end:
-                            results.append((slot, ("episode", end.value)))
-                            del generators[slot]
-                    else:
-                        raise RuntimeError(f"Unknown rollout command: {command}")
-                connection.send(("result", results))
-    except BaseException:
-        connection.send(("error", traceback.format_exc()))
-    finally:
-        connection.close()
-
-
-class _ProfileEnvPool:
-    """Preserve simulator ownership while advancing request-sized work in parallel."""
-
-    def __init__(self, args, config, directory, num_envs, *, collecting, oracle):
-        self.num_envs, self.directory = num_envs, directory
-        self.connections, self.processes = [], []
-        workers = min(args.rollout_workers, num_envs)
-        devices = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
-        context = mp.get_context("spawn")
-        try:
-            for worker in range(workers):
-                parent, child = context.Pipe()
-                process = context.Process(target=_rollout_worker, args=(
-                    child, config, directory, args.teacher, args.teacher_config,
-                    list(range(worker, num_envs, workers)), devices[worker % len(devices)],
-                    collecting, oracle),
-                    name=f"profile-rollout-{worker}")
-                process.start()
-                child.close()
-                self.connections.append(parent)
-                self.processes.append(process)
-            self._receive(range(workers), "ready")
-        except BaseException:
-            self.close()
-            raise
-
-    def _receive(self, workers, expected):
-        results = []
-        for worker in workers:
-            tag, payload = self.connections[worker].recv()
-            if tag == "error":
-                raise RuntimeError(payload)
-            if tag != expected:
-                raise RuntimeError(f"Rollout worker returned {tag}, expected {expected}")
-            results.append(payload)
-        return results
-
-    def exchange(self, command, items):
-        grouped = [[] for _ in self.connections]
-        for slot, value in items:
-            grouped[slot % len(grouped)].append((slot, value))
-        active = [worker for worker, batch in enumerate(grouped) if batch]
-        for worker in active:
-            self.connections[worker].send((command, grouped[worker]))
-        return dict(item for batch in self._receive(active, "result") for item in batch)
-
-    def flush(self):
-        for connection in self.connections:
-            connection.send(("flush", []))
-        timings = Counter()
-        for result in self._receive(range(len(self.connections)), "result"):
-            timings.update(result)
-        return timings
-
-    def close(self):
-        for connection, process in zip(self.connections, self.processes, strict=True):
-            if process.is_alive():
-                try:
-                    connection.send(("close", []))
-                except (BrokenPipeError, EOFError, OSError):
-                    pass
-        for process in self.processes:
-            process.join(timeout=5)
-        for process in self.processes:
-            if process.is_alive():
-                process.terminate()
-                process.join(timeout=1)
-            if process.is_alive():
-                process.kill()
-                process.join()
-        for connection in self.connections:
-            connection.close()
-
-
-def _collect_requests(envs, pool, *, count, seeds, seed_start, cohort_size, run):
-    """Alternate fixed cohorts without racing inference pipes or choosing fast episodes."""
-    collecting = count is not None
-    episodes, rows, requests = [], [], {}
-    next_seed = seed_start
-    seed_iterator = iter(seeds) if seeds is not None else None
-
-    def start(slots):
-        nonlocal next_seed
-        assignments = []
-        for slot in slots:
-            if collecting:
-                if len(rows) >= count:
-                    break
-                seed = next_seed
-                next_seed += 1
-            else:
-                seed = next(seed_iterator, None)
-                if seed is None:
-                    break
-            assignments.append((slot, seed))
-        for slot, (_, observation) in envs.exchange("start", assignments).items():
-            requests[slot] = observation
-
-    def predict(slots):
-        started = time.perf_counter()
-        predictions = [None] * len(slots) if pool is None else [
-            result.action_chunk for result in pool.predict_batch([requests[slot] for slot in slots])]
-        return predictions, time.perf_counter() - started
-
-    started = time.perf_counter()
-    start(range(envs.num_envs))
-    initial_requests_seconds = time.perf_counter() - started
-    ready = deque([list(range(begin, min(begin + cohort_size, envs.num_envs)))
-                   for begin in range(0, envs.num_envs, cohort_size)])
-    inference_seconds, batches = 0.0, Counter()
-    started = time.perf_counter()
-    # A single submitter owns all GPU pipe traffic; simulation stays on the main thread.
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        group = ready.popleft()
-        slots = [slot for slot in group if slot in requests]
-        pending = executor.submit(predict, slots)
-        while True:
-            predictions, seconds = pending.result()
-            if pool is not None:
-                inference_seconds += seconds
-                sizes = Counter(slot % pool.worker_count for slot in slots)
-                batches.update(sizes.values())
-            next_group = ready.popleft() if ready else None
-            if next_group is not None:
-                next_slots = [slot for slot in next_group if slot in requests]
-                next_pending = executor.submit(predict, next_slots)
-            results = envs.exchange("advance", zip(slots, predictions, strict=True))
-            finished = []
-            for slot in slots:
-                event, value = results[slot]
-                if event == "request":
-                    requests[slot] = value
-                else:
-                    episode, samples = value
-                    episodes.append(episode)
-                    rows.extend(samples)
-                    del requests[slot]
-                    finished.append(slot)
-                    print(json.dumps({"phase": envs.directory.name, "episodes": len(episodes),
-                                      "labels": len(rows), "length": episode["length"]}), flush=True)
-                    if collecting and run is not None:
-                        run.log({"collection/valid_labels": min(len(rows), count),
-                                 "collection/episodes": len(episodes)})
-            start(finished)
-            if any(slot in requests for slot in group):
-                ready.append(group)
-            if next_group is None:
-                if not ready:
-                    break
-                next_group = ready.popleft()
-                next_slots = [slot for slot in next_group if slot in requests]
-                next_pending = executor.submit(predict, next_slots)
-            group, slots, pending = next_group, next_slots, next_pending
-    rows.sort(key=lambda row: (row["episode_idx"], row["decision_step"]))
-    metrics = {"steady_seconds": time.perf_counter() - started, "inference_seconds": inference_seconds,
-               "initial_requests_seconds": initial_requests_seconds,
-               "inference_batch_sizes": dict(sorted(batches.items())), "generated_labels": len(rows)}
-    return episodes, rows[:count] if collecting else rows, metrics
-
-
-def rollout_batch(
-    args,
-    config,
-    directory,
-    *,
-    bundle,
-    run,
-    count=None,
-    seeds=None,
-    resident_control_dir=None,
-    resident_step=None,
-):
-    """Collect/evaluate with private CPU branches and rank-owned GPU inference."""
-    started = time.perf_counter()
-    directory.mkdir(parents=True, exist_ok=True)
-    collecting, oracle = count is not None, bundle is None
-    cohort_size = 2 if args.smoke else 2 * args.inference_batch_size
-    num_envs = cohort_size * (2 if args.rollout_overlap and not oracle else 1)
-    if not collecting:
-        num_envs = min(num_envs, len(seeds))
-    with ExitStack() as cleanup:
-        envs = _ProfileEnvPool(args, config, directory, num_envs, collecting=collecting, oracle=oracle)
-        cleanup.callback(envs.close)
-        pool = None
-        if not oracle:
-            if resident_control_dir is not None:
-                resident_config = json.loads(
-                    (resident_control_dir / "resident_policy.json").read_text(encoding="utf-8")
-                )
-                pool = ResidentInferencePool(
-                    socket_dir=Path(resident_config["socket_dir"]),
-                    step=resident_step,
-                    worker_count=args.num_gpus,
-                    batch_size=args.inference_batch_size,
-                )
-            else:
-                pool = ProcessInferencePool(
-                    config=policy_config(
-                        config, bundle, args.vla_python,
-                        args.inference_batch_size, args.backbone,
-                    ),
-                    inference_devices=[f"cuda:{index}" for index in range(args.num_gpus)],
-                )
-            cleanup.callback(pool.close)
-        startup_seconds = time.perf_counter() - started
-        episodes, rows, metrics = _collect_requests(
-            envs, pool, count=count, seeds=seeds, seed_start=args.collection_seed,
-            cohort_size=cohort_size, run=run)
-        worker_timings = envs.flush()
-    collection_seconds = time.perf_counter() - started
-    conversion_started = time.perf_counter()
-    label_counts = {}
-    if collecting:
-        if args.smoke:
-            train = [row for index, row in enumerate(rows) if index % 10]
-            val = [row for index, row in enumerate(rows) if not index % 10]
-        else:
-            episode_ids = list(dict.fromkeys(row["episode_idx"] for row in rows))
-            validation = set(episode_ids[::10])
-            train = [row for row in rows if row["episode_idx"] not in validation]
-            val = [row for row in rows if row["episode_idx"] in validation]
-        for row in val:
-            row["split"] = "val"
-        write_balance_dataset(directory, config["env"], train, val)
-        metadata_path = directory / "metadata.json"
-        metadata = json.loads(metadata_path.read_text())
-        prefix_masks = np.asarray([row["action_prefix_mask"] for row in rows], dtype=np.int64)
-        loss_masks = np.asarray([row["action_loss_mask"] for row in rows], dtype=np.int64)
-        metadata["label_provenance"] = {
-            "semantics": args.label_mode,
-            "action_prefix": config["policy"]["action_prefix"],
-            "teacher_checkpoint": str(args.teacher), "teacher_config": str(args.teacher_config),
-            "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
-            "teacher_revision": args.teacher_revision,
-            "teacher_sha256": args.teacher_sha256,
-            "latency": config["latency"],
-            "state": f"physical198+returned_normalized_chunk{args.horizon}x43+current_index{args.horizon}",
-            "student_control": not oracle, "labels": len(rows),
-            "prefix_head_counts": prefix_masks.sum(0).tolist(),
-            "loss_head_counts": loss_masks.sum(0).tolist(),
-            "student_checkpoint": str(bundle / "checkpoints/model.pt") if bundle is not None else None,
-        }
-        label_counts = {
-            "prefix_head_counts": prefix_masks.sum(0).tolist(),
-            "loss_head_counts": loss_masks.sum(0).tolist(),
-        }
-        write_json(metadata_path, metadata)
-        if not args.collect_bootstrap_only:
-            converted = directory / "converted"
-            convert_canonical_rollout_to_lerobot(directory, converted, action_carrier="native",
-                                                normalize_state=False, write_starvla_handoff=False)
-            prepare_lerobot(f"balance_profile_h{args.horizon}", converted, directory / "converted__val",
-                            directory / "lerobot", normalization_source=args.normalization_source)
-            contract_path = directory / "lerobot/task_contract.json"
-            contract = json.loads(contract_path.read_text())
-            contract["action_prefix"] = config["policy"]["action_prefix"]
-            write_json(contract_path, contract)
-    finished = time.perf_counter()
-    applied_head_counts = np.asarray([episode["applied_heads"] for episode in episodes]).sum(0).tolist()
-    action_ready_frame_counts, worker_service_frame_counts = Counter(), Counter()
-    for episode in episodes:
-        action_ready_frame_counts.update(episode["action_ready_frame_counts"])
-        worker_service_frame_counts.update(episode["worker_service_frame_counts"])
-    result = {**episode_summary(episodes), **metrics, "seconds": finished - started,
-              "startup_seconds": startup_seconds, "collection_seconds": collection_seconds,
-              "conversion_seconds": finished - conversion_started,
-              "worker_timings_sum": dict(worker_timings), "labels": len(rows),
-              "labels_per_second": len(rows) / (finished - started),
-              "inference_seed": INFERENCE_SEED,
-              "action_prefix": config["policy"]["action_prefix"],
-              "render_backend": os.environ["MUJOCO_GL"],
-              "rollout_workers": min(args.rollout_workers, num_envs), "num_envs": num_envs,
-              "inference_batch_size": args.inference_batch_size, "overlap": num_envs > cohort_size,
-              "teacher_controlled": oracle, "applied_head_counts": applied_head_counts,
-              "action_ready_frame_counts": dict(action_ready_frame_counts),
-              "worker_service_frame_counts": dict(worker_service_frame_counts), **label_counts}
-    write_json(directory / "episodes.json", result)
-    return result
+from latency_bench.envs.tasks.humanoidbench.profile_collection import rollout_batch
 
 
 def _rollout_quality_metrics(prefix, result):
@@ -688,8 +157,8 @@ def _rollout_quality_metrics(prefix, result):
 
 def _wandb_stage_run(args, stage, config=None):
     suffix = "" if stage == "bootstrap" else f"-{stage}"
-    disabled = args.smoke or args.collect_bootstrap_only
-    return wandb.init(project="starvla_tasks", entity=None if disabled else os.environ["WANDB_ENTITY"],
+    disabled = args.smoke or args.collect_bootstrap_only or args.wandb_project is None
+    return wandb.init(project=args.wandb_project, entity=args.wandb_entity,
                       id=args.wandb_runs[stage]["id"],
                       name=f"{args.task}-{args.label_mode}-{args.model}{suffix}",
                       group=args.run_id, mode="disabled" if disabled else "online", dir=str(args.output_dir),
@@ -705,7 +174,7 @@ def _log_periodic_eval(args, stage, training_step, optimizer_steps, evaluation, 
                       "eval/ge100": evaluation["ge100"], "eval/ge500": evaluation["ge500"]})
 
 
-def publish_result(args, bundle, evaluation, result, run_record):
+def export_result(args, bundle, evaluation, result, run_record):
     eval_name = "eval_l0.json" if args.condition == "zero-latency" else "eval_profile.json"
     write_json(bundle / eval_name, evaluation)
     write_json(bundle / "provenance.json", {
@@ -713,7 +182,7 @@ def publish_result(args, bundle, evaluation, result, run_record):
         "run_id": args.run_id, "condition": args.condition,
         "action_horizon": args.horizon, "label_mode": args.label_mode,
         "teacher": str(args.teacher), "teacher_config": str(args.teacher_config),
-        "teacher_revision": args.teacher_revision, "teacher_sha256": args.teacher_sha256,
+        "teacher_revision": args.teacher_revision,
         "selected_checkpoint": str(bundle / "checkpoints/model.pt"),
         "selection": "best development mean episode length over 32 fixed seeds",
         "optimizer_steps": result["optimizer_steps"],
@@ -725,18 +194,6 @@ def publish_result(args, bundle, evaluation, result, run_record):
         f"# {args.model} — HumanoidBench Balance Simple\n\n"
         f"DAgger with {args.label_mode} supervision, action horizon {args.horizon}, "
         "and a 50 Hz H1 teacher queried every physical frame.\n")
-    revision = artifacts.publish_model(
-        bundle, task="humanoidbench_balance_simple", model=args.model,
-        run_id=args.run_id, condition=args.condition, action_horizon=args.horizon)
-    publication = {
-        "repo_id": artifacts.MODEL_REPO_ID,
-        "path": artifacts.model_path(
-            "humanoidbench_balance_simple", args.model, args.run_id,
-            condition=args.condition, action_horizon=args.horizon),
-        "revision": revision,
-    }
-    write_json(args.output_dir / "publication.json", publication)
-    return publication
 
 
 def _training_launch(
@@ -762,7 +219,7 @@ def _training_launch(
         config["trainer"]["dagger_control_dir"] = str(control_dir)
     config["wandb_tags"] = ["balance", f"h{args.horizon}", args.label_mode, "h1-teacher",
                             "smoke" if args.smoke else "formal"]
-    config["wandb_entity"] = None if args.smoke else os.environ["WANDB_ENTITY"]
+    config["wandb_entity"] = args.wandb_entity
     config["wandb_group"] = args.run_id
     config["framework"]["qwenvl"]["enable_gradient_checkpointing"] = args.gradient_checkpointing
     config["datasets"]["vla_data"]["sequential_step_sampling"] = False
@@ -775,7 +232,7 @@ def _training_launch(
     path = args.output_dir / f"{stem}.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False))
     env = runtime.environment() | {"CUDA_HOME": str(args.vla_python.resolve().parent.parent),
-                           "WANDB_MODE": "disabled" if args.smoke else "online",
+                           "WANDB_MODE": "online" if args.wandb_project is not None and not args.smoke else "disabled",
                            "WANDB_RUN_ID": args.wandb_runs[training_phase]["id"], "WANDB_RESUME": "allow"}
     command = [args.vla_python, "-m", "accelerate.commands.launch", "--config_file",
                runtime.STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml", "--num_processes",
@@ -904,8 +361,8 @@ def main():
     parser.add_argument("--teacher", type=Path, default=TEACHER)
     parser.add_argument("--teacher-config", type=Path, default=TEACHER_CONFIG)
     parser.add_argument("--teacher-revision", default=TEACHER_REVISION)
-    parser.add_argument("--teacher-sha256", default=TEACHER_SHA256)
-    parser.add_argument("--wandb-entity", default="saberrr-zju")
+    parser.add_argument("--wandb-project", help="Enable W&B in this project")
+    parser.add_argument("--wandb-entity", help="Optional W&B account or team")
     parser.add_argument("--profile-path", type=Path)
     parser.add_argument("--collect-bootstrap-only", action="store_true")
     parser.add_argument("--model", choices=MODELS, default="qwenpi_v3")
@@ -920,14 +377,11 @@ def main():
     parser.add_argument("--inference-batch-size", type=int, default=8)
     parser.add_argument("--rollout-overlap", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
-    os.environ["WANDB_ENTITY"] = args.wandb_entity
     args.output_dir = args.output.resolve()
     if not args.resume:
         args.output_dir.mkdir(parents=True, exist_ok=False)
     args.run_id = f"{args.output_dir.parent.name}-{args.output_dir.name}"
-    os.environ["WANDB_RUN_GROUP"] = args.run_id
     args.task = "balance"
     args.condition = "zero-latency" if args.label_mode == "zero_full" else "latency-aware"
     args.num_workers, args.prefetch_factor = 16, 3
@@ -977,7 +431,7 @@ def main():
                   "label_mode": args.label_mode,
                   "teacher_query_cadence_raw_frames": TEACHER_QUERY_CADENCE_RAW_FRAMES,
                   "teacher_revision": args.teacher_revision,
-                  "teacher_sha256": args.teacher_sha256,
+
                   "teacher_oracle_seeds": teacher_oracle_seeds,
                   "profile_path": profile_path}
         write_json(args.output_dir / "budget.json", budget)
@@ -989,7 +443,7 @@ def main():
             "teacher": "zero50_fasttd3_h1_step_200000",
             "teacher_chunking": "closed_loop_requery_every_1_frame",
             "teacher_revision": args.teacher_revision,
-            "teacher_sha256": args.teacher_sha256,
+
             "label_mode": args.label_mode,
             "action_prefix": config["policy"]["action_prefix"],
             "profile_loss": "all_teacher_suffix_heads_until_termination",
@@ -1014,7 +468,7 @@ def main():
                       "heldout_seeds": heldout, "teacher": str(args.teacher),
                       "teacher_config": str(args.teacher_config),
                       "teacher_revision": args.teacher_revision,
-                      "teacher_sha256": args.teacher_sha256,
+
                       "bootstrap_bundle": None}
         write_json(args.output_dir / "run.json", run_record)
         write_json(args.output_dir / "history.json", history)
@@ -1300,9 +754,9 @@ def main():
         run.summary["best_vs_bootstrap_mean_length_gain"] = result["best_vs_bootstrap"]["mean_length_gain"]
         run.summary["best_vs_bootstrap_paired_95_interval"] = result["best_vs_bootstrap"]["paired_95_interval"]
         run.summary["best_vs_bootstrap_accepted"] = result["best_vs_bootstrap"]["accepted"]
-    if args.publish:
-        publication = publish_result(args, best_bundle, results["best"], result, run_record)
-        print(f"MODEL_REVISION={publication['revision']}")
+    export_result(args, best_bundle, results["best"], result, run_record)
+    print(f"OUTPUT_DIR={args.output_dir}")
+    print(f"MODEL_PATH={best_bundle / 'checkpoints/model.pt'}")
 
 
 if __name__ == "__main__":

@@ -218,7 +218,7 @@ class FastTD3ActorCritic(ActorCritic):
             "obs_std": self.empirical_obs_normalizer.std.mean(),
         }
 
-    def forward(self, normalized_obs_dict, rnn_states, values_only: bool = False):
+    def forward(self, normalized_obs_dict, rnn_states, values_only: bool = False, action_mask=None):
         obs = normalized_obs_dict["obs"].float().flatten(start_dim=1)
         means = self.actor(obs)
         noise_scales = rnn_states.reshape(obs.shape[0], -1)[:, :1]

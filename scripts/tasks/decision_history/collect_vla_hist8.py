@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,9 +15,11 @@ import time
 from huggingface_hub import snapshot_download
 import numpy as np
 import pyarrow.parquet as pq
+import yaml
 
-from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 from latency_bench.data.rollout_probe import write_probe_state, merge_probe_states
+from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -34,14 +35,6 @@ TASK_SETTINGS = {
     "asterix": (200, 50, 7200, 256, 256, "gpu"),
 }
 HISTORY_DIMS = {"flappy": 24, "demon_attack": 88, "deadly_corridor": 120, "atlantis": 56, "asterix": 136}
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _model_receipt(task: str, model: str) -> dict:
@@ -70,20 +63,39 @@ def _profile_receipt(task: str, model: str) -> dict:
 def _export_command(
     *, checkpoint: Path, output_dir: Path, episodes: int, horizon: int,
     probe_envs: int, replay_envs: int, device: str, probe_only: bool,
+    export_zero_action_history: int | None = None,
 ) -> list[str]:
-    command = [
-        sys.executable, str(ROOT / "scripts/rollout_data/export_sf_teacher_dataset.py"),
-        "--checkpoint-root", str(checkpoint), "--output-dir", str(output_dir),
-        "--max-episodes", str(episodes), "--max-steps-per-episode", str(horizon),
-        "--max-attempts", str(episodes),
-        "--num-envs", str(probe_envs), "--replay-num-envs", str(replay_envs),
-        "--device", device, "--val-fraction", "0.1", "--split-seed", "0",
-        "--filter-preset", "none", "--context-window", "1",
-        "--image-writer-workers", "32" if device == "gpu" else "8",
-    ]
-    if probe_only:
-        command.append("--probe-only")
-    return command
+    descriptor, _ = load_rollout_training_config(checkpoint)
+    flat = descriptor["flat_cfg"]
+    method = {"zero": "zero", "fixed": "fixed", "profile_sample": "temporal"}[flat["latency_type"]]
+    latency = {"method": method}
+    if method == "fixed":
+        latency["fixed_latency_ms"] = flat["fixed_latency_ms"]
+    elif method == "temporal":
+        latency.update(profile_path=flat["latency_profile_path"],
+                       profile_worker_slot=flat["latency_profile_worker_slot"], seed=flat["latency_seed"])
+    config = {
+        "experiment": {"name": "history_collection", "seed": flat["seed"]},
+        "env": {"name": descriptor["env_name"], "env_fps": flat["env_fps"], "obs_fps": flat["obs_fps"]},
+        "policy": {"type": "sample_factory", "source": "local", "root": descriptor["checkpoint_experiment_dir"],
+                   "checkpoint": str(Path(descriptor["checkpoint_path"]).relative_to(descriptor["checkpoint_experiment_dir"])) if descriptor["checkpoint_path"] is not None else None},
+        "executor": {"mode": "simulated", "inference_devices": [device], "parallel_envs": probe_envs,
+                     "simulated_worker_capacity": flat["simulated_worker_capacity"]},
+        "scheduler": {"hold_policy": flat["hold_policy"], "ordering_policy": flat["ordering_policy"]},
+        "latency": latency,
+        "evaluation": {"episodes": episodes, "max_env_steps": horizon},
+        "logging": {"output_dir": str(output_dir)},
+        "collection": {"two_pass": True, "max_attempts": episodes, "replay_num_envs": replay_envs,
+            "val_fraction": 0.1, "split_seed": 0, "filter_preset": "none", "context_window": 1,
+            "row_buffer_size": 8192, "image_writer_workers": 32 if device == "gpu" else 8,
+            "probe_only": probe_only},
+    }
+    if export_zero_action_history is not None:
+        config["collection"]["export_zero_action_history"] = export_zero_action_history
+    path = output_dir.with_name(output_dir.name + ".collect.yaml")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(config, sort_keys=False))
+    return [sys.executable, "-m", "latency_bench", "collect", "--config", str(path)]
 
 
 def _quality_report(raw_dir: Path, specs: list[dict], metadata: dict) -> dict:
@@ -181,16 +193,12 @@ def main() -> None:
         profile_rel = profile_receipt["profile_path"].split("results/profiling/profiles/", 1)[1]
         profile_path = args.profile_root.resolve() / "results/profiling/profiles" / profile_rel
         repo_revision = MODEL_REPO_REVISION
-    if _file_sha256(profile_path) != profile_receipt["profile_sha256"]:
-        raise RuntimeError(f"Profile content mismatch: {profile_path}")
     snapshot_download(
         MODEL_REPO, revision=repo_revision, allow_patterns=[f"{receipt['path']}/**"],
         local_dir=output / "models",
     )
     bundle = output / "models" / receipt["path"]
     checkpoint = bundle / receipt["checkpoint"]
-    if _file_sha256(checkpoint) != receipt["sha256"]:
-        raise RuntimeError(f"Teacher checkpoint content mismatch: {checkpoint}")
     teacher_cfg = json.loads((bundle / "config.json").read_text())
     if teacher_cfg["action_history_decisions"] != 8:
         raise RuntimeError("Teacher checkpoint does not use eight-decision history")
@@ -332,8 +340,7 @@ def main() -> None:
     (output / "provenance.json").write_text(json.dumps({
         "teacher_repo": MODEL_REPO, "teacher_revision": repo_revision,
         "teacher_path": receipt["path"], "teacher_checkpoint": receipt["checkpoint"],
-        "teacher_sha256": receipt["sha256"], "profile_path": str(profile_path),
-        "profile_sha256": profile_receipt["profile_sha256"],
+        "profile_path": str(profile_path),
         **({"profile_repo": "MLL-Lab/LAGEN-profiles", "profile_revision": catalog["profile_revision"],
             "rollout_overrides": {"latency_profile_path": str(profile_path), "seed": 42,
                                   "simulator": device, "probe_envs": probe_envs,

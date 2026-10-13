@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from argparse import Namespace
 from types import SimpleNamespace
 
 import pytest
@@ -370,16 +371,20 @@ def test_build_common_sf_args_does_not_emit_unsupported_wandb_unique_id_arg():
 def test_build_common_sf_args_emits_wandb_tags_as_multiple_values():
     cfg = load_config("configs/base/flappy.yaml")
     cfg["logging"]["wandb_tags"] = ["observation_stride", "flappy", "frame_stack"]
+    cfg["logging"]["wandb_project"] = "test-project"
+    cfg["logging"]["wandb_entity"] = "test-team"
 
     args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
 
     idx = args.index("--wandb_tags")
     assert args[idx : idx + 4] == ["--wandb_tags", "observation_stride", "flappy", "frame_stack"]
+    assert args[args.index("--wandb_user") + 1] == "test-team"
 
 
 def test_build_common_sf_args_splits_legacy_comma_wandb_tags():
     cfg = load_config("configs/base/flappy.yaml")
     cfg["logging"]["wandb_tags"] = "observation_stride,flappy,frame_stack"
+    cfg["logging"]["wandb_project"] = "test-project"
 
     args = build_common_sf_args(cfg, sf_env_name="flappy_bird")
 
@@ -562,7 +567,6 @@ def test_flappy_sf_shape_mismatch_fails_fast():
         validate_sample_factory_obs_shape(
             {"obs": np.zeros((1, 12, 512, 288), dtype=np.uint8)},
             expected_shape=(12, 84, 84),
-            policy_type="flappy_sf",
         )
 
 
@@ -576,10 +580,12 @@ def test_flappy_sf_update_ratio_metadata():
 
 def test_common_sf_args_passes_latency_distribution_without_legacy_train_values():
     config = {
+        "executor": {"mode": "simulated"},
+        "policy": {"type": "sample_factory"},
         "experiment": {"name": "dist_run", "seed": 3},
         "backend": {"type": "sample_factory", "train_dir": "runs", "run_mode": "train"},
         "env": {"name": "demon_attack", "env_fps": 60, "obs_fps": 15},
-        "executor": {"simulated_worker_capacity": 1},
+        "executor": {"mode": "simulated", "simulated_worker_capacity": 1},
         "latency": {
             "method": "uniform",
             "min_latency_ms": 0.0,
@@ -639,7 +645,6 @@ def test_sample_factory_latency_params_use_bench_ceil_for_fixed_ms():
 
 
 def test_sample_factory_latency_distribution_preserves_fractional_bounds():
-    from latency_bench.core.latency_distribution import sample_latency_frame
     from training.common.latency_config import sample_factory_latency_params_from_flat_config
 
     cfg = SimpleNamespace(
@@ -656,8 +661,6 @@ def test_sample_factory_latency_distribution_preserves_fractional_bounds():
     assert spec is not None
     assert spec.min == pytest.approx(1.5)
     assert spec.max == pytest.approx(3.5)
-    assert sample_latency_frame(spec, 0.0) == 2
-    assert sample_latency_frame(spec, 99.0) == 4
 
 
 def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp_path):
@@ -1310,7 +1313,7 @@ def test_demon_attack_reference_env_is_sample_factory_compatible(monkeypatch):
         lambda **kwargs: _ScriptedAtariInfoEnv([]),
     )
 
-    cfg = SimpleNamespace(
+    cfg = Namespace(
         env=integration.SF_ENV_NAME,
         env_gpu_actions=False,
         env_gpu_observations=False,
@@ -1376,7 +1379,7 @@ def test_flappy_cpu_render_reference_env_is_sample_factory_compatible(monkeypatc
     monkeypatch.setattr(integration, "_ENVS_REGISTERED", False)
     monkeypatch.setattr(integration.gym, "make", FakeFlappyGymnasium.make)
 
-    cfg = SimpleNamespace(
+    cfg = Namespace(
         env=integration.SF_ENV_NAME,
         env_gpu_actions=False,
         env_gpu_observations=False,

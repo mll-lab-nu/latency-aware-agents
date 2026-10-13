@@ -7,14 +7,6 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_factory
 from latency_bench.policy.base import ConstantPolicyRunner, PolicyRunner, RandomPolicyRunner
 
-_SAMPLE_FACTORY_POLICY_TYPES = {
-    "flappy_sf",
-    "demon_attack_sf",
-    "deadly_corridor_sf",
-    "gymnasium_sf",
-}
-
-
 def build_policy(
     config: dict[str, Any],
     action_resolver: ActionResolver,
@@ -39,10 +31,10 @@ def build_policy(
         return _build_random_policy(config, action_resolver)
     if policy_type == "constant":
         return _build_constant_policy(config, action_resolver)
-    if policy_type in _SAMPLE_FACTORY_POLICY_TYPES:
+    if policy_type == "sample_factory":
         from latency_bench.policy.sample_factory import build_sample_factory_policy
 
-        return build_sample_factory_policy(config, action_resolver, policy_type=policy_type)
+        return build_sample_factory_policy(config, action_resolver)
     if policy_type == "starvla":
         from latency_bench.policy.starvla import build_starvla_policy
 
@@ -63,7 +55,5 @@ def _build_constant_policy(config: dict[str, Any], action_resolver: ActionResolv
     if "action" in policy_cfg:
         action_ref = policy_cfg["action"]
     else:
-        if not default_action_refs:
-            raise ValueError("policy.action is required when no default actions are available")
         action_ref = default_action_refs[0]
     return ConstantPolicyRunner(action=action_resolver.resolve(action_ref))

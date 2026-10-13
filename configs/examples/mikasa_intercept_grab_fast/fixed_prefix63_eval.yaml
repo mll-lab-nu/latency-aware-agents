@@ -1,0 +1,8 @@
+args:
+  task: mikasa_conditioned_h8
+  model: qwenoft
+  eval_seed: 4242424442
+  inference_device: cuda:1
+  simulator_device: cuda:0
+  smoke: false
+episodes: 100

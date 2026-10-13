@@ -48,12 +48,14 @@ class ResultCoordinator(Generic[ResultT]):
         selected_obs_id = max(self.result_buffer)
         selected = self.result_buffer.pop(selected_obs_id)
         discarded: list[ResultT] = []
+        # Only unfinished requests can produce a late result. Completed
+        # discards must not remain in the ignore set for the whole episode.
+        for obs_id in self.issue_order:
+            if obs_id < selected_obs_id and obs_id not in self.result_buffer:
+                self.ignored_obs_ids.add(obs_id)
         for obs_id in sorted(list(self.result_buffer)):
             if obs_id < selected_obs_id:
                 discarded.append(self.result_buffer.pop(obs_id))
-        for obs_id in list(self.issue_order):
-            if obs_id < selected_obs_id:
-                self.ignored_obs_ids.add(obs_id)
         self.issue_order = [obs_id for obs_id in self.issue_order if obs_id > selected_obs_id]
         self.discarded_ready_result_count += len(discarded)
         return [selected], discarded

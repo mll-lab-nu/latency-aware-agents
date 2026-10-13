@@ -11,7 +11,9 @@ from gymnasium import spaces
 
 from latency_bench.core.types import Action, PolicyOutput
 from latency_bench.data.prompts import BASE_PROMPTS, IMAGE_TRANSFORM_CONTEXTS
-from latency_bench.integrations import starvla_runtime
+from latency_bench.envs.factory import environment_integration, resolve_env_config
+from latency_bench.integrations.starvla import runtime as starvla_runtime
+from latency_bench.policy.model_source import model_file
 
 
 def prepare_coding_agent_config(config):
@@ -20,11 +22,16 @@ def prepare_coding_agent_config(config):
 
     # One native conversation owns one episode and one authentication directory.
     if (config["executor"]["mode"] != "simulated"
-            or config["executor"]["simulated_inference_pool"]
-            or config["evaluation"]["eval_parallel_envs"] != 1):
+            or config["executor"]["inference_pool"]
+            or config["executor"]["parallel_envs"] != 1):
         raise ValueError("coding_agent requires simulated mode, no inference pool, and one parallel environment")
     policy = config["policy"]
     reference = policy["reference_policy"]
+    reference["root"] = str(Path(reference["root"]).expanduser().absolute())
+    resolve_env_config(config)
+    for key in ("task_contract_path", "task_manifest_path", "latency_prompt_map_path"):
+        if key in reference:
+            reference[key] = model_file(reference, key)
     prepare_starvla_checkpoint_input_config({**config, "policy": reference})
     config["env"]["export_env_raw_rgb_frames"] = True
     for key in ("task_contract_path", "action_prefix", "action_layout"):
@@ -34,11 +41,11 @@ def prepare_coding_agent_config(config):
 
 def build_reference_observer(config, action_resolver):
     """Use the existing input builders without loading weights or inference code."""
-    from latency_bench.policy.starvla import StarVlaPolicyRunner, _starvla_runner_kwargs
+    from latency_bench.policy.starvla import StarVlaPolicyRunner, _starvla_policy_inputs
     from latency_bench.policy.starvla_tasks import TaskStarVlaPolicyRunner
 
     cfg = config["policy"]["reference_policy"]
-    model_cfg = starvla_runtime.load_model_config(cfg["model_config_path"])
+    model_cfg = starvla_runtime.load_model_config(model_file(cfg, "model_config"))
     if "task_contract_path" in cfg:
         contract = json.loads(Path(cfg["task_contract_path"]).read_text())
         runner = TaskStarVlaPolicyRunner(
@@ -63,14 +70,15 @@ def build_reference_observer(config, action_resolver):
         transform = cfg["image_transform_config"]["image_transform"]
         if transform in IMAGE_TRANSFORM_CONTEXTS:
             prompt += IMAGE_TRANSFORM_CONTEXTS[transform]
-    kwargs = _starvla_runner_kwargs(
+    kwargs, robot_type = _starvla_policy_inputs(
         {**config, "policy": cfg}, action_resolver, model_cfg, base_prompt=prompt,
     )
     runner = StarVlaPolicyRunner(
-        wrapper=None, checkpoint_path=cfg["checkpoint_path"], device="cpu", **kwargs,
+        wrapper=None, checkpoint_path=model_file(cfg, "checkpoint"), device="cpu", **kwargs,
         image_views_info_key=cfg["image_views_info_key"] if "image_views_info_key" in cfg else None,
     )
     inputs = {"image_plan": asdict(runner._input_plan), "resize_hw": runner._obs_resize, "state": None}
+    observer = runner.build_observation_input
     if runner._include_state:
         state = {"dim": runner._state_dim}
         if runner._state_source == "transport":
@@ -78,13 +86,31 @@ def build_reference_observer(config, action_resolver):
             if "action_history_decisions" in env:
                 state.update(decisions=env["action_history_decisions"], order="oldest_to_newest",
                              row_layout="admitted flag, encoded issued action, encoded last applied action; categorical vectors omit category 0, multibinary vectors use turn/move/strafe/attack order")
+        elif runner._state_source == "gymnasium":
+            state.update(format="environment_state", labels=env["state_space"]["labels"])
         elif runner._state_normalization:
             state.update(format="min_max_normalized_to_minus1_plus1", normalization=runner._state_normalization,
                          labels=env["state_space"]["labels"])
         else:
             state["format"] = "constant_zero_vector"
+        if environment_integration(config) == "gymnasium":
+            from deployment.model_server.policy_norm_processor import PolicyNormProcessor
+
+            statistics_path = Path(cfg["root"]) / "dataset_statistics.json"
+            statistics = json.loads(statistics_path.read_text())
+            processor = PolicyNormProcessor.from_statistics(
+                model_cfg, statistics, unnorm_key=runner._unnorm_key, robot_type=robot_type,
+            )
+
+            def observer(observation):
+                example = runner.build_observation_input(observation)
+                example["state"] = processor.apply_state(example["state"])
+                return example
+
+            state.update(source_format=state["format"], format="training_transform",
+                         normalization=statistics[processor.unnorm_key]["state"])
         inputs["state"] = state
-    return runner.build_observation_input, prompt, None, inputs
+    return observer, prompt, None, inputs
 
 
 def bind_coding_agent_action_space(config, env):
@@ -117,7 +143,7 @@ def bind_coding_agent_action_space(config, env):
             spec["labels"] = ["turn", "move", "strafe", "attack"]
             spec["choices"] = [["none", "left", "right"], ["none", "forward", "backward"],
                                ["none", "left", "right"], ["none", "fire"]]
-    elif env_cfg["name"] == "balance_profile" or (
+    elif env_cfg["name"] in ("balance_profile", "g1_sonic_balance_simple") or (
             env_cfg["name"] == "gymnasium" and env_cfg["task_name"] == "g1_sonic_balance_simple"):
         from latency_bench.envs.tasks.humanoidbench.contract import (
             G1_BODY_JOINT_NAMES, G1_HAND_JOINT_NAMES, MUJOCO_INDEX_FOR_POLICY,

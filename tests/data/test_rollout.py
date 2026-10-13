@@ -1,6 +1,7 @@
 """Long-lived data contracts: source-time teacher labels, canonical handoff and failure recovery."""
 import io
 import json
+from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
@@ -10,7 +11,7 @@ from PIL import Image
 
 from latency_bench.core.types import Action, PolicyOutput
 from latency_bench.data.rollout import collect_rollouts
-from latency_bench.data.lerobot_export import convert_canonical_rollout_to_lerobot
+from latency_bench.integrations.starvla.lerobot_export import convert_canonical_rollout_to_lerobot
 from latency_bench.envs.adapters.gymnasium import GymnasiumEnvAdapter
 from latency_bench.policy.base import PolicyRunner
 
@@ -61,26 +62,73 @@ def make_teacher(config, action_resolver):
 
 
 @pytest.fixture
-def config(tmp_path):
+def config(tmp_path, monkeypatch):
+    from latency_bench.envs import factory
+    monkeypatch.setattr(factory, "_ENV_ADAPTER_BUILDERS", dict(factory._ENV_ADAPTER_BUILDERS))
+    factory.register_env_adapter("counter", env_id="CollectionCounter-v0")(factory._build_gymnasium_env)
     gym.envs.registry.pop("CollectionCounter-v0", None)
     gym.register("CollectionCounter-v0", entry_point=CounterEnv, disable_env_checker=True)
     CounterEnv.instances = []
     return {
-        "experiment": {"name": "canonical", "seed": 7},
-        "env": {"name": "gymnasium", "env_id": "CollectionCounter-v0", "task_name": "counter",
-                "registration_imports": [], "make_kwargs": {"render_mode": "rgb_array"},
-                "env_fps": 20, "obs_fps": 10, "frame_stack": 1, "noop_action": [0.0],
-                "base_prompt": "Issue the next count.", "state_space": {"labels": ["count"]},
-                "action_space": {"type": "box", "shape": [1], "dtype": "float32",
-                                 "low": [-10], "high": [10], "labels": ["command"]}},
-        "policy": {"type": "custom", "factory": "test_rollout:make_teacher"},
-        "executor": {"mode": "simulated"},
-        "latency": {"method": "fixed", "fixed_latency_ms": 150},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "evaluation": {"eval_episodes": 2, "eval_max_steps": 8},
-        "logging": {"output_dir": str(tmp_path / "dataset"), "save_step_records": False,
-                    "save_action_records": False, "save_latency_records": False},
-        "collection": {"student_observation": {"state_key": "gymnasium_state"}, "val_fraction": 0.5},
+        'experiment': {
+            'name': 'canonical',
+            'seed': 7,
+        },
+        'env': {
+            'name': 'counter',
+            'env_id': 'CollectionCounter-v0',
+            'registration_imports': [],
+            'make_kwargs': {
+                'render_mode': 'rgb_array',
+            },
+            'env_fps': 20,
+            'obs_fps': 10,
+            'frame_stack': 1,
+            'noop_action': [0.0],
+            'base_prompt': 'Issue the next count.',
+            'state_space': {
+                'labels': ['count'],
+            },
+            'action_space': {
+                'type': 'box',
+                'shape': [1],
+                'dtype': 'float32',
+                'low': [-10],
+                'high': [10],
+                'labels': ['command'],
+            },
+        },
+        'policy': {
+            'type': 'custom',
+            'factory': 'test_rollout:make_teacher',
+        },
+        'executor': {
+            'mode': 'simulated',
+        },
+        'latency': {
+            'method': 'fixed',
+            'fixed_latency_ms': 150,
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'evaluation': {
+            'episodes': 2,
+            'max_env_steps': 8,
+        },
+        'logging': {
+            'output_dir': str(tmp_path / 'dataset'),
+            'save_step_records': False,
+            'save_action_records': False,
+            'save_latency_records': False,
+        },
+        'collection': {
+            'student_observation': {
+                'state_key': 'gymnasium_state',
+            },
+            'val_fraction': 0.5,
+        },
     }
 
 
@@ -99,7 +147,7 @@ def test_continuous_source_snapshots_and_labels_survive_conversion(config, tmp_p
         config["latency"] = {"method": "iid", "profile_path": str(tmp_path / "profile.json"), "seed": 7}
     else:
         config["latency"]["fixed_latency_ms"] = latency_ms
-    config["evaluation"]["eval_parallel_envs"] = parallel
+    config["executor"]["parallel_envs"] = parallel
     result = collect_rollouts(config)
     output = tmp_path / "dataset"
     episodes = []
@@ -117,7 +165,7 @@ def test_continuous_source_snapshots_and_labels_survive_conversion(config, tmp_p
     if latency_ms:
         assert all(env.applied[:4] == [0.0, 0.0, 0.0, 1.0] for env in CounterEnv.instances)
     assert all(env.closed for env in CounterEnv.instances)
-    manifest = convert_canonical_rollout_to_lerobot(output, tmp_path / "lerobot", normalize_state=False)
+    manifest = convert_canonical_rollout_to_lerobot(output, tmp_path / "lerobot")
     assert manifest["frames"] == 2
     converted = pq.read_table(next((tmp_path / "lerobot/data").rglob("*.parquet"))).to_pylist()
     assert [row["action"] for row in converted] == [[1.0], [3.0]]
@@ -171,3 +219,75 @@ def test_dropped_observation_has_no_label_and_is_not_counted_as_row_filtering(co
     assert [row["action"] for row in rows] == [[1.0]]
     report = result["metadata"]["filter_report"]
     assert report["train_rows_before_row_filter"] == report["train_rows_after_row_filter"] == 1
+
+
+def test_public_collection_and_conversion_commands(config, tmp_path, capsys):
+    """Long-lived data CLI contract: canonical handoff and explicit overwrite."""
+    import yaml
+    from latency_bench.cli import main
+
+    config_path = tmp_path / "collect.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    main(["collect", "--config", str(config_path)])
+    assert "COLLECTION_STATUS=complete" in capsys.readouterr().out
+    raw = Path(config["logging"]["output_dir"])
+    output = tmp_path / "converted"
+    conversion_path = tmp_path / "convert.yaml"
+    conversion_path.write_text(yaml.safe_dump({"conversion": {
+        "format": "lerobot", "input_dir": str(raw), "output_dir": str(output),
+    }}))
+    main(["convert", "--config", str(conversion_path)])
+    assert "CONVERSION_STATUS=complete" in capsys.readouterr().out
+    before = (output / "meta/info.json").read_bytes()
+    with pytest.raises(FileExistsError):
+        main(["convert", "--config", str(conversion_path)])
+    assert (output / "meta/info.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("overlap", ["input_val", "normalization_source", "nested_output"])
+def test_forced_conversion_preserves_sources(tmp_path, overlap):
+    """Long-lived conversion boundary: force cannot delete an input split."""
+    from latency_bench.data.conversion import convert_dataset
+
+    train = tmp_path / "source"
+    train.mkdir()
+    protected = train / "meta" if overlap == "nested_output" else tmp_path / "converted__val"
+    protected.mkdir()
+    evidence = protected / "data.parquet"
+    evidence.write_bytes(b"validation source")
+    options = {"format": "lerobot", "input_dir": str(train),
+               "output_dir": str(protected if overlap == "nested_output" else tmp_path / "converted"), "force": True}
+    if overlap != "nested_output":
+        options[overlap] = str(protected)
+    with pytest.raises(ValueError, match="input or normalization"):
+        convert_dataset({"conversion": options})
+    assert evidence.read_bytes() == b"validation source"
+
+
+@pytest.mark.parametrize("task,policy", [
+    ("counter", "sample_factory"), ("g1_sonic_balance_simple", "sample_factory"),
+    ("mikasa_intercept_grab_fast", "mikasa_ppo"),
+])
+def test_collection_preserves_existing_output_before_native_dispatch(tmp_path, task, policy):
+    """Long-lived data boundary: native adapters cannot overwrite an existing dataset."""
+    evidence = tmp_path / "train.parquet"
+    evidence.write_bytes(b"existing dataset")
+    with pytest.raises(FileExistsError):
+        collect_rollouts({"env": {"name": task}, "policy": {"type": policy},
+                          "collection": {"label_mode": "prefix_h8"},
+                          "logging": {"output_dir": str(tmp_path)}})
+    assert evidence.read_bytes() == b"existing dataset"
+
+
+def test_failed_canonical_conversion_keeps_existing_dataset(tmp_path):
+    """Long-lived conversion boundary: source parsing precedes forced replacement."""
+    from latency_bench.data.conversion import convert_dataset
+
+    output = tmp_path / "prepared"
+    output.mkdir()
+    evidence = output / "train.parquet"
+    evidence.write_bytes(b"existing dataset")
+    with pytest.raises(FileNotFoundError):
+        convert_dataset({"conversion": {"format": "lerobot", "task": "balance_profile_h8",
+            "input_dir": str(tmp_path / "missing"), "output_dir": str(output), "force": True}})
+    assert evidence.read_bytes() == b"existing dataset"

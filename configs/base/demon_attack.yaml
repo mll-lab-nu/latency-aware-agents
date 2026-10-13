@@ -3,7 +3,6 @@ experiment:
   seed: 0
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cpu
   train_dir: results/sample_factory
@@ -14,6 +13,7 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 100
 env:
   name: demon_attack
   env_id: ALE/DemonAttack-v5
@@ -54,6 +54,8 @@ policy:
   type: random
   actions: [0, 1, 2, 3, 4, 5]
 
+  deterministic: true
+
 training:
   train_for_env_steps: 25000000
   num_workers: 1
@@ -85,22 +87,39 @@ training:
 
 evaluation:
   eval_interval_steps: 1000000
-  eval_episodes: 20
-  eval_parallel_envs: 100
-  eval_max_steps: 14400
-  eval_deterministic: true
   eval_raw_reward: true
-  eval_suites:
-    fixed:
-      - [0, 2, 4, 6]    # [start, end]
-    normal:
-      # - [4.0, 0.5, 0, 15]   # low jitter
-      - [4.0, 1.0, 0, 15]   # medium jitter
-      # - [4.0, 2.0, 0, 15]   # high jitter
-    uniform:
-      # - [3, 5]  # low jitter
-      - [2, 6]  # medium jitter
-      # - [0, 8]  # high jitter
+  episodes: 20
+  max_env_steps: 14400
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
+  - name: fixed_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 66.66666666666667
+  - name: fixed_6
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
+  - name: normal_mean_4_std_1_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 66.66666666666667
+      std_latency_ms: 16.666666666666668
+      min_latency_ms: 0.0
+      max_latency_ms: 250.00000000000003
+      seed: 0
+  - name: uniform_min_2_max_6
+    latency:
+      method: uniform
+      min_latency_ms: 33.333333333333336
+      max_latency_ms: 100.0
+      seed: 0
 logging:
   output_dir: outputs/demon_attack_base
   video:
@@ -109,7 +128,7 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  wandb_project: latency-sensitive-bench
+  wandb_project: null
   wandb_group: demon_attack-new(remove training episode limit)
   wandb_job_type: sample_factory
   wandb_tags: ""

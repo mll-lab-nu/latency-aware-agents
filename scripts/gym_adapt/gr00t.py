@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
-import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -12,6 +11,8 @@ import shutil
 import yaml
 
 from latency_bench.core.config import load_config
+from latency_bench.envs.factory import resolve_env_config
+from latency_bench.envs.tasks.contracts import canonical_gymnasium_contract
 from scripts.starvla.model_config import make_model_config
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,17 +28,10 @@ def write_json(path: Path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def teacher_config(task: str, run_root: Path, profile: Path | None, source: Path | None = None) -> dict:
     cfg = load_config(source if source is not None else
                       ROOT / f"configs/examples/gymnasium/{task}/small_model_train.yaml")
+    resolve_env_config(cfg)
     if task != "air_raid":
         cfg["env"].update(env_fps=5, obs_fps=5)
         cfg["latency"] = {"method": "zero", "add_latency_info": False}
@@ -58,22 +52,24 @@ def teacher_evaluation_config(config_path: Path, checkpoint: Path, output: Path,
     cfg["backend"]["run_mode"] = "eval"
     cfg["experiment"]["seed"] = 42
     cfg["executor"] = {"mode": "simulated", "simulated_worker_capacity": 1,
-                       "simulated_inference_pool": True, "inference_devices": ["cuda:0"]}
+                       "inference_pool": True, "inference_devices": ["cuda:0"]}
     cfg["latency"] = {"method": "iid", "profile_path": str(profile), "profile_worker_slot": 0,
                       "seed": 0, "add_latency_info": False}
-    cfg["policy"] = {"type": "gymnasium_sf", "checkpoint_path": str(checkpoint),
-                     "device": "cuda:0", "deterministic": True}
-    cfg["evaluation"].update(eval_episodes=episodes, eval_parallel_envs=1, eval_latency_values=None)
-    if cfg["env"]["task_name"] == "air_raid":
+    cfg['policy'] = {'type': 'sample_factory', 'deterministic': True, 'checkpoint': checkpoint.name, 'source': 'local', 'root': str(checkpoint.parent)}
+    cfg["executor"]["inference_devices"] = ['cuda:0']
+    cfg['evaluation'].update(episodes=episodes, suites=[])
+    cfg["executor"]["parallel_envs"] = 1
+    if cfg["env"]["name"] == "air_raid":
         cfg["env"]["make_kwargs"].update(noop_max=30, fire_reset=True)
-        cfg["evaluation"]["eval_max_steps"] = 3600
+        cfg["evaluation"]["max_env_steps"] = 3600
     cfg["logging"] = {"output_dir": str(output), "video": {"enabled": False, "num_bins": 1},
                       "save_step_records": True, "save_action_records": True, "save_latency_records": True}
     return cfg
 
 
 def vla_config(task: str, dataset: Path, backbone: Path, output: Path,
-               *, num_gpus: int, micro_batch: int, condition: str, wandb_entity: str) -> dict:
+               *, num_gpus: int, micro_batch: int, condition: str,
+               wandb_entity: str | None = None, wandb_project: str | None = None) -> dict:
     cfg = yaml.safe_load((STARVLA / "examples/rl_games/config/base/common.yaml").read_text())
     contract = json.loads((dataset / "manifest.json").read_text())
     horizon = 1
@@ -85,7 +81,7 @@ def vla_config(task: str, dataset: Path, backbone: Path, output: Path,
     write_json(mixture, {"train": [[str(dataset), 1.0, contract["robot_type"]]],
                          "validation": [[str(dataset.with_name(dataset.name + "__val")), 1.0, contract["robot_type"]]]})
     cfg.update(run_id=run_id, run_root_dir=str(output / "training"), seed=42, is_debug=False,
-               version_id="0.21", wandb_project="latency-sensitive-bench", wandb_entity=wandb_entity,
+               version_id="0.21", wandb_project=wandb_project, wandb_entity=wandb_entity,
                wandb_name=run_id, wandb_group="gr00t-seven-env", wandb_tags=[task, condition, "GR00T", f"h{horizon}"],
                training_latency_condition=condition,
                backbone=BACKBONE, base_model={"repo_id": BACKBONE["repo_id"]})
@@ -124,6 +120,10 @@ def export_bundle(task: str, trained: Path, checkpoint: Path, dataset: Path, des
     inference["backbone"] = BACKBONE
     manifest = json.loads((dataset / "manifest.json").read_text())
     inference["datasets"]["vla_data"]["gymnasium_task_contract"] = manifest["gymnasium_task"]
+    training_data = config["datasets"]["vla_data"]
+    inference["datasets"]["vla_data"]["robot_type"] = (
+        training_data["robot_type"] if "robot_type" in training_data else manifest["robot_type"]
+    )
     inference["rl_games"] = {"model_alias": "gr00t", "task": "gymnasium", "action_carrier": "native",
         "gymnasium": {"task_contract": manifest["gymnasium_task"]},
         "env_eval": {"image_size": 224, "frameskip": 1, "image_transform": "raw_rgb", "prompt_mode": "raw"}}
@@ -138,12 +138,7 @@ def export_bundle(task: str, trained: Path, checkpoint: Path, dataset: Path, des
         "checkpoint": checkpoint.name, "training_steps": config["trainer"]["max_train_steps"],
         "seed": config["seed"], "global_batch": 64, "training_run_id": config["run_id"],
         "condition": config["training_latency_condition"],
-        "source": json.loads(source_manifest.read_text()),
-        "training_config_sha256": file_sha256(trained / "config.full.yaml"),
-        "dataset_manifest_sha256": file_sha256(dataset / "manifest.json")})
-    checksums = {path.relative_to(destination).as_posix(): file_sha256(path)
-                 for path in sorted(destination.rglob("*")) if path.is_file() and path.name != "SHA256SUMS"}
-    (destination / "SHA256SUMS").write_text("".join(f"{value}  {path}\n" for path, value in checksums.items()))
+        "source": json.loads(source_manifest.read_text())})
     return destination
 
 
@@ -151,11 +146,10 @@ def evaluation_config(task: str, bundle: Path, backbone: Path, output: Path, *, 
                       profile: Path | None, episodes: int, profiling: bool, prompt_key: int) -> dict:
     recipe = "starvla_eval.yaml" if task == "air_raid" else "small_model_train.yaml"
     cfg = load_config(ROOT / f"configs/examples/gymnasium/{task}/{recipe}")
+    resolve_env_config(cfg)
     cfg["env"]["obs_resize"] = [224, 224]
     if task != "air_raid":
-        from latency_bench.policy.starvla import _canonical_gymnasium_contract_namespace
-
-        contract = _canonical_gymnasium_contract_namespace(
+        contract = canonical_gymnasium_contract(
             json.loads((bundle / "manifest.json").read_text())["gymnasium_task"]
         )
         for key in ("env_id", "registration_imports", "make_kwargs", "base_prompt", "frame_stack", "state_space"):
@@ -172,44 +166,37 @@ def evaluation_config(task: str, bundle: Path, backbone: Path, output: Path, *, 
     cfg["executor"] = {"mode": "realtime" if mode == "measured" else "simulated",
         "inference_devices": ["cuda:0"], "inference_batch_size": 1}
     if mode != "measured":
-        cfg["executor"].update(simulated_inference_pool=True, simulated_worker_capacity=1)
-    cfg["latency"] = {"method": mode, "sync_cuda": mode == "measured"}
+        cfg["executor"].update(inference_pool=True, simulated_worker_capacity=1)
+    cfg["latency"] = {"method": mode}
+    cfg["executor"].update(parallel_envs=1, sync_cuda=True)
+    if mode == "measured":
+        cfg.pop("latency", None)
     if mode == "iid":
         cfg["latency"].update(profile_path=str(profile.resolve()), profile_worker_slot=0, seed=0)
-    cfg["policy"] = {"type": "starvla", "checkpoint_path": str(bundle / "checkpoints/model.pt"),
-        "model_config_path": str(bundle / "config.yaml"), "backbone_path": str(backbone), "device": "cuda:0"}
+    cfg["policy"] = {"type": "starvla", "source": "local", "root": str(bundle),
+        "checkpoint": "checkpoints/model.pt", "model_config": "config.yaml", "backbone_path": str(backbone)}
     cfg["policy"].update(task_manifest_path=str(bundle / "manifest.json"),
         latency_prompt_map_path=str(bundle / "latency_prompt_map.json"), latency_prompt_key=prompt_key)
     horizon = (3000 if profiling else 3600) if task == "air_raid" else (900 if profiling else 1000)
-    cfg["evaluation"] = {"eval_episodes": episodes, "eval_parallel_envs": 1, "eval_max_steps": horizon,
-        "eval_deterministic": True, "eval_latency_values": None}
+    cfg["evaluation"] = {"episodes": episodes, "max_env_steps": horizon, "suites": []}
     cfg["logging"] = {"output_dir": str(output), "video": {"enabled": False, "num_bins": 1},
-        "save_step_records": True, "save_action_records": True, "save_latency_records": True,
-        "realtime_pipeline_profile": profiling}
+        "save_step_records": True, "save_action_records": True, "save_latency_records": True}
     return cfg
 
 
-def profile_spec(task: str, config_path: Path, bundle: Path, output: Path) -> dict:
-    from latency_bench.profiling.spec import load_profile_spec
-
-    spec = load_profile_spec(ROOT / "configs/profiles.yaml", "gr00t", "flappy")
-    spec.update(model_id="gr00t", workload_id=task, base_config=str(config_path), artifact_root=str(output),
-        checkpoint_path=str(bundle / "checkpoints/model.pt"), model_config_path=str(bundle / "config.yaml"),
-        checkpoint_kind="latest", session_count=5, eval_episodes=10, evaluation_seed=42,
-        calibrate_env_fps=False, simulation_parallel_envs=1, simulation_gpu=None, simulation_env={})
-    spec["model_artifact"] = {"local_root": str(bundle), "checkpoint": "checkpoints/model.pt",
-        "model_config": "config.yaml", "hf_repo": "MLL-Lab/LAGEN-models",
-        "revision": "e3fea81529fd98b5d5782db38803fe4062215dda",
-        "hf_path": {
-            'air_raid': 'zero-latency/air-raid/vla/starvla-qwengr00t-h1/air_raid_zero_latency_gr00t_h1',
-            'ant': 'zero-latency/ant/vla/starvla-qwengr00t-h1/ant_l0_gr00t_h1_5fps_2h100_20260917',
-            'half_cheetah': 'zero-latency/half-cheetah/vla/starvla-qwengr00t-h1/half_cheetah_l0_gr00t_h1_5fps_2h200_20260917',
-            'hopper': 'zero-latency/hopper/vla/starvla-qwengr00t-h1/hopper_l0_gr00t_h1_5fps_2h100_20260917',
-            'humanoid': 'zero-latency/humanoid/vla/starvla-qwengr00t-h1/humanoid_l0_gr00t_h1_5fps_1h200_20260917',
-            'inverted_pendulum': 'zero-latency/inverted-pendulum/vla/starvla-qwengr00t-h1/ip_l0_gr00t_h1_5fps_1h200_20260917',
-            'walker2d': 'zero-latency/walker2d/vla/starvla-qwengr00t-h1/walker2d_l0_gr00t_h1_5fps_2h200_20260917',
-        }[task]}
-    return spec
+def profiling_config(task: str, config_path: Path, bundle: Path, output: Path) -> dict:
+    config = load_config(config_path)
+    config["experiment"]["seed"] = 42
+    config['evaluation'].update(episodes=10, suites=[])
+    config["executor"].update(mode="realtime", inference_devices=["cuda:0"])
+    config.pop("latency", None)
+    config["executor"].update(sync_cuda=True, parallel_envs=1)
+    config["logging"]["output_dir"] = str(output)
+    config["profiling"] = {"model_id": "gr00t", "workload_id": task, "repeats": 5,
+                           "calibration": None}
+    config["policy"].update(source="local", root=str(bundle),
+                            checkpoint="checkpoints/model.pt", model_config="config.yaml")
+    return config
 
 
 def main():
@@ -232,7 +219,8 @@ def main():
     vla.add_argument("--num-gpus", type=int, choices=(1, 2, 4), required=True)
     vla.add_argument("--micro-batch", type=int, choices=(8, 16, 32), required=True)
     vla.add_argument("--condition", choices=("zero_latency", "profile_latency"), required=True)
-    vla.add_argument("--wandb-entity", required=True)
+    vla.add_argument("--wandb-project", help="Enable W&B in this project")
+    vla.add_argument("--wandb-entity", help="Optional W&B account or team")
     bundle = commands.add_parser("bundle")
     bundle.add_argument("--task", choices=tuple(GATES), required=True)
     for name in ("trained", "checkpoint", "dataset", "output", "source-manifest"):
@@ -267,7 +255,7 @@ def main():
     elif args.command == "vla-config":
         cfg = vla_config(args.task, args.dataset.resolve(), args.backbone.resolve(), args.output.resolve(),
                          num_gpus=args.num_gpus, micro_batch=args.micro_batch, condition=args.condition,
-                         wandb_entity=args.wandb_entity)
+                         wandb_entity=args.wandb_entity, wandb_project=args.wandb_project)
         path = args.output / "training.yaml"
         path.write_text(yaml.safe_dump(cfg, sort_keys=False))
         print(path)
@@ -282,11 +270,9 @@ def main():
         print(args.output / "eval.yaml")
     elif args.command == "profile":
         from latency_bench.profiling.runner import run_profile
-        from latency_bench.profiling.profile_resolver import resolve_model_artifacts
 
-        spec = profile_spec(args.task, args.config.resolve(), args.bundle.resolve(), args.output.resolve())
-        spec = resolve_model_artifacts(spec, model_path=args.bundle.resolve())
-        print(json.dumps(run_profile(spec, resume_run_id=args.resume, publish=False)))
+        config = profiling_config(args.task, args.config.resolve(), args.bundle.resolve(), args.output.resolve())
+        print(json.dumps(run_profile(config, resume_run_id=args.resume)))
 
 
 if __name__ == "__main__":

@@ -12,11 +12,11 @@ from gymnasium.spaces import Box, Dict as GymDict
 from latency_bench.core.clock import EnvClock
 from latency_bench.core.decision_action_history import DecisionActionHistory
 from latency_bench.core.latency_distribution import (
+    LatencyDistributionSampler,
     LatencyDistributionSpec,
     derive_seed,
     distribution_max_frame_latency,
     latency_distribution_label,
-    make_latency_distribution_sampler,
 )
 from latency_bench.core.types import Action, ActionEvent, ActionHoldPolicy, LatencyRecord, OrderingPolicy
 from latency_bench.envs.latency_info import build_latency_info
@@ -218,7 +218,7 @@ class ActionLatencyWrapper(gym.Wrapper):
             self.latency_distribution_sampler = None
             return
         seed = derive_seed(self.base_latency_seed, episode_idx=int(self.episode_idx))
-        self.latency_distribution_sampler = make_latency_distribution_sampler(
+        self.latency_distribution_sampler = LatencyDistributionSampler(
             self.latency_distribution_spec,
             seed=seed,
         )
@@ -262,7 +262,7 @@ class ActionLatencyWrapper(gym.Wrapper):
                 raise
             obs, info = self.env.reset(**kwargs)
         self._raw_observation = obs
-        info = dict(info or {})
+        info = dict(info)
         if self.add_latency_info:
             info.update(self._latency_info(self.current_latency_raw_frames))
         return self._transport_obs(obs), info
@@ -461,7 +461,7 @@ class ActionLatencyWrapper(gym.Wrapper):
                 replay_rewards[index] = reward
             # accumulate rewards for raw frames
             total_reward += float(reward)
-            step_info = dict(info or {})
+            step_info = dict(info)
             if "applied_action" in step_info:
                 environment_applied_action = _clone_action(step_info["applied_action"])
             if "raw_reward" in step_info:
@@ -482,7 +482,7 @@ class ActionLatencyWrapper(gym.Wrapper):
             if self.worker_capacity is not None:
                 self.worker_capacity.release_ready(self.env_step_idx)
 
-        info = dict(info or {})
+        info = dict(info)
         if chunk_request:
             info["replay_trace"] = {
                 "replay_obs": replay_obs,

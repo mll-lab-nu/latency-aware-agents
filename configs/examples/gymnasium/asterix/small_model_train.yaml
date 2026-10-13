@@ -3,7 +3,6 @@ experiment:
   seed: 0
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: outputs/examples/gymnasium_asterix/checkpoints
@@ -14,11 +13,9 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: asterix
-  env_id: LatencyBench/Asterix-v0
-  registration_imports: [latency_bench.envs.tasks.asterix]
+  name: asterix
   make_kwargs:
     base_env_id: ALE/Asterix-v5
     render_mode: rgb_array
@@ -64,6 +61,8 @@ policy:
   type: random
   actions: [noop, up, right, left, down, upright, upleft, downright, downleft]
 
+  deterministic: true
+
 training:
   train_for_env_steps: 1000000
   num_workers: 4
@@ -92,11 +91,8 @@ training:
 
 evaluation:
   eval_interval_steps: null
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 5000
-  eval_deterministic: true
-
+  episodes: 5
+  max_env_steps: 5000
 logging:
   output_dir: outputs/examples/gymnasium_asterix/train
   video:

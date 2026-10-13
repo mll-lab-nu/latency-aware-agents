@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 import torch
 
@@ -18,7 +19,7 @@ def resolve_torch_device(device: str) -> str:
 def resolve_sample_factory_device(device: str) -> str:
     if device == "auto":
         return "gpu" if torch.cuda.is_available() else "cpu"
-    if device == "cuda":
+    if device.startswith("cuda"):
         return "gpu"
     return device
 
@@ -29,8 +30,6 @@ def load_sample_factory_policy_state_dict(
     device: torch.device,
     checkpoint_path: str | None,
 ) -> tuple[dict[str, Any], Path]:
-    from pathlib import Path
-
     from training.common.checkpoints import (
         load_sample_factory_checkpoint_from_paths,
         trusted_torch_load,

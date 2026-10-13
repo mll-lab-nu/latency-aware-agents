@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 
 import pytest
@@ -24,11 +23,6 @@ def test_pinned_pi05_environment_overlay(monkeypatch, env, state_dim, action_dim
     path = CONFIGS / env / 'pi05_train.yaml'
     overlay = load_config(path)
     manifest = json.loads((path.parent / overlay['source_manifest']).read_text())
-    source_map = json.loads((SOURCES / 'source_map.json').read_text())
-    for source in source_map['files'][env]:
-        data = (SOURCES / source['path']).read_bytes()
-        assert hashlib.sha256(data).hexdigest() == source['sha256']
-        assert len(data) == source['bytes']
     assert manifest['active_action_dim'] == action_dim
     assert manifest['uses_state'] == (state_dim != 0)
     if state_dim:

@@ -31,26 +31,12 @@ def _scalar(value: Any) -> Any:
     return np.asarray(value).reshape(-1)[0].item()
 
 
-class _PpoPolicy:
-    def __init__(self, env, checkpoint: Path):
-        from baselines.ppo.ppo_memtasks import AgentStateOnly
-
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.agent = AgentStateOnly(env).to(self.device)
-        self.agent.load_state_dict(torch.load(checkpoint, map_location=self.device))
-        self.agent.eval()
-
-    def forward(self, observation):
-        with torch.no_grad():
-            return self.agent.get_action(
-                {key: value.to(self.device) for key, value in observation.items()},
-                deterministic=True,
-            )
+from latency_bench.policy.mikasa_ppo import MikasaPpoPolicy
 
 
 def _evaluate(args: argparse.Namespace) -> dict[str, Any]:
     env = make_ppo_env()
-    policy = _PpoPolicy(env, args.checkpoint)
+    policy = MikasaPpoPolicy(env, args.checkpoint)
     seeds = []
     successes = []
     returns = []
@@ -124,7 +110,7 @@ def _latency_eval(argv: list[str]) -> None:
     if config["executor"]["mode"] == "simulated":
         backend = MikasaEnvStepBackend(
             config=config,
-            num_slots=int(config["evaluation"]["eval_parallel_envs"]),
+            num_slots=int(config["executor"]["parallel_envs"]),
         )
     run_from_config(
         config,

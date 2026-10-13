@@ -319,7 +319,7 @@ def test_install_script_forwards_fixed_stack_bootstrap(tmp_path):
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
 
     result = subprocess.run(
-        ["bash", str(script_path), "--model", "openvla"],
+        ["bash", str(script_path), "--model", "openvla", "--env", "flappy"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -333,19 +333,17 @@ def test_install_script_forwards_fixed_stack_bootstrap(tmp_path):
     assert (
         "conda create -n latency --override-channels "
         "-c nvidia/label/cuda-12.8.1 -c conda-forge "
-        "python=3.10 cuda-toolkit=12.8.1 pip setuptools wheel packaging zlib=1.3.2 -y"
+        "python=3.10 cuda-toolkit=12.8.1 pip setuptools wheel packaging zlib=1.3.2 ffmpeg=7 -y"
     ) in calls
     assert "conda activate latency" in calls
     assert "bash third_party/starVLA/examples/rl_games/install/torch.sh" in calls
     assert "uv pip install" in calls
-    assert "-e .[dev,sonic]" in calls
+    assert "-e ." in calls
     assert "-e third_party/sample-factory" in calls
-    for game in ("demon_attack", "deadly_corridor", "flappy"):
-        assert f"bash third_party/starVLA/examples/rl_games/install/env/{game}.sh" in calls
-    assert "bash scripts/bash_scripts/build_cuda_extensions.sh" in calls
+    assert "python -m pip install --no-deps lerobot==0.4.4" in calls
     assert (
         "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "
-        "--tier dev --model openvla"
+        "--tier use --model openvla --env flappy"
     ) in calls
     assert calls.index("conda activate latency") < calls.index(
         "bash third_party/starVLA/examples/rl_games/install/bootstrap.sh"
@@ -376,10 +374,10 @@ def test_install_script_updates_existing_latency_environment(tmp_path):
     assert (
         "conda install -n latency --override-channels "
         "-c nvidia/label/cuda-12.8.1 -c conda-forge "
-        "python=3.10 cuda-toolkit=12.8.1 pip setuptools wheel packaging zlib=1.3.2 -y"
+        "python=3.10 cuda-toolkit=12.8.1 pip setuptools wheel packaging zlib=1.3.2 ffmpeg=7 -y"
     ) in calls
     assert "conda create -n latency" not in calls
-    assert "-e .[dev,sonic]" in calls
+    assert "-e ." in calls
     assert "bootstrap.sh --tier use --model openvla" in calls
 
 
@@ -421,15 +419,13 @@ def test_install_script_help_exposes_only_fixed_stack_options(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "torch-profile" not in result.stdout
     assert "Python 3.10" in result.stdout
     assert "CUDA Toolkit 12.8.1" in result.stdout
     assert "PyTorch 2.11.0+cu128" in result.stdout
-    assert "--accept-rom-license" not in result.stdout
     assert not calls_path.exists()
 
 
-def test_install_script_rejects_removed_torch_profile_option(tmp_path):
+def test_install_script_rejects_unknown_option_before_installing(tmp_path):
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(
         tmp_path,
@@ -438,7 +434,7 @@ def test_install_script_rejects_removed_torch_profile_option(tmp_path):
     )
 
     result = subprocess.run(
-        ["bash", str(script_path), "--torch-profile", "cu128"],
+        ["bash", str(script_path), "--unknown-option"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -447,28 +443,8 @@ def test_install_script_rejects_removed_torch_profile_option(tmp_path):
     )
 
     assert result.returncode != 0
-    assert "unknown argument: --torch-profile" in result.stderr
+    assert "unknown argument: --unknown-option" in result.stderr
     assert not calls_path.exists()
-
-
-def test_install_script_ignores_removed_profile_environment_variable(tmp_path):
-    script_path = REPO_ROOT / "install.sh"
-    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="9.0\n")
-    env["LATENCY_BENCH_TORCH_PROFILE"] = "cu130"
-
-    result = subprocess.run(
-        ["bash", str(script_path), "--model", "openvla"],
-        cwd=REPO_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=openvla" in result.stdout
-    calls = calls_path.read_text(encoding="utf-8")
-    assert "cu130" not in calls
 
 
 def test_install_script_forwards_all_model_selection(tmp_path):
@@ -515,10 +491,11 @@ def test_install_script_accepts_each_supported_model(tmp_path):
 
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
-    assert "bootstrap.sh --tier dev --model gr00t" in calls
+    assert "bootstrap.sh --tier use --model gr00t" in calls
 
 
-def test_install_script_requires_model(tmp_path):
+def test_install_script_installs_base_by_default(tmp_path):
+    """Long-lived installer contract: base includes data and the pinned SF source."""
     script_path = REPO_ROOT / "install.sh"
     env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="10.3\n")
 
@@ -531,8 +508,46 @@ def test_install_script_requires_model(tmp_path):
         check=False,
     )
 
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text(encoding="utf-8")
+    assert "-e ." in calls
+    assert "-e third_party/sample-factory" in calls
+    assert "python -m pip install --no-deps lerobot==0.4.4" in calls
+    assert "python -m scripts.install.validate base" in calls
+    assert "bootstrap.sh" not in calls
+    assert "install/env/" not in calls
+    assert "build_cuda_extensions.sh" not in calls
+
+
+@pytest.mark.parametrize("tasks,extra,extension", [
+    ("ant,hopper", ".[mujoco]", None),
+    ("air_raid,asterix", "install/env/demon_attack.sh", "atari"),
+    ("flappy", "install/env/flappy.sh", "flappy"),
+    ("g1_sonic_balance_simple", ".[sonic]", None),
+])
+def test_install_script_selects_task_dependencies(tmp_path, tasks, extra, extension):
+    """Long-lived task selector contract: shared simulator dependencies install once."""
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="12.0\n")
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "install.sh"), "--env", tasks],
+        cwd=REPO_ROOT, env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    calls = calls_path.read_text()
+    assert calls.count(extra) == 1
+    if extension is not None:
+        assert f"build_cuda_extensions.sh --env {extension}" in calls
+
+
+def test_install_script_rejects_unknown_task_before_installing(tmp_path):
+    """Long-lived installer boundary: invalid task selection does not change an environment."""
+    env, calls_path = _prepare_install_sh_env(tmp_path, compute_caps="12.0\n")
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "install.sh"), "--env", "unknown_task"],
+        cwd=REPO_ROOT, env=env, capture_output=True, text=True,
+    )
     assert result.returncode != 0
-    assert "--model is required" in result.stderr
+    assert "unknown task: unknown_task" in result.stderr
     assert not calls_path.exists()
 
 
@@ -756,7 +771,7 @@ def test_install_script_uses_conda_exe_when_path_is_missing(tmp_path):
     assert result.returncode == 0, result.stderr
     calls = calls_path.read_text(encoding="utf-8")
     assert "conda tos" not in calls
-    assert "bootstrap.sh --tier dev --model openvla" in calls
+    assert "bootstrap.sh --tier use --model openvla" in calls
 
 
 def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
@@ -778,7 +793,7 @@ def test_install_script_bootstraps_miniconda_when_conda_is_missing(tmp_path):
     assert "conda tos" not in calls
     source = script_path.read_text(encoding="utf-8")
     assert 'MINICONDA_VERSION="py310_26.1.1-1"' in source
-    assert "bootstrap.sh --tier dev --model openvla" in calls
+    assert "bootstrap.sh --tier use --model openvla" in calls
 
 
 def test_install_script_persists_conda_shell_init(tmp_path):
@@ -907,52 +922,3 @@ fi
         "#sha256=9001c730642cdc1ea44ed8130b0dc80e763519d6efc01e4de44b0700a0dfa13d "
         "--force-reinstall --no-deps"
     ) in log
-
-
-
-
-
-
-@pytest.mark.parametrize("model", ["pi05", "qwenoft"])
-def test_profile_launcher_uses_current_python_environment(tmp_path, model):
-    fake_bin = tmp_path / "bin"
-    calls_path = tmp_path / "calls.log"
-    fake_bin.mkdir()
-    _write_executable(
-        fake_bin / "python",
-        """#!/usr/bin/env bash
-set -euo pipefail
-printf 'python %s\\n' "$*" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
-printf 'start_method=%s\\n' "${LATENCY_BENCH_ENV_BACKEND_START_METHOD:-}" >> "$LATENCY_BENCH_FAKE_INSTALL_CALLS"
-""",
-    )
-
-    result = subprocess.run(
-        [
-            "bash",
-            str(REPO_ROOT / "scripts/profile.sh"),
-            "list",
-            "--model",
-            model,
-            "--workload",
-            "flappy",
-        ],
-        cwd=tmp_path,
-        env={
-            **os.environ,
-            "PATH": f"{fake_bin}:{os.environ['PATH']}",
-            "LATENCY_BENCH_FAKE_INSTALL_CALLS": str(calls_path),
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    calls = calls_path.read_text(encoding="utf-8")
-    assert "conda activate" not in calls
-    assert (
-        "python -m latency_bench.profiling.cli "
-        f"list --model {model} --workload flappy"
-    ) in calls
-    assert "start_method=spawn" in calls

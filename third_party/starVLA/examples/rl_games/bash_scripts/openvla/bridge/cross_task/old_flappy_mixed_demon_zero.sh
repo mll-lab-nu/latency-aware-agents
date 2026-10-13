@@ -19,10 +19,8 @@ python examples/rl_games/scripts/launch_train.py \
     launch.num_processes=2 \
     rl_games.env_eval.distributed_mode=rank_sharded \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/openvla_bridge_cross_flappy_mixed_demon_zero_exp4" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/openvla_bridge_cross_flappy_mixed_demon_zero_exp4" \
     checkpoint.save_best_model=true \
     trainer.max_train_steps=5000 \
     trainer.num_warmup_steps=0 \

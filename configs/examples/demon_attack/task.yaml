@@ -1,0 +1,37 @@
+env:
+  name: demon_attack
+  env_id: ALE/DemonAttack-v5
+  env_fps: 60
+  obs_fps: 15
+  screen_size: 84
+  noop_max: 30
+  reset_mode: fire
+  frame_stack: 4
+  terminal_on_life_loss: true
+  clip_reward: false
+  repeat_action_probability: 0.0
+  full_action_space: false
+  max_episode_steps: 25000
+  noop_action: 0
+  action_map:
+    noop: 0
+    fire: 1
+    right: 2
+    left: 3
+    rightfire: 4
+    leftfire: 5
+  action_order:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  simulator: gpu
+  gpu_env_device: auto
+  obs_resize:
+  - 224
+  - 224
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready

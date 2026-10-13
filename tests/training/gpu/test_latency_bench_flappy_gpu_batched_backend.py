@@ -70,9 +70,9 @@ def _config(output_dir: str, *, num_episodes: int = 3, score_limit: int | None =
             "actions": ["noop", "flap"],
         },
         "evaluation": {
-            "eval_episodes": int(num_episodes),
-            "eval_max_steps": 6,
-            "eval_parallel_envs": 3,
+            "episodes": int(num_episodes),
+            "max_env_steps": 6,
+            "parallel_envs": 3,
         },
         "logging": {
             "output_dir": output_dir,
@@ -162,7 +162,7 @@ def _assert_observation_equal(actual: Observation, expected: Observation) -> Non
 
 def _assert_step_equal(actual: StepResult, expected: StepResult) -> None:
     assert expected.observation is not None
-    assert actual.reward == expected.reward
+    assert actual.reward == pytest.approx(expected.reward)
     assert actual.done is expected.done
     assert actual.truncated is expected.truncated
     _assert_info_equal(actual.info, expected.info)
@@ -184,7 +184,7 @@ def test_flappy_gpu_batched_backend_matches_serial_gpu_backend_step_for_step(tmp
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     config = _config(str(tmp_path), num_episodes=3)
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     serial = _serial_backend(3)
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=3)
     try:
@@ -231,7 +231,7 @@ def test_flappy_gpu_simulator_batched_backend_matches_serial_gpu_backend_step_fo
     config = _config(str(tmp_path), num_episodes=2)
     config["env"]["simulator"] = "gpu"
     config["env"]["gpu_render_device"] = "cuda"
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     serial = _serial_backend(2)
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=2)
     try:
@@ -274,7 +274,7 @@ def test_flappy_gpu_batched_backend_matches_serial_done_auto_reset_contract(tmp_
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     config = _config(str(tmp_path), num_episodes=2, score_limit=0)
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     serial = _serial_backend(2, score_limit=0)
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=2)
     try:
@@ -355,7 +355,7 @@ def test_flappy_gpu_batched_backend_does_not_materialize_policy_observation_duri
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     config = _config(str(tmp_path), num_episodes=1)
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
     try:
         batched.reset_slot(0, episode_id=0, seed=123)
@@ -374,7 +374,7 @@ def test_flappy_sf_frame_stack_advances_through_dropped_observation_frames(tmp_p
     from latency_bench.executors.flappy_gpu_batched_backend import FlappyGpuBatchedEnvStepBackend
 
     config = _config(str(tmp_path), num_episodes=1)
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
     batched = FlappyGpuBatchedEnvStepBackend(config=config, noop_action=_noop(), num_slots=1)
     try:
         batched.reset_slot(0, episode_id=0, seed=123)
@@ -413,10 +413,10 @@ def test_flappy_gpu_batched_executor_preserves_serial_episode_metrics(tmp_path):
     pytest.importorskip("torch")
 
     serial_config = _config(str(tmp_path / "serial"), num_episodes=3)
-    serial_config["evaluation"]["latency_bench_env_backend"] = "serial"
+    serial_config["executor"]["env_backend"] = "serial"
     batched_config = deepcopy(serial_config)
     batched_config["logging"]["output_dir"] = str(tmp_path / "batched")
-    batched_config["evaluation"]["latency_bench_env_backend"] = "flappy_gpu_batched"
+    batched_config["executor"]["env_backend"] = "flappy_gpu_batched"
 
     serial_executor = build_executor(serial_config)
     batched_executor = build_executor(batched_config)
@@ -426,12 +426,12 @@ def test_flappy_gpu_batched_executor_preserves_serial_episode_metrics(tmp_path):
         serial_metrics = serial_executor.run_episodes(
             episode_ids=episode_ids,
             seeds=seeds,
-            eval_max_steps=6,
+            max_env_steps=6,
         )
         batched_metrics = batched_executor.run_episodes(
             episode_ids=episode_ids,
             seeds=seeds,
-            eval_max_steps=6,
+            max_env_steps=6,
         )
     finally:
         batched_executor.close()

@@ -1,0 +1,15 @@
+__base__: task.yaml
+executor:
+  mode: realtime
+  inference_devices:
+  - cpu
+  sync_cuda: false
+evaluation:
+  episodes: 3
+  max_env_steps: 50
+logging:
+  output_dir: outputs/profiling/custom_mountain_car
+profiling:
+  model_id: constant_right
+  workload_id: mountain_car
+  repeats: 2

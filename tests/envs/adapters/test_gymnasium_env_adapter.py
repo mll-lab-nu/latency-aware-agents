@@ -365,6 +365,9 @@ def test_gymnasium_adapter_close_delegates_to_gym_env(monkeypatch):
 
 
 def test_factory_builds_gymnasium_adapter_without_rewriting_config(monkeypatch):
+    from latency_bench.envs import factory
+    monkeypatch.setattr(factory, "_ENV_ADAPTER_BUILDERS", dict(factory._ENV_ADAPTER_BUILDERS))
+    factory.register_env_adapter("test_gymnasium", env_id="Acme/FactoryEnv-v2")(factory._build_gymnasium_env)
     fake_env = FakeGymEnv()
     captured = _install_fake_make(monkeypatch, fake_env)
     opaque_setting = object()
@@ -374,35 +377,52 @@ def test_factory_builds_gymnasium_adapter_without_rewriting_config(monkeypatch):
         "domain_options": {"opaque_setting": opaque_setting},
     }
     config = {
-        "experiment": {"name": "generic_gym_test", "seed": 17},
-        "executor": {"mode": "simulated"},
-        "env": {
-            "name": "gymnasium",
-            "env_id": "Acme/FactoryEnv-v2",
-            "registration_imports": [],
-            "make_kwargs": make_kwargs,
-            "env_fps": 47.5,
-            "obs_fps": 9.5,
-            "frame_stack": 4,
-            "export_env_raw_rgb_frames": True,
-            "noop_action": "NOOP",
-            "action_map": {
-                "NOOP": {"motor": [0.0, 0.0]},
-                "MOVE": {"motor": [0.5, -0.5]},
+        'experiment': {
+            'name': 'generic_gym_test',
+            'seed': 17,
+        },
+        'executor': {
+            'mode': 'simulated',
+        },
+        'env': {
+            'name': 'test_gymnasium',
+            'env_id': 'Acme/FactoryEnv-v2',
+            'registration_imports': [],
+            'make_kwargs': make_kwargs,
+            'env_fps': 47.5,
+            'obs_fps': 9.5,
+            'frame_stack': 4,
+            'export_env_raw_rgb_frames': True,
+            'noop_action': 'NOOP',
+            'action_map': {
+                'NOOP': {
+                    'motor': [0.0, 0.0],
+                },
+                'MOVE': {
+                    'motor': [0.5, -0.5],
+                },
             },
         },
-        "latency": {"method": "zero"},
-        "scheduler": {
-            "hold_policy": "hold",
-            "ordering_policy": "issue_order_fifo",
+        'latency': {
+            'method': 'zero',
         },
-        "policy": {"type": "constant", "action": "NOOP"},
-        "evaluation": {"eval_episodes": 1, "eval_max_steps": 3},
-        "logging": {
-            "output_dir": "outputs/generic_gym_test",
-            "save_step_records": True,
-            "save_action_records": True,
-            "save_latency_records": True,
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'issue_order_fifo',
+        },
+        'policy': {
+            'type': 'constant',
+            'action': 'NOOP',
+        },
+        'evaluation': {
+            'episodes': 1,
+            'max_env_steps': 3,
+        },
+        'logging': {
+            'output_dir': 'outputs/generic_gym_test',
+            'save_step_records': True,
+            'save_action_records': True,
+            'save_latency_records': True,
         },
     }
     noop_action = Action(
@@ -460,7 +480,7 @@ def test_gymnasium_adapter_runs_on_existing_raw_frame_latency_timeline(monkeypat
         clock=clock,
     )
     try:
-        executor.run_episode(episode_id=0, seed=19, eval_max_steps=4)
+        executor.run_episode(episode_id=0, seed=19, max_env_steps=4)
 
         assert fake_env.step_actions == [0, 0, 1, 1]
     finally:

@@ -23,35 +23,13 @@ EOF
 }
 
 run_check() {
-  "$PYTHON_BIN" - <<'PY'
-import torch
-from flash_attn import __version__, flash_attn_func
-import flash_attn_2_cuda  # noqa: F401
-
-q = torch.randn(2, 128, 8, 64, device="cuda", dtype=torch.bfloat16, requires_grad=True)
-k = torch.randn(2, 128, 8, 64, device="cuda", dtype=torch.bfloat16, requires_grad=True)
-v = torch.randn(2, 128, 8, 64, device="cuda", dtype=torch.bfloat16, requires_grad=True)
-output = flash_attn_func(q, k, v, causal=True)
-output.float().square().mean().backward()
-torch.cuda.synchronize()
-assert torch.isfinite(output).all()
-assert torch.isfinite(q.grad).all()
-assert torch.isfinite(k.grad).all()
-assert torch.isfinite(v.grad).all()
-print(f"[flash_attn/check] OK {__version__}")
-PY
+  "$PYTHON_BIN" -m scripts.install.validate flash-attn
 }
 
 run_arch_check() {
   local extension_path
   local code_objects
-  extension_path="$("$PYTHON_BIN" - <<'PY'
-import torch  # noqa: F401
-import flash_attn_2_cuda
-
-print(flash_attn_2_cuda.__file__)
-PY
-)"
+  extension_path="$("$PYTHON_BIN" -m scripts.install.validate flash-attn-path)"
   code_objects="$(cuobjdump --list-elf "${extension_path}")"
   grep -q "sm_80" <<<"${code_objects}"
   grep -q "sm_90" <<<"${code_objects}"

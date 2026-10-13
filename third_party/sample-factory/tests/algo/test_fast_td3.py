@@ -1,5 +1,6 @@
 from copy import deepcopy
 from types import SimpleNamespace
+import time
 
 import numpy as np
 import pytest
@@ -52,7 +53,7 @@ def test_actor_uses_sf_contract_and_carries_noise_scale():
     cfg.normalize_input = False
     obs_space, action_space = _spaces()
     actor = FastTD3ActorCritic(obs_space, action_space, cfg)
-    result = actor({"obs": torch.zeros(8, 3)}, torch.zeros(8, 1))
+    result = actor({"obs": torch.zeros(8, 3)}, torch.zeros(8, 1), action_mask=None)
 
     assert [layer.out_features for layer in actor.actor.net if isinstance(layer, torch.nn.Linear)] == [512, 256, 128, 2]
     assert result["actions"].shape == (8, 2)
@@ -217,7 +218,7 @@ def test_fasttd3_runner_stops_on_optimizer_steps_and_uses_them_for_summaries():
         ),
         env_steps={0: 160_000_000},
         train_steps={0: 499_999},
-        total_train_seconds=1.0,
+        start_time=time.time(),
     )
 
     assert Runner._summary_step(runner, 0) == 499_999

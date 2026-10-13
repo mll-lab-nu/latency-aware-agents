@@ -336,7 +336,7 @@ def _classify_bullet_track(history: list[_Component]) -> str | None:
     x1, y1 = history[-1].centroid
     dy = y1 - y0
     dx = x1 - x0
-    frame_span = max(1, history[-1].frame_idx - history[0].frame_idx)
+    frame_span = history[-1].frame_idx - history[0].frame_idx
     median_area = float(np.median([comp.area for comp in history]))
     if median_area > 8.0:
         return None

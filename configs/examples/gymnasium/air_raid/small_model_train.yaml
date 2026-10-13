@@ -3,7 +3,6 @@ experiment:
   seed: 0
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: outputs/examples/gymnasium_air_raid/checkpoints
@@ -17,11 +16,9 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: air_raid
-  env_id: LatencyBench/AirRaid-v0
-  registration_imports: [latency_bench.envs.tasks.air_raid]
+  name: air_raid
   make_kwargs:
     base_env_id: ALE/AirRaid-v5
     render_mode: rgb_array
@@ -63,6 +60,8 @@ policy:
   type: random
   actions: [noop, fire, right, left, rightfire, leftfire]
 
+  deterministic: true
+
 training:
   train_for_env_steps: 10000000
   num_workers: 16
@@ -100,11 +99,8 @@ training:
 
 evaluation:
   eval_interval_steps: null
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 3600
-  eval_deterministic: true
-
+  episodes: 5
+  max_env_steps: 3600
 logging:
   output_dir: outputs/examples/gymnasium_air_raid/train
   video:

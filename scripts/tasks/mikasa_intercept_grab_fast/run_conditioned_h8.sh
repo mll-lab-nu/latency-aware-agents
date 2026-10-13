@@ -10,7 +10,7 @@ PORT="${6:?training port}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 VLA_PY="${VLA_PY:?model interpreter}"
 TASK_PY="${TASK_PY:?simulator interpreter}"
-UV="${UV:?packaging uv executable}"
+LEROBOT_PY="${LEROBOT_PY:?installed LeRobot interpreter}"
 TEACHER_CHECKPOINT="${TEACHER_CHECKPOINT:?teacher checkpoint}"
 DATASET_DIR="${DATASET_DIR:?dataset directory}"
 OUTPUT_DIR="${OUTPUT_DIR:?training directory}"
@@ -20,20 +20,15 @@ export PYTHONPATH="$ROOT:$ROOT/third_party/MIKASA-Robo:$ROOT/third_party/starVLA
 
 collect() {
   mkdir -p "$DATASET_DIR"
-  "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.write_conditioned_latency_config \
-    --condition "$CONDITION" --model "$MODEL" --output "$DATASET_DIR/latency.yaml"
-  local collection_model="$MODEL"
-  if [[ "$CONDITION" == fixed-* ]]; then collection_model=shared; fi
+  "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.write_conditioned_configs \
+    --condition "$CONDITION" --model "$MODEL" --output "$DATASET_DIR/latency.yaml" \
+    --collection-config configs/examples/mikasa_intercept_grab_fast/collect_conditioned_h8.yaml \
+    --checkpoint "$TEACHER_CHECKPOINT"
   if [[ ! -f "$DATASET_DIR/raw/collection.json" ]]; then
-    "$TASK_PY" -m scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 \
-      --condition "$CONDITION" --model "$collection_model" --latency-config "$DATASET_DIR/latency.yaml" \
-      --checkpoint "$TEACHER_CHECKPOINT" --output "$DATASET_DIR/raw" \
-      --train-targets 64288 --validation-targets 6884 --num-envs 128
+    "$TASK_PY" -m latency_bench collect --config "$DATASET_DIR/collect.yaml"
   fi
   if [[ ! -f "$DATASET_DIR/lerobot/task_contract.json" ]]; then
-    "$UV" run --frozen --project "$ROOT/third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot" python \
-      -m scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset \
-      --raw-root "$DATASET_DIR/raw" --output-train "$DATASET_DIR/lerobot"
+    "$LEROBOT_PY" -m latency_bench convert --config "$DATASET_DIR/convert.yaml"
   fi
   "$VLA_PY" -m scripts.tasks.mikasa_intercept_grab_fast.audit_conditioned_h8_dataset \
     --condition "$CONDITION" --raw-root "$DATASET_DIR/raw" --dataset "$DATASET_DIR/lerobot"
@@ -48,7 +43,7 @@ train() {
     --condition "$CONDITION" --train-only --no-oom-retry "$checkpointing" \
     --run-id "$RUN_ID" --output-dir "$OUTPUT_DIR" --dataset-dir "$DATASET_DIR" \
     --teacher-checkpoint "$TEACHER_CHECKPOINT" \
-    --no-publish --vla-python "$VLA_PY" --task-python "$TASK_PY" \
+    --vla-python "$VLA_PY" --task-python "$TASK_PY" \
     --num-gpus 2 --micro-batch 64 --port "$PORT" "${resume[@]}"
 }
 

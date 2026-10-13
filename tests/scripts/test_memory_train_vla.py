@@ -9,6 +9,48 @@ import pytest
 from helpers import REPO_ROOT
 
 
+def test_sharded_memory_collection_replays_merged_episode_seeds(tmp_path, monkeypatch):
+    """Long-lived memory workflow contract: disjoint probes feed one complete replay plan."""
+    import json
+    import sys
+    import yaml
+    from scripts.experiments.memory import collect
+
+    interpreter = tmp_path / "collector"
+    interpreter.write_text(f"#!{sys.executable}\n" + '''
+import json, sys
+from pathlib import Path
+import yaml
+config = yaml.safe_load(Path(sys.argv[sys.argv.index('--config') + 1]).read_text())
+output = Path(config['logging']['output_dir'])
+output.mkdir(parents=True, exist_ok=True)
+if config['collection']['probe_only']:
+    specs = [{'episode_idx': i, 'attempt_idx': i, 'seed': config['experiment']['seed'] + i,
+              'episode_length': 1, 'episode_raw_frames': 1, 'episode_raw_return': 1.0}
+             for i in range(config['evaluation']['episodes'])]
+    (output / 'probe_state.json').write_text(json.dumps({
+        'accepted_specs': specs, 'attempted_episodes': len(specs),
+        'rejected_episodes': 0, 'next_attempt_idx': len(specs), 'runtime_metadata': {},
+    }))
+else:
+    state = json.loads((output / 'probe_state.json').read_text())
+    (output / 'metadata.json').write_text(json.dumps({'replayed_seeds': [s['seed'] for s in state['accepted_specs']]}))
+''')
+    interpreter.chmod(0o755)
+    output = tmp_path / "dataset"
+    recipe = {"experiment": {"seed": 10}, "executor": {"parallel_envs": 2},
+              "evaluation": {"episodes": 3}, "logging": {"output_dir": str(output)},
+              "collection": {"probe_only": False, "val_fraction": 0.1, "split_seed": 0},
+              "dataset_experiment": {"teacher_job": None,
+                  "probe_shards": {"count": 2, "episodes": 2, "parallel_envs": 1, "seed_stride": 100}}}
+    config_path = tmp_path / "recipe.yaml"
+    config_path.write_text(yaml.safe_dump(recipe))
+    monkeypatch.setattr(collect.sys, "executable", str(interpreter))
+    collect.main(["--config", str(config_path)])
+    assert json.loads((output / "metadata.json").read_text())["replayed_seeds"] == [10, 11, 110]
+    assert [row["episode_idx"] for row in json.loads((output / "probe_state.json").read_text())["accepted_specs"]] == [0, 1, 2]
+
+
 @pytest.mark.parametrize(
     ("env_name", "latency", "episodes", "converter_name", "extra_args"),
     [

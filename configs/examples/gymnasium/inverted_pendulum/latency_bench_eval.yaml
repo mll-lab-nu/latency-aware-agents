@@ -5,12 +5,9 @@ experiment:
 executor:
   mode: simulated
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: inverted_pendulum
-  env_id: LatencyBench/InvertedPendulumDiscrete-v0
-  registration_imports:
-    - latency_bench.envs.tasks.inverted_pendulum
+  name: inverted_pendulum
   make_kwargs:
     base_env_id: InvertedPendulum-v4
     render_mode: rgb_array
@@ -56,10 +53,8 @@ policy:
     - push_right_hard
 
 evaluation:
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-
+  episodes: 5
+  max_env_steps: 1000
 logging:
   output_dir: outputs/examples/gymnasium_inverted_pendulum/latency_bench_eval
   video:

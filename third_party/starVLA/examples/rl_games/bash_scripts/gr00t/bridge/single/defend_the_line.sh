@@ -25,10 +25,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="gr00t_bridge_defend_the_line_single_latency_clean_data_exp1" \
     trainer.distributed_backend=none \
     workspace_dir="$WORKSPACE_DIR" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/gr00t_bridge_defend_the_line_single_latency_clean_data_exp1" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/gr00t_bridge_defend_the_line_single_latency_clean_data_exp1" \
     dataset.source_hf=latency-sensitive-bench/benchmark-datasets \
     dataset.revision=4d8be25dc6fccfe244c2fa6be4b771ee448f2c2a \
     dataset.source_subdir=zero-latency/defend-the-line/defend_the_line_fixed_latency_0_1000ep_7k2steps \

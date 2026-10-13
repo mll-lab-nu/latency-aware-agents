@@ -19,8 +19,6 @@ LATENCY_SET_NAME="${LATENCY_SET_NAME:-latency_8_16}"
 TRAIN_STEPS="${TRAIN_STEPS:-10000000}"
 EVAL_EPISODES="${EVAL_EPISODES:-100}"
 EVAL_MAX_STEPS="${EVAL_MAX_STEPS:-3600}"
-UPLOAD_WORKERS="${UPLOAD_WORKERS:-2}"
-MAX_UPLOAD_ATTEMPTS="${MAX_UPLOAD_ATTEMPTS:-3}"
 MATCH="${MATCH:-}"
 DRY_RUN=false
 
@@ -30,7 +28,6 @@ Usage:
   train_asterix_atlantis_l8_l16_small_models.sh generate
   train_asterix_atlantis_l8_l16_small_models.sh train --gpus 0,1
   train_asterix_atlantis_l8_l16_small_models.sh eval --gpus 0,1
-  train_asterix_atlantis_l8_l16_small_models.sh upload
   train_asterix_atlantis_l8_l16_small_models.sh all --gpus 0,1
 
 Useful overrides:
@@ -40,8 +37,6 @@ Useful overrides:
   GPUS=0,1
   MATCH=fixed_l8
   DRY_RUN=1
-  UPLOAD_WORKERS=2
-  MAX_UPLOAD_ATTEMPTS=3
 
 Outputs:
   configs/experiments/memory/small_model/{asterix,atlantis}_latency_8_16.yaml
@@ -93,12 +88,6 @@ train_dir: results/checkpoints/memory/small_model/${env_name}
 output_root: outputs/memory/small_model/${env_name}/${LATENCY_SET_NAME}
 device: cuda
 restart_behavior: resume
-train_upload_repo_id: MLL-Lab/LAGEN-models
-train_upload_repo_type: model
-train_upload_path_prefix: archive/experiment-runs/memory/small_model/${env_name}/${LATENCY_SET_NAME}_10m_fs4_1min_eval
-eval_upload_repo_id: MLL-Lab/LAGEN-datasets
-eval_upload_repo_type: dataset
-eval_upload_path_prefix: evaluations/archive/paper-experiment-evals/memory/small_model/${env_name}/${LATENCY_SET_NAME}_10m_fs4_1min_eval
 seeds:
   - 10
   - 11
@@ -107,9 +96,10 @@ seeds:
   - 14
 
 evaluation:
-  eval_episodes: ${EVAL_EPISODES}
-  eval_parallel_envs: 1
-  eval_max_steps: ${EVAL_MAX_STEPS}
+  episodes: ${EVAL_EPISODES}
+  max_env_steps: ${EVAL_MAX_STEPS}
+executor:
+  parallel_envs: 1
 
 training:
   train_for_env_steps: ${TRAIN_STEPS}
@@ -118,19 +108,15 @@ latency_settings:
   fixed_l8:
     kind: fixed
     frames: 8
-    eval_suites:
-      fixed:
-        - [8]
-      normal: []
-      uniform: []
+    suites:
+      - name: fixed_8
+        latency: {method: fixed, fixed_latency_ms: 133.33333333333334}
   fixed_l16:
     kind: fixed
     frames: 16
-    eval_suites:
-      fixed:
-        - [16]
-      normal: []
-      uniform: []
+    suites:
+      - name: fixed_16
+        latency: {method: fixed, fixed_latency_ms: 266.6666666666667}
 
 sweeps:
   frame_stack:
@@ -165,9 +151,6 @@ run_stage() {
         exit 2
       fi
       args=(--stage "${stage}" --gpus "${GPUS}")
-      ;;
-    upload)
-      args=(--stage upload --gpus "${GPUS:-0}" --upload-workers "${UPLOAD_WORKERS}" --max-upload-attempts "${MAX_UPLOAD_ATTEMPTS}")
       ;;
     *) echo "Unknown stage=${stage}" >&2; exit 2 ;;
   esac
@@ -219,14 +202,10 @@ case "${command}" in
   eval)
     run_stage eval
     ;;
-  upload)
-    run_stage upload
-    ;;
   all)
     generate_configs
     run_stage train
     run_stage eval
-    run_stage upload
     ;;
   *)
     usage

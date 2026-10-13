@@ -20,8 +20,8 @@ mode: mixed_latency
 run_id: pi0_flappy_bridge_mixed_latency
 seed: 42
 
-wandb_entity: your_wandb_entity
-wandb_project: starVLA_rl_games
+wandb_entity: null
+wandb_project: null
 
 # Relative paths below are resolved under workspace_dir unless the file already
 # lives in the repo, like the accelerate config.
@@ -58,15 +58,9 @@ base_model:
 # Setup first checks local checkpoints under:
 #   workspace_dir / paths.run_root_dir / run_id / checkpoints
 # If checkpoint.load is auto/hf and checkpoint.hf_repo_id is set, it can also
-# pull the latest checkpoint from Hugging Face. checkpoint.sync.repo_id is only
-# the upload destination for newly saved checkpoints when checkpoint.sync.enabled=true.
 checkpoint:
   load: auto
   hf_repo_id: null
-  sync:
-    enabled: false
-    repo_id: null
-    keep_last_n: 0
   local:
     keep_last_n: 3
 

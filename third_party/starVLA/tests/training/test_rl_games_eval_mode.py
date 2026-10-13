@@ -77,10 +77,11 @@ def test_training_entry_enables_pretrained_eval_mode_submodules(monkeypatch) -> 
     """Regression: trainer entry must recursively enable training behavior."""
     trainer = object.__new__(VLATrainer)
     trainer.model = torch.nn.Sequential(torch.nn.Dropout(p=1)).eval()
-    trainer.config = OmegaConf.create({'trainer': {'stop_after_steps': 1}})
+    trainer.config = OmegaConf.create({'trainer': {'stop_after_steps': 1, 'save_interval': 1}})
     trainer.completed_steps = 1
     trainer.accelerator = SimpleNamespace(is_local_main_process=False)
     trainer.graceful_stop_requested = False
+    trainer._dagger_control_dir = None
     for method in ('_log_training_config', '_create_data_iterators',
                    '_apply_latency_curriculum', '_finalize_training'):
         monkeypatch.setattr(trainer, method, lambda **kwargs: None)

@@ -160,5 +160,56 @@ def load_custom_mixtures(path: str | Path | None) -> None:
     logger.info(f"[registry] Loaded custom mixtures from {mixture_path}: {list(payload.keys())}")
 
 
+def resolve_robot_type(
+    model_cfg: dict,
+    unnorm_key: str | None = None,
+) -> str:
+    """Look up the training robot_type from the saved cfg.
+
+    Convention used by starVLA train scripts:
+      ``cfg.datasets.vla_data.data_mix`` is a key in
+      ``DATASET_NAMED_MIXTURES`` whose value is a list of
+      ``(dataset_name, weight, robot_type)`` tuples.
+
+    When a data_mix contains entries from multiple robot types (e.g.
+    ``bridge_rt_1`` covers ``oxe_bridge`` + ``oxe_rt1``), ``unnorm_key``
+    is used to identify which embodiment is requested.  In those mixtures
+    the ``robot_type`` field of each entry **matches** the top-level key in
+    ``dataset_statistics.json``, so ``unnorm_key`` serves as the selector.
+    Inference bundles can store the resolved robot_type directly when their
+    training mixture is not installed on the inference host.
+    """
+    vla_data = model_cfg["datasets"]["vla_data"]
+    if "robot_type" in vla_data:
+        return vla_data["robot_type"]
+    try:
+        data_mix = vla_data["data_mix"]
+    except (KeyError, TypeError) as e:
+        raise KeyError(
+            "ckpt config.yaml is missing `datasets.vla_data.data_mix`; "
+            "cannot resolve training-time robot_type."
+        ) from e
+
+    if "custom_mixtures_path" in vla_data:
+        load_custom_mixtures(vla_data["custom_mixtures_path"])
+    mixture = get_dataset_named_mixture(data_mix)
+    robot_types = sorted({entry[2] for entry in mixture})
+
+    if len(robot_types) == 1:
+        return robot_types[0]
+
+    # Multiple robot types in the mixture.
+    # Use unnorm_key as a direct selector: for multi-robot mixtures the
+    # dataset_statistics.json top-level keys equal the robot_type values.
+    if unnorm_key is not None and unnorm_key in robot_types:
+        return unnorm_key
+
+    raise ValueError(
+        f"data_mix={data_mix!r} contains multiple robot_types {robot_types}. "
+        "Pass `unnorm_key` matching one of them to disambiguate "
+        f"(e.g. unnorm_key={robot_types[0]!r})."
+    )
+
+
 # Run discovery on first import
 discover_and_merge()

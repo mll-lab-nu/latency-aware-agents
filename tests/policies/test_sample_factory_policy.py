@@ -16,6 +16,7 @@ from latency_bench.envs.factory import register_env_adapter
 from latency_bench.integrations.sample_factory import actions as sf_actions
 from latency_bench.integrations.sample_factory import runtime as sf_runtime
 from latency_bench.policy import sample_factory as sample_factory_policy
+from latency_bench.policy.model_source import model_file
 
 
 def test_sample_factory_integration_builds_policy_config_with_eval_parser():
@@ -36,12 +37,12 @@ def test_sample_factory_integration_builds_policy_config_with_eval_parser():
 
 
 @pytest.mark.parametrize(
-    ("policy_type", "integration_module_name", "register_attr"),
+    ("env_name", "integration_module_name", "register_attr"),
     [
-        ("flappy_sf", "training.flappy_sf.integration", "register_flappy_envs"),
-        ("demon_attack_sf", "training.demon_attack_sf.integration", "register_demon_attack_envs"),
+        ("flappy", "training.flappy_sf.integration", "register_flappy_envs"),
+        ("demon_attack", "training.demon_attack_sf.integration", "register_demon_attack_envs"),
         (
-            "deadly_corridor_sf",
+            "deadly_corridor",
             "training.deadly_corridor_sf.integration",
             "register_deadly_corridor_components",
         ),
@@ -49,7 +50,7 @@ def test_sample_factory_integration_builds_policy_config_with_eval_parser():
 )
 def test_sample_factory_policy_builder_selects_environment_integration(
     monkeypatch,
-    policy_type,
+    env_name,
     integration_module_name,
     register_attr,
 ):
@@ -64,12 +65,11 @@ def test_sample_factory_policy_builder_selects_environment_integration(
     )
     monkeypatch.setattr(sample_factory_policy, "SampleFactoryPolicyRunner", lambda **kwargs: kwargs)
 
-    config = {"policy": {"type": policy_type}}
+    config = {"env": {"name": env_name}, "policy": {"type": "sample_factory"}}
     action_resolver = object()
     policy = sample_factory_policy.build_sample_factory_policy(
         config,
         action_resolver,
-        policy_type=policy_type,
     )
     policy["integration_module"].register_components()
 
@@ -77,7 +77,7 @@ def test_sample_factory_policy_builder_selects_environment_integration(
     assert registered == [register_attr]
     assert policy["config"] is config
     assert policy["action_resolver"] is action_resolver
-    assert policy["policy_type"] == policy_type
+    assert policy["integration_module"].module is integration
 
 
 def test_resolve_torch_device_maps_legacy_gpu_to_cuda():
@@ -209,18 +209,22 @@ def _install_fake_sample_factory_modules(
 
 def _config(checkpoint_path: str) -> dict:
     return {
-        "env": {
-            "name": "dummy",
-            "noop_action": "noop",
-            "action_map": {
-                "noop": 0,
+        'env': {
+            'name': 'dummy',
+            'noop_action': 'noop',
+            'action_map': {
+                'noop': 0,
             },
         },
-        "policy": {
-            "type": "flappy_sf",
-            "checkpoint_path": checkpoint_path,
-            "device": "cpu",
-            "deterministic": True,
+        'policy': {
+            'type': 'sample_factory',
+            'deterministic': True,
+            'checkpoint': str(Path(checkpoint_path).absolute()).lstrip('/') if checkpoint_path else None,
+            'source': 'local',
+            'root': '/',
+        },
+        'executor': {
+            'inference_devices': ['cpu'],
         },
     }
 
@@ -413,7 +417,6 @@ def _build_discrete_runner(monkeypatch, *, action_space=None, use_rnn: bool = Fa
             observation_space=Box(low=0, high=255, shape=(3, 2, 2), dtype=np.uint8),
             use_rnn=use_rnn,
         ),
-        policy_type="flappy_sf",
     )
     return runner, actor
 
@@ -442,7 +445,6 @@ def _build_state_echo_discrete_runner(monkeypatch, *, use_rnn: bool):
             observation_space=Box(low=0, high=255, shape=(3, 2, 2), dtype=np.uint8),
             use_rnn=use_rnn,
         ),
-        policy_type="flappy_sf",
     )
     return runner, actor
 
@@ -500,7 +502,7 @@ def _build_tuple_runner(
         lambda cfg, actor_critic, device, checkpoint_path: ({"train_step": 123}, Path("/tmp/model.pth")),
     )
     config = _config("/tmp/model.pth")
-    config["policy"]["type"] = "deadly_corridor_sf"
+    config["policy"]["type"] = "sample_factory"
     config["env"]["noop_action"] = [0, 0, 0, 0]
     runner = sample_factory_policy.SampleFactoryPolicyRunner(
         config=config,
@@ -510,7 +512,6 @@ def _build_tuple_runner(
             observation_space=Box(low=0, high=255, shape=(12, 2, 2), dtype=np.uint8),
             use_rnn=use_rnn,
         ),
-        policy_type="deadly_corridor_sf",
     )
     return runner, actor
 
@@ -641,7 +642,7 @@ class _SfTupleImageEnv(EnvAdapter):
 @register_env_adapter("sf_discrete_image_policy_test")
 def _build_sf_discrete_image_policy_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return _SfDiscreteImageEnv(
-        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        max_steps=int(config["evaluation"]["max_env_steps"]),
         noop_action=noop_action,
     )
 
@@ -649,7 +650,7 @@ def _build_sf_discrete_image_policy_test_env(config: dict, noop_action: Action) 
 @register_env_adapter("sf_tuple_image_policy_test")
 def _build_sf_tuple_image_policy_test_env(config: dict, noop_action: Action) -> EnvAdapter:
     return _SfTupleImageEnv(
-        max_steps=int(config["evaluation"]["eval_max_steps"]),
+        max_steps=int(config["evaluation"]["max_env_steps"]),
         noop_action=noop_action,
     )
 
@@ -684,14 +685,13 @@ def test_sample_factory_policy_loads_config_from_checkpoint_when_checkpoint_path
         config=config,
         action_resolver=ActionResolver(config["env"]),
         integration_module=_FakeIntegration(),
-        policy_type="flappy_sf",
     )
 
     assert len(load_calls) == 1
     assert state_loads == [(True, None)]
     assert runner.checkpoint_global_step == 123
     assert runner.checkpoint_path == "/tmp/best_123.pth"
-    assert config["policy"]["checkpoint_path"] == "/tmp/best_123.pth"
+    assert model_file(config["policy"], "checkpoint") == "/tmp/best_123.pth"
 
 
 def test_sample_factory_policy_skips_config_checkpoint_load_for_explicit_checkpoint_path(
@@ -722,7 +722,6 @@ def test_sample_factory_policy_skips_config_checkpoint_load_for_explicit_checkpo
         config=_config("/tmp/model.pth"),
         action_resolver=ActionResolver(_config("/tmp/model.pth")["env"]),
         integration_module=_FakeIntegration(),
-        policy_type="flappy_sf",
     )
 
     assert load_calls == []
@@ -751,7 +750,6 @@ def test_sample_factory_policy_unsqueezes_discrete_argmax_actions_before_preproc
         config=_config("/tmp/model.pth"),
         action_resolver=ActionResolver(_config("/tmp/model.pth")["env"]),
         integration_module=_FakeIntegration(),
-        policy_type="flappy_sf",
     )
 
     class FakePredictActorCritic:
@@ -801,6 +799,10 @@ def test_sample_factory_policy_emits_chunk_from_physical_observation(monkeypatch
     )
     config = _config("/tmp/model.pth")
     config["policy"]["deterministic"] = False
+    from latency_bench.envs import factory
+    monkeypatch.setattr(factory, "_ENV_ADAPTER_BUILDERS", dict(factory._ENV_ADAPTER_BUILDERS))
+    factory.register_env_adapter("chunk_box_policy")(factory._build_gymnasium_env)
+    config["env"]["name"] = "chunk_box_policy"
     config["env"]["noop_action"] = [0.0] * action_dim
     del config["env"]["action_map"]
     config["env"]["action_space"] = {"type": "box", "labels": [f"a{i}" for i in range(action_dim)], "low": [-bound] * action_dim, "high": [bound] * action_dim}
@@ -813,7 +815,6 @@ def test_sample_factory_policy_emits_chunk_from_physical_observation(monkeypatch
             observation_space=Box(-np.inf, np.inf, (obs_dim,), dtype=np.float32),
             action_chunk_horizon=horizon, algo="FAST_TD3",
         ),
-        policy_type="gymnasium_sf",
     )
     observation = Observation(data=np.zeros(obs_dim, dtype=np.float32), env_step=3, sim_time_ms=60.0)
     output = runner.predict(observation)
@@ -867,7 +868,7 @@ def test_sample_factory_predict_batch_runs_one_forward_for_four_discrete_observa
     assert actor.forward_batch_sizes == [4]
     assert [output.raw_output for output in outputs] == [1, 2, 3, 4]
     assert [output.action.value for output in outputs] == [1, 2, 3, 4]
-    assert [output.metadata["policy_type"] for output in outputs] == ["flappy_sf"] * 4
+    assert [output.metadata["policy_type"] for output in outputs] == ["sample_factory"] * 4
     assert [output.metadata["checkpoint_path"] for output in outputs] == ["/tmp/model.pth"] * 4
     assert [output.metadata["checkpoint_global_step"] for output in outputs] == [123] * 4
 
@@ -1103,51 +1104,54 @@ def test_latency_bench_run_with_batched_sample_factory_discrete_policy_completes
     runner, _actor = _build_discrete_runner(monkeypatch)
     monkeypatch.setattr(executor_factory, "build_policy", lambda config, action_resolver: runner)
     config = {
-        "experiment": {
-            "name": "sf_discrete_batched_run",
-            "seed": 0,
+        'experiment': {
+            'name': 'sf_discrete_batched_run',
+            'seed': 0,
         },
-        "executor": {
-            "mode": "simulated",
+        'executor': {
+            'mode': 'simulated',
+            'parallel_envs': 4,
         },
-        "env": {
-            "name": "sf_discrete_image_policy_test",
-            "env_fps": 30,
-            "obs_fps": 30,
-            "frame_stack": 1,
-            "noop_action": "noop",
-            "action_map": {
-                "noop": 0,
-                "jump": 1,
-                "two": 2,
-                "three": 3,
-                "four": 4,
+        'env': {
+            'name': 'sf_discrete_image_policy_test',
+            'env_fps': 30,
+            'obs_fps': 30,
+            'frame_stack': 1,
+            'noop_action': 'noop',
+            'action_map': {
+                'noop': 0,
+                'jump': 1,
+                'two': 2,
+                'three': 3,
+                'four': 4,
             },
         },
-        "latency": {
-            "method": "zero",
+        'latency': {
+            'method': 'zero',
         },
-        "scheduler": {
-            "hold_policy": "one_frame_then_noop",
-            "ordering_policy": "latest_ready",
+        'scheduler': {
+            'hold_policy': 'one_frame_then_noop',
+            'ordering_policy': 'latest_ready',
         },
-        "policy": {
-            "type": "flappy_sf",
-            "checkpoint_path": "/tmp/model.pth",
+        'policy': {
+            'type': 'sample_factory',
+            'checkpoint': 'model.pth',
+            'source': 'local',
+            'root': str(tmp_path),
         },
-        "logging": {
-            "output_dir": str(tmp_path),
-            "save_step_records": True,
-            "save_action_records": True,
-            "save_latency_records": True,
+        'logging': {
+            'output_dir': str(tmp_path),
+            'save_step_records': True,
+            'save_action_records': True,
+            'save_latency_records': True,
         },
-        "evaluation": {
-            "eval_episodes": 5,
-            "eval_max_steps": 1,
-            "eval_parallel_envs": 4,
+        'evaluation': {
+            'episodes': 5,
+            'max_env_steps': 1,
         },
     }
 
+    (tmp_path / "model.pth").write_bytes(b"model")
     metrics = evaluation.run_from_config(config)
 
     assert [metric.episode_id for metric in metrics] == [0, 1, 2, 3, 4]
@@ -1180,45 +1184,48 @@ def test_latency_bench_run_with_batched_deadly_tuple_policy_completes_exact_epis
     runner, _actor = _build_tuple_runner(monkeypatch)
     monkeypatch.setattr(executor_factory, "build_policy", lambda config, action_resolver: runner)
     config = {
-        "experiment": {
-            "name": "sf_tuple_batched_run",
-            "seed": 0,
+        'experiment': {
+            'name': 'sf_tuple_batched_run',
+            'seed': 0,
         },
-        "executor": {
-            "mode": "simulated",
+        'executor': {
+            'mode': 'simulated',
+            'parallel_envs': 4,
         },
-        "env": {
-            "name": "sf_tuple_image_policy_test",
-            "env_id": "doom_deadly_corridor",
-            "env_fps": 35,
-            "obs_fps": 35,
-            "frame_stack": 4,
-            "noop_action": [0, 0, 0, 0],
+        'env': {
+            'name': 'sf_tuple_image_policy_test',
+            'env_id': 'doom_deadly_corridor',
+            'env_fps': 35,
+            'obs_fps': 35,
+            'frame_stack': 4,
+            'noop_action': [0, 0, 0, 0],
         },
-        "latency": {
-            "method": "zero",
+        'latency': {
+            'method': 'zero',
         },
-        "scheduler": {
-            "hold_policy": "hold",
-            "ordering_policy": "latest_ready",
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
         },
-        "policy": {
-            "type": "deadly_corridor_sf",
-            "checkpoint_path": "/tmp/model.pth",
+        'policy': {
+            'type': 'sample_factory',
+            'checkpoint': 'model.pth',
+            'source': 'local',
+            'root': str(tmp_path),
         },
-        "logging": {
-            "output_dir": str(tmp_path),
-            "save_step_records": True,
-            "save_action_records": True,
-            "save_latency_records": True,
+        'logging': {
+            'output_dir': str(tmp_path),
+            'save_step_records': True,
+            'save_action_records': True,
+            'save_latency_records': True,
         },
-        "evaluation": {
-            "eval_episodes": 5,
-            "eval_max_steps": 1,
-            "eval_parallel_envs": 4,
+        'evaluation': {
+            'episodes': 5,
+            'max_env_steps': 1,
         },
     }
 
+    (tmp_path / "model.pth").write_bytes(b"model")
     metrics = evaluation.run_from_config(config)
 
     assert [metric.episode_id for metric in metrics] == [0, 1, 2, 3, 4]

@@ -3,8 +3,8 @@
 workspace_dir: WORKSPACE_DIR
 run_root_dir: results/Checkpoints
 seed: 42
-wandb_entity: ${oc.env:WANDB_ENTITY}
-wandb_project: ${oc.env:WANDB_PROJECT,starVLA_rl_games}
+wandb_entity: null
+wandb_project: null
 wandb_group: ${run_id}
 wandb_tags: []
 training_latency_condition: unspecified

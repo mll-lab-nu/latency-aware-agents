@@ -27,8 +27,7 @@ class CudaAsterixCore(CudaAtariCore):
         super().__init__(
             batch_size,
             rom_path=asterix_rom_path(),
-            reset_actions=(0, 0),
-            reset_action_frame_count=0,
+            reset_actions=(),
             life_loss_reset_actions=(),
             device=device,
             noop_max=noop_max,

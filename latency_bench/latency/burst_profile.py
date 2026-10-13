@@ -55,10 +55,6 @@ def build_burst_samples(
     return samples
 
 
-def build_hidden_regime_burst_model(samples: list[dict[str, Any]], *, model_version: int = 13) -> dict[str, Any]:
-    return build_hidden_regime_burst_model_from_sessions([samples], model_version=model_version)
-
-
 def build_hidden_regime_burst_model_from_sessions(
     session_samples: list[list[dict[str, Any]]],
     *, model_version: int = 13,

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 from helpers import REPO_ROOT
+from latency_bench.policy.model_source import model_file
 
 
 
@@ -19,6 +20,8 @@ def _assert_train_eval_artifacts_disabled(config: dict) -> None:
 
 def _training_config(tmp_path: Path) -> dict:
     return {
+        "executor": {"mode": "simulated"},
+        "policy": {"type": "sample_factory", "deterministic": True},
         "experiment": {
             "name": "flappy_sf_l0_seed0",
             "seed": 0,
@@ -51,12 +54,8 @@ def _training_config(tmp_path: Path) -> dict:
         },
         "evaluation": {
             "eval_interval_steps": 1_000,
-            "eval_episodes": 3,
-            "eval_suites": {
-                "fixed": [
-                    [0, 1],
-                ],
-            },
+            "episodes": 3,
+            "suites": [{'name': 'fixed_0', 'latency': {'method': 'zero'}}, {'name': 'fixed_1', 'latency': {'method': 'fixed', 'fixed_latency_ms': 33.333333333333336}}],
         },
         "logging": {
             "output_dir": str(tmp_path / "train_outputs"),
@@ -95,13 +94,13 @@ def test_build_latency_bench_config_from_training_config_uses_base_env_config(tm
     assert config["executor"]["simulated_worker_capacity"] == 1
     assert config["backend"]["run_mode"] == "eval"
     assert config["backend"]["train_dir"] == str(tmp_path / "checkpoints")
-    assert config["policy"]["type"] == "flappy_sf"
-    assert config["policy"]["checkpoint_path"] == str(checkpoint_path)
+    assert config["policy"]["type"] == "sample_factory"
+    assert model_file(config["policy"], "checkpoint") == str(checkpoint_path)
     assert config["policy"]["deterministic"] is True
     assert config["experiment"]["name"] == "flappy_sf_l0_seed0"
     assert config["experiment"]["seed"] == 0
-    assert config["evaluation"]["eval_episodes"] == 3
-    assert config["evaluation"]["eval_suites"] == {"fixed": [[0, 1]]}
+    assert config["evaluation"]["episodes"] == 3
+    assert config["evaluation"]["suites"] == training_config["evaluation"]["suites"]
     assert config["env"]["action_map"] == {"noop": 0, "flap": 1}
     assert config["evaluation"]["eval_raw_reward"] is False
     assert config["logging"]["output_dir"] == str(tmp_path / "eval_outputs")
@@ -162,14 +161,14 @@ def test_periodic_observer_saves_checkpoint_and_defers_latency_bench_job(monkeyp
     config = request.config
     metadata = request.metadata
     result_path = request.result_path
-    assert config["policy"]["checkpoint_path"].endswith("checkpoint_000000002_000000001000.pth")
+    assert model_file(config["policy"], "checkpoint").endswith("checkpoint_000000002_000000001000.pth")
     assert config["logging"]["output_dir"] == str(
         tmp_path / "train_outputs" / "latency_bench_train_eval" / "step_1000"
     )
     assert metadata == {
         "eval_phase": "train_periodic",
         "train_env_steps": 1000,
-        "checkpoint_path": config["policy"]["checkpoint_path"],
+        "checkpoint_path": model_file(config["policy"], "checkpoint"),
     }
     assert result_path == tmp_path / "train_outputs" / "latency_bench_train_eval" / "step_1000" / "eval_result.json"
     assert writer.scalars == []
@@ -642,7 +641,7 @@ def test_latency_bench_eval_process_main_runs_current_condition_without_suites(m
     )
 
     config = _training_config(tmp_path)
-    config["evaluation"] = {"eval_episodes": 8}
+    config["evaluation"] = {"episodes": 8}
     metadata = {"eval_phase": "train_periodic"}
     periodic_eval._latency_bench_eval_process_main(config, metadata, str(result_path))
 
@@ -784,7 +783,7 @@ def test_run_sample_factory_training_runs_final_latency_bench_after_runner_finis
     assert status == sf_misc.ExperimentStatus.SUCCESS
     assert len(calls) == 1
     config, metadata, result_path = calls[0]
-    assert config["policy"]["checkpoint_path"] == str(checkpoint_path)
+    assert model_file(config["policy"], "checkpoint") == str(checkpoint_path)
     assert config["logging"]["output_dir"] == str(
         tmp_path / "train_outputs" / "latency_bench_train_eval" / "step_1234_final"
     )
@@ -901,8 +900,12 @@ def test_run_final_eval_runs_deferred_periodic_fifo_before_starting_final(monkey
             pass
 
     class SavePeriodic:
+        count = 0
+
         def emit(self):
-            periodic_checkpoint.write_text("periodic\n", encoding="utf-8")
+            self.count += 1
+            path = periodic_checkpoint.with_name(f"checkpoint_000000002_{self.count * 1000}.pth")
+            path.write_text("periodic\n", encoding="utf-8")
 
     class Process:
         def __init__(self, result_path):
@@ -992,7 +995,7 @@ def test_run_sample_factory_training_uses_native_run_rl_without_interval(monkeyp
 
 def test_base_configs_include_periodic_latency_bench_eval_defaults():
     from latency_bench.core.config import load_config
-    from latency_bench.eval.suites import parse_eval_suites
+    from latency_bench.eval.config import parse_eval_suites
     from training.common.latency_bench_periodic_eval import periodic_eval_enabled
 
     for env_name in ("flappy", "demon_attack", "deadly_corridor"):

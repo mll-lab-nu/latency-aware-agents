@@ -3,13 +3,6 @@ set -euo pipefail
 
 REPO_ROOT=/workspace/latency-sensitive-bench
 
-# --- inject .env ---
-set -a
-source "${REPO_ROOT}/.env"
-set +a
-export HF_ENDPOINT=https://huggingface.co
-echo "HF_TOKEN set: ${HF_TOKEN:+yes}    WANDB_API_KEY set: ${WANDB_API_KEY:+yes}"
-
 # non-interactive bash doesn't auto-load conda's shell hook
 CONDA_BASE="$(conda info --base 2>/dev/null || echo /opt/miniforge3)"
 # shellcheck source=/dev/null
@@ -51,20 +44,3 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # --- train (fix latency, full tuning) ---
 bash "${REPO_ROOT}/third_party/starVLA/commands/memory/train_flappy_openvla_kv_memory.sh"
-
-# --- upload checkpoints ---
-# checkpoint 落在 third_party/starVLA/results/Checkpoints/<run_id>，run_id=flappy_fix_latency_2_200ep
-RUN_DIR="${REPO_ROOT}/third_party/starVLA/results/Checkpoints/flappy_fix_latency_2_200ep_7k2steps_kv_memory"
-CHECKPOINT_DIR="${RUN_DIR}/checkpoints"
-compgen -G "${CHECKPOINT_DIR}/steps_*_model.safetensors" > /dev/null
-find "${CHECKPOINT_DIR}" -maxdepth 1 -type d -name "steps_*_state" -exec rm -rf {} +
-
-hf upload MLL-Lab/LAGEN-models \
-  "${RUN_DIR}" \
-  ./latency-aware/flappy/vla/starvla-qwenoft-h1/flappy_fix_latency_2_200ep_7k2steps_kv_memory \
-  --exclude "wandb/**" \
-  --exclude "checkpoints/_initialization/**" \
-  --exclude "checkpoints/*_state/**" \
-  --exclude "**/optimizer.bin" \
-  --exclude "**/*optim_states.pt" \
-  --repo-type model

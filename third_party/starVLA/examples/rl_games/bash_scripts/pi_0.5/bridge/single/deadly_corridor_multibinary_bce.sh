@@ -14,10 +14,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="pi05_bridge_deadly_corridor_single_latency_clean_data_bce_exp2" \
     trainer.distributed_backend=none \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/pi05_bridge_deadly_corridor_single_latency_clean_data_exp2" \
     dataset.source_hf=latency-sensitive-bench/benchmark-datasets \
     dataset.revision=d6f0ad0995f6e4b095f315920e8de18e04297048 \
     dataset.source_subdir=zero-latency/deadly-corridor/deadly_1000ep/deadly_corridor_fix_latency_0_1000ep \

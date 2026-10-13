@@ -16,6 +16,7 @@
 from enum import Enum
 from typing import Optional
 
+import numpy as np
 from numpydantic import NDArray
 from pydantic import BaseModel, Field, field_serializer
 
@@ -219,3 +220,21 @@ class DatasetMetadata(BaseModel):
     statistics: DatasetStatistics = Field(..., description="Statistics of the dataset")
     modalities: DatasetModalities = Field(..., description="Metadata of the modalities")
     embodiment_tag: EmbodimentTag = Field(..., description="Embodiment tag of the dataset")
+
+
+def split_modality_statistics(combined: dict, key_dims: dict[str, int]) -> dict:
+    """Restore saved flat statistics in the declared modality key order."""
+    if not key_dims:
+        return {}
+    fields = ("mean", "std", "min", "max", "q01", "q99")
+    total_dim = sum(key_dims.values())
+    for field in fields:
+        shape = np.asarray(combined[field]).shape
+        if shape != (total_dim,):
+            raise ValueError(f"Normalization {field} has shape {shape}; expected ({total_dim},)")
+    result = {}
+    start = 0
+    for key, dim in key_dims.items():
+        result[key] = {field: combined[field][start:start + dim] for field in fields}
+        start += dim
+    return result

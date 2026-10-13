@@ -393,8 +393,6 @@ def setup_namespace_from_cfg(cfg: Any, workspace_dir: Path, run_root_dir: str) -
         initialization_checkpoint_filename=str(_cfg_get(cfg, "initialization.checkpoint_filename") or ""),
         cross_task=cross_task,
         gymnasium_task_contract=gymnasium_task_contract,
-        checkpoint_sync_enabled=str(_as_bool(_cfg_get(cfg, "checkpoint.sync.enabled"))).lower(),
-        checkpoint_sync_repo_id=str(_cfg_get(cfg, "checkpoint.sync.repo_id") or ""),
         hf_repo_id="",
     )
 

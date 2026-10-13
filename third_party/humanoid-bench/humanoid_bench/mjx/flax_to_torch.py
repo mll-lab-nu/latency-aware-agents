@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-import jax.numpy as jnp
 
 class TorchModel(torch.nn.Module):
     def __init__(self, inputs, num_classes=1):
@@ -56,6 +55,7 @@ class TorchPolicy():
 
 def flax_to_torch(flax_model, torch_model):
     """Copy flax model weights to pytorch model."""
+    import jax.numpy as jnp
     for param_torch, param_flax in zip(torch_model.named_children(), flax_model.params['params'].keys()):
         if param_flax.startswith('Dense'):
             param_torch[1].weight.data = torch.from_numpy(np.array(jnp.transpose(flax_model.params['params'][param_flax]['kernel'])))
@@ -63,6 +63,7 @@ def flax_to_torch(flax_model, torch_model):
     return torch_model
 
 def load_from_flax_ckpt(flax_ckpt_folder, torch_model):
+    import jax.numpy as jnp
     from flax.training import checkpoints
     ckpt = checkpoints.restore_checkpoint(flax_ckpt_folder, target=None,)
     flax_params = ckpt['params']

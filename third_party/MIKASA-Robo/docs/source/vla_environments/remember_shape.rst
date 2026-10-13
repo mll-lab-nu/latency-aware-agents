@@ -85,7 +85,7 @@ PPO-sourced MIKASA-Robo-90 variants use oracle checkpoints:
 
 .. code-block:: bash
 
-   uv run python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets.py \
+   .venv/bin/python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets.py \
      --env-id RememberShape3-VLA-v0 \
      --path-to-save-data data_mikasa_robo \
      --ckpt-dir . \
@@ -95,7 +95,7 @@ Motion-planning MIKASA-Robo-90 variants use planner plus replay collection:
 
 .. code-block:: bash
 
-   uv run python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets_motion_planning.py \
+   .venv/bin/python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets_motion_planning.py \
      --env-id RememberShape3-Long-VLA-v0 \
      --path-to-save-data data_mikasa_robo \
      --num-train-data 250 \
@@ -109,7 +109,7 @@ Generate a fresh MP4/GIF render with:
 
 .. code-block:: bash
 
-   uv run python utils/prepare_benchmark_demo_videos.py \
+   .venv/bin/python utils/prepare_benchmark_demo_videos.py \
      --tasks RememberShape3-VLA-v0 \
      --output-dir videos/benchmark_demos \
      --max-attempts-per-task 8 \

@@ -5,12 +5,9 @@ experiment:
 executor:
   mode: simulated
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: pendulum_discrete
-  env_id: LatencyBench/PendulumDiscrete-v0
-  registration_imports:
-    - latency_bench.envs.tasks.pendulum
+  name: pendulum_discrete
   make_kwargs:
     base_env_id: Pendulum-v1
     render_mode: rgb_array
@@ -56,10 +53,8 @@ policy:
     - torque_counterclockwise_hard
 
 evaluation:
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 200
-
+  episodes: 5
+  max_env_steps: 200
 logging:
   output_dir: outputs/examples/gymnasium_pendulum/latency_bench_eval
   video:

@@ -11,14 +11,12 @@ from latency_bench.latency.samplers import JointBurstSampler
 from latency_bench.latency.burst_profile import (
     _fit_inverse_cdf,
     build_burst_samples,
-    build_hidden_regime_burst_model,
     build_hidden_regime_burst_model_from_sessions,
     build_worker_slot_distributions_from_sessions,
 )
 
 
 # These fixtures retain the v12 writer/sampler contract used by historical profiles.
-build_hidden_regime_burst_model = partial(build_hidden_regime_burst_model, model_version=12)
 build_hidden_regime_burst_model_from_sessions = partial(build_hidden_regime_burst_model_from_sessions, model_version=12)
 
 
@@ -45,7 +43,7 @@ def test_joint_bursts_preserve_request_weighted_levels(levels):
     short, long = levels
     values = [30.0] * 40 + [short] + [30.0] * 40 + [long] * 9 + [30.0] * 40
     samples = _episode(0, values)
-    model = build_hidden_regime_burst_model(samples, model_version=13)
+    model = build_hidden_regime_burst_model_from_sessions([samples], model_version=13)
     distribution = build_worker_slot_distributions_from_sessions(
         [samples], spike_threshold_ms_by_worker_slot=model["spike_threshold_ms_by_worker_slot"],
     )
@@ -110,18 +108,6 @@ def _action_record(
 ) -> dict:
     metadata: dict = {
         "frame_ms": 40.0,
-        "realtime_profile": {
-            "env_observe_ms": 1.0,
-            "env_to_parent_ipc_ms": 2.0,
-            "parent_observation_handle_ms": 3.0,
-            "parent_to_worker_ipc_ms": 0.0,
-            "worker_recv_overhead_ms": 0.0,
-            "worker_to_parent_ipc_ms": 0.0,
-            "parent_release_ms": 4.0,
-            "parent_to_env_ipc_ms": 5.0,
-            "env_action_recv_to_enqueue_ms": 6.0,
-            "env_scheduler_update_ms": 7.0,
-        }
     }
     if episode_id is not None:
         metadata["episode_id"] = episode_id
@@ -142,7 +128,7 @@ def test_hidden_regime_model_labels_first_to_last_spike_as_one_burst():
     # normal-valued samples interleaved (116, 42, 42, 116, 42, 42, 116) must be
     # ONE burst covering the interleaved normals, not three isolated spikes.
     values = [42.0] * 10 + [116.0, 42.0, 42.0, 116.0, 42.0, 42.0, 116.0] + [42.0] * 10
-    model = build_hidden_regime_burst_model(_episode(0, values))
+    model = build_hidden_regime_burst_model_from_sessions([_episode(0, values)])
 
     assert model["schema_version"] == 12
     assert model["model_type"] == "hidden_regime"
@@ -176,7 +162,7 @@ def test_hidden_regime_model_labels_first_to_last_spike_as_one_burst():
 
 def test_hidden_regime_model_isolated_spike_is_a_length_one_burst():
     values = [42.0] * 20 + [70.0] + [42.0] * 20
-    model = build_hidden_regime_burst_model(_episode(0, values))
+    model = build_hidden_regime_burst_model_from_sessions([_episode(0, values)])
 
     assert model["burst_dwell_lengths"] == [1]
     assert model["regime_step_counts"] == {"calm": 40, "burst": 1}
@@ -195,7 +181,7 @@ def test_hidden_regime_model_splits_spikes_beyond_merge_gap():
     # Two spikes 40 records apart (> BURST_MERGE_GAP_RECORDS=30) are separate
     # bursts; the samples between them stay calm.
     values = [42.0] * 5 + [70.0] + [42.0] * 39 + [70.0] + [42.0] * 5
-    model = build_hidden_regime_burst_model(_episode(0, values))
+    model = build_hidden_regime_burst_model_from_sessions([_episode(0, values)])
 
     assert model["burst_dwell_lengths"] == [1, 1]
     assert model["regime_step_counts"]["burst"] == 2
@@ -206,8 +192,8 @@ def test_hidden_regime_model_bridges_bursts_across_episodes():
     # one burst on the machine timeline, not two per-episode bursts.
     spiky_tail = [42.0] * 5 + [70.0]
     spiky_head = [70.0] + [42.0] * 5
-    model = build_hidden_regime_burst_model(
-        _episode(0, spiky_tail) + _episode(1, spiky_head, start_index=6)
+    model = build_hidden_regime_burst_model_from_sessions(
+        [_episode(0, spiky_tail) + _episode(1, spiky_head, start_index=6)]
     )
 
     assert model["burst_dwell_lengths"] == [2]
@@ -244,14 +230,8 @@ def test_episode_scoped_model_is_not_supported():
         build_hidden_regime_burst_model_from_sessions(segments, reset_scope="episode")
 
 
-def test_single_session_model_wrapper_matches_session_aware_fitter():
-    samples = _episode(0, [42.0] * 10 + [70.0, 42.0, 70.0] + [42.0] * 10)
-
-    assert build_hidden_regime_burst_model(samples) == build_hidden_regime_burst_model_from_sessions([samples])
-
-
 def test_hidden_regime_model_clean_trace_has_no_burst():
-    model = build_hidden_regime_burst_model(_episode(0, [42.0, 42.4, 41.8, 42.1]))
+    model = build_hidden_regime_burst_model_from_sessions([_episode(0, [42.0, 42.4, 41.8, 42.1])])
 
     assert model["burst_dwell_lengths"] == []
     assert model["burst_dwell_distribution"] is None
@@ -277,7 +257,7 @@ def test_hidden_regime_uses_each_slot_steady_baseline():
             )
         )
 
-    model = build_hidden_regime_burst_model(samples)
+    model = build_hidden_regime_burst_model_from_sessions([samples])
     distribution = build_worker_slot_distributions_from_sessions(
         [samples],
         spike_threshold_ms_by_worker_slot=model[
@@ -357,7 +337,7 @@ def test_hidden_regime_model_fits_per_dwell_severity_and_level():
         + [130.0]
         + [42.0] * 10
     )
-    model = build_hidden_regime_burst_model(_episode(0, values))
+    model = build_hidden_regime_burst_model_from_sessions([_episode(0, values)])
 
     assert model["spike_threshold_ms_by_worker_slot"]["0"] == pytest.approx(52.5)
     assert model["burst_dwell_lengths"] == [1, 9]
@@ -378,8 +358,8 @@ def test_hidden_regime_model_fits_per_dwell_severity_and_level():
 def test_hidden_regime_model_bridges_dwells_across_episodes():
     # Episode 0 ends above threshold and episode 1 starts above threshold:
     # one 2-draw dwell on the machine timeline, severity one at level 70.
-    model = build_hidden_regime_burst_model(
-        _episode(0, [42.0] * 5 + [70.0]) + _episode(1, [70.0] + [42.0] * 5, start_index=6)
+    model = build_hidden_regime_burst_model_from_sessions(
+        [_episode(0, [42.0] * 5 + [70.0]) + _episode(1, [70.0] + [42.0] * 5, start_index=6)]
     )
 
     process = model["burst_rank_processes"][0]
@@ -397,12 +377,14 @@ def test_hidden_regime_model_fits_degraded_worker_as_one_constant_excursion():
     # excursion at 80ms and the healthy worker never spikes.
     degraded = [80.0, 44.0] * 5
     alternating = [0, 1] * 5
-    model = build_hidden_regime_burst_model(
-        _episode(0, [42.0] * 10, worker_ids=[0, 1] * 5)
-        + _episode(1, degraded, start_index=10, worker_ids=alternating)
-        + _episode(2, degraded, start_index=20, worker_ids=alternating)
-        + _episode(3, degraded, start_index=30, worker_ids=alternating)
-        + _episode(4, [42.0] * 10, start_index=40, worker_ids=[0, 1] * 5)
+    model = build_hidden_regime_burst_model_from_sessions(
+        [
+            _episode(0, [42.0] * 10, worker_ids=[0, 1] * 5)
+            + _episode(1, degraded, start_index=10, worker_ids=alternating)
+            + _episode(2, degraded, start_index=20, worker_ids=alternating)
+            + _episode(3, degraded, start_index=30, worker_ids=alternating)
+            + _episode(4, [42.0] * 10, start_index=40, worker_ids=[0, 1] * 5)
+        ]
     )
 
     # Median 44 -> threshold 55; the merged dwell runs first 80 to last 80.
@@ -439,7 +421,7 @@ def test_hidden_regime_model_ranks_workers_by_in_dwell_severity():
     # Rank 0 must be the worse worker regardless of worker id.
     values = [42.0] * 10 + [80.0, 80.0, 44.0, 80.0, 80.0, 80.0] + [42.0] * 10
     worker_ids = [0, 1] * 5 + [1, 0, 1, 0, 1, 0] + [0, 1] * 5
-    model = build_hidden_regime_burst_model(_episode(0, values, worker_ids=worker_ids))
+    model = build_hidden_regime_burst_model_from_sessions([_episode(0, values, worker_ids=worker_ids)])
 
     # Worker 1 spikes 3/3 of its in-dwell serves, worker 0 spikes 2/3.
     ranks = model["burst_rank_processes"]
@@ -459,7 +441,7 @@ def test_emission_quantile_grid_resolves_rare_tail():
         _model_sample(0, index, 41.0 if index < 999 else 100.0, 40.0)
         for index in range(1000)
     ]
-    model = build_hidden_regime_burst_model(samples)
+    model = build_hidden_regime_burst_model_from_sessions([samples])
     distribution = build_worker_slot_distributions_from_sessions(
         [samples], spike_threshold_ms_by_worker_slot={"0": 50.0}
     )
@@ -561,7 +543,7 @@ def test_hidden_regime_model_fits_negative_dwell_length_severity_rho():
         + [80.0, 44.0, 44.0, 44.0] * 5  # dwell runs first 80 to last 80: 17 draws, 5 spikes
         + [42.0] * 10
     )
-    model = build_hidden_regime_burst_model(_episode(0, values))
+    model = build_hidden_regime_burst_model_from_sessions([_episode(0, values)])
 
     process = model["burst_rank_processes"][0]
     assert process["dwell_length_spearman_rho"] < 0.0

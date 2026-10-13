@@ -12,7 +12,7 @@ from latency_bench.executors.realtime.shared_observation import (
     ObservationLocalizer,
     ObservationSlotPool,
     ObservationSlotRef,
-    attach_observation_arrays,
+    ObservationAttachmentCache,
 )
 
 
@@ -42,8 +42,37 @@ def test_observation_slot_pool_reuses_slots_without_reallocating_blocks():
     finally:
         owner.close()
 
-    with pytest.raises(FileNotFoundError):
-        attach_observation_arrays(first)
+    cache = ObservationAttachmentCache(blocks={})
+    try:
+        with pytest.raises(FileNotFoundError):
+            cache.attach(first)
+    finally:
+        cache.close()
+
+
+def test_attachment_cache_reuses_blocks_and_preserves_owner_memory_on_close():
+    """Long-lived executor IPC contract: attachment handles belong to the cache."""
+    observation = Observation(data=np.arange(4, dtype=np.uint8), env_step=0, sim_time_ms=0)
+    owner = ObservationSlotPool.from_observation(observation, capacity=1)
+    try:
+        shared = owner.write(obs_id=0, observation=observation)
+        cache = ObservationAttachmentCache(blocks={})
+        try:
+            first = cache.attach(shared)
+            second = cache.attach(shared)
+            assert np.shares_memory(first.data, second.data)
+            np.testing.assert_array_equal(second.data, observation.data)
+        finally:
+            cache.close()
+        assert all(block.buf is None for block in cache.blocks.values())
+
+        reader = ObservationAttachmentCache(blocks={})
+        try:
+            np.testing.assert_array_equal(reader.attach(shared).data, observation.data)
+        finally:
+            reader.close()
+    finally:
+        owner.close()
 
 
 def test_observation_localizer_returns_worker_local_contiguous_arrays():
@@ -61,11 +90,12 @@ def test_observation_localizer_returns_worker_local_contiguous_arrays():
 
     try:
         shared = owner.write(obs_id=10, observation=observation)
-        attached = attach_observation_arrays(shared)
+        cache = ObservationAttachmentCache(blocks={})
         try:
-            localized = localizer.localize(attached.observation)
+            attached = cache.attach(shared)
+            localized = localizer.localize(attached)
         finally:
-            attached.close()
+            cache.close()
 
         assert localized.env_step == observation.env_step
         assert localized.sim_time_ms == observation.sim_time_ms
@@ -98,12 +128,13 @@ def test_prefix_snapshot_survives_shared_memory_and_later_controller_changes():
         shared = owner.write(obs_id=0, observation=observation)
         scheduler.noop_action = Action([99.0])
         observation.metadata["action_prefix"][:] = -1
-        attached = attach_observation_arrays(shared)
+        cache = ObservationAttachmentCache(blocks={})
         try:
-            np.testing.assert_array_equal(attached.observation.metadata["action_prefix"][:, 0], [7, 7, 0, 0])
-            np.testing.assert_array_equal(attached.observation.metadata["action_prefix_mask"], [True, True, False, False])
+            attached = cache.attach(shared)
+            np.testing.assert_array_equal(attached.metadata["action_prefix"][:, 0], [7, 7, 0, 0])
+            np.testing.assert_array_equal(attached.metadata["action_prefix_mask"], [True, True, False, False])
         finally:
-            attached.close()
+            cache.close()
         owner.release(0)
     finally:
         owner.close()

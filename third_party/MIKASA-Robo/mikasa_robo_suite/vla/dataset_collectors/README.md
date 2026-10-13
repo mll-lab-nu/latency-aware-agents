@@ -3,7 +3,7 @@
 This guide documents how to collect source `.npz` trajectories used in the MIKASA-Robo-90 VLA pipeline.
 
 If you are looking for conversion steps:
-- LAGEN data preparation: [MIKASA cookbook](../../../../../docs/mikasa/cookbook.md)
+- LAGEN data preparation: [MIKASA cookbook](../../../../../docs/cookbooks/mikasa.md)
 - RLDS -> LeRobot v3: [`utils/convert_rlds_to_lerobot/README.md`](../../../utils/convert_rlds_to_lerobot/README.md)
 
 ---
@@ -21,7 +21,7 @@ The source of truth is [`mikasa_robo_vla_envs.csv`](../../../mikasa_robo_vla_env
 Use [`get_mikasa_robo_datasets.py`](./get_mikasa_robo_datasets.py):
 
 ```bash
-uv run python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets.py \
+.venv/bin/python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets.py \
   --env-id RememberColor3-VLA-v0 \
   --path-to-save-data data_mikasa_robo \
   --ckpt-dir . \
@@ -45,7 +45,7 @@ CLI args:
 Use [`get_mikasa_robo_datasets_motion_planning.py`](./get_mikasa_robo_datasets_motion_planning.py):
 
 ```bash
-uv run python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets_motion_planning.py \
+.venv/bin/python mikasa_robo_suite/vla/dataset_collectors/get_mikasa_robo_datasets_motion_planning.py \
   --env-id TraceShapeHard-VLA-v0 \
   --path-to-save-data data_mikasa_robo \
   --num-train-data 250 \

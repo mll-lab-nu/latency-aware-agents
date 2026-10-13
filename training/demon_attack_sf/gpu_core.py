@@ -32,72 +32,6 @@ _DECISION_COLUMN_COUNT = 15
 
 _FIRE_RESET_ACTIONS = (1, 2)
 _LIFE_LOSS_RESET_ACTIONS = (0, 1, 2)
-# ALE reference RAM bytes after SB3 NoopResetEnv(noops=1..30) + FireResetEnv.
-_RESET_RAM_ADDRESSES = (
-    0x09,
-    0x0C,
-    0x0F,
-    0x13,
-    0x15,
-    0x1A,
-    0x1B,
-    0x1F,
-    0x23,
-    0x2F,
-    0x30,
-    0x31,
-    0x32,
-    0x35,
-    0x3B,
-    0x3D,
-    0x40,
-    0x42,
-    0x44,
-    0x45,
-    0x46,
-    0x47,
-    0x4B,
-    0x55,
-    0x56,
-    0x57,
-    0x58,
-    0x59,
-    0x5A,
-    0x5B,
-    0x5C,
-)
-_RESET_RAM_VALUES_BY_CACHE_INDEX = (
-    (0, 0, 0, 0, 6, 3, 0, 0, 0, 1, 1, 16, 1, 0, 18, 73, 0, 0, 90, 149, 135, 90, 192, 85, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 4, 0, 0, 0, 1, 1, 17, 1, 0, 17, 74, 0, 0, 90, 149, 134, 90, 192, 171, 58, 22, 1, 92, 0, 132, 16),
-    (0, 0, 0, 0, 6, 5, 0, 0, 0, 1, 1, 1, 2, 0, 16, 75, 0, 0, 89, 149, 134, 89, 192, 87, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 6, 0, 0, 0, 2, 1, 1, 2, 0, 15, 76, 0, 0, 89, 149, 134, 89, 192, 175, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 7, 0, 0, 0, 2, 2, 17, 2, 0, 14, 77, 0, 0, 89, 148, 134, 89, 192, 95, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 0, 0, 0, 0, 2, 2, 18, 2, 0, 13, 78, 0, 0, 89, 148, 133, 89, 192, 191, 58, 22, 1, 92, 0, 132, 16),
-    (0, 0, 0, 0, 6, 1, 0, 0, 0, 2, 2, 2, 3, 0, 12, 79, 0, 0, 88, 148, 133, 88, 192, 127, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 2, 0, 0, 0, 3, 2, 2, 3, 0, 11, 80, 0, 0, 88, 148, 133, 88, 192, 254, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 3, 0, 0, 0, 3, 3, 18, 3, 0, 10, 81, 0, 0, 88, 147, 133, 88, 192, 252, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 4, 0, 0, 0, 3, 19, 19, 3, 0, 9, 82, 0, 0, 88, 147, 132, 88, 192, 248, 58, 22, 1, 92, 0, 132, 16),
-    (0, 0, 0, 0, 6, 5, 0, 0, 0, 3, 19, 3, 4, 0, 8, 83, 0, 0, 89, 147, 132, 89, 192, 240, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 6, 0, 0, 0, 4, 19, 3, 4, 0, 7, 84, 0, 0, 89, 147, 132, 89, 192, 224, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 7, 0, 0, 0, 20, 20, 19, 4, 0, 6, 85, 0, 0, 89, 146, 132, 89, 192, 192, 58, 22, 1, 92, 0, 132, 16),
-    (0, 0, 0, 0, 6, 0, 0, 0, 0, 20, 20, 20, 4, 0, 5, 86, 0, 0, 89, 146, 131, 89, 192, 129, 58, 22, 1, 92, 0, 132, 16),
-    (0, 0, 0, 0, 6, 1, 0, 0, 0, 20, 20, 4, 5, 0, 4, 87, 0, 0, 88, 146, 131, 88, 192, 2, 58, 22, 1, 92, 0, 132, 0),
-    (0, 0, 0, 0, 6, 2, 0, 0, 0, 21, 20, 4, 5, 0, 3, 88, 0, 0, 88, 146, 131, 88, 192, 4, 58, 22, 1, 92, 0, 132, 16),
-    (0, 0, 0, 0, 6, 3, 0, 0, 0, 5, 21, 20, 5, 0, 2, 89, 0, 0, 88, 145, 131, 88, 192, 8, 58, 22, 1, 92, 0, 132, 16),
-    (0, 0, 0, 0, 6, 4, 0, 0, 0, 5, 5, 21, 5, 0, 1, 90, 0, 0, 88, 145, 130, 88, 192, 16, 58, 22, 1, 92, 0, 132, 16),
-    (0, 0, 112, 169, 6, 5, 1, 0, 0, 5, 5, 69, 6, 1, 32, 91, 0, 0, 87, 145, 130, 87, 192, 32, 24, 56, 0, 24, 0, 56, 0),
-    (24, 56, 112, 169, 6, 6, 1, 1, 1, 6, 5, 69, 6, 1, 31, 92, 8, 8, 87, 145, 130, 87, 192, 65, 24, 56, 0, 48, 0, 112, 0),
-    (72, 168, 112, 169, 6, 7, 1, 1, 1, 6, 6, 85, 6, 1, 30, 93, 8, 8, 87, 144, 130, 87, 192, 131, 24, 56, 0, 72, 0, 168, 0),
-    (144, 80, 112, 185, 6, 0, 1, 1, 1, 6, 6, 86, 6, 1, 29, 94, 8, 8, 87, 144, 129, 87, 192, 6, 24, 56, 0, 96, 0, 224, 80),
-    (240, 48, 112, 201, 6, 1, 1, 1, 1, 6, 6, 70, 7, 1, 28, 95, 8, 8, 86, 144, 129, 86, 192, 12, 24, 56, 0, 120, 1, 24, 0),
-    (104, 72, 96, 217, 6, 2, 1, 1, 1, 7, 6, 70, 7, 1, 27, 96, 8, 8, 86, 144, 129, 86, 192, 24, 24, 56, 0, 144, 1, 80, 0),
-    (248, 152, 96, 233, 6, 3, 1, 1, 1, 23, 7, 86, 7, 1, 26, 97, 8, 8, 86, 143, 129, 86, 192, 48, 24, 56, 0, 168, 1, 136, 0),
-    (160, 32, 80, 9, 6, 4, 1, 1, 1, 23, 7, 87, 7, 1, 25, 98, 8, 8, 86, 143, 128, 86, 192, 97, 24, 56, 0, 192, 1, 192, 80),
-    (96, 224, 64, 25, 6, 5, 1, 1, 1, 23, 7, 71, 8, 1, 24, 99, 8, 8, 87, 143, 128, 87, 192, 194, 24, 56, 0, 216, 1, 248, 0),
-    (56, 216, 48, 57, 6, 6, 1, 2, 2, 24, 7, 71, 8, 1, 23, 100, 16, 16, 87, 143, 128, 87, 192, 133, 24, 56, 0, 240, 2, 48, 16),
-    (40, 8, 32, 105, 6, 7, 1, 2, 2, 24, 8, 87, 8, 1, 22, 101, 16, 16, 87, 142, 128, 87, 192, 10, 24, 56, 1, 8, 2, 104, 0),
-    (48, 112, 16, 152, 6, 0, 1, 2, 2, 24, 8, 88, 8, 1, 21, 102, 16, 16, 87, 142, 127, 87, 192, 20, 24, 56, 1, 32, 2, 160, 80),
-)
 
 
 def load_demon_attack_rom_bytes() -> bytes:
@@ -179,7 +113,6 @@ class CudaAtariCore:
         *,
         rom_path: str,
         reset_actions: Sequence[int],
-        reset_action_frame_count: int,
         life_loss_reset_actions: Sequence[int],
         device: str | torch.device = "cuda",
         noop_max: int = 30,
@@ -195,7 +128,6 @@ class CudaAtariCore:
         self.frame_stack = frame_stack
         self.obs_frame_count = min(self.frame_stack, self.obs_stride)
         self.reset_actions = tuple(reset_actions)
-        self.reset_action_frame_count = reset_action_frame_count
         self.life_loss_reset_actions = tuple(life_loss_reset_actions)
         self.ext = load_cule_atari_extension()
         self.rom = self.ext.AtariRom(rom_path)
@@ -221,7 +153,6 @@ class CudaAtariCore:
             dtype=torch.uint8,
             device=self.device,
         )
-        self.cart_offsets = torch.zeros(self.batch_size, dtype=torch.int32, device=self.device)
         self.rand_states = torch.randint(
             0,
             np.iinfo(np.int32).max,
@@ -242,9 +173,9 @@ class CudaAtariCore:
             dtype=torch.uint8,
             device=self.device,
         )
-        self.cached_tia = torch.zeros(
-            (self.noop_max, self.env.tia_update_size()),
-            dtype=torch.int32,
+        self.cached_frames = torch.zeros(
+            (self.noop_max, 300 * self.native_screen_width),
+            dtype=torch.uint8,
             device=self.device,
         )
         self.cache_index = torch.zeros(self.batch_size, dtype=torch.int32, device=self.device)
@@ -256,13 +187,12 @@ class CudaAtariCore:
             self.ram.data_ptr(),
             self.tia.data_ptr(),
             self.frame_buffer.data_ptr(),
-            self.cart_offsets.data_ptr(),
             self.action_set.data_ptr(),
             self.rand_states.data_ptr(),
             self.cached_states.data_ptr(),
             self.cached_ram.data_ptr(),
             self.cached_frame_states.data_ptr(),
-            self.cached_tia.data_ptr(),
+            self.cached_frames.data_ptr(),
             self.cache_index.data_ptr(),
         )
 
@@ -312,18 +242,20 @@ class CudaAtariCore:
 
     @property
     def reset_raw_frame_counts(self) -> torch.Tensor:
-        return self.cache_index.to(torch.int64) + 1 + self.reset_action_frame_count
+        return self.cache_index.to(torch.int64) + 1 + len(self.reset_actions)
 
     def observations(self) -> torch.Tensor:
         return self._obs84_single.unsqueeze(1).contiguous()
 
     def native_rgb_frames(self) -> torch.Tensor:
-        """Render the current native Atari RGB screen for each GPU env.
+        """Convert the current Atari frame buffer to RGB for each GPU env.
+
+        Repeated calls preserve emulator and render state.
 
         Returns:
             Tensor with shape ``(batch, native_height, native_width, 3)`` and dtype ``uint8``.
         """
-        self.env.generate_frames(False, True, 3, self._native_rgb_frames.data_ptr())
+        self.env.generate_frames(False, 3, self._native_rgb_frames.data_ptr())
         return self._native_rgb_frames
 
     def reset_batch(
@@ -353,8 +285,7 @@ class CudaAtariCore:
         )
         self._terminated[index_t] = self._kernel_done[index_t]
         self._run_reset_action_sequence(target_indices, self.reset_actions)
-        self._patch_reset_ram(target_indices)
-        self.env.generate_obs84(True, self._obs84_single.data_ptr())
+        self.env.generate_obs84(self._obs84_single.data_ptr())
         reset_obs = self.observations()
         self._rewards.zero_()
         self._terminated[index_t] = False
@@ -575,9 +506,7 @@ class CudaAtariCore:
         self.states[index_t] = self.cached_states[cache_indices]
         self.frame_states[index_t] = self.cached_frame_states[cache_indices]
         self.ram[index_t] = self.cached_ram[cache_indices]
-
-    def _patch_reset_ram(self, target_indices: Sequence[int]) -> None:
-        pass
+        self.frame_buffer[index_t] = self.cached_frames[cache_indices]
 
     def _run_reset_action_sequence(self, indices: Sequence[int], actions: Sequence[int]) -> torch.Tensor:
         index_t = torch.as_tensor(indices, dtype=torch.int64, device=self.device)
@@ -604,8 +533,7 @@ class CudaAtariCore:
         )
         self._terminated.copy_(self._kernel_done & active)
         self._scores += self._rewards.to(torch.int32)
-        self.env.reset_states()
-        self.env.generate_obs84(True, self._obs84_single.data_ptr())
+        self.env.generate_obs84(self._obs84_single.data_ptr())
         self._truncated.zero_()
         return self.observations()
 
@@ -627,7 +555,6 @@ class CudaDemonAttackCore(CudaAtariCore):
             batch_size,
             rom_path=demon_attack_rom_path(),
             reset_actions=_FIRE_RESET_ACTIONS,
-            reset_action_frame_count=len(_FIRE_RESET_ACTIONS),
             life_loss_reset_actions=_LIFE_LOSS_RESET_ACTIONS,
             device=device,
             noop_max=noop_max,
@@ -635,14 +562,3 @@ class CudaDemonAttackCore(CudaAtariCore):
             obs_stride=obs_stride,
             frame_stack=frame_stack,
         )
-        self._reset_ram_addresses = torch.tensor(_RESET_RAM_ADDRESSES, dtype=torch.int64, device=self.device)
-        self._reset_ram_values = torch.tensor(
-            _RESET_RAM_VALUES_BY_CACHE_INDEX,
-            dtype=torch.uint8,
-            device=self.device,
-        )
-
-    def _patch_reset_ram(self, target_indices: Sequence[int]) -> None:
-        index_t = torch.as_tensor(target_indices, dtype=torch.int64, device=self.device)
-        values = self._reset_ram_values[self.cache_index[index_t].to(torch.int64)]
-        self.ram[index_t[:, None], self._reset_ram_addresses[None, :]] = values

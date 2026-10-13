@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from latency_bench.core.config import load_config
-from latency_bench.eval.suites import has_eval_suites
+from latency_bench.eval.config import has_eval_suites
 from latency_bench.eval.sweeps import run_eval_suites_from_config, run_eval_sweep_from_config
 from training.common.checkpoints import find_checkpoint
 from training.common.config_adapter import import_integration_module
@@ -180,7 +180,7 @@ def _stage_config(
     config["backend"]["train_dir"] = str(output_root / "checkpoints")
     config["training"]["train_for_env_steps"] = int(budget.train_for_env_steps)
     config["evaluation"]["eval_interval_steps"] = None
-    config["evaluation"]["eval_episodes"] = int(budget.eval_episodes)
+    config["evaluation"]["episodes"] = int(budget.eval_episodes)
     config["logging"]["output_dir"] = str(output_root / "runs" / env_name / variant / f"repeat_{repeat_index}")
     config["logging"]["wandb_project"] = ""
     config["logging"]["wandb_tags"] = ""

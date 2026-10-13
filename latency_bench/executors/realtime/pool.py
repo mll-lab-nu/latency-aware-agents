@@ -103,13 +103,7 @@ class ProcessInferencePool:
         for worker_id in range(len(self.inference_devices)):
             if worker_id not in self._busy_worker_tasks:
                 worker_service_start_time_ms = monotonic_ms()
-                if task.profile is not None:
-                    task.profile.parent_to_worker_send_start_ms = monotonic_ms()
                 self._connections[worker_id].send(("predict", {"task": task}))
-                if task.profile is not None:
-                    task.profile.parent_to_worker_send_call_ms = (
-                        monotonic_ms() - task.profile.parent_to_worker_send_start_ms
-                    )
                 self._busy_worker_tasks[worker_id] = (
                     task,
                     worker_service_start_time_ms,
@@ -253,12 +247,6 @@ class ProcessInferencePool:
                         worker_id
                     )
                     result = payload["result"]
-                    profile = task.profile
-                    if profile is not None and result.profile is not None:
-                        profile.merge_measured(result.profile)
-                        profile.worker_to_parent_ipc_ms = (
-                            monotonic_ms() - profile.worker_result_send_start_ms
-                        )
                     completed.append(
                         RealtimePolicyCompletion(
                             task=task,
@@ -266,16 +254,13 @@ class ProcessInferencePool:
                             completion_time_ms=result.completion_time_ms,
                             latency_record=result.latency_record,
                             observation_to_action_latency_ms=(
-                                result_received_time_ms
-                                - task.observation_start_time_ms
+                                result_received_time_ms - task.observation_start_time_ms
                             ),
                             worker_service_time_ms=(
-                                result_received_time_ms
-                                - worker_service_start_time_ms
+                                result_received_time_ms - worker_service_start_time_ms
                             ),
                             worker_id=worker_id,
                             device=self.inference_devices[worker_id],
-                            profile=profile,
                         )
                     )
                 elif tag == "invalid_agent_action":

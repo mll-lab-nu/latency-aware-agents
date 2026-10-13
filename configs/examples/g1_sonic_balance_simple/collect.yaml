@@ -1,0 +1,32 @@
+__base__: ../gymnasium/g1_sonic_balance_simple/ppo_train.yaml
+experiment:
+  name: balance_h8_teacher_collection
+  seed: 4100001
+env:
+  make_kwargs:
+    render_mode: rgb_array
+    camera_name: head_camera
+policy:
+  type: sample_factory
+  source: local
+  root: /path/to/teacher_bundle
+  checkpoint: checkpoint.pth
+  model_config: fasttd3_train.yaml
+  action_prefix:
+    mode: none
+executor:
+  mode: simulated
+  inference_devices: [cuda:0]
+  rollout_workers: 2
+  inference_batch_size: 2
+  rollout_overlap: false
+latency:
+  method: zero
+  seed: 271828
+logging:
+  output_dir: outputs/balance/dataset
+collection:
+  label_mode: zero_full
+  action_horizon: 8
+  row_budget: 71000
+  teacher_revision: a8210caa0e7432f208b377d678ca5f10f5f1b879

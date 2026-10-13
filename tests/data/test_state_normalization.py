@@ -15,7 +15,7 @@ def test_min_max_state_normalization_maps_constant_dimensions_to_zero():
 
 def test_normalization_avoids_intermediate_multiplication_overflow():
     # Long-lived numeric contract shared by generic state and task inputs.
-    from latency_bench.data.starvla_tasks import normalize
+    from latency_bench.integrations.starvla.task_contracts import normalize
 
     values = np.asarray([[2e38, 4.0], [0.0, 4.0]], dtype=np.float32)
     minimum = np.asarray([0.0, 4.0], dtype=np.float32)

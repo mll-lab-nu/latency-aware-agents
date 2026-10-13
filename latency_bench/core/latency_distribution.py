@@ -37,6 +37,8 @@ class LatencyDistributionSpec:
 
 
 class LatencyDistributionSampler:
+    """Sample bounded raw-frame latency with an independent NumPy random stream."""
+
     def __init__(self, spec: LatencyDistributionSpec, *, seed: int | None = None):
         self.spec = spec
         self.seed = seed
@@ -80,19 +82,6 @@ def parse_latency_distribution(raw: Mapping[str, Any] | str) -> LatencyDistribut
         "latency distribution type must be one of "
         f"{sorted(SUPPORTED_LATENCY_DISTRIBUTIONS)}"
     )
-
-
-def make_latency_distribution_sampler(
-    spec: LatencyDistributionSpec,
-    *,
-    seed: int | None = None,
-) -> LatencyDistributionSampler:
-    return LatencyDistributionSampler(spec, seed=seed)
-
-
-def sample_latency_frame(spec: LatencyDistributionSpec, sampled_value: float) -> int:
-    clamped = min(max(sampled_value, spec.min), spec.max)
-    return frames_float_to_raw_frames(clamped)
 
 
 def latency_distribution_label(spec: LatencyDistributionSpec) -> str:

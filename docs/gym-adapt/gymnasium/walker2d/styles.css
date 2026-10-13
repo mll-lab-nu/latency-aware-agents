@@ -1,6 +1,0 @@
-@import url("../hopper/styles.css");
-
-/* Walker2D current report only: inherited styles for HC stay unchanged. */
-.walker-current .gr00t-report{scroll-margin-top:2rem}.walker-current .gr00t-report p{max-width:75ch}.walker-current .gr00t-report figure{margin:2rem 0}.walker-current .gr00t-report img{display:block;width:100%;height:auto}.walker-current .gr00t-table-scroll{overflow-x:auto;margin:1.25rem 0}.walker-current .gr00t-report table{width:100%;border-collapse:collapse;font-size:.94rem}.walker-current .gr00t-report th,.walker-current .gr00t-report td{padding:.75rem;text-align:left;border-bottom:1px solid #dce3e7;vertical-align:top}.walker-current .gr00t-report caption{text-align:left;margin-bottom:.65rem}.walker-current .gr00t-note{border-left:3px solid #137a7f;padding-left:1rem}.walker-current .gr00t-fingerprints{overflow-wrap:anywhere}.walker-current .gr00t-report figcaption{font-size:.9rem;color:#43545f}
-
-.walker-current .gr00t-table-scroll:focus-visible{outline:3px solid #137a7f;outline-offset:3px}

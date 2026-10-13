@@ -18,10 +18,8 @@ python examples/rl_games/scripts/launch_train.py \
     launch.num_processes=2 \
     rl_games.env_eval.distributed_mode=rank_sharded \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/gr00t_bridge_demon_attack_mixed_latency_exp4" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/gr00t_bridge_demon_attack_mixed_latency_exp4" \
     dataset.source_hf="talha1503/demon_attack_mixed_latency_parquet" \
     checkpoint.save_best_model=true \
     trainer.max_train_steps=5000 \

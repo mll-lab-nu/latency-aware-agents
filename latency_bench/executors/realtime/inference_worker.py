@@ -6,13 +6,11 @@ import traceback
 from copy import deepcopy
 from typing import Any
 
-from latency_bench.core.timing import StageProfiler, profiler_scope
 from latency_bench.executors.realtime.messages import RealtimePolicyResult
 from latency_bench.executors.realtime.shared_observation import (
     ObservationAttachmentCache,
     ObservationLocalizer,
 )
-from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.latency.hardware_info import safe_set, torch_backend_flags
 from latency_bench.latency.measurement import RuntimeLatencyMeasurer
 from latency_bench.utils.seeding import seed_everything
@@ -58,14 +56,12 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         seed_everything(config["experiment"]["seed"] + worker_id)
         runtime_metadata = _worker_runtime_metadata(worker_id, start_method)
         worker_config = deepcopy(config)
-        worker_config.setdefault("policy", {})["device"] = device
-        worker_config.setdefault("latency", {})["device"] = device
+        worker_config["executor"]["inference_devices"] = [device]
         action_resolver = ActionResolver(worker_config["env"])
         policy = build_policy(worker_config, action_resolver)
-        latency_cfg = worker_config.get("latency", {})
         measurer = RuntimeLatencyMeasurer(
             device=device,
-            sync_cuda=bool(latency_cfg.get("sync_cuda", True)),
+            sync_cuda=worker_config["executor"]["sync_cuda"],
         )
         attachment_cache = ObservationAttachmentCache(blocks={})
         observation_localizer = ObservationLocalizer()
@@ -75,28 +71,13 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         gc.disable()
         connection.send(("ready", {"worker_id": int(worker_id), "device": device}))
 
-        def predict_from_attached_observation(attached_observation, profile):
-            localize_start_ms = monotonic_ms()
-            local_observation = observation_localizer.localize(attached_observation.observation)
-            if profile is not None:
-                profile.worker_observation_localize_ms = monotonic_ms() - localize_start_ms
-            # sync_cuda=False: the realtime path measures end-to-end wall-clock
-            # latency, so a CUDA sync inside predict would perturb the measurement.
-            profiler = StageProfiler(enabled=profile is not None, sync_cuda=False)
-            with profiler_scope(profiler):
-                policy_output = policy.predict(local_observation)
-            if profile is not None:
-                timings = profiler.timings
-                profile.policy_build_example_ms = timings.get("policy_build_example_ms", 0.0)
-                profile.policy_wrapper_predict_action_ms = timings.get(
-                    "policy_wrapper_predict_action_ms", 0.0
-                )
-                profile.policy_decode_ms = timings.get("policy_decode_ms", 0.0)
+        def predict_from_attached_observation(attached_observation):
+            local_observation = observation_localizer.localize(attached_observation)
+            policy_output = policy.predict(local_observation)
             return policy_output
 
         while True:
             command, payload = connection.recv()
-            worker_recv_ms = monotonic_ms()
             payload = payload or {}
             if command == "close":
                 attachment_cache.close()
@@ -122,28 +103,13 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                 continue
             if command == "predict":
                 task = payload["task"]
-                attach_start_ms = monotonic_ms()
                 attached_observation = attachment_cache.attach(task.observation)
-                attached_observation.observation.metadata["obs_id"] = task.obs_id
-                attach_ms = monotonic_ms() - attach_start_ms
-                profile = task.profile
-                if profile is not None:
-                    profile.worker_recv_ms = worker_recv_ms
-                    profile.parent_to_worker_ipc_ms = (
-                        worker_recv_ms - profile.parent_to_worker_send_start_ms
-                    )
-                    inference_start_ms = monotonic_ms()
-                    profile.worker_observation_attach_ms = attach_ms
-                    profile.worker_recv_overhead_ms = inference_start_ms - worker_recv_ms
-                try:
-                    policy_output, latency_record = measurer.run_and_measure(
-                        predict_from_attached_observation,
-                        attached_observation,
-                        profile,
-                        obs_id=task.obs_id,
-                    )
-                finally:
-                    attached_observation.close()
+                attached_observation.metadata["obs_id"] = task.obs_id
+                policy_output, latency_record = measurer.run_and_measure(
+                    predict_from_attached_observation,
+                    attached_observation,
+                    obs_id=task.obs_id,
+                )
                 latency_record.metadata = {
                     **latency_record.metadata,
                     **runtime_metadata,
@@ -152,11 +118,8 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
                     policy_output=policy_output,
                     completion_time_ms=task.submit_time_ms + latency_record.latency_ms,
                     latency_record=latency_record,
-                    profile=profile,
                 )
                 try:
-                    if result.profile is not None:
-                        result.profile.worker_result_send_start_ms = monotonic_ms()
                     connection.send(("result", {"result": result}))
                 except (BrokenPipeError, EOFError, OSError):
                     return

@@ -73,7 +73,7 @@ def test_zero_delay_evaluation_writes_success_once_summary(tmp_path: Path, monke
     env = _FakeEnv()
     policy = _FakePolicy()
     monkeypatch.setattr(evaluate, "make_ppo_env", lambda: env)
-    monkeypatch.setattr(evaluate, "_PpoPolicy", lambda env, checkpoint: policy)
+    monkeypatch.setattr(evaluate, "MikasaPpoPolicy", lambda env, checkpoint: policy)
 
     output_dir = tmp_path / "nested" / "eval"
     monkeypatch.setattr(

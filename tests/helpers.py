@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import groupby
 from pathlib import Path
 
 import numpy as np
@@ -15,28 +16,6 @@ from latency_bench.core.types import Action, ActionEvent, LatencyRecord
 # root via `Path(__file__).parents[N]` (the depth changes when a test is moved).
 # Import REPO_ROOT from here instead.
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def realtime_profile(bench_overhead_ms: float = 0.0) -> dict[str, float]:
-    return {
-        "env_observe_ms": 0.0,
-        "env_to_parent_ipc_ms": 0.0,
-        "parent_observation_handle_ms": 0.0,
-        "parent_to_worker_ipc_ms": 0.0,
-        "worker_recv_overhead_ms": 0.0,
-        "worker_to_parent_ipc_ms": 0.0,
-        "parent_release_ms": 0.0,
-        "parent_to_env_ipc_ms": bench_overhead_ms,
-        "env_action_recv_to_enqueue_ms": 0.0,
-        "env_scheduler_update_ms": 0.0,
-        "worker_observation_attach_ms": 0.0,
-        "worker_observation_localize_ms": 0.0,
-        "policy_build_example_ms": 0.0,
-        "policy_wrapper_predict_action_ms": 0.0,
-        "policy_decode_ms": 0.0,
-        "env_step_ms": 0.0,
-        "env_wall_lag_ms": 0.0,
-    }
 
 
 def make_action_event(action_id: int, action: Action, ready_step: int, clock: EnvClock) -> ActionEvent:
@@ -58,3 +37,19 @@ def save_test_image(path: Path, fill: int) -> None:
     from PIL import Image
 
     Image.fromarray(np.full((2, 2, 3), fill, dtype=np.uint8)).save(path)
+
+
+def write_rollout_fixture(output_dir, train_rows, val_rows, *, action_spec):
+    """Build converter fixtures through the maintained canonical storage boundary."""
+    from latency_bench.data.hf_parquet import (
+        write_episode_row_shard, write_parquet_splits_from_shards, load_parquet_splits,
+    )
+
+    for rows in (train_rows, val_rows):
+        for _, episode in groupby(sorted(rows, key=lambda row: row["episode_idx"]),
+                                  key=lambda row: row["episode_idx"]):
+            write_episode_row_shard(output_dir, list(episode))
+    write_parquet_splits_from_shards(output_dir, action_spec=action_spec)
+    for shard in output_dir.glob("episode_rows/*/*.jsonl"):
+        shard.unlink()
+    return load_parquet_splits(output_dir)

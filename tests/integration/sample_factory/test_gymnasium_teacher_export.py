@@ -91,8 +91,7 @@ def test_generic_checkpoint_applies_rollout_overrides(tmp_path):
 
     descriptor, metadata = load_rollout_training_config(
         experiment_dir,
-        gym_camera_name="head_camera",
-        gym_make_kwargs_override={"noop_max": 30, "fire_reset": True},
+        gym_make_kwargs_override={"noop_max": 30, "fire_reset": True, "camera_name": "head_camera", "render_mode": "rgb_array"},
     )
 
     make_kwargs = json.loads(descriptor["flat_cfg"]["gym_make_kwargs_json"])
@@ -304,8 +303,15 @@ def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
         step_teacher_policy,
     )
     output_dir = tmp_path / "rollout"
-    _replay_existing_specs(monkeypatch,
-        {"rnn_size": 1, "device": torch.device("cpu")},
+    flat_cfg = _generic_flat_cfg()
+    flat_cfg.update(
+        gym_task_name=g1_task,
+        gym_env_id="LatencyBench/G1SonicBalanceSimple-v0",
+        gym_action_space_json=json.dumps({"type": "box", "labels": list(G1_SONIC_ACTION_SPEC.labels), "dtype": "float32"}),
+    )
+    probe_state = _replay_existing_specs(monkeypatch,
+        {"rnn_size": 1, "device": torch.device("cpu"),
+         "envs": [SimpleNamespace(get_wrapper_attr=lambda name: np.full(action_dim, 10.0))]},
         Driver(),
         cfg=SimpleNamespace(
             env_fps=50.0,
@@ -324,7 +330,11 @@ def test_g1_balance_replay_exports_generic_state_and_absolute_action_contract(
         action_spec=G1_SONIC_ACTION_SPEC,
         base_prompt="Keep balance.",
         integration_name="gymnasium",
+        flat_cfg=flat_cfg,
     )
+    contract = probe_state["runtime_metadata"]["gymnasium_task"]
+    assert contract["make_kwargs"]["control_mode"] == "direct_absolute_position"
+    assert contract["noop_action"] == [10.0] * action_dim
 
     rows = list(iter_episode_rows(output_dir, "val"))
     assert [row["state"] for row in rows] == [
@@ -409,8 +419,8 @@ def test_generic_rollout_runtime_replays_checkpoint_action_contract(monkeypatch,
         ),
     )
     monkeypatch.setattr(
-        teacher_runtime, "import_integration_module",
-        lambda config: integration_configs.append(config) or module,
+        teacher_runtime, "import_module",
+        lambda module_name: integration_configs.append(module_name) or module,
     )
     monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
     flat_cfg = _generic_flat_cfg()
@@ -432,7 +442,7 @@ def test_generic_rollout_runtime_replays_checkpoint_action_contract(monkeypatch,
     assert result_module is module
     assert result_cfg is parsed_cfg
     assert registered
-    assert integration_configs == [{"env": {"name": "gymnasium"}}]
+    assert integration_configs == ["training.gymnasium_sf.integration"]
     assert parser_args[parser_args.index("--gym-task-name") + 1] == "mountain_car"
     assert json.loads(parser_args[parser_args.index("--gym-action-space-json") + 1]) == json.loads(flat_cfg["gym_action_space_json"])
     assert json.loads(parser_args[parser_args.index("--gym-noop-action-json") + 1]) == json.loads(flat_cfg["gym_noop_action_json"])
@@ -442,74 +452,12 @@ def test_generic_rollout_runtime_replays_checkpoint_action_contract(monkeypatch,
         assert parser_args[parser_args.index("--gym-noop-action-id") + 1] == "1"
 
 
-def test_teacher_export_cli_infers_task_and_accepts_return_gate():
-    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
 
-    args = build_parser().parse_args(
-        [
-            "--checkpoint-root",
-            "checkpoint",
-            "--output-dir",
-            "out",
-            "--max-episodes",
-            "100",
-            "--max-steps-per-episode",
-            "1000",
-            "--episode-return-gt",
-            "3000",
-        ]
-    )
-
-    assert args.env_name == ""
-    assert args.episode_return_gt == pytest.approx(3000.0)
-
-
-def test_generic_teacher_export_rejects_task_identity_override(monkeypatch, tmp_path):
-    from latency_bench.data.action_layouts import gymnasium_discrete_action_spec
-    from latency_bench.integrations.sample_factory import teacher_export as sf_teacher_export
-
-    monkeypatch.setattr(
-        sf_teacher_export,
-        "load_rollout_training_config",
-        lambda *args, **kwargs: (
-            {
-                "env_name": "mountain_car",
-                "integration_name": "gymnasium",
-                "action_spec": gymnasium_discrete_action_spec(ACTION_LABELS),
-                "base_prompt": "Drive the car up the hill.",
-            },
-            {},
-        ),
-    )
-
-    with pytest.raises(ValueError, match="fixed by the teacher checkpoint"):
-        sf_teacher_export.export_sample_factory_teacher_dataset(
-            checkpoint_root=tmp_path / "checkpoint",
-            output_dir=tmp_path / "output",
-            latency_config_path=None,
-            env_name="renamed_task",
-            max_episodes=1,
-            max_steps_per_episode=10,
-            val_fraction=0.1,
-            split_seed=0,
-            num_envs=1,
-            replay_num_envs=1,
-            device="",
-            deterministic=True,
-            export_image_size=None,
-            image_writer_workers=1,
-            row_buffer_size=1,
-            push_to_hub=False,
-            hf_repo_id="",
-            hf_private=False,
-            hf_token="",
-            hf_max_shard_size="500MB",
-        )
 
 
 def _replay_existing_specs(monkeypatch, runtime, driver, *, cfg, env_name, output_dir,
                            accepted_specs, action_spec, base_prompt,
-                           integration_name, **options):
+                           integration_name, flat_cfg=None, **options):
     """Exercise accepted replay through the public SF-to-common collection adapter."""
     from latency_bench.data import rollout_probe
     from latency_bench.integrations.sample_factory import teacher_runtime, teacher_rollout
@@ -522,7 +470,7 @@ def _replay_existing_specs(monkeypatch, runtime, driver, *, cfg, env_name, outpu
     rollout_probe.write_probe_state(output_dir, state)
     return teacher_rollout.collect_teacher_dataset(
         {"env_name": env_name, "integration_name": integration_name,
-         "action_spec": action_spec, "base_prompt": base_prompt, "flat_cfg": {}},
+         "action_spec": action_spec, "base_prompt": base_prompt, "flat_cfg": {} if flat_cfg is None else flat_cfg},
         output_dir=output_dir, max_episodes=len(accepted_specs), val_fraction=1.0,
         split_seed=0, num_envs=1, filter_preset="none", **options,
     )
@@ -559,3 +507,20 @@ def test_box_teacher_command_is_not_replaced_by_delayed_applied_action():
     )
     assert issued == [[0.75, -0.25]]
     assert result[0].info["applied_action"] == [-0.5, 0.5]
+
+
+def test_checkpoint_symlink_keeps_its_sibling_task_config(tmp_path):
+    """Long-lived model-source boundary: HF snapshots keep checkpoint config ownership."""
+    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
+
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    blob = tmp_path / "weights"
+    blob.write_bytes(b"model")
+    checkpoint = snapshot / "model.pth"
+    checkpoint.symlink_to(blob)
+    (snapshot / "config.json").write_text(json.dumps(_generic_flat_cfg()))
+    descriptor, _ = load_rollout_training_config(checkpoint)
+    assert descriptor["env_name"] == "mountain_car"
+    assert descriptor["checkpoint_experiment_dir"] == str(snapshot)
+    assert descriptor["checkpoint_path"] == str(checkpoint)

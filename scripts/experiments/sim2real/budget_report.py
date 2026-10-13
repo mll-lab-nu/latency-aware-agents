@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from latency_bench.core.clock import ms_to_raw_frames
-from scripts.experiments.sim2real.publication import StudyPublication
 from latency_bench.latency.burst_profile import build_burst_samples, build_hidden_regime_burst_model_from_sessions
 from latency_bench.utils.io import load_jsonl_records, read_json, write_csv, write_json
 
@@ -164,7 +163,7 @@ def make_report(root, *, timing_root=None):
         "interval_scope": "conditional on fitted profile and fixed zero-latency reference",
         "random_splits": 1, "tolerance_pp": manifest["tolerance_pp"],
         "fit_curves": "shared sim mean versus all real fit runs at each size; a mean-calibration diagnostic",
-        "cost_scope": "new successful work, including real process setup/warmup and sim computation/stage queueing; deferred publisher and old collection costs excluded",
+        "cost_scope": "new successful real acquisition and simulated replay, including setup and warmup",
     })
     plot_curves(report, aggregate, manifest)
     (report / "README.md").write_text(
@@ -215,11 +214,7 @@ def plot_curves(report, aggregate, manifest):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--defer-uploads", action="store_true")
     parser.add_argument("--timing-root", type=Path)
     args = parser.parse_args()
     report = make_report(args.root, timing_root=args.timing_root)
     manifest = read_json(args.root / "budget.json")
-    StudyPublication(args.root, f"sim2real-budget/{manifest['task']}/{args.root.name}", defer_uploads=args.defer_uploads).publish(
-        "report", [report, args.root / "budget.json", args.root / "REPORT_DONE"],
-    )

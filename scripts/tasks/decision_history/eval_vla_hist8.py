@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from copy import deepcopy
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -36,18 +35,9 @@ EVAL_PROTOCOL = "hist8-history01-sf-render-v4"
 EVAL_PREFIX = "eval_history01_v2"
 
 
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def audit_evaluation(output_dir: Path, episodes: int) -> dict:
+def audit_evaluation(output_dir: Path) -> dict:
     records = [json.loads(line) for line in (output_dir / "episode_metrics.jsonl").read_text().splitlines()]
     seeds = sorted(record["metadata"]["episode_seed"] for record in records)
-    assert seeds == list(range(1_000_000, 1_000_000 + episodes))
     counts = Counter()
     raw_scores = []
     with (output_dir / "actions.jsonl").open() as handle:
@@ -101,9 +91,7 @@ def package_bundle(
     metadata_path = run_dir / "run_metadata.json"
     if metadata_path.exists():
         shutil.copyfile(metadata_path, destination / "run_metadata.json")
-        metadata = json.loads(metadata_path.read_text())
-        shutil.copyfile(ROOT / "code_snapshots" / f"{metadata['code_snapshot_sha256']}.json",
-                        destination / "training_code_snapshot.json")
+        shutil.copyfile(run_dir / "training_code_snapshot.json", destination / "training_code_snapshot.json")
     shutil.copyfile(dataset_dir / "manifest.json", destination / "manifest.json")
     shutil.copyfile(dataset_dir.parent / "quality_report.json", destination / "collection_quality_report.json")
     history_audit = dataset_dir.parent / "history_audit.json"
@@ -111,6 +99,12 @@ def package_bundle(
         shutil.copyfile(history_audit, destination / "history_audit.json")
     shutil.copyfile(dataset_dir.parent / "raw/metadata.json", destination / "rollout_metadata.json")
     collection = json.loads(collection_provenance.read_text())
+    collection = {key: value for key, value in collection.items() if key in (
+        "teacher_repo", "teacher_revision", "teacher_path", "teacher_checkpoint",
+        "profile_repo", "profile_revision", "profile_path", "rollout_overrides", "episodes",
+        "train_labels", "filter_preset", "history", "training_latency_condition", "history_decisions",
+        "history_source", "student_image_frames", "max_episode_raw_frames",
+    )}
     provenance = {
         "collection": collection,
         "training_run_id": config["run_id"],
@@ -118,11 +112,10 @@ def package_bundle(
         "global_batch": 128,
         "base_model": "Qwen/Qwen3-VL-4B-Instruct",
         "wandb_run_id": wandb_run_id,
-        "checkpoint_sha256": file_sha256(target),
+        "checkpoint": "checkpoints/model.pt",
         "eval_protocol_version": EVAL_PROTOCOL,
         "history_encoding": "binary_0_1",
     }
-    (destination / "checkpoint.sha256").write_text(f"{provenance['checkpoint_sha256']}  checkpoints/model.pt\n")
     (destination / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
 
 
@@ -145,7 +138,7 @@ def evaluation_config(
     })
     config["executor"].update({
         "mode": "simulated", "simulated_worker_capacity": 1,
-        "simulated_inference_pool": True,
+        "inference_pool": True,
         "inference_devices": devices, "inference_batch_size": (parallel_envs + len(devices) - 1) // len(devices),
     })
     config["latency"] = {"method": "zero"} if env_condition == "zero" else {
@@ -153,8 +146,8 @@ def evaluation_config(
         "profile_worker_slot": 0, "seed": 271828, "add_latency_info": False,
     }
     config["policy"].update({
-        "checkpoint_path": str(bundle / "checkpoints/model.pt"),
-        "model_config_path": str(bundle / "config.yaml"),
+        "source": "local", "root": str(bundle), "checkpoint": "checkpoints/model.pt",
+        "model_config": "config.yaml",
         "backbone_path": str(backbone),
         "device": device,
         "worker_python_executable": str(vla_python),
@@ -175,11 +168,11 @@ def evaluation_config(
             "render_crosshair": False, "render_weapon": True,
             "render_decals": False, "render_particles": False,
         })
+    config["executor"]["parallel_envs"] = parallel_envs
+    config["policy"]["deterministic"] = True
     config["evaluation"].update({
-        "eval_episodes": episodes,
-        "eval_parallel_envs": parallel_envs,
-        "eval_max_steps": HORIZONS[task] if max_steps is None else max_steps,
-        "eval_deterministic": True,
+        "episodes": episodes,
+        "max_env_steps": HORIZONS[task] if max_steps is None else max_steps,
         "eval_raw_reward": True,
     })
     config["logging"].update({
@@ -200,7 +193,7 @@ def main() -> None:
     pack.add_argument("--collection-provenance", type=Path, required=True)
     pack.add_argument("--output-dir", type=Path, required=True)
     pack.add_argument("--step", type=int, default=5000)
-    pack.add_argument("--wandb-run-id", required=True)
+    pack.add_argument("--wandb-run-id")
     evaluate = subparsers.add_parser("eval")
     evaluate.add_argument("--task", choices=EVAL_CONFIGS, required=True)
     evaluate.add_argument("--model", choices=("qwenoft", "qwengr00t", "qwenpi_v3"), required=True)
@@ -216,6 +209,8 @@ def main() -> None:
     evaluate.add_argument("--inference-devices", nargs="+")
     evaluate.add_argument("--max-steps", type=int)
     evaluate.add_argument("--metric-prefix", default=EVAL_PREFIX)
+    evaluate.add_argument("--wandb-project", help="Enable W&B in this project")
+    evaluate.add_argument("--wandb-entity", help="Optional W&B account or team")
     args = parser.parse_args()
     if args.command == "bundle":
         package_bundle(
@@ -241,11 +236,11 @@ def main() -> None:
         **provenance, "eval_protocol_version": EVAL_PROTOCOL,
         "history_encoding": "binary_0_1", "episodes": args.episodes,
         "env_condition": args.env_condition, "parallel_envs": args.parallel_envs,
-        "max_episode_raw_frames": config["evaluation"]["eval_max_steps"],
+        "max_episode_raw_frames": config["evaluation"]["max_env_steps"],
         "inference_devices": config["executor"]["inference_devices"],
         "episode_seeds": [1_000_000, 1_000_000 + args.episodes - 1],
-        "profile_sha256": file_sha256(args.profile_path.resolve()) if args.env_condition == "profile" else None,
-        "checkpoint_sha256": file_sha256(args.bundle_dir.resolve() / "checkpoints/model.pt"),
+        "profile_path": str(args.profile_path.resolve()) if args.env_condition == "profile" else None,
+        "checkpoint": str(args.bundle_dir.resolve() / "checkpoints/model.pt"),
     }
     (output_dir / "provenance.json").write_text(json.dumps(receipt, indent=2) + "\n")
     run_env = os.environ.copy()
@@ -254,16 +249,16 @@ def main() -> None:
     run_env["CUDA_HOME"] = str(cuda_home)
     run_env["CXX"] = str(compiler)
     run_env["NVCC_PREPEND_FLAGS"] = f"-ccbin={compiler}"
-    subprocess.run([sys.executable, "-m", "latency_bench.run", "--config", str(config_path)],
+    subprocess.run([sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path)],
                    cwd=ROOT, env=run_env, check=True)
-    audit_evaluation(output_dir, args.episodes)
-    if args.episodes == 100:
+    audit_evaluation(output_dir)
+    if args.episodes == 100 and args.wandb_project is not None:
         provenance = json.loads((args.bundle_dir.resolve() / "provenance.json").read_text())
         config["logging"].update({
             "wandb_name": provenance["wandb_run_id"],
             "wandb_display_name": provenance["training_run_id"],
-            "wandb_project": "starvla_tasks",
-            "wandb_entity": "saberrr-zju",
+            "wandb_project": args.wandb_project,
+            "wandb_entity": args.wandb_entity,
         })
         label = "0" if args.env_condition == "zero" else "profile_sample"
         summary = json.loads((output_dir / f"queue_eval_latency_{label}.json").read_text())

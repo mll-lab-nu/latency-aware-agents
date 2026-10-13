@@ -1,0 +1,102 @@
+experiment:
+  name: starvla_wan_oft_deadly_corridor_profile
+  seed: 42
+backend:
+  algo: APPO
+  device: cpu
+  train_dir: results/sample_factory
+  restart_behavior: resume
+  run_mode: eval
+executor:
+  mode: realtime
+  simulated_worker_capacity: null
+  parallel_envs: 1
+  inference_devices:
+  - cuda:0
+  sync_cuda: true
+env:
+  name: deadly_corridor
+  env_id: doom_deadly_corridor
+  env_fps: 35
+  obs_fps: 8.75
+  noop_action: 0
+  frame_stack: 4
+  res_w: 128
+  res_h: 72
+  wide_aspect_ratio: false
+  simulator: cpu
+  obs_resize:
+  - 224
+  - 224
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+policy:
+  type: starvla
+  actions:
+  - 0
+  deterministic: true
+  unnorm_key: new_embodiment
+  prompt_mode: latency_neutral
+  action_layout: multibinary_7
+  multibinary_threshold: 0.0
+  latency_prompt_map_path: /home/lixinyuan/latency-sensitive-bench/third_party/starVLA/data/deadly_corridor_fix_latency_6_1000ep_context5/deadly_corridor_train__bridge/latency_prompt_map.json
+  latency_prompt_key: 6
+  source: hf
+  root: .
+  checkpoint: checkpoints/steps_1000_pytorch_model.pt
+  model_config: config.full.yaml
+  hf_repo: talha15032/wan_oft_deadly_corridor_fix_latency_6_context5_standard_sft_1000_effbs128_224_currentbce
+training:
+  train_for_env_steps: 25000000
+  num_workers: 32
+  num_envs_per_worker: 4
+  worker_num_splits: 2
+  num_policies: 1
+  batch_size: 1024
+  rollout: 128
+  recurrence: 128
+  num_epochs: 2
+  num_batches_per_epoch: 2
+  learning_rate: 0.0001
+  gamma: 0.99
+  gae_lambda: 0.95
+  ppo_clip_ratio: 0.1
+  ppo_clip_value: 0.2
+  exploration_loss: symmetric_kl
+  exploration_loss_coeff: 0.001
+  value_loss_coeff: 0.5
+  max_grad_norm: 4.0
+  async_rl: true
+  use_rnn: true
+  rnn_type: gru
+  rnn_size: 512
+  normalize_input: true
+  normalize_returns: true
+  stats_avg: 100
+  experiment_summaries_interval: 1
+  save_every_sec: 600
+  keep_checkpoints: 5
+evaluation:
+  eval_interval_steps: 1000000
+  eval_raw_reward: true
+  episodes: 10
+  max_env_steps: 3600
+  suites: []
+logging:
+  output_dir: outputs/profiling
+  video:
+    enabled: false
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  wandb_project: null
+  wandb_group: deadly_corridor-new(remove training episode limit)
+  wandb_job_type: sample_factory
+  wandb_tags: ''
+profiling:
+  model_id: wanoft
+  workload_id: deadly_corridor
+  repeats: 5
+  calibration: null

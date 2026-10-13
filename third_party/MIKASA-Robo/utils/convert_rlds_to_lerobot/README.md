@@ -58,17 +58,17 @@ namespace with `--repo-id-template "your_hf_user/{task}"` when needed.
 Run from the MIKASA-Robo repository root with the isolated converter project:
 
 ```bash
-uv sync --project utils/convert_rlds_to_lerobot
+uv venv --python 3.10 utils/convert_rlds_to_lerobot/.venv
+uv pip install --python utils/convert_rlds_to_lerobot/.venv/bin/python \
+  --prerelease allow -r utils/convert_rlds_to_lerobot/pyproject.toml
 ```
 
-Keep `--project utils/convert_rlds_to_lerobot` on converter commands so they
-use the LeRobot, TensorFlow, and TFDS dependencies pinned for this utility.
+Use the converter interpreter directly after installation.
 
 ## Convert one task
 
 ```bash
-uv run --project utils/convert_rlds_to_lerobot \
-  python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
+utils/convert_rlds_to_lerobot/.venv/bin/python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
   --task RememberColor3-VLA-v0 \
   --overwrite-dest
 ```
@@ -83,8 +83,7 @@ LeRobot dataset, and copies RLDS `metadata.json` to
 Use a small partial conversion before exporting a full task:
 
 ```bash
-uv run --project utils/convert_rlds_to_lerobot \
-  python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
+utils/convert_rlds_to_lerobot/.venv/bin/python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
   --task RememberColor3-VLA-v0 \
   --max-episodes 2 \
   --overwrite-dest
@@ -93,8 +92,7 @@ uv run --project utils/convert_rlds_to_lerobot \
 ## Convert all RLDS tasks
 
 ```bash
-uv run --project utils/convert_rlds_to_lerobot \
-  python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
+utils/convert_rlds_to_lerobot/.venv/bin/python utils/convert_rlds_to_lerobot/convert_rlds_to_lerobot.py \
   --all \
   --overwrite-dest
 ```

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
+from latency_bench.policy.model_source import model_file
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -21,7 +23,6 @@ from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy._starvla_actions import action_from_starvla_payload
 from latency_bench.envs.latency_wrapper import ActionLatencyWrapper
 from training.gymnasium_sf.integration import (
-    build_cli_args_from_config,
     build_train_cfg_from_config,
 )
 
@@ -162,6 +163,7 @@ def test_scaffold_reports_native_continuous_action_contract(monkeypatch):
 )
 def test_walker2d_configs_share_zero_latency_contract(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 
@@ -177,15 +179,17 @@ def test_walker2d_configs_share_zero_latency_contract(config_path):
 
 def test_walker2d_small_model_eval_sweeps_requested_latencies_and_episode_count():
     config = load_config("configs/examples/gymnasium/walker2d/small_model_eval.yaml")
+    resolve_env_config(config)
 
-    assert config["evaluation"]["eval_latency_values"] == [0, 1, 2, 3, 4]
-    assert config["evaluation"]["eval_episodes"] == 10
+    assert [round(suite["latency"].get("fixed_latency_ms", 0) * config["env"]["env_fps"] / 1000) for suite in config["evaluation"]["suites"]] == [0, 1, 2, 3, 4]
+    assert config["evaluation"]["episodes"] == 10
     assert config["backend"]["train_dir"] == "/mnt/checkpoints/latency-sensitive-bench/small_models/walker2d"
     assert config["logging"]["output_dir"] == "/mnt/results/latency-sensitive-bench/tasks/walker2d/small_model_eval"
 
 
 def test_walker2d_checkpoint_contract_preserves_native_box():
     config = load_config("configs/examples/gymnasium/walker2d/small_model_train_ppo_tuned.yaml")
+    resolve_env_config(config)
     cfg = build_train_cfg_from_config(config)
     task_contract = gymnasium_task_contract(config["env"])
 
@@ -213,8 +217,11 @@ def test_walker2d_checkpoint_contract_preserves_native_box():
 
 def test_walker2d_formal_and_candidate_training_budgets_are_isolated():
     formal = load_config("configs/examples/gymnasium/walker2d/small_model_train.yaml")
+    resolve_env_config(formal)
     candidate = load_config("configs/examples/gymnasium/walker2d/small_model_train_ppo_tuned.yaml")
+    resolve_env_config(candidate)
     official = load_config("configs/examples/gymnasium/walker2d/small_model_train_sf_official_10m.yaml")
+    resolve_env_config(official)
 
     assert formal["training"]["train_for_env_steps"] == 10_000_000
     assert candidate["training"]["train_for_env_steps"] == 1_000_000
@@ -247,11 +254,12 @@ def test_walker2d_rollout_and_starvla_keep_six_continuous_dimensions():
 
 def test_walker2d_starvla_eval_uses_continuous_projector_checkpoint():
     config = load_config("configs/examples/gymnasium/walker2d/starvla_eval.yaml")
+    resolve_env_config(config)
 
-    assert config["policy"]["checkpoint_path"].endswith("steps_5000_pytorch_model.pt")
-    assert "continuous_projector_sft_5k" in config["policy"]["checkpoint_path"]
-    assert "continuous_projector_sft_5k" in config["policy"]["model_config_path"]
+    assert model_file(config["policy"], "checkpoint").endswith("steps_5000_pytorch_model.pt")
+    assert "continuous_projector_sft_5k" in model_file(config["policy"], "checkpoint")
+    assert "continuous_projector_sft_5k" in model_file(config["policy"], "model_config")
     assert config["logging"]["output_dir"].endswith("starvla_eval_continuous_projector")
-    assert config["evaluation"]["eval_latency_values"] == [0, 2]
-    assert config["evaluation"]["eval_episodes"] == 20
-    assert config["evaluation"]["eval_max_steps"] == 1000
+    assert [round(suite["latency"].get("fixed_latency_ms", 0) * config["env"]["env_fps"] / 1000) for suite in config["evaluation"]["suites"]] == [0, 2]
+    assert config["evaluation"]["episodes"] == 20
+    assert config["evaluation"]["max_env_steps"] == 1000

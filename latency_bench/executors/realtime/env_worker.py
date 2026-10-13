@@ -16,7 +16,6 @@ from latency_bench.executors.realtime.messages import (
 from latency_bench.executors.realtime.shared_observation import ObservationSlotPool
 from latency_bench.executors.realtime.timing import monotonic_ms
 from latency_bench.logging.records import build_step_record
-from latency_bench.logging.realtime_pipeline import PipelineProfile
 from latency_bench.scheduler.action_queue import ActionScheduler
 from latency_bench.scheduler.factory import build_action_scheduler
 from latency_bench.policy.action_prefix import with_action_prefix
@@ -36,12 +35,9 @@ def _drain_env_action_messages(
     connection: Any,
     action_scheduler: ActionScheduler,
     release_observation: Callable[[int], None],
-    now_ms_fn: Callable[[], float] = monotonic_ms,
 ) -> bool:
     while connection.poll():
-        recv_start_ms = now_ms_fn()
         command, payload = connection.recv()
-        recv_end_ms = now_ms_fn()
         payload = payload or {}
         if command == "close":
             return True
@@ -50,13 +46,7 @@ def _drain_env_action_messages(
             continue
         if command == "action_dispatch":
             action_event = _action_event_from_dispatch_payload(payload)
-            if action_event.profile is not None:
-                action_event.profile.parent_to_env_ipc_ms = (
-                    recv_end_ms - action_event.profile.parent_to_env_send_start_ms
-                )
             action_scheduler.enqueue(action_event)
-            if action_event.profile is not None:
-                action_event.profile.env_action_recv_to_enqueue_ms = now_ms_fn() - recv_start_ms
     return False
 
 
@@ -67,7 +57,6 @@ def _drain_env_actions_until_wall_time(
     release_observation: Callable[[int], None],
     target_wall_s: float,
     time_fn: Callable[[], float] = time.perf_counter,
-    now_ms_fn: Callable[[], float] = monotonic_ms,
 ) -> bool:
     while True:
         remaining_s = target_wall_s - time_fn()
@@ -78,7 +67,6 @@ def _drain_env_actions_until_wall_time(
                 connection=connection,
                 action_scheduler=action_scheduler,
                 release_observation=release_observation,
-                now_ms_fn=now_ms_fn,
             ):
                 return True
             continue
@@ -108,7 +96,7 @@ def _env_loop_worker(connection, config, video_output_dir, video_fps):
         )
         connection.send(("ready", {
             "env_fps": env.env_fps, "noop_action": env.noop_action,
-            "action_space": env_action_space(env),
+            "action_space": env_action_space(env), "env_config": config["env"],
         }))
         next_obs_id = 0
         while True:
@@ -125,25 +113,16 @@ def _env_loop_worker(connection, config, video_output_dir, video_fps):
                 observe_start_ms = monotonic_ms()
                 observation = with_action_prefix(env.observe(), scheduler, action_prefix)
                 shared = observation_pool.write(obs_id=next_obs_id, observation=observation)
-                profile = PipelineProfile(
-                    env_observe_ms=monotonic_ms() - observe_start_ms,
-                    env_wall_lag_ms=0.0,
-                    parent_to_env_ipc_ms=0.0,
-                    env_action_recv_to_enqueue_ms=0.0,
-                )
                 task = RealtimeObservationTask(
                     obs_id=next_obs_id, observation=shared,
                     submit_env_step=observation.env_step, submit_time_ms=0.0,
-                    observation_start_time_ms=observe_start_ms, profile=profile,
+                    observation_start_time_ms=observe_start_ms,
                     shared_obs_id=next_obs_id,
                 )
                 next_obs_id += 1
-                profile.env_observation_send_start_ms = monotonic_ms()
                 connection.send(("observation", {"task": task}))
             elif command == "step":
-                start_ms = monotonic_ms()
                 result = env.step(payload["action"])
-                result.info["env_step_ms"] = monotonic_ms() - start_ms
                 connection.send(("step", {"result": result}))
             elif command == "episode":
                 # The worker now survives resets; collect only outside paced time.
@@ -165,13 +144,12 @@ def _env_loop_worker(connection, config, video_output_dir, video_fps):
 
 
 def _run_episode(connection, config, env, clock, action_scheduler, observation_pool,
-                 *, episode_id, seed, eval_max_steps, video_output_dir, video_fps):
+                 *, episode_id, seed, max_env_steps, video_output_dir, video_fps):
     from latency_bench.logging.video import EpisodeVideoRecorder
     from latency_bench.scheduler.decision import ObservationCadenceDecisionScheduler
 
     action_scheduler.reset()
     env.reset(seed=seed)
-    profile_enabled = config["logging"]["realtime_pipeline_profile"]
     decision_scheduler = ObservationCadenceDecisionScheduler(clock)
     action_prefix = config["policy"]["action_prefix"]
     video_recorder = None
@@ -184,7 +162,7 @@ def _run_episode(connection, config, env, clock, action_scheduler, observation_p
     next_obs_id = 0
     applied_event_count = 0
     release_shared_observation = observation_pool.release
-    for env_step in range(int(eval_max_steps)):
+    for env_step in range(int(max_env_steps)):
         scheduled_time_ms = clock.step_to_time_ms(env_step)
         target_wall_s = episode_start_s + scheduled_time_ms / 1000.0
         now_s = time.perf_counter()
@@ -212,27 +190,17 @@ def _run_episode(connection, config, env, clock, action_scheduler, observation_p
                 env.observe(), action_scheduler, action_prefix,
                 current_time_ms=wall_elapsed_ms,
             )
-            observe_end_ms = monotonic_ms()
             obs_id = next_obs_id
             next_obs_id += 1
             shared_observation = observation_pool.write(obs_id=obs_id, observation=observation)
-            profile = None
-            if profile_enabled:
-                profile = PipelineProfile(
-                    env_observe_ms=observe_end_ms - observe_start_ms,
-                    env_wall_lag_ms=wall_clock_lag_ms,
-                )
             task = RealtimeObservationTask(
                 obs_id=obs_id,
                 observation=shared_observation,
                 submit_env_step=env_step,
                 submit_time_ms=wall_elapsed_ms,
                 observation_start_time_ms=observe_start_ms,
-                profile=profile,
                 shared_obs_id=obs_id,
             )
-            if profile is not None:
-                profile.env_observation_send_start_ms = monotonic_ms()
             connection.send(("observation", {"task": task}))
 
         if _drain_env_action_messages(
@@ -242,22 +210,12 @@ def _run_episode(connection, config, env, clock, action_scheduler, observation_p
         ):
             return False
 
-        scheduler_update_start_ms = monotonic_ms()
         # Completion timestamps use wall time even when a physical step overruns.
         active_action = action_scheduler.update(env_step, wall_elapsed_ms)
-        scheduler_update_ms = monotonic_ms() - scheduler_update_start_ms
         new_applied_events = action_scheduler.get_applied_events_since(applied_event_count)
-        for event in new_applied_events:
-            if event.profile is not None:
-                event.profile.env_scheduler_update_ms = scheduler_update_ms
 
-        env_step_start_ms = monotonic_ms()
         result = env.step(active_action)
-        env_step_ms = monotonic_ms() - env_step_start_ms
-        result.info["env_step_ms"] = env_step_ms
         for event in new_applied_events:
-            if event.profile is not None:
-                event.profile.env_step_ms = env_step_ms
             connection.send(("action_ack", _action_event_ack_payload(event)))
         applied_event_count = action_scheduler.applied_event_count
         episode_done = bool(result.done or result.truncated)

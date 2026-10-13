@@ -3,13 +3,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
-# --- inject .env ---
-set -a
-source "${REPO_ROOT}/.env"
-set +a
-export HF_ENDPOINT=https://huggingface.co
-echo "HF_TOKEN set: ${HF_TOKEN:+yes}    WANDB_API_KEY set: ${WANDB_API_KEY:+yes}"
-
 # non-interactive bash doesn't auto-load conda's shell hook
 CONDA_BASE="$(conda info --base 2>/dev/null || echo /opt/miniforge3)"
 # shellcheck source=/dev/null
@@ -44,20 +37,3 @@ python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_flappy_to_st
 
 # --- train (all model parameters) ---
 bash "${REPO_ROOT}/third_party/starVLA/commands/memory/train_flappy_openvla_full_model.sh"
-
-# --- upload checkpoints ---
-# The published checkpoint keeps its historical run ID.
-RUN_DIR="${REPO_ROOT}/third_party/starVLA/results/Checkpoints/flappy_fix_latency_2_200ep_full_tuning_corrected"
-CHECKPOINT_DIR="${RUN_DIR}/checkpoints"
-compgen -G "${CHECKPOINT_DIR}/steps_*_model.safetensors" > /dev/null
-find "${CHECKPOINT_DIR}" -maxdepth 1 -type d -name "steps_*_state" -exec rm -rf {} +
-
-hf upload MLL-Lab/LAGEN-models \
-  "${RUN_DIR}" \
-  ./latency-aware/flappy/vla/starvla-qwenoft-h1/flappy_fix_latency_2_200ep_full_tuning_corrected \
-  --exclude "wandb/**" \
-  --exclude "checkpoints/_initialization/**" \
-  --exclude "checkpoints/*_state/**" \
-  --exclude "**/optimizer.bin" \
-  --exclude "**/*optim_states.pt" \
-  --repo-type model

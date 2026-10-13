@@ -3,7 +3,6 @@ experiment:
   seed: 0
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: results/sample_factory
@@ -17,11 +16,9 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: asterix
-  env_id: LatencyBench/Asterix-v0
-  registration_imports: [latency_bench.envs.tasks.asterix]
+  name: asterix
   make_kwargs:
     base_env_id: ALE/Asterix-v5
     render_mode: rgb_array
@@ -69,6 +66,8 @@ policy:
   type: random
   actions: [noop, up, right, left, down, upright, upleft, downright, downleft]
 
+  deterministic: true
+
 training:
   train_for_env_steps: 1000000
   num_workers: 4
@@ -107,15 +106,12 @@ training:
 
 evaluation:
   eval_interval_steps: null
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 5000
-  eval_deterministic: true
-  eval_suites:
-    fixed:
-      - [0]
-    normal: []
-    uniform: []
+  episodes: 5
+  max_env_steps: 5000
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
 
 logging:
   output_dir: outputs/asterix_base
@@ -125,7 +121,7 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
-  wandb_project: latency-sensitive-bench
+  wandb_project: null
   wandb_group: asterix
   wandb_job_type: sample_factory
   wandb_tags: ""

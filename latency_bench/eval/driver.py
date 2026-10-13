@@ -2,9 +2,11 @@
 
 This is the core ``run_from_config`` and its episode-side helpers. Sweep/suite
 orchestration lives in :mod:`latency_bench.eval.sweeps`; the CLI in
-:mod:`latency_bench.run`.
+:mod:`latency_bench.eval.cli`.
 """
 from __future__ import annotations
+
+from latency_bench.core.config import resolve_runtime_config
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -16,13 +18,12 @@ from latency_bench.utils.seeding import seed_everything
 from latency_bench.core.types import EpisodeMetrics, ExecutorMode
 from latency_bench.eval.config import (
     _episode_seed,
-    _eval_episodes,
-    _eval_max_steps,
     _evaluation_seed,
-    resolve_evaluation_config,
 )
 from latency_bench.eval.reporting import _write_non_sweep_summary
 from latency_bench.envs.base import EnvAdapter
+from latency_bench.envs.factory import resolve_env_config
+from latency_bench.policy.model_source import resolve_model_source, model_file
 from latency_bench.executors.base import BatchedExecutor
 from latency_bench.executors.factory import build_executor
 from latency_bench.executors.realtime_warmup import plot_realtime_eval_latency
@@ -43,8 +44,9 @@ def run_from_config(
     env_backend: Any | None = None,
     inference_devices: list[str] | None = None,
 ) -> list[EpisodeMetrics]:
-    eval_max_steps = _eval_max_steps(config)
-    resolve_evaluation_config(config)
+    config = resolve_model_source(config) if policy is None else config
+    max_env_steps = int(config["evaluation"]["max_env_steps"])
+    resolve_runtime_config(config)
     if (
         policy is None
         and env is None
@@ -53,13 +55,14 @@ def run_from_config(
     ):
         from latency_bench.policy.starvla import prepare_starvla_checkpoint_input_config
 
+        resolve_env_config(config)
         prepare_starvla_checkpoint_input_config(config)
 
     experiment_cfg = config["experiment"]
     policy_cfg = config["policy"]
     logging_cfg = config["logging"]
     seed = _evaluation_seed(config)
-    configured_num_episodes = _eval_episodes(config)
+    configured_num_episodes = config["evaluation"]["episodes"]
     selected_episode_ids = list(range(configured_num_episodes)) if episode_ids is None else list(episode_ids)
     seed_everything(seed)
 
@@ -86,7 +89,7 @@ def run_from_config(
             run_episodes_kwargs: dict[str, Any] = {
                 "episode_ids": selected_episode_ids,
                 "seeds": [_episode_seed(config, episode_id) for episode_id in selected_episode_ids],
-                "eval_max_steps": eval_max_steps,
+                "max_env_steps": max_env_steps,
             }
             if on_episode_complete is not None:
                 run_episodes_kwargs["on_episode_complete"] = on_episode_complete
@@ -106,7 +109,7 @@ def run_from_config(
                 episode_metrics = executor.run_episode(
                     episode_id=episode_id,
                     seed=_episode_seed(config, episode_id),
-                    eval_max_steps=eval_max_steps,
+                    max_env_steps=max_env_steps,
                 )
                 metrics.append(episode_metrics)
                 if on_episode_complete is not None:
@@ -127,9 +130,9 @@ def run_from_config(
                 episode_metrics.metadata["measurement"] = config["measurement"]
             episode_metrics.metadata["config_name"] = experiment_cfg.get("name")
             episode_metrics.metadata["run_name"] = experiment_cfg.get("name")
-            if "checkpoint_path" in policy_cfg:
-                episode_metrics.metadata["checkpoint_path"] = policy_cfg["checkpoint_path"]
-            if "profile_path" in config["latency"]:
+            if policy_cfg.get("checkpoint") is not None:
+                episode_metrics.metadata["checkpoint_path"] = model_file(policy_cfg, "checkpoint")
+            if config["executor"]["mode"] == "simulated" and "profile_path" in config["latency"]:
                 episode_metrics.metadata["source_profile_path"] = config["latency"]["profile_path"]
             if "checkpoint_kind" in policy_cfg:
                 episode_metrics.metadata["checkpoint_kind"] = str(policy_cfg["checkpoint_kind"])
@@ -188,21 +191,22 @@ def _record_stratified_replay_videos(
 
 
 def _evaluation_raw_fact_metadata(config: dict[str, Any], episode_id: int) -> dict[str, Any]:
-    env_cfg = config.get("env", {})
-    policy_cfg = config.get("policy", {})
-    latency_cfg = config.get("latency", {})
-    executor_cfg = config.get("executor", {})
-    env_fps = float(env_cfg["env_fps"]) if "env_fps" in env_cfg else None
-    obs_fps = float(env_cfg["obs_fps"]) if "obs_fps" in env_cfg else None
-    frame_ms = None if env_fps is None or env_fps <= 0 else 1000.0 / env_fps
-    executor_mode = str(executor_cfg.get("mode", "")).strip().lower()
-    latency_type = latency_type_from_config(latency_cfg)
+    env_cfg = config["env"]
+    policy_cfg = config["policy"]
+    latency_cfg = config["latency"] if config["executor"]["mode"] == "simulated" else config.get("measurement", {})
+    executor_cfg = config["executor"]
+    env_fps = float(env_cfg["env_fps"])
+    obs_fps = float(env_cfg["obs_fps"])
+    frame_ms = 1000.0 / env_fps
+    executor_mode = executor_cfg["mode"]
     if executor_mode == "paused":
         latency_type = "zero"
     elif executor_mode == "realtime":
         latency_type = "measured"
+    else:
+        latency_type = latency_type_from_config(config["latency"])
     return {
-        "mode": executor_cfg.get("mode"),
+        "mode": executor_mode,
         "episode_seed": _episode_seed(config, episode_id),
         "policy_id": _metadata_id(policy_cfg, "policy_id", "id", "type"),
         "env_id": _metadata_id(env_cfg, "env_id", "id", "name"),

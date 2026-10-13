@@ -1,0 +1,13 @@
+__base__: flappy_fixed_l2.yaml
+executor:
+  parallel_envs: 256
+logging:
+  output_dir: outputs/memory/flappy_fixed_l2_sharded
+collection:
+  replay_num_envs: 16
+dataset_experiment:
+  probe_shards:
+    count: 6
+    parallel_envs: 256
+    episodes: 39
+    seed_stride: 100000000

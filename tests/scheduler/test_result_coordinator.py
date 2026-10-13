@@ -36,9 +36,11 @@ def test_latest_ready_discards_older_results_ready_in_same_batch():
     assert released == ["r2"]
     assert discarded == ["r0"]
     assert coordinator.discarded_ready_result_count == 1
+    assert coordinator.ignored_obs_ids == {1}
     # obs 1 is still in flight but older than the released result.
     assert coordinator.add_completion(1, "r1") == ["r1"]
     assert coordinator.ignored_late_result_count == 1
+    assert not coordinator.ignored_obs_ids
 
 
 def test_fifo_releases_in_issue_order_and_counts_head_of_line_blocking():

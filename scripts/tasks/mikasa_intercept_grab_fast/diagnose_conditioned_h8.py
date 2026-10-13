@@ -9,10 +9,11 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from latency_bench.policy.model_source import model_file
 
 import numpy as np
 
-from latency_bench.data.starvla_tasks import denormalize, normalize
+from latency_bench.integrations.starvla.task_contracts import denormalize, normalize
 
 
 def suffix_errors(prediction: np.ndarray, target: np.ndarray, mask: np.ndarray) -> dict:
@@ -41,9 +42,9 @@ def capture(args: argparse.Namespace) -> None:
     from latency_bench.core.clock import EnvClock
     from latency_bench.scheduler.factory import build_action_scheduler
     from latency_bench.core.types import Action
-    from scripts.mikasa.evaluate import _PpoPolicy
+    from latency_bench.policy.mikasa_ppo import MikasaPpoPolicy
     from latency_bench.envs.tasks.mikasa import make_ppo_env, make_vla_env
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
+    from latency_bench.envs.tasks.mikasa_collection import (
         _conditioned_observation,
         _teacher_chunks,
         _uint8_rgb,
@@ -61,7 +62,7 @@ def capture(args: argparse.Namespace) -> None:
     episodes_dir.mkdir()
     rgb_env = make_vla_env(num_envs=1, simulator_device=args.device)
     branch_env = make_ppo_env(num_envs=1, simulator_device=args.device)
-    teacher = _PpoPolicy(branch_env, args.teacher)
+    teacher = MikasaPpoPolicy(branch_env, args.teacher)
     try:
         branch_env.reset(seed=args.seed_start)
         for seed in range(args.seed_start, args.seed_start + args.episodes):
@@ -99,20 +100,20 @@ def capture_batch_first(args: argparse.Namespace) -> None:
     from latency_bench.core.types import Action
     from latency_bench.scheduler.factory import build_action_scheduler
     from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
-    from scripts.mikasa.evaluate import _PpoPolicy
+    from latency_bench.policy.mikasa_ppo import MikasaPpoPolicy
     from latency_bench.envs.tasks.mikasa import make_ppo_env
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
+    from latency_bench.envs.tasks.mikasa_collection import (
         _conditioned_observation,
         _teacher_chunks,
     )
 
     config = load_config(args.eval_config)
-    slots = config["evaluation"]["eval_parallel_envs"]
+    slots = config["executor"]["parallel_envs"]
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output / "episodes").mkdir()
     backend = MikasaEnvStepBackend(config=config, num_slots=slots)
     branch = make_ppo_env(num_envs=slots, simulator_device=config["env"]["simulator_device"])
-    teacher = _PpoPolicy(branch, args.teacher)
+    teacher = MikasaPpoPolicy(branch, args.teacher)
     scheduler = build_action_scheduler(
         config["scheduler"], clock=EnvClock(env_fps=20, obs_fps=20),
         noop_action=Action(np.zeros(7, dtype=np.float32), name="noop", is_noop=True),
@@ -354,7 +355,7 @@ def oracle(args: argparse.Namespace) -> None:
     from PIL import Image
 
     from latency_bench.envs.tasks.mikasa import make_vla_env
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import _uint8_rgb
+    from latency_bench.envs.tasks.mikasa_collection import _uint8_rgb
 
     env = make_vla_env(num_envs=1, simulator_device=args.device)
     rows = []
@@ -455,7 +456,7 @@ def batch_reset_parity(args: argparse.Namespace) -> None:
     from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
 
     config = load_config(args.eval_config)
-    slots = config["evaluation"]["eval_parallel_envs"]
+    slots = config["executor"]["parallel_envs"]
     backend = MikasaEnvStepBackend(config=config, num_slots=slots)
     rows = []
     try:
@@ -502,13 +503,13 @@ def corrected_eval(args: argparse.Namespace) -> None:
     config = load_config(args.eval_config)
     config["logging"]["output_dir"] = str(args.output)
     config["experiment"]["name"] += "_scalar_reset_diagnostic"
-    config["evaluation"]["eval_episodes"] = args.episodes
+    config["evaluation"]["episodes"] = args.episodes
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output / "eval_config.yaml").write_text(
         yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
     )
     backend = ScalarResetBackend(
-        config=config, num_slots=config["evaluation"]["eval_parallel_envs"]
+        config=config, num_slots=config["executor"]["parallel_envs"]
     )
     run_from_config(
         config, env_backend=backend,
@@ -524,15 +525,15 @@ def rollout_relabel(args: argparse.Namespace) -> None:
     from latency_bench.core.types import Action, ActionEvent, LatencyRecord
     from latency_bench.scheduler.factory import build_action_scheduler
     from latency_bench.envs.adapters.mikasa import MikasaEnvStepBackend
-    from scripts.mikasa.evaluate import _PpoPolicy
+    from latency_bench.policy.mikasa_ppo import MikasaPpoPolicy
     from latency_bench.envs.tasks.mikasa import make_ppo_env
-    from scripts.tasks.mikasa_intercept_grab_fast.collect_conditioned_h8 import (
+    from latency_bench.envs.tasks.mikasa_collection import (
         _conditioned_observation,
         _teacher_chunks,
     )
 
     config = load_config(args.eval_config)
-    slots = config["evaluation"]["eval_parallel_envs"]
+    slots = config["executor"]["parallel_envs"]
     action_rows = [json.loads(line) for line in args.actions.read_text().splitlines()]
     step_rows = [json.loads(line) for line in args.steps.read_text().splitlines()]
     actions_by_request = {
@@ -549,7 +550,7 @@ def rollout_relabel(args: argparse.Namespace) -> None:
     }
     backend = MikasaEnvStepBackend(config=config, num_slots=slots)
     branch = make_ppo_env(num_envs=slots, simulator_device=config["env"]["simulator_device"])
-    teacher = _PpoPolicy(branch, args.teacher)
+    teacher = MikasaPpoPolicy(branch, args.teacher)
     clock = EnvClock(env_fps=20, obs_fps=20)
     schedulers = [
         build_action_scheduler(
@@ -566,7 +567,7 @@ def rollout_relabel(args: argparse.Namespace) -> None:
         for slot in range(slots):
             backend._reset_slot_observation(slot, seed=config["experiment"]["seed"] + slot)
         oracle_initial = backend.env.unwrapped.ball.linear_velocity.clone()
-        for frame in range(config["evaluation"]["eval_max_steps"]):
+        for frame in range(config["evaluation"]["max_env_steps"]):
             prefixes = np.zeros((slots, 8, 7), dtype=np.float32)
             masks = np.zeros((slots, 8), dtype=bool)
             submitted = np.zeros(slots, dtype=bool)
@@ -643,7 +644,7 @@ def overfit(args: argparse.Namespace) -> None:
 
     config = yaml.safe_load(args.eval_config.read_text(encoding="utf-8"))
     config["policy"]["backbone_path"] = str(args.backbone)
-    config["policy"]["device"] = args.device
+    config["executor"]["inference_devices"] = [args.device]
     runner = build_task_starvla_policy(config)
     statistics = runner.contract["normalization"]["action"]
     rows = _dataset_rows(args.raw, "train", first_limit=args.rows, later_limit=0)
@@ -745,7 +746,7 @@ def sampler_steps(args: argparse.Namespace) -> None:
 
     config = yaml.safe_load(args.eval_config.read_text(encoding="utf-8"))
     config["policy"]["backbone_path"] = str(args.backbone)
-    config["policy"]["device"] = args.device
+    config["executor"]["inference_devices"] = [args.device]
     runner = build_task_starvla_policy(config)
     action_stats = runner.contract["normalization"]["action"]
     rows = (
@@ -900,7 +901,7 @@ def analyze(args: argparse.Namespace) -> None:
                     [row for row, _ in selected], [record for _, record in selected], means
                 )
     result = {
-        "model": args.model, "checkpoint": str(config["policy"]["checkpoint_path"]),
+        "model": args.model, "checkpoint": str(model_file(config["policy"], "checkpoint")),
         "raw": str(args.raw), "capture": str(args.capture), "groups": summary,
     }
     if args.actions is not None:

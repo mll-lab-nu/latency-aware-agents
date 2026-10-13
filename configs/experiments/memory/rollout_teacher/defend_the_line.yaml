@@ -5,51 +5,63 @@ train_dir: results/checkpoints/memory/rollout_teacher
 output_root: outputs/memory/rollout_teacher/defend_the_line
 device: cuda
 restart_behavior: resume
-train_upload_repo_id: MLL-Lab/LAGEN-models
-train_upload_repo_type: model
-train_upload_path_prefix: archive/experiment-runs/memory/rollout_teachers/defend_the_line
 
 seeds:
-  - 0
+- 0
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 1
-  eval_max_steps: 7200
-
+  episodes: 100
+  max_env_steps: 7200
 latency_settings:
   fixed_l0:
     kind: fixed
     frames: 0
-    eval_suites:
-      fixed: [[0, 2, 4, 6]]
-      normal: []
-      uniform: []
+    suites:
+    - name: fixed_0
+      latency:
+        method: zero
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
   fixed_l2:
     kind: fixed
     frames: 2
-    eval_suites:
-      fixed: [[2]]
-      normal: []
-      uniform: []
+    suites:
+    - name: fixed_2
+      latency:
+        method: fixed
+        fixed_latency_ms: 57.142857142857146
   fixed_l4:
     kind: fixed
     frames: 4
-    eval_suites:
-      fixed: [[4]]
-      normal: []
-      uniform: []
+    suites:
+    - name: fixed_4
+      latency:
+        method: fixed
+        fixed_latency_ms: 114.28571428571429
   fixed_l6:
     kind: fixed
     frames: 6
-    eval_suites:
-      fixed: [[6]]
-      normal: []
-      uniform: []
+    suites:
+    - name: fixed_6
+      latency:
+        method: fixed
+        fixed_latency_ms: 171.42857142857142
 
 sweeps:
   teacher:
     frame_stack:
-      - 4
+    - 4
     obs_fps:
-      - 8.75
+    - 8.75
+executor:
+  parallel_envs: 1

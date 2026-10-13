@@ -17,7 +17,7 @@ def eval_scalar_payload(
         f"{prefix}/global_steps": int(env_steps),
     }
     for summary in summaries:
-        metric_prefix = f"{prefix}/{summary_metric_group(summary)}/{summary_series_name(summary)}"
+        metric_prefix = f"{prefix}/{summary_metric_group(summary)}/{latency_fragment(summary['latency'])}"
         for metric in EVAL_SCALAR_METRICS:
             payload[f"{metric_prefix}/{metric}"] = float(summary[metric])
         payload[f"{metric_prefix}/completed_episodes"] = float(len(summary["returns"]))
@@ -45,10 +45,6 @@ def summary_metric_group(summary: dict[str, Any]) -> str:
     if suite_name.startswith("uniform_"):
         return "uniform"
     return suite_name
-
-
-def summary_series_name(summary: dict[str, Any]) -> str:
-    return latency_fragment(summary["latency"])
 
 
 def latency_fragment(latency: int | str) -> str:

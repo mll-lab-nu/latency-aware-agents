@@ -3,7 +3,6 @@ experiment:
   seed: 1
 
 backend:
-  type: sample_factory
   algo: FAST_TD3
   device: gpu
   train_dir: outputs/tasks/humanoidbench_balance_simple/checkpoints
@@ -16,12 +15,9 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: g1_sonic_balance_simple
-  env_id: LatencyBench/G1SonicBalanceSimple-v0
-  registration_imports:
-    - latency_bench.envs.tasks.humanoidbench.sonic
+  name: g1_sonic_balance_simple
   make_kwargs:
     render_mode: null
     width: 256
@@ -96,6 +92,7 @@ scheduler:
 policy:
   type: random
 
+  deterministic: true
 training:
   train_for_env_steps: 25000000
   num_workers: 128
@@ -138,11 +135,8 @@ training:
 
 evaluation:
   eval_interval_steps: null
-  eval_episodes: 10
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
-
+  episodes: 10
+  max_env_steps: 1000
 logging:
   output_dir: outputs/tasks/humanoidbench_balance_simple/train
   video:
@@ -151,7 +145,7 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
-  wandb_project: latency-sensitive-bench
+  wandb_project: null
   wandb_group: g1-sonic-balance-fasttd3
   wandb_job_type: sample_factory
   wandb_name: g1_sonic_balance_simple_raw_ramp_fasttd3_25m_s1

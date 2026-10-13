@@ -1,6 +1,6 @@
 # Pi05 seven-environment preparation contracts
 
-`source_map.json` pins the Standard-Pipeline dataset revision and SHA256/size of every retained metadata file. Files under each environment are unchanged archive bytes, including historical absolute paths; those paths are evidence, not new Pi05 artifact bindings.
+`source_map.json` records the Standard-Pipeline dataset revision and paths of the retained metadata files. Files under each environment are unchanged archive bytes, including historical absolute paths; those paths are evidence, not new Pi05 artifact bindings.
 
 `../<environment>/pi05_train.yaml` is a preparation overlay loaded by `latency_bench.core.config.load_config`. Its `env` block comes from the archived actual profiling session and preserves make kwargs, action catalog, reset settings, physics frame skip and teacher frame stack. `hydra_overrides` is the argument list for `third_party/starVLA/commands/pi05/train_gymnasium_pi05.sh` after the three required positional dataset arguments. The launcher binds the newly materialized manifest; the seven tests compose the same overrides against the archived manifests. These overlays are not registered executable profiling workloads.
 

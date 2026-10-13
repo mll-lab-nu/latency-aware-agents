@@ -33,12 +33,6 @@ MANIFEST_V2_COLUMNS = (
     "eval_output_dir",
     "train_artifact_dir",
     "eval_artifact_dir",
-    "train_upload_repo_id",
-    "train_upload_repo_type",
-    "eval_upload_repo_id",
-    "eval_upload_repo_type",
-    "train_artifact_repo_path",
-    "eval_artifact_repo_path",
     "latency_kind",
     "latency_fixed_frames",
     "latency_mean_frames",
@@ -101,11 +95,6 @@ def build_job_id(
     )
 
 
-def build_upload_repo_path(*, upload_prefix: str, stage: str, job_id: str) -> str:
-    prefix = str(upload_prefix).strip().strip("/")
-    if prefix:
-        return f"{prefix}/{stage}/{job_id}"
-    return f"{stage}/{job_id}"
 
 
 def dump_manifest_row(row: dict[str, Any]) -> str:

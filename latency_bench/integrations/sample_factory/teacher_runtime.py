@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+from importlib import import_module
+from training.common.config_adapter import ENV_INTEGRATIONS
 from copy import deepcopy
 import json
 import logging
@@ -30,12 +32,12 @@ from latency_bench.integrations.sample_factory.actions import (
 )
 from latency_bench.integrations.sample_factory.runtime import (
     load_sample_factory_policy_state_dict,
+    resolve_sample_factory_device,
     resolve_torch_device,
 )
 from latency_bench.latency.config import latency_type_from_config
 from training.asterix_sf.batched_gpu_env import AsterixBatchedGpuEnv
 from training.atlantis_sf.batched_gpu_env import AtlantisBatchedGpuEnv
-from training.common.config_adapter import import_integration_module
 from training.common.utils import maybe_set_cli_override
 
 
@@ -140,7 +142,8 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
     from sample_factory.cfg.arguments import load_from_checkpoint
 
     integration_name = config["integration_name"]
-    module = import_integration_module({"env": {"name": integration_name}})
+
+    module = import_module(ENV_INTEGRATIONS[integration_name])
     _register_components(module, integration_name)
     flat_cfg = config["flat_cfg"]
     argv = [
@@ -158,11 +161,13 @@ def build_sample_factory_rollout_cfg(config: dict[str, Any]):
     if integration_name == "gymnasium":
         argv.extend(_gymnasium_checkpoint_args(flat_cfg))
     if config["device_override"] is not None:
-        argv.extend(["--device", str(config["device_override"])])
+        argv.extend(["--device", resolve_sample_factory_device(str(config["device_override"]))])
     if "load_checkpoint_kind" in flat_cfg:
         argv.extend(["--load_checkpoint_kind", str(flat_cfg["load_checkpoint_kind"])])
     cfg = module.SAMPLE_FACTORY_CONFIG_PARSER.parse_eval(argv)
     cfg = load_from_checkpoint(cfg)
+    for key, value in config.get("runtime_overrides", {}).items():
+        maybe_set_cli_override(cfg, key, value)
     if config["latency_override"] is not None:
         _apply_latency_to_flat_cfg(cfg, config["latency_override"])
     maybe_set_cli_override(cfg, "add_latency_info", True)
@@ -191,7 +196,9 @@ def build_env_and_policy(module: Any, cfg: Any, config: Mapping[str, Any], num_e
     from sample_factory.model.model_utils import get_rnn_size
     from sample_factory.utils.attr_dict import AttrDict
 
-    device = torch.device(resolve_torch_device(cfg.device))
+    device = torch.device(resolve_torch_device(
+        cfg.device if config["device_override"] is None else config["device_override"]
+    ))
     envs = [
         make_env_func_batched(
             cfg,

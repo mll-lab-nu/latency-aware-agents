@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
 from types import SimpleNamespace
 from typing import Any
 
@@ -192,6 +193,7 @@ def test_scaffold_reports_native_api_and_marks_force_catalog_user_approved(monke
 )
 def test_inverted_pendulum_configs_share_task_contract_and_l1_latency(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 

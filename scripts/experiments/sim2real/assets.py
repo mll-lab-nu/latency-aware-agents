@@ -2,29 +2,32 @@
 from __future__ import annotations
 
 from pathlib import Path
-from copy import deepcopy
+import shutil
 
 from huggingface_hub import hf_hub_download, snapshot_download
 
 from latency_bench.core.config import load_config
+from latency_bench.eval.artifacts import read_runtime_snapshot
 from latency_bench.utils.io import read_json
 from latency_bench.utils.paths import REPO_ROOT
 
 
-def portable_eval_config(config, entry):
+def portable_eval_config(config, entry, registry):
     """Keep task semantics while replacing machine-local execution coordinates."""
-    config = deepcopy(config)
+    config = read_runtime_snapshot(config)
     config.pop("training", None)
     if "backend" in config:
         config["backend"].pop("train_dir", None)
     config["logging"].pop("output_dir", None)
     config["policy"].pop("worker_python_executable", None)
     config["policy"].pop("backbone_path", None)
-    config["policy"]["checkpoint_path"] = entry["checkpoint"]
-    config["policy"]["model_config_path"] = entry["model_config"]
+    config["policy"].update(source="hf", hf_repo=registry["model_repo"], revision=registry["model_revision"],
+                            root=entry["bundle"], checkpoint=entry["checkpoint"],
+                            model_config=entry["model_config"])
     for key, value in entry["policy_files"].items():
         config["policy"][key] = value
-    config["latency"].pop("profile_path", None)
+    if "latency" in config:
+        config["latency"].pop("profile_path", None)
     config["provenance"] = {"archived_eval": entry["eval_source"]}
     return config
 
@@ -42,7 +45,7 @@ def prepare_assets(registry, entry, *, eval_config_path=None):
 
 def prepare_model_assets(registry, entry, *, eval_config_path=None):
     """Relocate the pinned model/eval without depending on the training profile."""
-    config = load_config(REPO_ROOT / entry["eval_config"] if eval_config_path is None else eval_config_path)
+    config = read_runtime_snapshot(load_config(REPO_ROOT / entry["eval_config"] if eval_config_path is None else eval_config_path))
     required_files = {
         entry["checkpoint"], entry["model_config"], "config.yaml", "dataset_statistics.json",
         *entry["policy_files"].values(),
@@ -54,8 +57,8 @@ def prepare_model_assets(registry, entry, *, eval_config_path=None):
     model_root = snapshot / entry["bundle"]
     backbone = registry["backbone"]
     backbone_root = snapshot_download(repo_id=backbone["repo_id"], revision=backbone["revision"])
-    config["policy"]["checkpoint_path"] = str(model_root / entry["checkpoint"])
-    config["policy"]["model_config_path"] = str(model_root / entry["model_config"])
+    config["policy"].update(source="local", root=str(model_root), checkpoint=entry["checkpoint"],
+                            model_config=entry["model_config"])
     config["policy"]["backbone_path"] = backbone_root
     for key, filename in entry["policy_files"].items():
         config["policy"][key] = str(model_root / filename)
@@ -66,10 +69,37 @@ def prepare_model_assets(registry, entry, *, eval_config_path=None):
         "archived_eval": entry["eval_source"],
         "archived_provenance": config["provenance"] if "provenance" in config else None,
         "model_artifact": {
-            "repo_id": registry["model_repo"], "revision": registry["model_revision"],
+            "source": "hf", "repo_id": registry["model_repo"], "revision": registry["model_revision"],
             "path_in_repo": entry["bundle"], "checkpoint": entry["checkpoint"],
             "model_config": entry["model_config"],
         },
         "training_profile": entry["training_profile"],
     }
     return config
+
+
+DATASET_REPO = "MLL-Lab/LAGEN-datasets"
+
+
+def download_real_experiment(source_ref: str, revision: str, output: Path) -> dict:
+    """Restore portable real results from exactly the caller's HF snapshot."""
+    snapshot = Path(snapshot_download(
+        repo_id=DATASET_REPO, repo_type="dataset", revision=revision,
+        allow_patterns=[f"{source_ref}/{name}" for name in (
+            "experiment.json", "eval_template.yaml", "REAL_DONE", "real_summary.json",
+            "real_runs.csv", "profile_source.json",
+            "real/*/episode_metrics.jsonl",
+        )],
+    )) / source_ref
+    (snapshot / "REAL_DONE").read_bytes()
+    shutil.copytree(snapshot, output, dirs_exist_ok=True)
+    profile = read_json(snapshot / "profile_source.json")
+    measurement = Path(snapshot_download(
+        repo_id=profile["repo_id"], repo_type="dataset", revision=profile["revision"],
+        allow_patterns=[f"{profile['source_ref']}/{name}" for name in (
+            "calibration/calibration.json", "profile/*",
+        )],
+    )) / profile["source_ref"]
+    shutil.copytree(measurement / "calibration", output / "calibration", dirs_exist_ok=True)
+    shutil.copytree(measurement / "profile", output / "profile", dirs_exist_ok=True)
+    return read_json(output / "experiment.json")

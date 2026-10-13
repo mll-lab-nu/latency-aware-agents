@@ -10,4 +10,4 @@ shift
 cd "${REPO_ROOT}"
 exec "${VLA_PY_EXEC}" -m scripts.starvla.train_task \
   --task mikasa_h8 --model "${MODEL}" "$@" \
-  --vla-python "${VLA_PY_EXEC}" --eval-seed 4242424242 --no-publish
+  --vla-python "${VLA_PY_EXEC}" --eval-seed 4242424242

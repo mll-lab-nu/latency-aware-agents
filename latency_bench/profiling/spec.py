@@ -1,33 +1,41 @@
-"""Resolve registered model/workload presets and GPU names."""
+"""Resolve profiling options on an ordinary evaluation configuration."""
 
 from __future__ import annotations
 
+from latency_bench.core.config import resolve_runtime_config
+
+import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from latency_bench.core.config import load_config
 
 
-def load_profile_spec(
-    path: str | Path,
-    model_id: str,
-    workload_id: str,
-) -> dict[str, Any]:
-    registry = load_config(path)
-    preset = registry["models"][model_id]["workloads"][workload_id]
-    return {
-        "artifact_root": registry["artifact_root"],
-        "hf_repo": registry["hf_repo"],
-        "gpu_models": registry["gpu_models"],
-        "model_id": model_id,
-        "workload_id": workload_id,
-        **preset,
-    }
+
+def path_segment(value: str) -> str:
+    """Validate an artifact coordinate supplied by a config or command line."""
+    if not value or Path(value).name != value or value in {".", ".."}:
+        raise ValueError(f"Expected one path segment, got {value!r}")
+    return value
 
 
-def gpu_name_registry(gpu_models: dict[str, Any]) -> dict[str, str]:
-    return {
-        alias: gpu_id
-        for gpu_id, gpu in gpu_models.items()
-        for alias in gpu["aliases"]
-    }
+def resolve_profile_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Copy and resolve a run config without constructing its environment or policy.
+
+    Calibration and video recording are disabled by default.
+    Filesystem paths follow evaluation's caller-working-directory convention.
+    """
+    config = deepcopy(config)
+    resolve_runtime_config(config)
+    options = config["profiling"]
+    for name in ("model_id", "workload_id"):
+        path_segment(options[name])
+    if "calibration" not in options:
+        options["calibration"] = None
+    if "eval_entrypoint" in options:
+        options["eval_entrypoint"] = os.path.abspath(Path(options["eval_entrypoint"]).expanduser())
+    if config["executor"]["parallel_envs"] != 1:
+        raise ValueError("Profiling requires executor.parallel_envs: 1")
+    if config["evaluation"]["suites"]:
+        raise ValueError("Profiling requires one workload, without evaluation sweeps or suites")
+    return config

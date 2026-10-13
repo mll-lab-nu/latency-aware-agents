@@ -7,7 +7,7 @@ from functools import partial
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.latency.burst_profile import (
-    build_hidden_regime_burst_model,
+    build_hidden_regime_burst_model_from_sessions,
     build_worker_slot_distributions_from_sessions,
 )
 from latency_bench.latency.sample import LatencySample
@@ -18,7 +18,7 @@ from latency_bench.latency.samplers import (
 
 
 # These fixtures retain the v12 writer/sampler contract used by historical profiles.
-build_hidden_regime_burst_model = partial(build_hidden_regime_burst_model, model_version=12)
+build_hidden_regime_burst_model_from_sessions = partial(build_hidden_regime_burst_model_from_sessions, model_version=12)
 
 
 def _inverse_cdf(samples: list[float]) -> dict:
@@ -55,12 +55,11 @@ def _model_sample(
 def _model(
     worker_service_values: list[float], *, action_ready_offset: float = 0.0
 ) -> dict:
-    return build_hidden_regime_burst_model(
-        [
-            _model_sample(0, index, value + action_ready_offset, value)
-            for index, value in enumerate(worker_service_values)
-        ]
-    )
+    samples = [
+        _model_sample(0, index, value + action_ready_offset, value)
+        for index, value in enumerate(worker_service_values)
+    ]
+    return build_hidden_regime_burst_model_from_sessions([samples])
 
 
 def _model_distribution(
@@ -70,7 +69,7 @@ def _model_distribution(
         _model_sample(0, index, value + action_ready_offset, value)
         for index, value in enumerate(worker_service_values)
     ]
-    model = build_hidden_regime_burst_model(samples)
+    model = build_hidden_regime_burst_model_from_sessions([samples])
     return build_worker_slot_distributions_from_sessions(
         [samples],
         spike_threshold_ms_by_worker_slot=model[
@@ -285,7 +284,7 @@ def test_hidden_regime_burst_is_a_worker_state_not_a_merged_pattern():
         }
         for index, (value, worker) in enumerate(zip(values, workers))
     ]
-    model = build_hidden_regime_burst_model(samples)
+    model = build_hidden_regime_burst_model_from_sessions([samples])
     distribution = build_worker_slot_distributions_from_sessions(
         [samples],
         spike_threshold_ms_by_worker_slot=model[

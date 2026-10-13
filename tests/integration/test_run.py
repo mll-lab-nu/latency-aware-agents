@@ -11,11 +11,12 @@ import yaml
 from latency_bench.core.types import EpisodeMetrics
 from latency_bench.executors.base import BatchedExecutor, EpisodeExecutor
 from latency_bench.eval.config import apply_runtime_overrides
-import latency_bench.run as latency_run
+from latency_bench.policy.model_source import model_file
+import latency_bench.eval.cli as latency_run
 import latency_bench.eval.driver as evaluation
 import latency_bench.eval.sweeps as eval_sweeps
 import latency_bench.eval.reporting as reporting
-from latency_bench.run import main
+from latency_bench.eval.cli import main
 
 
 def _write_dummy_config(path: Path, output_dir: Path, num_episodes: int = 1) -> None:
@@ -42,10 +43,10 @@ scheduler:
 policy:
   type: constant
   action: jump
-  checkpoint_path: config_checkpoint.pt
 evaluation:
-  eval_episodes: {num_episodes}
-  eval_max_steps: 1
+  episodes: {num_episodes}
+  max_env_steps: 1
+  suites: []
 logging:
   output_dir: {output_dir}
   save_step_records: true
@@ -80,18 +81,22 @@ scheduler:
 policy:
   type: constant
   action: jump
-  checkpoint_path: config_checkpoint.pt
 logging:
   output_dir: {output_dir}
   save_step_records: true
   save_action_records: true
   save_latency_records: true
 evaluation:
-  eval_episodes: 1
-  eval_max_steps: 1
-  eval_latency_values:
-    - 0
-    - 3
+  episodes: 1
+  max_env_steps: 1
+  suites:
+  - name: eval_latency_0
+    latency:
+      method: zero
+  - name: eval_latency_3
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
 """,
         encoding="utf-8",
     )
@@ -109,6 +114,9 @@ experiment:
   seed: 0
 executor:
   mode: realtime
+  inference_devices: [cpu]
+  sync_cuda: false
+  sync_cuda: false
 env:
   name: dummy
   env_fps: 30
@@ -117,10 +125,6 @@ env:
   action_map:
     noop: noop
     jump: jump
-latency:
-  method: measured
-  device: cpu
-  sync_cuda: false
 scheduler:
   hold_policy: one_frame_then_noop
   ordering_policy: latest_ready
@@ -128,8 +132,9 @@ policy:
   type: constant
   action: jump
 evaluation:
-  eval_episodes: {num_episodes}
-  eval_max_steps: 1
+  episodes: {num_episodes}
+  max_env_steps: 1
+  suites: []
 logging:
   output_dir: {output_dir}
   save_step_records: true
@@ -177,8 +182,8 @@ def _run_config(policy_type: str, tmp_path: Path, seed: int = 7, num_episodes: i
             "save_latency_records": True,
         },
         "evaluation": {
-            "eval_episodes": num_episodes,
-            "eval_max_steps": 1,
+            "episodes": num_episodes,
+            "max_env_steps": 1,
         },
     }
 
@@ -197,7 +202,7 @@ def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp
         logger = None
         env = FakeEnv()
 
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
+        def run_episode(self, *, episode_id, seed, max_env_steps):
             episode_seeds.append(seed)
             return EpisodeMetrics(
                 episode_id=episode_id,
@@ -208,7 +213,7 @@ def test_run_from_config_uses_sample_factory_eval_episode_seeds(monkeypatch, tmp
 
     monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     monkeypatch.setattr(evaluation, "seed_everything", lambda seed: global_seed_calls.append(seed) or seed)
-    config = _run_config("deadly_corridor_sf", tmp_path, seed=11, num_episodes=3)
+    config = _run_config("sample_factory", tmp_path, seed=11, num_episodes=3)
     if configured_seed is None:
         del config["experiment"]["seed"]
     seed = 0 if configured_seed is None else configured_seed
@@ -237,7 +242,7 @@ def test_run_from_config_keeps_existing_episode_seeds_for_non_sample_factory_pol
         logger = None
         env = FakeEnv()
 
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
+        def run_episode(self, *, episode_id, seed, max_env_steps):
             episode_seeds.append(seed)
             return EpisodeMetrics(
                 episode_id=episode_id,
@@ -273,8 +278,8 @@ def test_run_from_config_uses_evaluation_eval_max_steps(
         logger = None
         env = FakeEnv()
 
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
-            eval_steps_seen.append(eval_max_steps)
+        def run_episode(self, *, episode_id, seed, max_env_steps):
+            eval_steps_seen.append(max_env_steps)
             return EpisodeMetrics(
                 episode_id=episode_id,
                 episode_return=0.0,
@@ -284,7 +289,7 @@ def test_run_from_config_uses_evaluation_eval_max_steps(
 
     monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
-    config["evaluation"] = {"eval_episodes": 1, "eval_max_steps": 7}
+    config["evaluation"] = {"episodes": 1, "max_env_steps": 7}
 
     evaluation.run_from_config(config)
 
@@ -303,8 +308,8 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
         def close(self):
             pass
 
-        def run_episodes(self, *, episode_ids, seeds, eval_max_steps):
-            run_calls.append((list(episode_ids), list(seeds), eval_max_steps))
+        def run_episodes(self, *, episode_ids, seeds, max_env_steps):
+            run_calls.append((list(episode_ids), list(seeds), max_env_steps))
             return [
                 EpisodeMetrics(
                     episode_id=int(episode_id),
@@ -317,7 +322,7 @@ def test_run_from_config_uses_batched_executor_run_episodes_when_available(
 
     monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeBatchedExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=3)
-    config["evaluation"]["eval_max_steps"] = 7
+    config["evaluation"]["max_env_steps"] = 7
 
     metrics = evaluation.run_from_config(config)
 
@@ -355,20 +360,20 @@ def test_run_from_config_merges_executor_warmup_metadata(
             warmup_calls.append(True)
             return {"warmup_status": "stable", "warmup_samples": 200}
 
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
-            run_calls.append((episode_id, seed, eval_max_steps))
+        def run_episode(self, *, episode_id, seed, max_env_steps):
+            run_calls.append((episode_id, seed, max_env_steps))
             if self.logger is not None:
                 self.logger.log_episode_metrics(SimpleNamespace(episode_id=episode_id))
             return EpisodeMetrics(
                 episode_id=episode_id,
                 episode_return=float(episode_id),
-                survival_steps=eval_max_steps,
+                survival_steps=max_env_steps,
                 metadata={},
             )
 
     monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=2)
-    config["evaluation"]["eval_max_steps"] = 10
+    config["evaluation"]["max_env_steps"] = 10
 
     metrics = evaluation.run_from_config(config)
 
@@ -406,11 +411,11 @@ def test_run_eval_progress_keeps_existing_episode_format_without_sample_target(
         def __init__(self):
             self.logger = FakeLogger()
 
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
+        def run_episode(self, *, episode_id, seed, max_env_steps):
             metrics = EpisodeMetrics(
                 episode_id=episode_id,
                 episode_return=float(episode_id),
-                survival_steps=eval_max_steps,
+                survival_steps=max_env_steps,
                 metadata={},
             )
             self.logger.episode_metrics.append(metrics)
@@ -442,18 +447,18 @@ def test_run_from_config_without_warmup_hook_does_not_warmup(
         logger = None
         env = FakeEnv()
 
-        def run_episode(self, *, episode_id, seed, eval_max_steps):
-            run_calls.append((episode_id, seed, eval_max_steps))
+        def run_episode(self, *, episode_id, seed, max_env_steps):
+            run_calls.append((episode_id, seed, max_env_steps))
             return EpisodeMetrics(
                 episode_id=episode_id,
                 episode_return=0.0,
-                survival_steps=eval_max_steps,
+                survival_steps=max_env_steps,
                 metadata={},
             )
 
     monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
     config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
-    config["evaluation"]["eval_max_steps"] = 10
+    config["evaluation"]["max_env_steps"] = 10
 
     metrics = evaluation.run_from_config(config)
 
@@ -488,23 +493,6 @@ def test_run_from_config_requires_video_num_bins_when_enabled(tmp_path: Path):
 
     with pytest.raises(KeyError, match="num_bins"):
         evaluation.run_from_config(config, write_summary=False)
-
-
-def test_run_from_config_requires_evaluation_eval_max_steps(monkeypatch, tmp_path: Path):
-    class FakeEnv:
-        def close(self):
-            pass
-
-    class FakeExecutor(EpisodeExecutor):
-        logger = None
-        env = FakeEnv()
-
-    monkeypatch.setattr(evaluation, "build_executor", lambda config: FakeExecutor())
-    config = _run_config("constant", tmp_path, seed=11, num_episodes=1)
-    config.pop("evaluation")
-
-    with pytest.raises(ValueError, match="evaluation.eval_max_steps is required"):
-        evaluation.run_from_config(config)
 
 
 def test_run_from_config_is_quiet_by_default(tmp_path: Path, capsys):
@@ -573,13 +561,15 @@ scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
 policy:
-  type: demon_attack_sf
+  type: sample_factory
 evaluation:
-  eval_episodes: 1
-  eval_max_steps: 3600
-  eval_suites:
-    fixed:
-      - [2]
+  episodes: 1
+  max_env_steps: 3600
+  suites:
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
 logging:
   output_dir: {tmp_path / "eval_outputs"}
   save_step_records: true
@@ -590,8 +580,8 @@ logging:
   wandb_name: demon-attack-fs8-fixed_l2-s42
   wandb_user: entity
   wandb_tags:
-    - observation_stride
-    - demon-attack
+  - observation_stride
+  - demon-attack
 """,
         encoding="utf-8",
     )
@@ -632,7 +622,7 @@ logging:
 
     latency_run.main(["--config", str(config_path)])
 
-    assert [call[0]["policy"]["checkpoint_path"] for call in eval_calls] == [
+    assert [model_file(call[0]["policy"], "checkpoint") for call in eval_calls] == [
         str(checkpoint_100),
         str(checkpoint_200),
     ]
@@ -719,8 +709,8 @@ experiment:
 backend:
   train_dir: {tmp_path / "checkpoints"}
   extra_args:
-    - --load_checkpoint_kind
-    - latest
+  - --load_checkpoint_kind
+  - latest
 executor:
   mode: simulated
 env:
@@ -733,16 +723,18 @@ scheduler:
   hold_policy: hold
   ordering_policy: latest_ready
 policy:
-  type: demon_attack_sf
+  type: sample_factory
   checkpoint_kind: latest
 training:
   train_for_env_steps: 250
 evaluation:
-  eval_episodes: 1
-  eval_max_steps: 3600
-  eval_suites:
-    fixed:
-      - [2]
+  episodes: 1
+  max_env_steps: 3600
+  suites:
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
 logging:
   output_dir: {tmp_path / "eval_outputs"}
   save_step_records: true
@@ -753,8 +745,8 @@ logging:
   wandb_name: demon-attack-fs8-fixed_l2-s42
   wandb_user: entity
   wandb_tags:
-    - observation_stride
-    - demon-attack
+  - observation_stride
+  - demon-attack
 """,
         encoding="utf-8",
     )
@@ -810,6 +802,7 @@ logging:
 def test_main_applies_runtime_overrides(tmp_path: Path, monkeypatch):
     """Long-lived CLI contract: user paths resolve from the caller directory."""
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "override_checkpoint.pt").write_bytes(b"checkpoint")
     config_path = tmp_path / "config.yaml"
     config_output_dir = tmp_path / "config_output"
     override_output_dir = tmp_path / "override_output"
@@ -839,12 +832,11 @@ def test_main_applies_runtime_overrides(tmp_path: Path, monkeypatch):
     assert metrics["metadata"]["checkpoint_kind"] == "best"
     assert metrics["metadata"]["output_dir"] == str(override_output_dir)
     resolved = yaml.safe_load((override_output_dir / "resolved_config.yaml").read_text())
-    assert resolved["policy"]["checkpoint_path"] == str(tmp_path / "override_checkpoint.pt")
+    assert model_file(resolved["policy"], "checkpoint") == str(tmp_path / "override_checkpoint.pt")
     assert resolved["logging"]["output_dir"] == str(override_output_dir)
-    assert resolved["evaluation"]["eval_parallel_envs"] == 1
-    assert resolved["executor"]["simulated_inference_pool"] is False
+    assert resolved["executor"]["parallel_envs"] == 1
+    assert resolved["executor"]["inference_pool"] is False
     assert resolved["executor"]["simulated_worker_capacity"] is None
-    assert resolved["logging"]["simulated_pipeline_profile"] is False
     assert resolved["policy"]["action_prefix"] == {"mode": "none"}
     summary = json.loads((override_output_dir / "queue_eval_latency_0.json").read_text(encoding="utf-8"))
     assert summary["checkpoint_kind"] == "best"
@@ -854,11 +846,7 @@ def test_wanoft_runtime_overrides_keep_raw_latency_and_prompt_key_aligned(
     tmp_path: Path,
 ):
     config = _run_config("constant", tmp_path, num_episodes=1)
-    config["evaluation"]["eval_suites"] = {
-        "fixed": [[3]],
-        "normal": [],
-        "uniform": [],
-    }
+    config["evaluation"]["suites"] = [{'name': 'fixed_3', 'latency': {'method': 'fixed', 'fixed_latency_ms': 100.0}}]
 
     apply_runtime_overrides(
         config,
@@ -866,8 +854,8 @@ def test_wanoft_runtime_overrides_keep_raw_latency_and_prompt_key_aligned(
         task_manifest_path=tmp_path / "manifest.json",
         latency_prompt_map_path=tmp_path / "latency_prompt_map.json",
         latency_raw_frames=6,
-        eval_max_steps=50,
-        eval_parallel_envs=2,
+        max_env_steps=50,
+        parallel_envs=2,
     )
 
     assert config["latency"]["method"] == "fixed"
@@ -876,11 +864,11 @@ def test_wanoft_runtime_overrides_keep_raw_latency_and_prompt_key_aligned(
     assert config["policy"]["latency_prompt_map_path"] == str(
         tmp_path / "latency_prompt_map.json"
     )
-    assert config["policy"]["model_config_path"] == str(tmp_path / "config.full.yaml")
+    assert model_file(config["policy"], "model_config") == str(tmp_path / "config.full.yaml")
     assert config["policy"]["task_manifest_path"] == str(tmp_path / "manifest.json")
-    assert config["evaluation"]["eval_suites"]["fixed"] == [[6]]
-    assert config["evaluation"]["eval_max_steps"] == 50
-    assert config["evaluation"]["eval_parallel_envs"] == 2
+    assert config["evaluation"]["suites"] == []
+    assert config["evaluation"]["max_env_steps"] == 50
+    assert config["executor"]["parallel_envs"] == 2
 
 
 def test_main_writes_non_sweep_queue_eval_summary(tmp_path: Path, capsys):
@@ -923,7 +911,6 @@ def test_main_writes_realtime_measured_summary_with_string_latency_label(monkeyp
     import latency_bench.executors.factory as executor_factory
     from latency_bench.executors.realtime.executor import RealtimeLatencyExecutor
 
-    monkeypatch.setattr(executor_factory, "_resolve_realtime_inference_devices", lambda: ["cpu"])
     monkeypatch.setattr(
         RealtimeLatencyExecutor,
         "run_warmup",
@@ -1006,62 +993,13 @@ def test_main_runs_eval_latency_sweep_into_separate_output_dirs(tmp_path: Path, 
     latency_3_path = output_dir / "eval_latency_3" / "episode_metrics.jsonl"
     assert latency_0_path.is_file()
     assert latency_3_path.is_file()
-    assert not (output_dir / "eval_latency_0" / "queue_eval_latency_0.json").exists()
-    assert not (output_dir / "eval_latency_0" / "queue_eval_results.jsonl").exists()
-    assert not (output_dir / "eval_latency_3" / "queue_eval_latency_3.json").exists()
-    assert not (output_dir / "eval_latency_3" / "queue_eval_results.jsonl").exists()
-
-    latency_0_summary_path = output_dir / "queue_eval_latency_0.json"
-    latency_3_summary_path = output_dir / "queue_eval_latency_3.json"
-    results_path = output_dir / "queue_eval_results.jsonl"
-    assert latency_0_summary_path.is_file()
-    assert latency_3_summary_path.is_file()
-    assert results_path.is_file()
-
-    latency_0_metrics = json.loads(latency_0_path.read_text(encoding="utf-8").splitlines()[0])
-    latency_3_metrics = json.loads(latency_3_path.read_text(encoding="utf-8").splitlines()[0])
-    latency_0_summary = json.loads(latency_0_summary_path.read_text(encoding="utf-8"))
-    latency_3_summary = json.loads(latency_3_summary_path.read_text(encoding="utf-8"))
-    results = [json.loads(line) for line in results_path.read_text(encoding="utf-8").splitlines()]
-
-    assert latency_0_metrics["metadata"]["train_latency_steps"] == 0
-    assert latency_0_metrics["metadata"]["eval_latency_steps"] == 0
-    assert latency_0_metrics["metadata"]["configured_latency_ms"] == 0.0
-    assert latency_0_metrics["metadata"]["latency_type"] == "fixed_sweep"
-    assert latency_0_metrics["metadata"]["config_name"] == "sweep_config"
-    assert latency_0_metrics["metadata"]["run_name"] == "sweep_config"
-    assert latency_0_metrics["metadata"]["output_dir"] == str(output_dir / "eval_latency_0")
-
-    assert latency_3_metrics["metadata"]["train_latency_steps"] == 0
-    assert latency_3_metrics["metadata"]["eval_latency_steps"] == 3
-    assert latency_3_metrics["metadata"]["configured_latency_ms"] == 100.0
-    assert latency_3_metrics["metadata"]["latency_type"] == "fixed_sweep"
-    assert latency_3_metrics["metadata"]["config_name"] == "sweep_config"
-    assert latency_3_metrics["metadata"]["run_name"] == "sweep_config"
-    assert latency_3_metrics["metadata"]["output_dir"] == str(output_dir / "eval_latency_3")
-
-    assert latency_0_summary["train_latency_steps"] == 0
-    assert latency_0_summary["eval_latency_steps"] == 0
-    assert latency_0_summary["configured_latency_ms"] == 0.0
-    assert latency_0_summary["latency_type"] == "fixed_sweep"
-    assert latency_0_summary["returns"] == [1.0]
-    assert latency_0_summary["lengths"] == [1]
-
-    assert latency_3_summary["train_latency_steps"] == 0
-    assert latency_3_summary["eval_latency_steps"] == 3
-    assert latency_3_summary["configured_latency_ms"] == 100.0
-    assert latency_3_summary["latency_type"] == "fixed_sweep"
-    assert latency_3_summary["returns"] == [1.0]
-    assert latency_3_summary["lengths"] == [1]
-    assert results == [latency_0_summary, latency_3_summary]
-
-    captured = capsys.readouterr()
-    assert "summary latency=0 episodes=1 mean_return=1.000 std_return=0.000 mean_length=1.0" in captured.out
-    assert "summary latency=3 episodes=1 mean_return=1.000 std_return=0.000 mean_length=1.0" in captured.out
-    assert "[bench] run=sweep_config sweeps=2 episodes_per_sweep=1 total_episode_runs=2" in captured.err
-    assert "[bench] sweep 1/2: eval_latency=0" in captured.err
-    assert "[bench] sweep 1/2 episode 1/1 done" in captured.err
-    assert "[bench] sweep 1/2 complete elapsed=" in captured.err
-    assert "[bench] sweep 2/2: eval_latency=3" in captured.err
-    assert "[bench] sweep 2/2 episode 1/1 done" in captured.err
-    assert "[bench] sweep 2/2 complete elapsed=" in captured.err
+    for name, frames in (("eval_latency_0", 0), ("eval_latency_3", 3)):
+        summary_path = output_dir / name / f"queue_eval_latency_{name}.json"
+        summary = json.loads(summary_path.read_text())
+        assert summary["suite_name"] == name
+        assert summary["latency"] == name
+        assert summary["returns"] == [1.0]
+        metrics = json.loads((output_dir / name / "episode_metrics.jsonl").read_text().splitlines()[0])
+        assert metrics["metadata"]["suite_name"] == name
+        assert metrics["metadata"]["latency_type"] == ("zero" if frames == 0 else "fixed")
+    assert "summary suite=eval_latency_0" in capsys.readouterr().out

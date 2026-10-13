@@ -34,8 +34,6 @@ class PolicyRunner(ABC):
 
 class RandomPolicyRunner(PolicyRunner):
     def __init__(self, actions: Sequence[Action], seed: int | None = None):
-        if not actions:
-            raise ValueError("actions cannot be empty")
         self.actions = list(actions)
         self.rng = random.Random(seed)
 

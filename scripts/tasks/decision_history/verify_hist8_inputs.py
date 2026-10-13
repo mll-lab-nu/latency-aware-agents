@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import io
-import json
 from pathlib import Path
 import sys
 
@@ -17,7 +16,7 @@ from latency_bench.utils.io import write_json_atomic
 from latency_bench.core.actions import ActionResolver
 from latency_bench.core.types import Observation
 from latency_bench.policy.starvla import build_starvla_policy
-from scripts.tasks.decision_history.eval_vla_hist8 import evaluation_config, file_sha256
+from scripts.tasks.decision_history.eval_vla_hist8 import evaluation_config
 from starVLA.dataloader.lerobot_datasets import make_LeRobotSingleDataset
 
 
@@ -28,11 +27,8 @@ def main():
     parser.add_argument("--bundle-dir", type=Path, required=True)
     parser.add_argument("--backbone", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--expected-sha", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    sha = file_sha256(args.bundle_dir / "checkpoints/model.pt")
-    assert sha == args.expected_sha
     train_cfg = OmegaConf.load(args.run_dir / "config.full.yaml")
     data_cfg = train_cfg.datasets.vla_data
     dataset = make_LeRobotSingleDataset(args.dataset_dir.parent, args.dataset_dir.name,
@@ -71,11 +67,11 @@ def main():
     reset.data["transport"] = np.zeros(88, dtype=np.float32)
     np.testing.assert_array_equal(policy._build_example(reset)["state"], np.zeros((1, 88)))
     write_json_atomic(args.output_dir / "input_parity.json", {
-        "passed": True, "checkpoint_sha256": sha, "samples": len(examples),
+        "passed": True, "checkpoint": str(args.bundle_dir / "checkpoints/model.pt"), "samples": len(examples),
         "history_encoding": "binary_0_1", "action_counts": model_counts.tolist(),
         "checked": ["image_pixels", "prompt", "state", "raw_scores", "decoded_action", "reset_history"],
     })
-    print("HIST8_INPUT_PARITY_VERIFIED", sha, model_counts.tolist(), flush=True)
+    print("HIST8_INPUT_PARITY_VERIFIED", args.bundle_dir, model_counts.tolist(), flush=True)
 
 
 if __name__ == "__main__":

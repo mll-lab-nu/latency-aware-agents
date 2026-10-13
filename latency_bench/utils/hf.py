@@ -6,7 +6,7 @@ import os
 
 
 def resolve_token(explicit_token: str) -> str | None:
-    """Resolve the Hugging Face token for optional dataset upload.
+    """Resolve the Hugging Face token for artifact downloads.
 
     Args:
         explicit_token: CLI token value.

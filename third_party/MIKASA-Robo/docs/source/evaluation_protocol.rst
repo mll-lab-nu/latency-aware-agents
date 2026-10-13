@@ -266,17 +266,17 @@ Reference Evaluation Script
 Run from the repository root::
 
    # One-task smoke-test, one episode, CPU backend
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --num-episodes 1 --sim-backend cpu \
        --output-dir eval_results/dummy
 
    # Canonical Short-split run
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --split short \
        --output-dir results/my_model
 
    # With per-episode rollout videos
-   uv run python examples/eval_demo.py \
+   .venv/bin/python examples/eval_demo.py \
        --split short \
        --save-videos \
        --output-dir results/my_model

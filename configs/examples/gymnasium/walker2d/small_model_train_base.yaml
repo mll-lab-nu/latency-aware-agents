@@ -2,7 +2,6 @@ experiment:
   name: gymnasium_walker2d_continuous_zero_latency
   seed: 0
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: /mnt/checkpoints/latency-sensitive-bench/small_models/walker2d
@@ -11,12 +10,9 @@ backend:
 executor:
   mode: simulated
   simulated_worker_capacity: null
+  parallel_envs: 1
 env:
-  name: gymnasium
-  task_name: walker2d_continuous_torque
-  env_id: LatencyBench/Walker2dContinuous-v0
-  registration_imports:
-  - latency_bench.envs.tasks.walker2d
+  name: walker2d_continuous_torque
   make_kwargs:
     base_env_id: Walker2d-v4
     render_mode: rgb_array
@@ -72,6 +68,7 @@ scheduler:
   ordering_policy: issue_order_fifo
 policy:
   type: random
+  deterministic: true
 training:
   train_for_env_steps: 10000000
   num_workers: 1
@@ -102,10 +99,8 @@ training:
   keep_checkpoints: 5
 evaluation:
   eval_interval_steps: null
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 1000
-  eval_deterministic: true
+  episodes: 5
+  max_env_steps: 1000
 logging:
   output_dir: /mnt/data/latency-sensitive-bench/walker2d/train
   video:

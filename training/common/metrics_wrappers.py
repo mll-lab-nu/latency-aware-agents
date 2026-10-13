@@ -36,7 +36,7 @@ class RewardTraceWrapper(gym.Wrapper):
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         env_reward = float(reward)
-        info = dict(info or {})
+        info = dict(info)
         raw_reward = info.get("raw_reward")
         if raw_reward is None:
             if self.raw_reward_fn is not None:
@@ -66,7 +66,7 @@ class EpisodeMetricsWrapper(gym.Wrapper):
         issued_action_labels: dict[Any, str] | None = None,
     ):
         super().__init__(env)
-        self.frames_per_decision = max(1, int(frames_per_decision))
+        self.frames_per_decision = frames_per_decision
         self.metrics_path = metrics_path or ""
         self.worker_index = int(worker_index)
         self.vector_index = int(vector_index)
@@ -157,13 +157,13 @@ class EpisodeMetricsWrapper(gym.Wrapper):
             self._reset_full_game_counters()
         self._preserve_full_game_on_next_reset = False
         obs, info = self.env.reset(**kwargs)
-        return obs, dict(info or {})
+        return obs, dict(info)
 
     def step(self, action):
         self._record_issued_action(action)
         obs, reward, terminated, truncated, info = self.env.step(action)
         reward_value = float(reward)
-        info = dict(info or {})
+        info = dict(info)
         if info["command_admitted"]:
             self.submitted_observation_count += 1
         else:

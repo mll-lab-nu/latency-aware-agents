@@ -18,7 +18,7 @@ class BackgroundWriter:
 
     def submit(self, function, *args, **kwargs):
         self.poll()
-        if len(self.pending) == self.max_pending:
+        if len(self.pending) >= self.max_pending:
             self.pending.popleft().result()
         self.pending.append(self.executor.submit(function, *args, **kwargs))
 

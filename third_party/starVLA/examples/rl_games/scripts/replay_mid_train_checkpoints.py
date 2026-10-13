@@ -161,7 +161,6 @@ def _compose_launch_cfg_from_script(args: argparse.Namespace, script_path: Path)
     launch_train_lib._append_cross_task_train_task_cli_overrides(hydra_overrides, launch_args)
     if args.hf_repo_id:
         hydra_overrides.append(f"checkpoint.hf_repo_id={args.hf_repo_id}")
-        hydra_overrides.append(f"checkpoint.sync.repo_id={args.hf_repo_id}")
     if args.override:
         hydra_overrides.extend(args.override)
 

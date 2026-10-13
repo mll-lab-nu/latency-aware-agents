@@ -24,9 +24,9 @@ Options:
   --distributed-backend <deepspeed|none> Trainer distributed backend (default: deepspeed)
   --accelerate-config <path>   Accelerate config path (default: starVLA/config/deepseeds/deepspeed_zero2.yaml)
   --seed <int>                 Seed override (default: 42)
-  --wandb-entity <name>        Wandb entity (default: WANDB_ENTITY from environment/.env)
-  --wandb-project <name>       Wandb project (default: WANDB_PROJECT or starVLA_rl_games)
-  --auth-env-file <path>       Optional auth.env path (default: auto-detect workspace/auth.env or examples/rl_games/auth.env)
+  --wandb-entity <name>        Optional W&B account or team
+  --wandb-project <name>       Optional W&B project; omitted disables W&B
+  --auth-env-file <path>       Optional explicit credential file
   --hf-token-env <name>        Env var containing the Hugging Face token (default: HF_TOKEN)
   --wandb-api-key-env <name>   Env var containing the W&B key (default: WANDB_API_KEY)
   --no-auth-login              Skip Hugging Face / W&B login
@@ -49,9 +49,6 @@ Options:
   --image-size <int>           Eval image size override
   --deadly-action-layout <multibinary_7|factorized_11>  Deadly layout override
   --deadly-loss-type <l1|multibinary_bce|multibinary_ce>  Deadly training/eval loss selector
-  --hf-sync-enabled <true|false>      checkpoint.sync.enabled
-  --hf-repo-id <repo>          checkpoint.sync.repo_id
-  --hf-keep-last-n <int>       checkpoint.sync.keep_last_n
   --local-keep-last-n <int>    checkpoint.local.keep_last_n
   --save-best-model <true|false> checkpoint.save_best_model (default: true)
   --save-pt-file <true|false> checkpoint.save_pt_file (default: false)
@@ -94,16 +91,8 @@ USE_ACCELERATE="true"
 DIST_BACKEND="deepspeed"
 ACCELERATE_CONFIG="starVLA/config/deepseeds/deepspeed_zero2.yaml"
 SEED="42"
-for ENV_FILE in "$REPO_ROOT/../.env" "$REPO_ROOT/.env"; do
-  if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    source "$ENV_FILE"
-    set +a
-    break
-  fi
-done
-WANDB_ENTITY="${WANDB_ENTITY:-}"
-WANDB_PROJECT="${WANDB_PROJECT:-starVLA_rl_games}"
+WANDB_ENTITY="${WANDB_ENTITY:-null}"
+WANDB_PROJECT="${WANDB_PROJECT:-null}"
 AUTH_ENV_FILE=""
 AUTH_ENV_FILE_EXPLICIT="false"
 HF_TOKEN_ENV="HF_TOKEN"
@@ -430,8 +419,6 @@ CMD=(
   "rl_games.env_eval.distributed_mode=$EVAL_DISTRIBUTED_MODE"
   "rl_games.env_eval.num_episodes=$NUM_EPISODES"
   "rl_games.env_eval.max_episode_steps=$MAX_EPISODE_STEPS"
-  "checkpoint.sync.enabled=$HF_SYNC_ENABLED"
-  "checkpoint.sync.keep_last_n=$HF_KEEP_LAST_N"
   "checkpoint.local.keep_last_n=$LOCAL_KEEP_LAST_N"
   "checkpoint.save_best_model=$SAVE_BEST_MODEL"
   "checkpoint.save_pt_file=$SAVE_PT_FILE"
@@ -469,9 +456,6 @@ if [[ "$ENV_NAME" == "deadly_corridor" || "${TASK_OVERRIDE:-}" == "deadly_corrid
   if [[ -n "$DEADLY_LOSS_TYPE" ]]; then
     CMD+=("rl_games.deadly_corridor_loss_type=$DEADLY_LOSS_TYPE")
   fi
-fi
-if [[ -n "$HF_REPO_ID" ]]; then
-  CMD+=("checkpoint.sync.repo_id=$HF_REPO_ID")
 fi
 
 if [[ -n "$GPUS" ]]; then

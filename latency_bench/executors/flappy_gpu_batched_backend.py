@@ -42,7 +42,7 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
     def __init__(self, *, config: dict[str, Any], noop_action: Action, num_slots: int):
         super().__init__(config=config, noop_action=noop_action, num_slots=num_slots, action_space=gym.spaces.Discrete(2))
         env_cfg = config["env"]
-        self.frame_stack = int(env_cfg.get("frame_stack", 1) or 1)
+        self.frame_stack = int(env_cfg.get("frame_stack", 1))
         self.policy_observation_layout = self._policy_observation_layout(config)
         self._returns_torch_chw_observations = self.policy_observation_layout == "chw"
         self.export_env_raw_rgb_frames = uses_starvla_policy(config)
@@ -95,7 +95,7 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
         self._last_numeric_obs: list[Any] = [None for _slot in range(self._num_slots)]
         self.gpu_render_profiler = _GpuRenderProfiler(
             enabled=bool(env_cfg.get("gpu_render_profile", False)),
-            interval=int(env_cfg.get("gpu_render_profile_interval", 1000) or 1000),
+            interval=int(env_cfg.get("gpu_render_profile_interval", 1000)),
             device=self.render_device,
             worker_index=0,
             vector_index=0,
@@ -361,7 +361,7 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
 
     @staticmethod
     def _policy_observation_layout(config: dict[str, Any]) -> str:
-        return "chw" if config_policy_type(config) == "flappy_sf" else "hwc"
+        return "chw" if config_policy_type(config) == "sample_factory" else "hwc"
 
     @staticmethod
     def _nchw_to_hwc_frames(obs: torch.Tensor) -> list[np.ndarray]:
@@ -399,7 +399,7 @@ class FlappyGpuBatchedEnvStepBackend(GpuBatchedEnvStepBackendBase):
                     self._env_raw_rgb_frames[slot_id].append(frames[slot_id])
 
     @staticmethod
-    def _with_numeric_obs(info: dict[str, Any] | None, numeric_obs: Any) -> dict[str, Any]:
-        out = dict(info or {})
+    def _with_numeric_obs(info: dict[str, Any], numeric_obs: Any) -> dict[str, Any]:
+        out = dict(info)
         out["numeric_obs"] = numeric_obs
         return out

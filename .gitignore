@@ -21,10 +21,6 @@ checkpoints/
 checkpoints_*/
 /oracle_checkpoints/
 logs/
-!docs/gym-adapt/assets/inverted_pendulum/logs/
-!docs/gym-adapt/assets/inverted_pendulum/logs/**
-/docs/gym-adapt/assets/inverted_pendulum/logs/02_focused_tests.txt
-/docs/gym-adapt/assets/inverted_pendulum/logs/11_media_stdout.txt
 configs/train
 
 
@@ -38,9 +34,11 @@ __pycache__/
 /artifacts/
 /starVLA/
 /uv.lock
+/third_party/MIKASA-Robo/uv.lock
+/third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot/uv.lock
 
 # onle reference for agents, not to upload
-reference/
+/reference/
 paper/
 
 # private keys

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
 from types import SimpleNamespace
 from typing import Any
 
@@ -49,7 +50,7 @@ class _AsterixProbeEnv(gym.Env):
 
 def test_asterix_wrapper_exposes_chw_obs_and_native_rgb(monkeypatch):
     native=_AsterixProbeEnv(); captured:dict[str,Any]={}
-    monkeypatch.setattr(gymnasium_asterix,"_register_ale",lambda:None)
+    monkeypatch.setattr(gymnasium_asterix,"register_ale",lambda:None)
     def fake_make(env_id:str,**kwargs:Any): captured.update(env_id=env_id,kwargs=kwargs); return native
     monkeypatch.setattr(gymnasium_asterix.gym,"make",fake_make)
     env=gymnasium_asterix.make_latency_sensitive_asterix_env(base_env_id="ALE/Asterix-v5",render_mode="rgb_array",screen_size=84,noop_max=0,base_make_kwargs={"frameskip":1})
@@ -62,7 +63,7 @@ def test_asterix_wrapper_exposes_chw_obs_and_native_rgb(monkeypatch):
 
 def test_asterix_random_noop_reset_uses_native_noop(monkeypatch):
     native=_AsterixProbeEnv()
-    monkeypatch.setattr(gymnasium_asterix,"_register_ale",lambda:None)
+    monkeypatch.setattr(gymnasium_asterix,"register_ale",lambda:None)
     monkeypatch.setattr(gymnasium_asterix.gym,"make",lambda *args,**kwargs:native)
     env=gymnasium_asterix.make_latency_sensitive_asterix_env(base_env_id="ALE/Asterix-v5",render_mode="rgb_array",screen_size=84,noop_max=30,base_make_kwargs={})
     env.reset(seed=3)
@@ -72,7 +73,7 @@ def test_asterix_random_noop_reset_uses_native_noop(monkeypatch):
 
 def test_l1_scheduler_advances_four_raw_frames(monkeypatch):
     native=_AsterixProbeEnv()
-    monkeypatch.setattr(gymnasium_asterix,"_register_ale",lambda:None)
+    monkeypatch.setattr(gymnasium_asterix,"register_ale",lambda:None)
     monkeypatch.setattr(gymnasium_asterix.gym,"make",lambda *args,**kwargs:native)
     task=gymnasium_asterix.make_latency_sensitive_asterix_env(base_env_id="ALE/Asterix-v5",render_mode="rgb_array",screen_size=84,noop_max=0,base_make_kwargs={})
     env=GymnasiumActionCatalogWrapper(task,list(range(9)))
@@ -101,6 +102,7 @@ def test_scaffold_reports_ntsc_and_random_noop(monkeypatch,capsys):
 ])
 def test_asterix_configs_share_contract_and_l1(config_path):
     config=load_config(config_path); env_cfg=config["env"]
+    resolve_env_config(config)
     clock=EnvClock(env_fps=env_cfg["env_fps"],obs_fps=env_cfg["obs_fps"])
     assert env_cfg["env_id"]==gymnasium_asterix.GYMNASIUM_ASTERIX_ENV_ID
     assert env_cfg["make_kwargs"]["noop_max"]==30
@@ -119,6 +121,7 @@ def test_asterix_configs_share_contract_and_l1(config_path):
 ])
 def test_asterix_zero_latency_configs_share_contract(config_path):
     config=load_config(config_path); env_cfg=config["env"]
+    resolve_env_config(config)
     clock=EnvClock(env_fps=env_cfg["env_fps"],obs_fps=env_cfg["obs_fps"])
     assert env_cfg["env_id"]==gymnasium_asterix.GYMNASIUM_ASTERIX_ENV_ID
     assert env_cfg["make_kwargs"]["noop_max"]==30

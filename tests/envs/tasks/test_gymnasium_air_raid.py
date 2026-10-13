@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from latency_bench.envs.factory import resolve_env_config
 from types import SimpleNamespace
 from typing import Any
 
@@ -68,7 +69,7 @@ class _AirRaidProbeEnv(gym.Env):
 def test_air_raid_wrapper_exposes_chw_policy_obs_and_native_rgb_render(monkeypatch):
     native_env = _AirRaidProbeEnv()
     captured: dict[str, Any] = {}
-    monkeypatch.setattr(gymnasium_air_raid, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_air_raid, "register_ale", lambda: None)
 
     def fake_make(env_id: str, **kwargs: Any):
         captured["env_id"] = env_id
@@ -97,7 +98,7 @@ def test_air_raid_wrapper_exposes_chw_policy_obs_and_native_rgb_render(monkeypat
 
 def test_l1_scheduler_advances_four_raw_frames_and_delays_first_action(monkeypatch):
     native_env = _AirRaidProbeEnv()
-    monkeypatch.setattr(gymnasium_air_raid, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_air_raid, "register_ale", lambda: None)
     monkeypatch.setattr(gymnasium_air_raid.gym, "make", lambda *args, **kwargs: native_env)
     task_env = gymnasium_air_raid.make_latency_sensitive_air_raid_env(
         base_env_id="ALE/AirRaid-v5", render_mode="rgb_array", screen_size=84, noop_max=0, base_make_kwargs={}
@@ -113,7 +114,7 @@ def test_l1_scheduler_advances_four_raw_frames_and_delays_first_action(monkeypat
 
 def test_air_raid_fire_reset_starts_game_with_fire_actions(monkeypatch):
     native_env = _AirRaidProbeEnv()
-    monkeypatch.setattr(gymnasium_air_raid, "_register_ale", lambda: None)
+    monkeypatch.setattr(gymnasium_air_raid, "register_ale", lambda: None)
     monkeypatch.setattr(gymnasium_air_raid.gym, "make", lambda *args, **kwargs: native_env)
     env = gymnasium_air_raid.make_latency_sensitive_air_raid_env(
         base_env_id="ALE/AirRaid-v5",
@@ -156,6 +157,7 @@ def test_scaffold_reports_pal_clock_and_native_action_meanings(monkeypatch, caps
 ])
 def test_air_raid_configs_share_zero_latency_four_frame_contract(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
     env_cfg = config["env"]
     clock = EnvClock(env_fps=env_cfg["env_fps"], obs_fps=env_cfg["obs_fps"])
 
@@ -177,19 +179,21 @@ def test_air_raid_configs_share_zero_latency_four_frame_contract(config_path):
 
 def test_air_raid_random_noop_eval_variant_is_explicit():
     config = load_config("configs/examples/gymnasium/air_raid/small_model_eval_random_noop.yaml")
+    resolve_env_config(config)
 
     assert config["env"]["make_kwargs"]["noop_max"] == 30
     assert config["env"]["make_kwargs"]["fire_reset"] is True
-    assert config["evaluation"]["eval_max_steps"] == 3600
+    assert config["evaluation"]["max_env_steps"] == 3600
     assert config["logging"]["output_dir"] == "outputs/examples/gymnasium_air_raid/eval_random_noop"
 
 
 def test_air_raid_starvla_eval_uses_random_noop_fire_reset():
     config = load_config("configs/examples/gymnasium/air_raid/starvla_eval.yaml")
+    resolve_env_config(config)
 
     assert config["env"]["make_kwargs"]["noop_max"] == 30
     assert config["env"]["make_kwargs"]["fire_reset"] is True
-    assert config["evaluation"]["eval_max_steps"] == 3600
+    assert config["evaluation"]["max_env_steps"] == 3600
 
 
 @pytest.mark.parametrize(
@@ -202,5 +206,6 @@ def test_air_raid_starvla_eval_uses_random_noop_fire_reset():
 )
 def test_air_raid_eval_budget_is_3600_raw_frames(config_path):
     config = load_config(config_path)
+    resolve_env_config(config)
 
-    assert config["evaluation"]["eval_max_steps"] == 3600
+    assert config["evaluation"]["max_env_steps"] == 3600

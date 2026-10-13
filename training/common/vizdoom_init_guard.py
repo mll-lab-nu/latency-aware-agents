@@ -18,28 +18,24 @@ _CONTEXT_ATTR = "_latency_bench_vizdoom_init_guard_context"
 
 @dataclass(frozen=True)
 class VizdoomInitGuardConfig:
+    """Configure bounded ViZDoom initialization locks."""
+
     max_parallel: int = 10
     lock_timeout_sec: float = 5.0
     max_wait_sec: float = 60.0
     retry_jitter_sec: float = 0.25
 
     @classmethod
-    def from_cfg(cls, cfg: object) -> "VizdoomInitGuardConfig":
+    def from_cfg(cls, cfg: Any) -> "VizdoomInitGuardConfig":
+        lock_timeout_sec = cfg.vizdoom_init_lock_timeout_sec
+        # FileLock interprets a negative timeout as an unbounded wait.
+        if lock_timeout_sec < 0:
+            raise ValueError("vizdoom_init_lock_timeout_sec must not permit an unbounded wait")
         return cls(
-            max_parallel=_cfg_int(cfg, "vizdoom_init_max_parallel", cls.max_parallel, minimum=1),
-            lock_timeout_sec=_cfg_float(
-                cfg,
-                "vizdoom_init_lock_timeout_sec",
-                cls.lock_timeout_sec,
-                minimum=0.001,
-            ),
-            max_wait_sec=_cfg_float(cfg, "vizdoom_init_lock_max_wait_sec", cls.max_wait_sec, minimum=0.001),
-            retry_jitter_sec=_cfg_float(
-                cfg,
-                "vizdoom_init_retry_jitter_sec",
-                cls.retry_jitter_sec,
-                minimum=0.0,
-            ),
+            max_parallel=cfg.vizdoom_init_max_parallel,
+            lock_timeout_sec=lock_timeout_sec,
+            max_wait_sec=cfg.vizdoom_init_lock_max_wait_sec,
+            retry_jitter_sec=cfg.vizdoom_init_retry_jitter_sec,
         )
 
 
@@ -94,13 +90,13 @@ def _guarded_game_init(self, with_locking=True, max_parallel=10):
             log.warning("VizDoom game.init() threw an exception %r. Terminate process...", exc)
             raise EnvCriticalError() from exc
 
-    config = getattr(self, _CONFIG_ATTR, VizdoomInitGuardConfig())
-    context = getattr(self, _CONTEXT_ATTR, {})
+    config = getattr(self, _CONFIG_ATTR)
+    context = getattr(self, _CONTEXT_ATTR)
     start_time = time.monotonic()
     deadline = start_time + float(config.max_wait_sec)
     attempts = 0
     tried_lock_paths: list[str] = []
-    effective_max_parallel = int(config.max_parallel or max_parallel)
+    effective_max_parallel = config.max_parallel
 
     while True:
         remaining = deadline - time.monotonic()
@@ -118,7 +114,7 @@ def _guarded_game_init(self, with_locking=True, max_parallel=10):
         attempts += 1
 
         try:
-            with FileLock(lock_path).acquire(timeout=min(float(config.lock_timeout_sec), max(0.001, remaining))):
+            with FileLock(lock_path).acquire(timeout=min(config.lock_timeout_sec, remaining)):
                 self.game.init()
             return
         except Timeout:
@@ -203,26 +199,6 @@ def _validate_vizdoom_game_init_signature(vizdoom_env_cls: type) -> None:
     )
     if not valid:
         raise RuntimeError(f"Unsupported VizdoomEnv._game_init signature: {signature}")
-
-
-def _cfg_int(cfg: object, name: str, default: int, *, minimum: int) -> int:
-    value = getattr(cfg, name, None)
-    if value is None:
-        return int(default)
-    parsed = int(value)
-    if parsed < minimum:
-        raise ValueError(f"{name} must be >= {minimum}, got {value!r}")
-    return parsed
-
-
-def _cfg_float(cfg: object, name: str, default: float, *, minimum: float) -> float:
-    value = getattr(cfg, name, None)
-    if value is None:
-        return float(default)
-    parsed = float(value)
-    if parsed < minimum:
-        raise ValueError(f"{name} must be >= {minimum}, got {value!r}")
-    return parsed
 
 
 def _sleep_with_jitter(retry_jitter_sec: float, deadline: float) -> None:

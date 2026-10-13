@@ -7,12 +7,13 @@ from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+from latency_bench.envs.factory import environment_integration
 from typing import Any
 
 from latency_bench.core.config import load_config, merge_dicts
 from latency_bench.eval.driver import run_from_config
 from latency_bench.eval.reporting import _summary_payloads_for_printing
-from latency_bench.eval.suites import has_eval_suites
+from latency_bench.eval.config import has_eval_suites
 from latency_bench.logging.wandb_eval import eval_scalar_payload
 from latency_bench.eval.sweeps import run_eval_suites_from_config
 from latency_bench.utils.paths import REPO_ROOT
@@ -34,14 +35,6 @@ BASE_CONFIGS = {
     "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",
     "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
 }
-POLICY_TYPES = {
-    "flappy": "flappy_sf",
-    "demon_attack": "demon_attack_sf",
-    "deadly_corridor": "deadly_corridor_sf",
-    "gymnasium": "gymnasium_sf",
-}
-
-
 def periodic_eval_enabled(config: dict[str, Any]) -> bool:
     evaluation_cfg = config.get("evaluation", {})
     return isinstance(evaluation_cfg, dict) and (
@@ -59,7 +52,7 @@ def build_latency_bench_config_from_training_config(
     env_name = str(training_config["env"]["name"]).strip().lower()
     base_config = (
         deepcopy(training_config)
-        if env_name == "gymnasium"
+        if environment_integration(training_config) == "gymnasium"
         else load_config(BASE_CONFIGS[env_name])
     )
     override = {
@@ -78,15 +71,16 @@ def build_latency_bench_config_from_training_config(
         if key in training_config
     }
     config = merge_dicts(base_config, override)
-    if "eval_suites" in training_config["evaluation"]:
-        config["evaluation"]["eval_suites"] = deepcopy(training_config["evaluation"]["eval_suites"])
+    if "suites" in training_config["evaluation"]:
+        config["evaluation"]["suites"] = deepcopy(training_config["evaluation"]["suites"])
     config["backend"]["run_mode"] = "eval"
     config["policy"] = merge_dicts(
         base_config.get("policy", {}),
         {
-            "type": POLICY_TYPES[env_name],
-            "checkpoint_path": str(Path(checkpoint_path).expanduser()),
-            "deterministic": bool(config["evaluation"].get("eval_deterministic", True)),
+            "type": "sample_factory",
+            "source": "local", "root": str(Path(checkpoint_path).expanduser().absolute().parent),
+            "checkpoint": Path(checkpoint_path).name,
+            "deterministic": training_config["policy"].get("deterministic", True),
         },
     )
     config["logging"]["output_dir"] = str(Path(output_dir).expanduser())
@@ -319,7 +313,7 @@ class LatencyBenchPeriodicEvalObserver:
             self.training_config["experiment"]["name"],
             policy_id=0,
         )
-        return _checkpoint_paths(root)[-1]
+        return checkpoint_paths(root)[-1]
 
     def _save_checkpoint_for_eval(self, runner) -> Path:
         root = checkpoint_dir(
@@ -327,11 +321,11 @@ class LatencyBenchPeriodicEvalObserver:
             self.training_config["experiment"]["name"],
             policy_id=0,
         )
-        before = _checkpoint_mtimes(root)
+        before = checkpoint_mtimes(root)
         runner.save_periodic.emit()
         deadline = time.monotonic() + self.checkpoint_timeout_sec
         while time.monotonic() <= deadline:
-            current = _checkpoint_mtimes(root)
+            current = checkpoint_mtimes(root)
             updated_paths = [
                 path
                 for path in current
@@ -383,14 +377,6 @@ def _runner_env_steps(runner) -> int:
 def _runner_step(runner, *, uses_optimizer_steps: bool) -> int:
     counters = runner.train_steps if uses_optimizer_steps else runner.env_steps
     return max(int(value) for value in counters.values())
-
-
-def _checkpoint_paths(root: Path) -> list[Path]:
-    return checkpoint_paths(root)
-
-
-def _checkpoint_mtimes(root: Path) -> dict[Path, int]:
-    return checkpoint_mtimes(root)
 
 
 def _log_eval_summaries(

@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("omegaconf", exc_type=ImportError)
 
 from latency_bench.core.actions import ActionResolver
-from latency_bench.integrations import starvla_runtime
+from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Observation
 from latency_bench.policy.factory import build_policy
@@ -112,9 +112,6 @@ class FakePolicyServerWrapper:
         FakePolicyServerWrapper.instances.append(self)
 
     def predict_action(self, examples, unnorm_key=None, **kwargs):
-        profiler = kwargs["profiler"]
-        if profiler.enabled:
-            profiler.timings["starvla_fake_internal_ms"] = 4.0
         self.calls.append(
             {
                 "examples": examples,
@@ -178,8 +175,7 @@ def _config(
 ) -> dict:
     policy = {
         "type": "starvla",
-        "checkpoint_path": str(tmp_path / "checkpoint"),
-        "device": "cuda:0",
+        "source": "local", "root": str(tmp_path), "checkpoint": "checkpoint",
         "unnorm_key": "flappy",
         "actions": ["noop", "flap"],
     }
@@ -195,6 +191,7 @@ def _config(
             "oneshot_actions": ["flap"],
         },
         "policy": policy,
+        "executor": {"inference_devices": ["cuda:0"]},
     }
 
 
@@ -753,7 +750,7 @@ def test_starvla_wanoft_uses_explicit_full_model_config(
         },
     )
     config = _config(tmp_path)
-    config["policy"]["model_config_path"] = str(tmp_path / "config.full.yaml")
+    config["policy"]["model_config"] = str(tmp_path / "config.full.yaml")
     policy = build_policy(config, ActionResolver(config["env"]))
     raw_history = np.stack(
         [np.full((3, 4, 3), index, dtype=np.uint8) for index in range(5)]
@@ -784,7 +781,7 @@ def test_prepare_task_starvla_config_exposes_gymnasium_state(tmp_path: Path, hor
         "action_horizon": horizon,
     }))
     config = _config(tmp_path)
-    config["env"].update({"name": "gymnasium", "frame_stack": 4})
+    config["env"].update({"name": "g1_sonic_balance_simple", "frame_stack": 4})
     config["policy"]["task_contract_path"] = str(contract)
 
     starvla.prepare_starvla_checkpoint_input_config(config)
@@ -793,7 +790,7 @@ def test_prepare_task_starvla_config_exposes_gymnasium_state(tmp_path: Path, hor
     assert config["env"]["state_space"] == {
         "labels": ["position", "velocity"]
     }
-    assert config["env"]["name"] == ("gymnasium" if horizon is None else "balance_profile")
+    assert config["env"]["name"] == "g1_sonic_balance_simple"
     if horizon is not None:
         assert config["env"]["action_context_horizon"] == horizon
 
@@ -817,10 +814,10 @@ def test_prepare_starvla_checkpoint_input_config_uses_explicit_full_model_config
         },
     )
     config = _config(tmp_path)
-    config["env"]["name"] = "gymnasium"
+    config["env"]["name"] = "g1_sonic_balance_simple"
     config["env"]["obs_resize"] = [480, 480]
     config["env"]["frame_stack"] = 4
-    config["policy"]["model_config_path"] = str(tmp_path / "config.full.yaml")
+    config["policy"]["model_config"] = str(tmp_path / "config.full.yaml")
 
     starvla.prepare_starvla_checkpoint_input_config(config)
 
@@ -851,7 +848,7 @@ def test_prepare_starvla_checkpoint_input_config_sizes_plain_multiframe_history(
     config["env"]["env_fps"] = 60
     config["env"]["obs_fps"] = 15
     config["env"]["frame_stack"] = 4
-    config["policy"]["model_config_path"] = str(tmp_path / "config.full.yaml")
+    config["policy"]["model_config"] = str(tmp_path / "config.full.yaml")
 
     starvla.prepare_starvla_checkpoint_input_config(config)
 
@@ -919,7 +916,7 @@ def test_starvla_decision_history_uses_transport_and_requires_it(monkeypatch, tm
     })
     config = _config(tmp_path)
     config["policy"].update({
-        "model_config_path": str(tmp_path / "config.full.yaml"),
+        "model_config": str(tmp_path / "config.full.yaml"),
         "state_source": "transport",
         "state_normalization": {"min": [0.0] * state_dim, "max": [1.0] * state_dim},
     })
@@ -1389,67 +1386,8 @@ def test_predict_batch_calls_starvla_once(monkeypatch, tmp_path: Path):
     assert [output.action.name for output in outputs] == ["flap", "noop"]
 
 
-def test_predict_batch_records_stages_into_ambient_profiler(monkeypatch, tmp_path: Path):
-    from latency_bench.core.timing import StageProfiler, profiler_scope
-    from latency_bench.policy import starvla
-
-    FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
-    config = _config(tmp_path)
-    policy = build_policy(config, ActionResolver(config["env"]))
-    observations = [
-        Observation(
-            data=np.zeros((1,), dtype=np.uint8),
-            env_step=0,
-            sim_time_ms=0.0,
-            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
-        ),
-        Observation(
-            data=np.zeros((1,), dtype=np.uint8),
-            env_step=1,
-            sim_time_ms=33.3,
-            metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
-        ),
-    ]
-
-    profiler = StageProfiler(enabled=True)
-    with profiler_scope(profiler):
-        outputs = policy.predict_batch(observations)
-
-    wrapper = FakePolicyServerWrapper.instances[0]
-    assert len(wrapper.calls) == 1
-    assert len(wrapper.calls[0]["examples"]) == 2
-    assert wrapper.calls[0]["kwargs"]["profiler"] is profiler
-    assert [output.action.name for output in outputs] == ["flap", "noop"]
-    assert set(profiler.timings) == {
-        "policy_build_example_ms",
-        "policy_wrapper_predict_action_ms",
-        "policy_decode_ms",
-        "starvla_fake_internal_ms",
-    }
-    assert profiler.timings["policy_build_example_ms"] >= 0.0
-    assert profiler.timings["starvla_fake_internal_ms"] == 4.0
 
 
-def test_predict_batch_without_profiler_scope_records_nothing(monkeypatch, tmp_path: Path):
-    from latency_bench.core.timing import NULL_PROFILER
-    from latency_bench.policy import starvla
-
-    FakePolicyServerWrapper.instances.clear()
-    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: FakePolicyServerWrapper)
-    config = _config(tmp_path)
-    policy = build_policy(config, ActionResolver(config["env"]))
-    observation = Observation(
-        data=np.zeros((1,), dtype=np.uint8),
-        env_step=0,
-        sim_time_ms=0.0,
-        metadata={"env_raw_rgb_frame_stack": np.zeros((2, 3, 3), dtype=np.uint8)},
-    )
-
-    policy.predict(observation)
-
-    # Default ambient profiler is the disabled singleton: no timings recorded, no sync.
-    assert NULL_PROFILER.timings == {}
 
 
 def test_starvla_default_policy_metadata_omits_input_frame_hashes(monkeypatch, tmp_path: Path):
@@ -1469,7 +1407,6 @@ def test_starvla_default_policy_metadata_omits_input_frame_hashes(monkeypatch, t
         )
     )
 
-    assert "input_frame_sha256" not in output.metadata
     assert "input_frame_shape" not in output.metadata
     assert output.metadata["input_frame_count"] == 1
 

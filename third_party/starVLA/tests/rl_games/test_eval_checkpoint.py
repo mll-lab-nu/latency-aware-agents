@@ -41,12 +41,12 @@ def test_runner_factory_uses_latency_bench_backend(monkeypatch) -> None:
             self.output_dir = output_dir
 
     integration_module = types.ModuleType(
-        "latency_bench.integrations.starvla_rl_games_eval_runner"
+        "latency_bench.integrations.starvla.rl_games_eval_runner"
     )
     integration_module.LatencyBenchRlGamesEvalRunner = FakeLatencyBenchRunner
     monkeypatch.setitem(
         sys.modules,
-        "latency_bench.integrations.starvla_rl_games_eval_runner",
+        "latency_bench.integrations.starvla.rl_games_eval_runner",
         integration_module,
     )
 

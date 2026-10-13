@@ -34,47 +34,50 @@ reset(ExecutionPolicy&& policy,
       Wrapper& wrap,
       uint32_t* seedBuffer)
 {
-    agency::vector<uint32_t, agency::allocator<uint32_t>> rand_temp_buffer;
-
-    if(seedBuffer == nullptr)
-    {
-        std::random_device rd;
-        std::mt19937 rng(rd());
-        rand_temp_buffer.resize(wrap.size(), 0);
-        seedBuffer = rand_temp_buffer.data();
-
-        std::generate_n(seedBuffer, wrap.size(), [&]{ return rng(); });
-    }
-
     agency::bulk_invoke(policy(1),
                         initialize_functor<Environment>{},
-                        wrap.rom_indices_ptr,
                         &wrap.cart,
                         wrap.cached_ram_ptr,
                         wrap.cached_states_ptr,
-                        wrap.cached_frame_states_ptr,
-                        wrap.rand_states_ptr,
-                        seedBuffer);
+                        wrap.cached_frame_states_ptr);
 
-    for (size_t i = 0; i < ENV_BASE_FRAMES; i++)
+    // ALE's system RNG is separate from the episode/action RNG. Reproduce its
+    // fixed hardware seed and power-on RAM. RIOT construction consumes one draw.
+    std::mt19937 hardware_rng(4753849);
+    for(size_t i = 0; i < wrap.cart.ram_size(); ++i)
     {
-        agency::bulk_invoke(policy(1),
-                            step_functor<Environment>{},
-                            true,
-                            wrap.cached_states_ptr,
-                            wrap.cached_tia_update_ptr,
-                            nullptr,
-                            nullptr,
-                            nullptr);
-        agency::bulk_invoke(policy(1),
-                            preprocess_functor<Environment>{},
-                            true,
-                            wrap.cached_tia_update_ptr,
-                            nullptr,
-                            wrap.cached_states_ptr,
-                            wrap.cache_index_ptr,
-                            wrap.cached_frame_states_ptr,
-                            nullptr);
+        wrap.cached_ram_ptr[i] = static_cast<uint8_t>(hardware_rng());
+    }
+    hardware_rng.discard(1);
+
+    const size_t frame_size = 300 * SCREEN_WIDTH;
+    const size_t boot_frames = Environment::getBaseFrames(wrap.cached_states_ptr[0])
+        + Environment::getStartNumber(wrap.cached_states_ptr[0]);
+
+    // ALE detects the display format, resets the console, initializes loadROM,
+    // then runs reset_game. RAM survives each system reset.
+    const size_t init_frames[] = {ENV_NOOP_FRAMES, 0, boot_frames, boot_frames + 1};
+    for(const size_t frame_count : init_frames)
+    {
+        wrap.cached_states_ptr[0].rand = hardware_rng();
+        Environment::reset(wrap.cached_states_ptr[0]);
+        preprocess::reset(wrap.cached_frame_states_ptr[0]);
+        for(size_t i = 0; i < frame_count; ++i)
+        {
+            agency::bulk_invoke(policy(1),
+                                step_functor<Environment>{},
+                                false,
+                                wrap.cached_states_ptr,
+                                wrap.tia_update_ptr,
+                                nullptr,
+                                nullptr,
+                                nullptr);
+            agency::bulk_invoke(policy(1),
+                                preprocess_functor{},
+                                wrap.tia_update_ptr,
+                                wrap.cached_frame_states_ptr,
+                                wrap.cached_frame_ptr);
+        }
     }
     wrap.cached_states_ptr[0].score = Environment::ALE_t::getScore(wrap.cached_states_ptr[0]);
 
@@ -82,6 +85,9 @@ reset(ExecutionPolicy&& policy,
     {
         wrap.cached_states_ptr[i] = wrap.cached_states_ptr[i - 1];
         wrap.cached_frame_states_ptr[i] = wrap.cached_frame_states_ptr[i - 1];
+        std::copy_n(wrap.cached_frame_ptr + (i - 1) * frame_size,
+                    frame_size,
+                    wrap.cached_frame_ptr + i * frame_size);
 
         wrap.cached_states_ptr[i].ram = (uint32_t*) (wrap.cached_ram_ptr + (wrap.cart.ram_size() * i));
         std::copy(wrap.cached_states_ptr[i - 1].ram,
@@ -90,54 +96,36 @@ reset(ExecutionPolicy&& policy,
 
         agency::bulk_invoke(policy(1),
                             step_functor<Environment>{},
-                            true,
+                            false,
                             wrap.cached_states_ptr + i,
-                            wrap.cached_tia_update_ptr + (i * ENV_UPDATE_SIZE),
+                            wrap.tia_update_ptr,
                             nullptr,
                             nullptr,
                             nullptr);
         agency::bulk_invoke(policy(1),
-                            preprocess_functor<Environment>{},
-                            true,
-                            wrap.cached_tia_update_ptr + (i * ENV_UPDATE_SIZE),
-                            nullptr,
-                            wrap.cached_states_ptr + i,
-                            wrap.cache_index_ptr + i,
+                            preprocess_functor{},
+                            wrap.tia_update_ptr,
                             wrap.cached_frame_states_ptr + i,
-                            nullptr);
+                            wrap.cached_frame_ptr + i * frame_size);
         wrap.cached_states_ptr[i].score = Environment::ALE_t::getScore(wrap.cached_states_ptr[i]);
     }
 
     for (size_t i = 0; i < wrap.size(); i++)
     {
-        const size_t index = rand() % wrap.noop_reset_steps;
+        prng gen(wrap.rand_states_ptr[i]);
+        gen.initialize(seedBuffer[i]);
+        const size_t index = gen.sample() % wrap.noop_reset_steps;
         wrap.states_ptr[i] = wrap.cached_states_ptr[index];
         wrap.states_ptr[i].ram = (uint32_t *) (wrap.ram_ptr + (wrap.cart.ram_size() * i));
         std::copy(wrap.cached_states_ptr[index].ram,
                   wrap.cached_states_ptr[index].ram + (wrap.cart.ram_size() / sizeof(uint32_t)),
                   wrap.states_ptr[i].ram);
         wrap.frame_states_ptr[i] = wrap.cached_frame_states_ptr[index];
+        wrap.cache_index_ptr[i] = index;
+        std::copy_n(wrap.cached_frame_ptr + index * frame_size,
+                    frame_size,
+                    wrap.frame_ptr + i * frame_size);
     }
-}
-
-template<typename Environment,
-         typename ExecutionPolicy,
-         typename Wrapper>
-void
-reset_states(ExecutionPolicy&& policy,
-             Wrapper& wrap)
-{
-    agency::bulk_invoke(policy(wrap.size()),
-                        reset_functor<Environment>{},
-                        wrap.cart.ram_size(),
-                        wrap.noop_reset_steps,
-                        wrap.states_ptr,
-                        wrap.cached_states_ptr,
-                        wrap.cached_ram_ptr,
-                        wrap.frame_states_ptr,
-                        wrap.cached_frame_states_ptr,
-                        wrap.cache_index_ptr,
-                        wrap.rand_states_ptr);
 }
 
 template<typename Environment,
@@ -181,23 +169,17 @@ get_data(ExecutionPolicy&& policy,
                         livesBuffer);
 }
 
-template<typename Environment,
-         typename ExecutionPolicy,
+template<typename ExecutionPolicy,
          typename Wrapper>
 void
 preprocess(ExecutionPolicy&& policy,
            Wrapper& wrap,
-           const bool last_frame,
            const uint32_t* tiaBuffer,
            uint8_t* frameBuffer)
 {
     agency::bulk_invoke(policy(wrap.size()),
-                        preprocess_functor<Environment>{},
-                        last_frame,
+                        preprocess_functor{},
                         tiaBuffer,
-                        wrap.cached_tia_update_ptr,
-                        wrap.states_ptr,
-                        wrap.cache_index_ptr,
                         wrap.frame_states_ptr,
                         frameBuffer);
 }

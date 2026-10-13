@@ -1,4 +1,4 @@
-"""Cumulative replay and retryable artifact publication contracts."""
+"""Local task training, inference bundles, and optional W&B contracts."""
 
 import json
 import subprocess
@@ -39,13 +39,11 @@ def test_mikasa_bootstrap_prepares_published_lerobot_splits(tmp_path, monkeypatc
     monkeypatch.setattr(train_task, 'snapshot_download', lambda *args, **kwargs: str(snapshot))
     monkeypatch.setattr(train_task, 'resolve_token', lambda _: None)
     monkeypatch.setattr(train_task, 'code_revisions', lambda _: {})
-    args = SimpleNamespace(task='mikasa', condition='zero-latency', smoke=smoke,
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, task='mikasa', condition='zero-latency', smoke=smoke,
                            output_dir=tmp_path / 'run', dataset_dir=None, force=False,
-                           no_publish=True)
+                           )
 
-    shared, reference = train_task.prepare_shared(
-        args, tmp_path / 'teacher.pt', {}, tmp_path / 'simulator-python',
-    )
+    shared, reference = train_task.prepare_shared(args)
 
     for split in ('lerobot', 'lerobot__val'):
         assert pq.read_table(shared / split / 'data/chunk-000/episode.parquet') == rows
@@ -103,7 +101,7 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
         'action_horizon': 8 if task == 'balance' else 1,
         'normalization': {'action': {'min': [0], 'max': [1]}},
     }))
-    args = SimpleNamespace(task=task, model=model, output_dir=tmp_path,
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, task=task, model=model, output_dir=tmp_path,
                            smoke=True, num_gpus=1, micro_batch=1, num_workers=4,
                            persistent_workers=True, pin_memory=True, prefetch_factor=2,
                            condition=condition, gradient_checkpointing=True)
@@ -138,11 +136,11 @@ def test_training_config_names_wandb_run_by_condition_task_model_and_phase(
     assert continuous['trainer']['eval_interval'] == 2
 
 
-def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
+def test_enabled_wandb_reuses_run_id(tmp_path, monkeypatch):
     calls = []
     monkeypatch.delenv('WANDB_RUN_ID', raising=False)
     monkeypatch.delenv('WANDB_RESUME', raising=False)
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project="test-project", wandb_entity="test-entity",
         output_dir=tmp_path,
         task='balance',
         model='qwenpi_v3',
@@ -186,12 +184,12 @@ def test_train_reuses_wandb_run_id(tmp_path, monkeypatch):
 
 def test_resume_requires_explicit_run_id():
     with pytest.raises(SystemExit, match='2'):
-        train_task.main(['--task', 'balance', '--model', 'qwenpi_v3', '--resume'])
+        train_task.main(['--task', 'mikasa', '--model', 'qwenpi_v3', '--resume'])
 
 
 def test_fixed_training_oom_preserves_requested_batch(tmp_path, monkeypatch):
     """Long-lived trainer contract: disabled retries never change batch or accumulation."""
-    args = SimpleNamespace(
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
         output_dir=tmp_path, task='mikasa_conditioned_h8', model='qwenoft', run_id='fixed-3',
         resume=False, smoke=False, vla_python=tmp_path / 'python', num_gpus=2, port=29521,
         oom_retry=False, micro_batch=64,
@@ -213,39 +211,29 @@ def test_fixed_training_oom_preserves_requested_batch(tmp_path, monkeypatch):
     assert config['trainer']['gradient_accumulation_steps'] == 1
 
 
-@pytest.mark.parametrize('task', ['balance', 'mikasa'])
-def test_eval_config_preserves_explicit_episode_count_and_seed(tmp_path, monkeypatch, task):
+def test_eval_config_preserves_explicit_episode_count_and_seed(tmp_path):
     """Long-lived train_task evaluation contract: explicit counts and seeds reach the evaluator."""
-    monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
-    monkeypatch.setenv('WANDB_RUN_GROUP', 'test-group')
-    teacher_config = tmp_path / 'teacher.json'
-    teacher_config.write_text(json.dumps({
-        'latency': {'method': 'zero'},
-        'scheduler': {'hold_policy': 'hold', 'ordering_policy': 'latest_ready',
-                      'hold_last_chunk_action': True},
-    }))
-    args = SimpleNamespace(
-        task=task, model='qwenoft', condition='zero-latency', smoke=False,
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None,
+        task='mikasa', model='qwenoft', condition='zero-latency', smoke=False,
         eval_seed=1234, inference_device='cuda:1', simulator_device='cuda:0',
         vla_python=tmp_path / 'vla-python', backbone_path=tmp_path / 'backbone',
-        teacher_config=teacher_config,
     )
 
-    config = train_task.eval_config(args, tmp_path / 'bundle', tmp_path / 'eval', eval_episodes=50)
+    config = train_task.eval_config(args, tmp_path / 'bundle', tmp_path / 'eval', episodes=50)
 
-    assert config['evaluation']['eval_episodes'] == 50
+    assert config['evaluation']['episodes'] == 50
     assert config['experiment']['seed'] == 1234
 
 
 @pytest.mark.parametrize(('method', 'label'), [('zero', '0'), ('temporal', 'profile_sample')])
-@pytest.mark.parametrize('smoke', [False, True])
-def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_path, monkeypatch, method, label, smoke):
+@pytest.mark.parametrize(('smoke', 'wandb_project'), [(False, None), (False, 'test-project'), (True, 'test-project')])
+def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_path, monkeypatch, method, label, smoke, wandb_project):
     """Long-lived eval contract: formal metrics are reported; smoke stays local."""
     if smoke:
         monkeypatch.delenv('WANDB_ENTITY', raising=False)
     else:
         monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
-    args = SimpleNamespace(task='balance', task_python=tmp_path / 'python',
+    args = SimpleNamespace(wandb_project=wandb_project, wandb_entity='test-entity', task='balance', task_python=tmp_path / 'python',
                            output_dir=tmp_path, eval_episodes=1, smoke=smoke)
     config = {'executor': {'mode': 'simulated'}, 'latency': {'method': method}, 'logging': {}}
     monkeypatch.setattr(train_task, 'eval_config', lambda *args, **kwargs: config)
@@ -263,13 +251,13 @@ def test_balance_eval_uses_benchmark_entry_and_logs_the_selected_latency(tmp_pat
     result = train_task.evaluate(args, tmp_path / 'bundle', label='checkpoint', wandb_checkpoint=('run', 500))
 
     assert result == output
-    assert commands == [[args.task_python, '-m', 'latency_bench.run', '--config', output / 'eval_config.yaml']]
-    assert summaries == ([] if smoke else [{'returns': [1.0], 'checkpoint_global_step': 500}])
+    assert commands == [[args.task_python, '-m', 'latency_bench', 'eval', '--config', output / 'eval_config.yaml']]
+    assert summaries == ([] if smoke or wandb_project is None else [{'returns': [1.0], 'checkpoint_global_step': 500}])
 
 
 def test_resume_requires_complete_training_state(tmp_path):
     train_task.write_json(tmp_path / 'run.json', {
-        'task': 'balance',
+        'task': 'mikasa',
         'model': 'qwenpi_v3',
         'run_id': 'formal-1',
         'condition': 'zero-latency',
@@ -277,7 +265,7 @@ def test_resume_requires_complete_training_state(tmp_path):
 
     with pytest.raises(FileNotFoundError, match='complete bootstrap training state'):
         train_task.main([
-            '--task', 'balance',
+            '--task', 'mikasa',
             '--model', 'qwenpi_v3',
             '--run-id', 'formal-1',
             '--output-dir', str(tmp_path),
@@ -305,86 +293,6 @@ def test_resume_rejects_a_different_training_latency(tmp_path):
     ])
 
 
-def test_resume_reuses_completed_dagger_data_and_restarts_partial_round(tmp_path, monkeypatch):
-    monkeypatch.setenv('WANDB_ENTITY', 'test-entity')
-    monkeypatch.setenv('WANDB_RUN_GROUP', 'test-group')
-    dataset = tmp_path / 'dataset'
-    metadata = dataset / 'lerobot/meta'
-    metadata.mkdir(parents=True)
-    (metadata / 'info.json').write_text(json.dumps({'codebase_version': 'test'}))
-    (dataset / 'lerobot/task_contract.json').write_text(json.dumps({
-        'state_dim': 1,
-        'action_dim': 1,
-        'action_horizon': 1,
-        'robot_type': 'robot',
-        'normalization': {'action': {'min': [0], 'max': [1]}},
-    }))
-    bootstrap_state = tmp_path / 'training/bootstrap/checkpoints/steps_5000_state'
-    dagger_state = tmp_path / 'training/dagger/checkpoints/steps_250_state'
-    bootstrap_state.mkdir(parents=True)
-    dagger_state.mkdir(parents=True)
-    (tmp_path / 'training/bootstrap/checkpoints/steps_5000_pytorch_model.pt').write_text('model')
-    (tmp_path / 'training/dagger/checkpoints/steps_250_pytorch_model.pt').write_text('model')
-    (tmp_path / 'training/bootstrap/checkpoints/steps_5500_state').mkdir()
-    (tmp_path / 'training/dagger/checkpoints/steps_600_state').mkdir()
-    completed_delta = tmp_path / 'dagger/round-00'
-    partial_delta = tmp_path / 'dagger/round-01'
-    partial_delta.mkdir(parents=True)
-    (partial_delta / 'stale').write_text('partial')
-    run = {
-        'task': 'balance',
-        'model': 'qwenpi_v3',
-        'run_id': 'formal-1',
-        'condition': 'zero-latency',
-        'smoke': False,
-        'teacher': {},
-        'backbone': {},
-        'code_revisions': {},
-        'datasets': [
-            {'local_dir': str(dataset), 'revision': 'bootstrap'},
-            {'local_dir': str(completed_delta), 'revision': 'round-0'},
-        ],
-        'seed': 0,
-    }
-    train_task.write_json(tmp_path / 'run.json', run)
-
-    configs = []
-    monkeypatch.setattr(train_task, 'resolve_teacher', lambda *args: (tmp_path / 'teacher', {}))
-    monkeypatch.setattr(train_task, 'resolve_backbone', lambda *args: (tmp_path / 'backbone', {}))
-    monkeypatch.setattr(runtime, 'run_command', lambda *args, **kwargs: None)
-
-    def fake_train(args, config):
-        configs.append(config)
-        trained = tmp_path / 'training' / config['run_id']
-        step = config['trainer']['stop_after_steps']
-        return trained, trained / 'checkpoints' / f'steps_{step}_pytorch_model.pt'
-
-    def fake_collect(args, **kwargs):
-        round_number = kwargs['round_number']
-        path = tmp_path / 'dagger' / f'round-{round_number:02d}'
-        assert not path.exists()
-        raise RuntimeError(f'restarted partial round {round_number}')
-
-    monkeypatch.setattr(train_task, 'train', fake_train)
-    monkeypatch.setattr(train_task, 'collect_dagger', fake_collect)
-    monkeypatch.setattr(train_task, 'inference_bundle', lambda *args, **kwargs: args[2])
-    monkeypatch.setattr(train_task, 'eval_config', lambda *args, **kwargs: {})
-
-    with pytest.raises(RuntimeError, match='restarted partial round 1'):
-        train_task.main([
-            '--task', 'balance',
-            '--model', 'qwenpi_v3',
-            '--run-id', 'formal-1',
-            '--output-dir', str(tmp_path),
-            '--vla-python', '/usr/bin/python',
-            '--task-python', '/usr/bin/python',
-            '--resume',
-        ])
-
-    assert configs[0]['trainer']['pretrained_checkpoint'] == str(bootstrap_state)
-    assert configs[0]['trainer']['is_resume'] is True
-    assert configs[1]['trainer']['pretrained_checkpoint'] == str(dagger_state)
-    assert configs[1]['trainer']['is_resume'] is True
 
 
 def test_mixture_retains_half_bootstrap_and_independent_validation(tmp_path):
@@ -398,62 +306,8 @@ def test_mixture_retains_half_bootstrap_and_independent_validation(tmp_path):
     assert mixture['validation'] == [[str(bootstrap / 'lerobot__val'), 1, 'robot']]
 
 
-def test_publish_retry_preserves_dataset_revisions_and_rejects_smoke(tmp_path, monkeypatch):
-    (tmp_path / 'inference').mkdir()
-    run = {'task': 'balance', 'model': 'qwenoft', 'run_id': 'run', 'smoke': False,
-           'condition': 'zero-latency',
-           'teacher': {}, 'backbone': {}, 'code_revisions': {}, 'seed': 0,
-           'training': {'sft_updates': 2, 'dagger_updates': 2},
-           'datasets': [{'local_dir': str(tmp_path / 'bootstrap'), 'revision': 'shared',
-                         'condition': 'zero-latency', 'action_horizon': 1},
-                        {'local_dir': str(tmp_path / 'round-00'), 'revision': None,
-                         'condition': 'zero-latency', 'action_horizon': 1}]}
-    train_task.write_json(tmp_path / 'run.json', run)
-    uploads = []
-    monkeypatch.setattr(train_task.artifacts, 'publish_dataset',
-                        lambda path, **kwargs: uploads.append(kwargs) or 'delta')
-
-    def fail(*args, **kwargs):
-        raise ConnectionError('interrupted')
-
-    monkeypatch.setattr(train_task.artifacts, 'publish_model', fail)
-    with pytest.raises(ConnectionError):
-        train_task.publish_run(tmp_path)
-    saved = json.loads((tmp_path / 'run.json').read_text())
-    assert [ref['revision'] for ref in saved['datasets']] == ['shared', 'delta']
-    monkeypatch.setattr(train_task.artifacts, 'publish_model', lambda *a, **kw: 'model')
-    assert train_task.publish_run(tmp_path) == 'model'
-    assert len(uploads) == 1
-    assert uploads[0]['round_number'] == 0
-    provenance = json.loads((tmp_path / 'inference/provenance.json').read_text())
-    assert provenance['datasets'] == [
-        {'revision': 'shared', 'condition': 'zero-latency', 'action_horizon': 1},
-        {'revision': 'delta', 'condition': 'zero-latency', 'action_horizon': 1},
-    ]
-    del saved['training']
-    train_task.write_json(tmp_path / 'run.json', saved)
-    with pytest.raises(KeyError, match='training'):
-        train_task.publish_run(tmp_path)
-    saved['smoke'] = True
-    train_task.write_json(tmp_path / 'run.json', saved)
-    with pytest.raises(ValueError, match='local-only'):
-        train_task.publish_run(tmp_path)
 
 
-@pytest.mark.parametrize("condition", ["zero-latency", "latency-aware"])
-def test_balance_teacher_and_bootstrap_use_their_own_condition(tmp_path, monkeypatch, condition):
-    """Long-lived Balance orchestration contract: condition owns the H8 teacher and bootstrap."""
-    captured = {}
-    def download(_repo, filename, **kwargs):
-        captured["filename"] = filename
-        return str(tmp_path / "checkpoint.pth")
-    monkeypatch.setattr(train_task, "hf_hub_download", download)
-    teacher, reference = train_task.resolve_teacher("balance", None, condition)
-    assert captured["filename"] == f"{condition}/humanoidbench-balance-simple/small-policy/fasttd3-h8-v1/checkpoint.pth"
-    assert reference["path"] == captured["filename"]
-    assert teacher == tmp_path / "checkpoint.pth"
-    dataset = train_task.dataset_reference("balance", tmp_path / condition, condition=condition)
-    assert dataset["path"] == f"{condition}/humanoidbench-balance-simple/teacher-rollouts-h8-state-v2"
 
 
 @pytest.mark.parametrize('task', ['balance', 'mikasa'])
@@ -474,9 +328,23 @@ def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_pat
     profile.write_text(json.dumps({'summary': {'mean_ms': 40.001}}))
     source = tmp_path / 'environment.json'
     source.write_text(json.dumps({
-        'experiment': {'seed': 1}, 'env': {'name': 'gymnasium', 'env_fps': 50},
-        'executor': {'mode': 'realtime'}, 'policy': {'type': 'random'},
-        'evaluation': {}, 'logging': {},
+        'experiment': {
+            'seed': 1,
+        },
+        'env': {
+            'name': 'g1_sonic_balance_simple',
+            'env_fps': 50,
+        },
+        'executor': {
+            'mode': 'realtime',
+        },
+        'policy': {
+            'type': 'random',
+        },
+        'evaluation': {
+        },
+        'logging': {
+        },
     }))
     output = tmp_path / 'eval'
     monkeypatch.setattr(sys, 'argv', [
@@ -502,14 +370,15 @@ def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_pat
     assert (
         config['policy']['state_info_key'], config['policy']['image_views_info_key']
     ) == expected_input_keys[task]
-    assert config['policy']['device'] == 'cuda:0'
+    assert config['executor']['inference_devices'] == ['cuda:0']
     assert config['experiment']['seed'] == 810001
-    assert config['evaluation']['eval_episodes'] == 2
+    assert config['evaluation']['episodes'] == 2
     command = ' '.join(map(str, calls[0]))
-    assert {'balance': 'latency_bench.run', 'mikasa': 'scripts/mikasa/evaluate.py'}[task] in command
+    assert {'balance': 'latency_bench eval', 'mikasa': 'scripts/mikasa/evaluate.py'}[task] in command
     if task == 'balance':
+        config['policy']['task_contract_path'] = str(bundle / 'task_contract.json')
         prepare_starvla_checkpoint_input_config(config)
-        assert config['env']['name'] == 'balance_profile'
+        assert config['env']['name'] == 'g1_sonic_balance_simple'
         assert config['env']['action_context_horizon'] == 8
     with pytest.raises(FileExistsError):
         evaluate.main()
@@ -518,7 +387,7 @@ def test_independent_eval_freezes_prefix_and_uses_native_task_entrypoint(tmp_pat
 @pytest.mark.parametrize(
     ('task', 'driver', 'config_flag'),
     [
-        ('balance', ('-m', 'latency_bench.run'), '--config'),
+        ('balance', ('-m', 'latency_bench', 'eval'), '--config'),
         (
             'mikasa',
             (REPO_ROOT / 'scripts/mikasa/evaluate.py', 'latency-eval'),
@@ -541,6 +410,6 @@ def test_runtime_evaluation_command_keeps_native_task_entrypoints(
 ):
     python = tmp_path / 'task-python'
     config = tmp_path / 'eval.yaml'
-    args = SimpleNamespace(task=task, task_python=python)
+    args = SimpleNamespace(wandb_project=None, wandb_entity=None, task=task, task_python=python)
 
     assert runtime.evaluation_command(args, config) == [python, *driver, config_flag, config]

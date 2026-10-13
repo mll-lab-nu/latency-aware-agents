@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from latency_bench.latency.config import latency_type_from_config
+from latency_bench.envs.factory import environment_integration, resolve_env_config
+from latency_bench.core.config import resolve_runtime_config
 from training.common.utils import maybe_set_cli_override
 
 ENV_INTEGRATIONS = {
@@ -31,12 +33,8 @@ def _wandb_tags_to_cli_values(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
-def normalize_checkpoint_kind(checkpoint_kind: str) -> str:
-    return str(checkpoint_kind).strip().lower()
-
-
 def apply_checkpoint_kind_override(backend_cfg: dict[str, Any], checkpoint_kind: str) -> None:
-    normalized = normalize_checkpoint_kind(checkpoint_kind)
+    normalized = str(checkpoint_kind).strip().lower()
     extra_args = list(backend_cfg.get("extra_args") or [])
     filtered_args: list[str] = []
     skip_next = False
@@ -88,30 +86,27 @@ def _parse_actor_worker_gpus_config(value: Any) -> list[int] | None:
     if value is None:
         return None
     if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return []
-        parts = stripped.replace(",", " ").split()
+        parts = value.replace(",", " ").split()
     else:
         parts = list(value)
     return [int(item) for item in parts]
 
 
 def estimate_optimizer_steps_per_1m_env_steps(training_cfg: dict[str, Any]) -> float:
-    batch_size = int(training_cfg.get("batch_size", 0) or 0)
-    num_epochs = int(training_cfg.get("num_epochs", 0) or 0)
+    batch_size = int(training_cfg["batch_size"])
+    num_epochs = int(training_cfg["num_epochs"])
     return 1_000_000.0 * float(num_epochs) / float(batch_size)
 
 
 def sample_factory_training_summary(config: dict[str, Any]) -> dict[str, Any]:
-    training_cfg = config.get("training", {})
-    num_workers = int(training_cfg.get("num_workers", 0) or 0)
-    num_envs_per_worker = int(training_cfg.get("num_envs_per_worker", 0) or 0)
+    training_cfg = config["training"]
+    num_workers = int(training_cfg["num_workers"])
+    num_envs_per_worker = int(training_cfg["num_envs_per_worker"])
     return {
         "effective_envs": num_workers * num_envs_per_worker,
-        "batch_size": int(training_cfg.get("batch_size", 0) or 0),
-        "num_epochs": int(training_cfg.get("num_epochs", 0) or 0),
-        "num_batches_per_epoch": int(training_cfg.get("num_batches_per_epoch", 0) or 0),
+        "batch_size": int(training_cfg["batch_size"]),
+        "num_epochs": int(training_cfg["num_epochs"]),
+        "num_batches_per_epoch": int(training_cfg["num_batches_per_epoch"]),
         "optimizer_steps_per_1m_env_steps": estimate_optimizer_steps_per_1m_env_steps(training_cfg),
         "async_rl": bool(training_cfg.get("async_rl", True)),
     }
@@ -134,7 +129,8 @@ def gpu_env_sample_factory_layout(training_cfg: dict[str, Any]) -> dict[str, int
 
 
 def import_integration_module(config: dict[str, Any]):
-    env_name = str(config["env"]["name"]).strip().lower()
+    resolve_env_config(config)
+    env_name = environment_integration(config)
     module_name = ENV_INTEGRATIONS[env_name]
     return importlib.import_module(module_name)
 
@@ -178,12 +174,13 @@ def apply_runtime_logging_config(sf_cfg: Any, logging_cfg: dict[str, Any]) -> No
 def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[str]:
     from latency_bench.integrations.sample_factory.runtime import resolve_sample_factory_device
 
+    resolve_runtime_config(config)
     backend_cfg = config["backend"]
     experiment_cfg = config["experiment"]
     training_cfg = config["training"]
-    latency_cfg = config.get("latency", {})
-    evaluation_cfg = config.get("evaluation", {})
-    logging_cfg = config.get("logging", {})
+    latency_cfg = config["latency"]
+    evaluation_cfg = config["evaluation"]
+    logging_cfg = config["logging"]
 
     args: list[str] = []
     append_cli_arg(args, "--mode", backend_cfg.get("run_mode", "train"))
@@ -194,7 +191,7 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--restart_behavior", backend_cfg.get("restart_behavior", "overwrite"))
     append_cli_arg(args, "--initial_model_path", backend_cfg.get("initial_model_path"))
     append_cli_arg(args, "--device", resolve_sample_factory_device(backend_cfg.get("device", "cpu")))
-    env_cfg = config.get("env", {})
+    env_cfg = config["env"]
     use_gpu_render = env_cfg.get("use_gpu_render", False)
     gpu_render_device = str(env_cfg.get("gpu_render_device", "auto") or "auto").strip().lower()
     simulator = env_cfg.get("simulator")
@@ -345,17 +342,17 @@ def build_common_sf_args(config: dict[str, Any], *, sf_env_name: str) -> list[st
     append_cli_arg(args, "--add-latency-info", latency_cfg.get("add_latency_info", False))
     append_cli_arg(args, "--max-pending-actions", latency_cfg.get("max_pending_actions"))
 
-    append_cli_arg(args, "--eval-episodes", evaluation_cfg.get("eval_episodes"))
-    append_cli_arg(args, "--eval-parallel-envs", evaluation_cfg.get("eval_parallel_envs"))
-    append_cli_arg(args, "--eval-latency-raw-frame-values", evaluation_cfg.get("eval_latency_values"))
-    append_cli_arg(args, "--eval-max-steps", evaluation_cfg.get("eval_max_steps"))
-    append_cli_arg(args, "--eval-deterministic", evaluation_cfg.get("eval_deterministic", True))
+    append_cli_arg(args, "--eval-episodes", evaluation_cfg.get("episodes"))
+    append_cli_arg(args, "--eval-parallel-envs", config["executor"]["parallel_envs"])
+    append_cli_arg(args, "--eval-max-steps", evaluation_cfg.get("max_env_steps"))
+    append_cli_arg(args, "--eval-deterministic", config["policy"]["deterministic"])
     if evaluation_cfg.get("eval_raw_reward"):
         args.append("--eval-raw-reward")
 
     if logging_cfg.get("wandb_project"):
         append_cli_arg(args, "--with_wandb", True)
         append_cli_arg(args, "--wandb_project", logging_cfg.get("wandb_project"))
+        append_cli_arg(args, "--wandb_user", logging_cfg.get("wandb_entity"))
         append_cli_arg(args, "--wandb_group", logging_cfg.get("wandb_group"))
         append_cli_arg(args, "--wandb_job_type", logging_cfg.get("wandb_job_type"))
         wandb_tags = logging_cfg.get("wandb_tags")

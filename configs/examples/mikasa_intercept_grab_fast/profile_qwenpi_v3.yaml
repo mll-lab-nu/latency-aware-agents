@@ -1,0 +1,39 @@
+__base__: task.yaml
+experiment:
+  name: mikasa_intercept_grab_fast_starvla_profile
+  seed: 4242424242
+executor:
+  mode: realtime
+  inference_devices:
+  - cuda:1
+  sync_cuda: true
+  parallel_envs: 1
+policy:
+  action_prefix:
+    mode: none
+  type: starvla
+  task_contract_path: task_contract.json
+  state_info_key: mikasa_proprio
+  image_views_info_key: mikasa_image_views
+  source: hf
+  root: zero-latency/mikasa-intercept-grab-fast/vla/starvla-qwenpi_v3-h1/mikasa_intercept_grab_fast_qwenpi_v3_formal_latest_r8gpu8_20260907T082154Z
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
+  hf_repo: MLL-Lab/LAGEN-models
+evaluation:
+  episodes: 50
+  max_env_steps: 60
+logging:
+  output_dir: outputs/profiling
+  video:
+    enabled: false
+    num_bins: 10
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+profiling:
+  model_id: qwenpi_v3
+  workload_id: mikasa_intercept_grab_fast
+  repeats: 5
+  calibration: null
+  eval_entrypoint: scripts/mikasa/evaluate.py

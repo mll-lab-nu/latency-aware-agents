@@ -238,8 +238,6 @@ class FlappyBirdEnvAdapter(EnvAdapter):
         self.frame_stack = frame_stack
 
         self.use_gpu_render = use_gpu_render
-        if self.use_gpu_render and obs_resize is None:
-            raise ValueError("use_gpu_render=true requires obs_resize")
 
         self.gym_id = gym_id
         self.env_fps = env_fps
@@ -306,7 +304,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             raw_frame = self._raw_rgb_frame_from_info(info) if self.export_env_raw_rgb_frames else frame
         else:
             numeric_obs, info = self.gym_env.reset(seed=seed)
-            info = dict(info or {})
+            info = dict(info)
             raw_frame = self._rgb_hwc_frame(self.gym_env.render())
             frame = self._observation_frame(raw_frame)
 
@@ -332,7 +330,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             raw_frame = self._raw_rgb_frame_from_info(info) if self.export_env_raw_rgb_frames else frame
         else:
             numeric_obs, reward, terminated, truncated, info = self.gym_env.step(gym_action)
-            info = dict(info or {})
+            info = dict(info)
             raw_frame = self._rgb_hwc_frame(self.gym_env.render())
             frame = self._observation_frame(raw_frame)
 
@@ -424,8 +422,6 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             image = Image.fromarray(arr).convert("RGB")
             image = image.resize((width, height), Image.BILINEAR)
             arr = np.asarray(image, dtype=np.uint8)
-        if arr.shape[:2] != (height, width):
-            raise RuntimeError(f"obs_resize expected HWC frame {(height, width, 3)}, got {arr.shape!r}")
         return self._rgb_hwc_frame(arr)
 
     def _render_rgb_frame(self) -> np.ndarray:
@@ -473,8 +469,6 @@ class FlappyBirdEnvAdapter(EnvAdapter):
 
     def _policy_frame_stack(self) -> np.ndarray:
         frames = list(self._observed_frames)
-        if not frames:
-            raise RuntimeError("Flappy observe() has no current frame; call reset() first")
         if len(frames) < self.frame_stack:
             frames = [frames[0]] * (self.frame_stack - len(frames)) + frames
         frames = [np.asarray(frame, dtype=np.uint8) for frame in frames[-self.frame_stack :]]
@@ -495,9 +489,7 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             obs = obs.cpu().numpy()
         arr = np.asarray(obs)
         if arr.ndim == 4:
-            if arr.shape[0] != 1:
-                raise ValueError(f"Expected one Flappy GPU env observation, got batch shape {arr.shape!r}")
-            arr = arr[0]
+            arr, = arr
         return cls._rgb_hwc_frame(arr).copy()
 
     @staticmethod
@@ -507,10 +499,8 @@ class FlappyBirdEnvAdapter(EnvAdapter):
     @staticmethod
     def _single_info(infos: Any) -> dict[str, Any]:
         if isinstance(infos, (list, tuple)):
-            if len(infos) != 1:
-                raise ValueError(f"Expected one Flappy GPU env info dict, got {len(infos)}")
-            return dict(infos[0] or {})
-        return dict(infos or {})
+            infos, = infos
+        return dict(infos)
 
     @staticmethod
     def _single_scalar(value: Any) -> float:
@@ -518,9 +508,4 @@ class FlappyBirdEnvAdapter(EnvAdapter):
             value = value.detach().cpu().numpy()
         elif hasattr(value, "cpu") and callable(value.cpu):
             value = value.cpu().numpy()
-        arr = np.asarray(value)
-        if arr.shape == ():
-            return float(arr.item())
-        if arr.size != 1:
-            raise ValueError(f"Expected scalar Flappy env value, got shape {arr.shape!r}")
-        return float(arr.reshape(-1)[0])
+        return float(np.asarray(value).item())

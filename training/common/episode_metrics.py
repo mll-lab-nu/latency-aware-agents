@@ -34,7 +34,7 @@ class EpisodeMetricsAggregator:
         start_at_end: bool = False,
     ):
         self.path = Path(path).expanduser()
-        self.rolling_window = max(1, int(rolling_window))
+        self.rolling_window = rolling_window
         self.completed_episodes = 0
         self.completed_decision_steps = 0
         self.completed_raw_frames = 0

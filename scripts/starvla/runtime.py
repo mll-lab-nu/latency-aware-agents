@@ -54,7 +54,7 @@ def run_command(command: list, log: Path, *, cwd: Path = ROOT, env: dict | None 
 def evaluation_command(args, config_path):
     """Launch the task's native environment with the shared evaluation driver."""
     if args.task == "balance":
-        command = [args.task_python, "-m", "latency_bench.run", "--config", config_path]
+        command = [args.task_python, "-m", "latency_bench", "eval", "--config", config_path]
     elif args.task in ("mikasa", "mikasa_h8", "mikasa_conditioned_h8"):
         command = [
             args.task_python,

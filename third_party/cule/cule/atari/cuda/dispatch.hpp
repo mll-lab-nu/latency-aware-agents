@@ -32,7 +32,8 @@ reset(cule::cuda::parallel_execution_policy& policy,
     using State_t = typename Wrapper::State_t;
 
     wrapped_environment<agency::allocator> env(wrap.cart, 1, wrap.noop_reset_steps);
-    env.reset(agency::seq);
+    uint32_t cache_seed = 0;
+    env.reset(agency::seq, &cache_seed);
 
     assert(env.cached_states_ptr != nullptr);
     assert(env.cached_ram_ptr != nullptr);
@@ -58,9 +59,9 @@ reset(cule::cuda::parallel_execution_policy& policy,
                                 cudaMemcpyHostToDevice,
                                 policy.getStream()));
 
-    CULE_ERRCHK(cudaMemcpyAsync(wrap.cached_tia_update_ptr,
-                                env.cached_tia_update_ptr,
-                                sizeof(uint32_t) * ENV_UPDATE_SIZE * wrap.noop_reset_steps,
+    CULE_ERRCHK(cudaMemcpyAsync(wrap.cached_frame_ptr,
+                                env.cached_frame_ptr,
+                                sizeof(uint8_t) * 300 * SCREEN_WIDTH * wrap.noop_reset_steps,
                                 cudaMemcpyHostToDevice,
                                 policy.getStream()));
 
@@ -93,34 +94,10 @@ reset(cule::cuda::parallel_execution_policy& policy,
         wrap.cached_ram_ptr,
         wrap.rand_states_ptr,
         wrap.frame_states_ptr,
-        wrap.cached_frame_states_ptr);
-    CULE_CUDA_PEEK_AND_SYNC;
-}
-
-template<typename Environment,
-         typename Wrapper>
-void
-reset_states(cule::cuda::parallel_execution_policy& policy,
-             Wrapper& wrap)
-{
-    using State_t = typename Wrapper::State_t;
-
-    const size_t BLOCK_SIZE = 1UL;
-    const size_t NUM_BLOCKS = std::ceil(float(wrap.size()) / BLOCK_SIZE);
-
-    cule::atari::cuda::reset_kernel<State_t, BLOCK_SIZE>
-    <<<NUM_BLOCKS, BLOCK_SIZE, 0, policy.getStream()>>>(
-        wrap.size(),
-        wrap.noop_reset_steps,
-        wrap.states_ptr,
-        wrap.ram_ptr,
-        wrap.cached_states_ptr,
-        wrap.cached_ram_ptr,
-        wrap.frame_states_ptr,
         wrap.cached_frame_states_ptr,
-        wrap.cache_index_ptr,
-        wrap.rand_states_ptr);
-    // CULE_CUDA_PEEK_AND_SYNC;
+        wrap.frame_ptr,
+        wrap.cached_frame_ptr);
+    CULE_CUDA_PEEK_AND_SYNC;
 }
 
 template<typename Environment,
@@ -210,53 +187,20 @@ get_data(cule::cuda::parallel_execution_policy& policy,
     // CULE_CUDA_PEEK_AND_SYNC;
 }
 
-template<typename Environment,
-         typename Wrapper>
+template<typename Wrapper>
 void
 preprocess(cule::cuda::parallel_execution_policy& policy,
            Wrapper& wrap,
-           const bool last_frame,
            const uint32_t* tiaBuffer,
            uint8_t* frameBuffer)
 {
-    using State_t = typename Wrapper::State_t;
-
     const size_t BLOCK_SIZE = 1UL;
     const size_t NUM_BLOCKS = std::ceil(float(wrap.size()) / BLOCK_SIZE);
 
-    cule::atari::cuda::process_kernel<State_t, BLOCK_SIZE>
+    cule::atari::cuda::process_kernel<BLOCK_SIZE>
     <<<NUM_BLOCKS, BLOCK_SIZE, 0, policy.getStream()>>>(
         wrap.size(),
-        last_frame,
         tiaBuffer,
-        wrap.cached_tia_update_ptr,
-        wrap.cache_index_ptr,
-        wrap.states_ptr,
-        wrap.frame_states_ptr,
-        frameBuffer);
-    // CULE_CUDA_PEEK_AND_SYNC;
-}
-
-template<typename Environment,
-         typename Wrapper>
-void
-preprocess_terminal(cule::cuda::parallel_execution_policy& policy,
-                    Wrapper& wrap,
-                    const bool last_frame,
-                    uint8_t* frameBuffer)
-{
-    using State_t = typename Wrapper::State_t;
-
-    const size_t BLOCK_SIZE = 1UL;
-    const size_t NUM_BLOCKS = std::ceil(float(wrap.size()) / BLOCK_SIZE);
-
-    cule::atari::cuda::process_terminal_kernel<State_t, BLOCK_SIZE>
-    <<<NUM_BLOCKS, BLOCK_SIZE, 0, policy.getStream()>>>(
-        wrap.size(),
-        last_frame,
-        wrap.cached_tia_update_ptr,
-        wrap.cache_index_ptr,
-        wrap.states_ptr,
         wrap.frame_states_ptr,
         frameBuffer);
     // CULE_CUDA_PEEK_AND_SYNC;

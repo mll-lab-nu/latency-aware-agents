@@ -188,10 +188,6 @@ def collect_dataset(
     """Run shared collection phases; adapters only construct and execute environments."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    if not 0 <= val_fraction <= 1:
-        raise ValueError("val_fraction must be between 0 and 1")
-    if max_episodes < 1 or max_steps_per_episode < 1 or num_envs < 1 or replay_num_envs < 1:
-        raise ValueError("episode, step and environment counts must be positive")
     options = dict(
         max_episodes=max_episodes, max_steps_per_episode=max_steps_per_episode,
         val_fraction=val_fraction, split_seed=split_seed, num_envs=num_envs,
@@ -252,19 +248,34 @@ def collect_dataset(
 
 
 def collect_rollouts(config: dict[str, Any]) -> dict[str, Any]:
-    """Collect student observations and current teacher commands as canonical Parquet.
+    """Collect student observations and teacher labels in the task's artifact format.
 
     Configured external environment/policy factories remain the user extension
     points. Framework adapters use the same collect_dataset/finalize_dataset pipeline.
     """
+    task = config["env"]["name"]
+    collection = config["collection"]
+    output_dir = Path(config["logging"]["output_dir"]).expanduser().absolute()
+    config["logging"]["output_dir"] = str(output_dir)
+    native_labels = task in {"g1_sonic_balance_simple", "mikasa_intercept_grab_fast"} and "label_mode" in collection
+    if output_dir.exists() and any(output_dir.iterdir()):
+        if native_labels or not probe.probe_state_path(output_dir).exists():
+            raise FileExistsError(f"Collection output already exists without resumable state: {output_dir}")
+    if task == "g1_sonic_balance_simple" and "label_mode" in collection:
+        from latency_bench.envs.tasks.humanoidbench.collection import collect
+        return collect(config)
+    if task == "mikasa_intercept_grab_fast" and "label_mode" in collection:
+        from latency_bench.envs.tasks.mikasa_collection import collect
+        return collect(config)
+    if config["policy"]["type"] == "sample_factory":
+        from latency_bench.integrations.sample_factory.teacher_export import collect
+        return collect(config)
     # The shared SF coordinator does not need evaluation factory dependencies.
     from latency_bench.data.rollout_config import resolve_collection
     from latency_bench.data.rollout_executor import ExecutorCollectionExecution
 
     config, task, options, source_metadata = resolve_collection(config)
     output_dir = Path(config["logging"]["output_dir"])
-    if output_dir.exists() and any(output_dir.iterdir()) and not probe.probe_state_path(output_dir).exists():
-        raise FileExistsError(f"Collection output already exists without resumable state: {output_dir}")
     def execution_factory(*, capture, num_envs):
         return ExecutorCollectionExecution(config, num_envs=num_envs)
     output_dir.mkdir(parents=True, exist_ok=True)

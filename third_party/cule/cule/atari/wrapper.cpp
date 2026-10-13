@@ -40,13 +40,12 @@ wrapper(const rom& cart,
     ram_ptr(nullptr),
     tia_update_ptr(nullptr),
     frame_ptr(nullptr),
-    rom_indices_ptr(nullptr),
     rand_states_ptr(nullptr),
     minimal_actions_ptr(nullptr),
     cached_states_ptr(nullptr),
     cached_ram_ptr(nullptr),
     cached_frame_states_ptr(nullptr),
-    cached_tia_update_ptr(nullptr),
+    cached_frame_ptr(nullptr),
     cache_index_ptr(nullptr)
 {}
 
@@ -57,13 +56,12 @@ initialize_ptrs(State_t* states_ptr,
                 uint8_t* ram_ptr,
                 uint32_t* tia_update_ptr,
                 uint8_t* frame_ptr,
-                uint32_t* rom_indices_ptr,
                 Action* minimal_actions_ptr,
                 uint32_t* rand_states_ptr,
                 State_t* cached_states_ptr,
                 uint8_t* cached_ram_ptr,
                 frame_state* cached_frame_states_ptr,
-                uint32_t* cached_tia_update_ptr,
+                uint8_t* cached_frame_ptr,
                 uint32_t* cache_index_ptr)
 {
     this->states_ptr = states_ptr;
@@ -71,13 +69,12 @@ initialize_ptrs(State_t* states_ptr,
     this->ram_ptr = ram_ptr;
     this->tia_update_ptr = tia_update_ptr;
     this->frame_ptr = frame_ptr;
-    this->rom_indices_ptr = rom_indices_ptr;
     this->minimal_actions_ptr = minimal_actions_ptr;
     this->rand_states_ptr = rand_states_ptr;
     this->cached_states_ptr = cached_states_ptr;
     this->cached_ram_ptr = cached_ram_ptr;
     this->cached_frame_states_ptr = cached_frame_states_ptr;
-    this->cached_tia_update_ptr = cached_tia_update_ptr;
+    this->cached_frame_ptr = cached_frame_ptr;
     this->cache_index_ptr = cache_index_ptr;
 }
 
@@ -88,14 +85,6 @@ reset(ExecutionPolicy&& policy,
       uint32_t* seedBuffer)
 {
     ROM_SWITCH(dispatch::reset, policy, *this, seedBuffer)
-}
-
-template<typename ExecutionPolicy>
-void
-wrapper::
-reset_states(ExecutionPolicy&& policy)
-{
-    ROM_SWITCH(dispatch::reset_states, policy, *this)
 }
 
 template<typename ExecutionPolicy>
@@ -139,21 +128,10 @@ template<typename ExecutionPolicy>
 void
 wrapper::
 preprocess(ExecutionPolicy&& policy,
-           const bool last_frame,
            const uint32_t* tiaBuffer,
            uint8_t* frameBuffer)
 {
-    ROM_SWITCH(dispatch::preprocess, policy, *this, last_frame, tiaBuffer, frameBuffer);
-}
-
-template<typename ExecutionPolicy>
-void
-wrapper::
-preprocess_terminal(ExecutionPolicy&& policy,
-                    const bool last_frame,
-                    uint8_t* frameBuffer)
-{
-    ROM_SWITCH(dispatch::preprocess_terminal, policy, *this, last_frame, frameBuffer);
+    dispatch::preprocess(policy, *this, tiaBuffer, frameBuffer);
 }
 
 template<typename ExecutionPolicy>
@@ -161,11 +139,9 @@ void
 wrapper::
 generate_frames(ExecutionPolicy&& policy,
                 const bool rescale,
-                const bool last_frame,
                 const size_t num_channels,
                 uint8_t* imageBuffer)
 {
-    preprocess(policy, last_frame, tia_update_ptr, frame_ptr);
     dispatch::generate_frames(policy, *this, rescale, num_channels, imageBuffer);
 }
 
@@ -194,12 +170,11 @@ wrapped_environment(const rom& cart,
   ram_buffer(cart.ram_size() * num_envs, 0),
   tia_update_buffer(ENV_UPDATE_SIZE * num_envs, 0),
   frame_buffer(300 * SCREEN_WIDTH * num_envs, 0),
-  rom_indices_buffer(num_envs, 0),
   rand_states_buffer(num_envs, 0),
   cached_states_buffer(noop_reset_steps, State_t{}),
   cached_ram_buffer(cart.ram_size() * noop_reset_steps, 0),
   cached_frame_states_buffer(noop_reset_steps, frame_state{}),
-  cached_tia_update_buffer(ENV_UPDATE_SIZE * noop_reset_steps, 0),
+  cached_frame_buffer(300 * SCREEN_WIDTH * noop_reset_steps, 0),
   cache_index_buffer(num_envs, 0)
 {
     auto actions = cart.minimal_actions();
@@ -210,13 +185,12 @@ wrapped_environment(const rom& cart,
                              ram_buffer.data(),
                              tia_update_buffer.data(),
                              frame_buffer.data(),
-                             rom_indices_buffer.data(),
                              minimal_actions_buffer.data(),
                              rand_states_buffer.data(),
                              cached_states_buffer.data(),
                              cached_ram_buffer.data(),
                              cached_frame_states_buffer.data(),
-                             cached_tia_update_buffer.data(),
+                             cached_frame_buffer.data(),
                              cache_index_buffer.data());
 }
 

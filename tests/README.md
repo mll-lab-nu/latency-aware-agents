@@ -1,159 +1,71 @@
 # Test suite conventions
 
-This is the contract for writing tests in this repo. Read it before adding or
-changing tests. It exists because the suite previously drifted into 100+ flat,
-disorganized files where many tests locked *internal implementation* instead of
-*observable behavior*. Don't reintroduce that.
-
----
-
-## 1. Where a test goes
-
-Tests mirror the source tree. A test lives in the subdirectory that matches the
-**source package it primarily exercises**:
-
-| Test directory | Source it mirrors |
-|---|---|
-| `tests/core/` | `latency_bench/core/` (config, clock, timing, actions, types) |
-| `tests/scheduler/` | `latency_bench/scheduler/` (action queue, decision, persistence) |
-| `tests/latency/` | `latency_bench/latency/` (samplers, profiles, bursts, calibration, hardware) |
-| `tests/executors/` | `latency_bench/executors/` (realtime, simulated, batched, paused, factory, warmup) |
-| `tests/envs/` | Shared environment factory and Atari episode contracts |
-| `tests/envs/adapters/` | `latency_bench/envs/adapters/` (benchmark adapter behavior) |
-| `tests/envs/tasks/` | `latency_bench/envs/tasks/` (native task APIs, assets and registration) |
-| `tests/policies/` | `latency_bench/policy/` (starvla, sample_factory, factory) |
-| `tests/eval/` | `latency_bench/eval/` (suites, driver, periodic eval, collect/report) |
-| `tests/logging/` | `latency_bench/logging/` (records, trajectory logger, video, pipeline) |
-| `tests/analysis/` | `latency_bench/analysis/` (tables, stats, figures, diagnostics, fits) |
-| `tests/profiling/` | `latency_bench/profiling/` (deployment profiling, artifact resolution, calibration and CLI contracts) |
-| `tests/data/` | `latency_bench/data/` (teacher demonstrations, schema/filters/parquet, LeRobot conversion) |
-| `tests/training/` | `training/` (sample_factory backend, sf-compat shims, episode metrics) |
-| `tests/training/gpu/` | `training/{flappy_sf,demon_attack_sf}` and anything needing a CUDA GPU |
-| `tests/scripts/test_sim2real.py` | `scripts/experiments/sim2real/` (frozen protocols, resume/publication and statistical reports) |
-| `tests/scripts/` | `scripts/` (sweeps, manifest jobs, bash scripts, bench harnesses) |
-| `tests/integration/` | end-to-end runs (`latency_bench/run.py`) |
-
-When a new test protects a distinct required behavior, put it in the matching
-directory. A new source module does not require a new test file. Don't add new
-files to the `tests/` root — the root holds only
-shared support (`conftest.py`, `helpers.py`, `executor_mode_helpers.py`).
-
-Test file basenames must be **globally unique** across the tree (pytest's default
-import mode requires it). No `__init__.py` in test directories.
-
----
-
-## 2. Test behavior, not implementation
-
-A test locks the **observable contract** of a unit: given input X, assert output Y.
-Cover boundary, error, and concurrency cases only when they protect a distinct
-required behavior or plausible regression. Merge cases that cover the same risk.
-The test must survive any internal rewrite that keeps that contract.
-
-**The one rule that decides everything:**
-
-> Would this assertion break if I rewrote the internals while keeping the
-> public behavior identical? If yes, it's locking implementation — fix it.
-
-### ✅ Do assert
-- Return values, raised exceptions, and their messages/types.
-- Files/artifacts written, their schema, and their contents.
-- Public state and metrics exposed by the object's API.
-- Calls made to a **collaborator you injected** through the public API (a fake
-  passed into the constructor / function) — verifying calls at that *seam* is
-  legitimate behavior verification (e.g. "each slot consulted its own latency
-  source").
-
-### ❌ Don't assert
-- Private state on a real object: `obj._completed_buffers`, `env._raw_episode_steps`,
-  `obj._uses_cuda`. If the only way to check something is a private attribute, it
-  usually has no observable behavior — reconsider whether it's worth a test.
-- Internal call counts/order of *production-internal* helpers (vs. injected fakes).
-- Exact snapshots of intermediate/internal data structures.
-- Directly testing `_private` functions when a public entry point covers them.
-  (A focused unit test of a small private helper is acceptable when it's a real
-  seam; reaching past the public API just to inspect internals is not.)
-
-### Gray areas that are OK
-- **Equivalence / metamorphic properties** — e.g. "batched path == map over the
-  single-item path", where the reference *reuses the real production primitive*
-  and only re-derives the composition. This locks a property, not a tautology.
-- **Golden-reference guards for a perf optimization** — an optimized path asserted
-  equal to a readable generic reference *spec*. Keep the reference; it's the
-  contract the fast path must satisfy.
-- **Tuning-constant monkeypatch for tractability** — patching a module-level tuning
-  constant (e.g. warmup sample thresholds) so a test needs 3 samples instead of
-  100, *while still asserting the public output*. Tolerable. Patching/asserting
-  internal *state or call sequences* is not.
-
-### Anti-patterns to never add
-- Re-implementing production logic in the test and asserting `new == my_copy`
-  (a true tautology — both can share the same bug).
-- `assert mock._internal_helper.call_count == 3` on a production-internal.
-- Exact float equality on computed values — use `pytest.approx`.
-- Tests that require invalid numeric inputs to be accepted merely because the
-  implementation does not validate them. Do not add the opposite rejection test
-  without a required input contract either.
-- Assertions that removed fields must remain absent solely because a refactor
-  removed them.
-- Tests that freeze the FPS calibration selection algorithm or the warmup
-  stability algorithm. Test required workflow behavior, such as propagating
-  calibration results and separating warmup from formal episodes.
-
-Demon Attack CPU ALE and CUDA CuLE comparisons use the same seed, reset settings,
-and action trace. Their RAM, raw RGB frames, and 84×84 observations must be equal
-element by element. Historical differences are not expected results or tolerances.
-Tests must not synchronize RAM or compensate images to make the paths agree.
-
----
-
-## 3. Conventions
-
-- One test, one behavior. Name it for the behavior it locks
-  (`test_<unit>_<condition>_<expected>`), not for the function it calls.
-- Mock only at **boundaries** (network, GPU, subprocess, filesystem, external
-  servers). Never mock the internals of the unit under test.
-- Floats: `pytest.approx`. Strings/dicts: assert the meaningful contract, not an
-  over-specified blob that breaks on benign change.
-- Repo paths: never compute the repo root with `Path(__file__).parents[N]` — that
-  breaks when a test moves. Import the anchored root:
-  `from helpers import REPO_ROOT`.
-- GPU/CUDA/cule/vizdoom tests go under `tests/training/gpu/` (auto-marked `gpu`) or
-  carry `pytestmark = pytest.mark.gpu` / `vizdoom`. Keep their own
-  `importorskip`/skip guards so they degrade gracefully when deps are absent.
-
----
-
-## 4. Running
-
-Use the `latency` conda env.
+Tests protect observable behavior, required invariants, and plausible regressions.
+Run the suite in the reference `latency` environment.
 
 ```bash
-conda run -n latency python -m pytest            # default: excludes GPU (-m "not gpu")
-conda run -n latency python -m pytest -m gpu     # GPU subtree, on a CUDA box
-conda run -n latency python -m pytest tests/executors -q   # one area
+conda run -n latency python -m pytest
+conda run -n latency python -m pytest tests/executors -q
+conda run -n latency python -m pytest -m gpu
 ```
 
-Config lives in `pytest.ini` (testpaths, registered markers, default `-m "not gpu"`).
+The default run excludes GPU tests.
+Optional integrations skip when their dependencies are absent.
+Report skipped checks separately from successful validation.
 
-Tests that exercise optional integrations skip when that integration's dependency
-set is not installed. A passing default non-GPU suite is the maintained target;
-track and eliminate remaining failures instead of normalizing them as environment
-noise.
+## Test ownership
 
----
+Place a test in the suite that owns the behavior:
 
-## 5. Dead-test discipline
+| Suite | Owner |
+| --- | --- |
+| `core/`, `scheduler/`, `latency/` | Configuration, clocks, actions, scheduling, latency profiles |
+| `executors/` | Paused, simulated, batched, and realtime execution |
+| `envs/` | Environment factories, adapters, task registration, episode contracts |
+| `policies/` | Policy construction and inference adapters |
+| `data/` | Collection, alignment, splits, storage, and metadata |
+| `eval/`, `logging/`, `analysis/` | Evaluation, traces, recording, and statistics |
+| `profiling/` | Deployment measurement, fitting, recovery, and input resolution |
+| `integrations/starvla/` | Task contracts, conversion, loaders, training evaluation, resident DAgger |
+| `training/` | Reference training and framework compatibility |
+| `training/gpu/` | CUDA environment and training behavior |
+| `scripts/` | Task recipes, experiment runners, and Bash entrypoints |
+| `integration/` | Cross-module and CLI behavior |
+| `integration/sample_factory/` | Checkpoint loading, execution adapters, and teacher export |
 
-- Delete a feature ⇒ delete its tests in the same change. Don't leave orphans.
-- Don't commit a test that is unconditionally skipped as a placeholder. Use a
-  marker (`gpu`/`vizdoom`/`slow`) so it's deselected-but-runnable, not dead.
-- If a test only passes because it's skipped in every environment, it isn't
-  testing anything — either give it a runnable path or remove it.
+Keep shared support in the test root.
+Use globally unique test basenames because pytest uses its default import mode.
+Do not add `__init__.py` files to test directories.
+Import `REPO_ROOT` from `helpers` for checkout paths.
 
-Sample Factory checkpoint, execution-adapter and export tests live
-in `tests/integration/sample_factory/`. Generic collection contracts live in
-`tests/data/test_rollout.py`. Existing executor suites cover scheduling and
-buffer ownership. `tests/integration/test_external_factories.py` covers collection
-from an external project through simulated inference worker processes. These are long-lived
-interface and regression tests.
+## Test contracts
+
+- Assert outputs, files, exceptions, public state, and meaningful collaborator behavior.
+- Use one representative test for each distinct behavioral contract.
+- Mock network, GPU, subprocess, and other external boundaries when necessary.
+- Use `pytest.approx` for computed floating-point values.
+- Preserve useful fixtures for failures that need real processes or files.
+- Keep tests valid when internal code changes without changing public behavior.
+- Remove obsolete tests with their feature.
+- Place retained tests in the responsible suite and document their contract.
+
+Internal call counts, private attributes, and snapshots usually do not define public behavior.
+A focused internal test can protect an independent semantic contract when a public test cannot exercise it.
+Do not duplicate production logic to calculate the expected result.
+
+## GPU and simulator checks
+
+Mark optional CUDA tests with `gpu` and ViZDoom tests with `vizdoom`.
+The GPU subtree also applies its marker automatically.
+Keep dependency guards so optional suites remain runnable in their supported environments.
+
+Demon Attack CPU/ALE and CUDA/CuLE comparisons use identical seeds, reset settings, and action traces.
+RAM, raw RGB, and 84×84 observations must match element by element.
+Tests must not synchronize state or compensate images to force agreement.
+
+## Existing integration coverage
+
+`tests/data/test_rollout.py` owns canonical collection behavior.
+`tests/integration/test_external_factories.py` exercises external projects, worker processes, collection, conversion, and profile replay.
+Executor suites own scheduling and buffer lifetime.
+These tests protect long-lived interfaces and regressions.

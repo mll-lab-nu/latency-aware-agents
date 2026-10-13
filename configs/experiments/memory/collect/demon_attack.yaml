@@ -1,0 +1,11 @@
+__base__: base.yaml
+evaluation:
+  episodes: 200
+logging:
+  output_dir: outputs/memory/teacher_datasets/demon_attack_fix_latency_6_200ep_7k2steps
+dataset_experiment:
+  teacher_job:
+    manifest: configs/train/memory/rollout_teacher/demon_attack/manifest.tsv
+    latency_fixed_frames: 6
+    seed: 0
+  probe_shards: null

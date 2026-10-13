@@ -123,7 +123,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
         self,
         episode_id: int,
         seed: int | None = None,
-        eval_max_steps: int = 10000,
+        max_env_steps: int = 10000,
     ) -> EpisodeMetrics:
         if self.episode_latency_source_factory is not None:
             self.latency_source = self.episode_latency_source_factory(episode_id)
@@ -223,7 +223,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
 
         raw_frame = 0
         recent_drop_count = 0
-        while raw_frame < eval_max_steps:
+        while raw_frame < max_env_steps:
             current_time_ms = self.clock.step_to_time_ms(raw_frame)
             worker_capacity.release_ready(raw_frame)
             if pool is not None:
@@ -352,7 +352,7 @@ class SimulatedLatencyExecutor(EpisodeExecutor):
                 self.action_scheduler.enqueue(released_event)
             active_action = self.action_scheduler.update(raw_frame, current_time_ms)
             result = self.env.step(active_action)
-            soft_reset = bool(result.info.get("soft_reset")) if isinstance(result.info, dict) else False
+            soft_reset = bool(result.info.get("soft_reset"))
             episode_done = bool(result.done or result.truncated) and not soft_reset
             if self.video_recorder is not None and not episode_done:
                 self.video_recorder.record_frame(self.env.render_game_frame())

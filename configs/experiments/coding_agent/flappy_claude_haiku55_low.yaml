@@ -4,8 +4,9 @@ experiment:
 
 executor:
   mode: simulated
+  parallel_envs: 1
   simulated_worker_capacity: 1
-  simulated_inference_pool: false
+  inference_pool: false
 
 env:
   name: flappy
@@ -52,10 +53,8 @@ scheduler:
   ordering_policy: latest_ready
 
 evaluation:
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 3600
-  eval_latency_values: null
+  episodes: 5
+  max_env_steps: 3600
 
 logging:
   output_dir: /home/ubuntu/lzj/coding-agent/outputs/flappy_haiku55_low_pilot

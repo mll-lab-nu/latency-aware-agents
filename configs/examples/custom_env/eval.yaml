@@ -1,0 +1,18 @@
+__base__: task.yaml
+experiment:
+  name: custom_mountain_car_eval
+executor:
+  mode: simulated
+  inference_devices: [cpu]
+  sync_cuda: false
+latency:
+  method: fixed
+  fixed_latency_ms: 100
+evaluation:
+  episodes: 3
+  max_env_steps: 50
+logging:
+  output_dir: outputs/custom_mountain_car/eval
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

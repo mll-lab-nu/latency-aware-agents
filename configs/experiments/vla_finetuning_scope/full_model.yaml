@@ -8,6 +8,9 @@ experiment:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 4
 env:
   env_fps: 30
   obs_fps: 30
@@ -17,29 +20,29 @@ env:
 policy:
   type: starvla
   # Historical artifact ID retained for the published checkpoint.
-  checkpoint_path: results/Checkpoints/openvla_flappy_fixed_l2_200ep_full_tuning_corrected/final_model
-  device: cuda
   unnorm_key: new_embodiment
   # Exact fixed-latency-2 prompt used by the published training dataset.
-  latency_prompt_map_path: third_party/starVLA/prompt/flappy_latency_prompt_map.json
+  latency_prompt_map_path: /home/lixinyuan/latency-sensitive-bench/third_party/starVLA/prompt/flappy_latency_prompt_map.json
   latency_prompt_key: 2
   actions:
     - noop
     - flap
 
+  source: local
+  root: results/Checkpoints/openvla_flappy_fixed_l2_200ep_full_tuning_corrected
+  checkpoint: final_model
 latency:
   method: fixed
   fixed_latency_ms: 66.66666666666667
 
 evaluation:
-  eval_episodes: 50
-  eval_parallel_envs: 4
-  eval_max_steps: 3600
-  eval_suites:
-    fixed:
-      - [2]
-    normal: []
-    uniform: []
+  episodes: 50
+  max_env_steps: 3600
+  suites:
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 66.66666666666667
 
 logging:
   output_dir: outputs/vla_finetuning_scope/full_model

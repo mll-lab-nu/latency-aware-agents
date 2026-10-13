@@ -47,24 +47,13 @@ def restore_rng_state(state: dict[str, Any]) -> None:
     random.setstate(state["python_rng"])
 
 
-def experiment_dir(train_dir: str | os.PathLike[str], experiment_name: str) -> Path:
-    name = str(experiment_name).strip()
-    if not name:
-        raise ValueError("experiment.name must be a non-empty string")
-    return Path(train_dir).expanduser() / name
-
-
 def checkpoint_dir(
     train_dir: str | os.PathLike[str],
     experiment_name: str,
     *,
     policy_id: int = 0,
 ) -> Path:
-    return experiment_dir(train_dir, experiment_name) / f"checkpoint_p{int(policy_id)}"
-
-
-def format_checkpoint_name(*, train_step: int, env_steps: int) -> str:
-    return f"checkpoint_{int(train_step):09d}_{int(env_steps):012d}.pth"
+    return Path(train_dir).expanduser() / str(experiment_name).strip() / f"checkpoint_p{int(policy_id)}"
 
 
 def find_checkpoint(
@@ -104,16 +93,6 @@ def checkpoint_mtimes(root: str | os.PathLike[str], pattern: str = "checkpoint_*
             # The learner can prune a checkpoint after directory enumeration.
             continue
     return mtimes
-
-
-def read_checkpoint_backend_type(path: str | os.PathLike[str]) -> str | None:
-    checkpoint = trusted_torch_load(path, torch.device("cpu"))
-    if not isinstance(checkpoint, dict):
-        return None
-    backend_type: Any = checkpoint.get("backend_type")
-    if backend_type is None:
-        return None
-    return str(backend_type)
 
 
 @dataclass(frozen=True)
@@ -169,7 +148,6 @@ def patch_sample_factory_checkpoint_loader() -> None:
                 return False
 
             checkpoint = self._get_checkpoint_dict()
-            assert checkpoint is not None
 
             root = self.checkpoint_dir(self.cfg, self.policy_id)
             tmp_filepath = os.path.join(root, f"{name_prefix}_temp")
@@ -279,15 +257,9 @@ def prune_unleased_sample_factory_checkpoints(
         oldest_unleased.unlink()
 
 
-def _leased_checkpoint_names(checkpoint_dir: Path) -> set[str]:
-    lease_dir = checkpoint_dir / _EVAL_LEASE_DIR
-    return {marker.name.rsplit(".", 2)[0] for marker in lease_dir.glob("*.json")}
-
-
-def _retained_checkpoint_names(checkpoint_dir: Path) -> set[str]:
-    retention_dir = checkpoint_dir / _EVAL_RETENTION_DIR
-    return {marker.name.removesuffix(".json") for marker in retention_dir.glob("*.json")}
-
-
 def _protected_checkpoint_names(checkpoint_dir: Path) -> set[str]:
-    return _leased_checkpoint_names(checkpoint_dir) | _retained_checkpoint_names(checkpoint_dir)
+    lease_dir = checkpoint_dir / _EVAL_LEASE_DIR
+    retention_dir = checkpoint_dir / _EVAL_RETENTION_DIR
+    leased_names = {marker.name.rsplit(".", 2)[0] for marker in lease_dir.glob("*.json")}
+    retained_names = {marker.name.removesuffix(".json") for marker in retention_dir.glob("*.json")}
+    return leased_names | retained_names

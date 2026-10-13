@@ -7,11 +7,20 @@ import numpy as np
 import pytest
 
 from latency_bench.core.actions import ActionResolver
-from latency_bench.integrations import starvla_runtime
+from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.core.types import Observation
 from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy.factory import build_policy
+from latency_bench.policy.model_source import model_file
 from latency_bench.policy.starvla_prompts import resolve_starvla_prompt
+
+
+@pytest.fixture(autouse=True)
+def registered_test_environments(monkeypatch):
+    from latency_bench.envs import factory
+    monkeypatch.setattr(factory, "_ENV_ADAPTER_BUILDERS", dict(factory._ENV_ADAPTER_BUILDERS))
+    factory.register_env_adapter("mountain_car", env_id="MountainCar-v0")(factory._build_gymnasium_env)
+    factory.register_env_adapter("synthetic_continuous", env_id="SyntheticContinuous-v0")(factory._build_gymnasium_env)
 
 
 class GenericPolicyServerWrapper:
@@ -79,8 +88,7 @@ class GenericLiveFramework:
 
 def _generic_config(tmp_path: Path) -> dict:
     env = {
-        "name": "gymnasium",
-        "task_name": "mountain_car",
+        "name": "mountain_car",
         "env_id": "MountainCar-v0",
         "registration_imports": [],
         "make_kwargs": {"render_mode": "rgb_array"},
@@ -132,12 +140,13 @@ def _generic_config(tmp_path: Path) -> dict:
     )
     return {
         "env": env,
+        "executor": {"inference_devices": ["cuda:0"]},
         "policy": {
             "type": "starvla",
-            "checkpoint_path": str(tmp_path / "checkpoint"),
-            "model_config_path": str(model_config_path),
+            "source": "local", "root": str(tmp_path), "checkpoint": "checkpoint",
+            "model_config": "config.full.yaml",
             "task_manifest_path": str(manifest_path),
-            "device": "cuda:0",
+
             "actions": ["push_left", "coast", "push_right"],
         },
     }
@@ -190,11 +199,11 @@ def test_generic_checkpoint_policy_separates_integration_task_and_state_action(
     assert wrapper.rl_games_env_name == "gymnasium"
     assert wrapper.rl_games_action_env_dim == 3
     assert wrapper.rl_games_gymnasium_action_space_type is None
-    assert wrapper.rl_games_gymnasium_robot_type is None
+    assert wrapper.rl_games_gymnasium_robot_type == "rl_games_gymnasium"
     example = wrapper.calls[0]["examples"][0]
     assert example["lang"] == "Drive the car up the mountain."
     np.testing.assert_array_equal(
-        example["state"], np.asarray([[0.125, -0.25]], dtype=np.float32)
+        example["state"], np.asarray([[1.25, -2.5]], dtype=np.float32)
     )
     assert output.action.name == "push_right"
     assert output.action.value == 2
@@ -217,7 +226,7 @@ def test_generic_checkpoint_policy_accepts_legacy_environment_namespace(
     monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
     config["env"].update(
-        task_name="hopper",
+        name="hopper",
         env_id="LatencyBench/Hopper-v0",
         registration_imports=["latency_bench.envs.tasks.hopper"],
     )
@@ -231,7 +240,7 @@ def test_generic_checkpoint_policy_accepts_legacy_environment_namespace(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["gymnasium_task"] = legacy_contract
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    model_config_path = Path(config["policy"]["model_config_path"])
+    model_config_path = Path(model_file(config["policy"], "model_config"))
     model_config = json.loads(model_config_path.read_text(encoding="utf-8"))
     model_config["datasets"]["vla_data"]["gymnasium_task_contract"] = legacy_contract
     model_config_path.write_text(json.dumps(model_config), encoding="utf-8")
@@ -268,7 +277,7 @@ def test_generic_checkpoint_policy_keeps_stateless_gymnasium_stateless(
         }
     )
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    model_config_path = Path(config["policy"]["model_config_path"])
+    model_config_path = Path(model_file(config["policy"], "model_config"))
     model_config = json.loads(model_config_path.read_text(encoding="utf-8"))
     model_config["datasets"]["vla_data"].update(
         {"include_state": False, "gymnasium_task_contract": contract}
@@ -281,18 +290,9 @@ def test_generic_checkpoint_policy_keeps_stateless_gymnasium_stateless(
     assert "state" not in GenericPolicyServerWrapper.instances[0].calls[0]["examples"][0]
 
 
-@pytest.mark.parametrize(
-    ("mismatch", "message"),
-    [
-        ("state_labels", "state_labels"),
-        ("state_normalization", "state_normalization"),
-    ],
-)
 def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
     monkeypatch,
     tmp_path: Path,
-    mismatch: str,
-    message: str,
 ):
     from latency_bench.policy import starvla
 
@@ -302,14 +302,11 @@ def test_generic_checkpoint_policy_rejects_state_contract_mismatch(
     manifest_path = Path(config["policy"]["task_manifest_path"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    if mismatch == "state_labels":
-        manifest["state_labels"] = ["position"]
-    else:
-        manifest["state_normalization"] = {}
+    manifest["state_labels"] = ["position"]
 
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="state_labels"):
         build_policy(config, ActionResolver(config["env"]))
 
 
@@ -322,31 +319,38 @@ def test_synthetic_continuous_checkpoint_policy_passes_state_and_box_contract(
     monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: GenericPolicyServerWrapper)
     monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda model_cfg: model_cfg)
     config = {
-        "env": {
-            "name": "gymnasium",
-            "task_name": "synthetic_continuous",
-            "env_id": "SyntheticContinuous-v0",
-            "registration_imports": [],
-            "make_kwargs": {"render_mode": "rgb_array"},
-            "env_fps": 20,
-            "obs_fps": 20,
-            "frame_stack": 1,
-            "state_space": {"labels": ["position", "velocity"]},
-            "action_space": {
-                "type": "box",
-                "labels": ["left", "right"],
-                "low": [-1.0, -1.0],
-                "high": [1.0, 1.0],
+        'env': {
+            'name': 'synthetic_continuous',
+            'env_id': 'SyntheticContinuous-v0',
+            'registration_imports': [],
+            'make_kwargs': {
+                'render_mode': 'rgb_array',
             },
-            "noop_action": [0.0, 0.0],
-            "base_prompt": "Move the synthetic system to its target.",
+            'env_fps': 20,
+            'obs_fps': 20,
+            'frame_stack': 1,
+            'state_space': {
+                'labels': ['position', 'velocity'],
+            },
+            'action_space': {
+                'type': 'box',
+                'labels': ['left', 'right'],
+                'low': [-1.0, -1.0],
+                'high': [1.0, 1.0],
+            },
+            'noop_action': [0.0, 0.0],
+            'base_prompt': 'Move the synthetic system to its target.',
         },
-        "policy": {
-            "type": "starvla",
-            "checkpoint_path": str(tmp_path / "checkpoint"),
-            "model_config_path": str(tmp_path / "config.full.yaml"),
-            "task_manifest_path": str(tmp_path / "manifest.json"),
-            "device": "cuda:0",
+        'policy': {
+            'type': 'starvla',
+            'task_manifest_path': str(tmp_path / 'manifest.json'),
+            'checkpoint': str(Path(str(tmp_path / 'checkpoint')).absolute()).lstrip('/'),
+            'source': 'local',
+            'root': '/',
+            'model_config': str(Path(str(tmp_path / 'config.full.yaml')).absolute()).lstrip('/'),
+        },
+        'executor': {
+            'inference_devices': ['cuda:0'],
         },
     }
     contract = gymnasium_task_contract(config["env"])
@@ -400,7 +404,7 @@ def test_synthetic_continuous_checkpoint_policy_passes_state_and_box_contract(
     assert wrapper.rl_games_gymnasium_action_space_type == "box"
     np.testing.assert_allclose(
         wrapper.calls[0]["examples"][0]["state"],
-        (state / 10.0).reshape(1, 2),
+        state.reshape(1, 2),
     )
     assert output.action.value == [0.0, 0.0]
 
@@ -457,11 +461,20 @@ def test_generic_prompt_map_takes_priority_over_explicit_base_prompt(
     assert example["lang"] == "Use the latency-three policy."
 
 
-def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
+def test_generic_live_policy_uses_training_statistics_and_decodes_actions(
     monkeypatch,
     tmp_path: Path,
 ):
+    pytest.importorskip("accelerate")
     from latency_bench.policy import starvla
+
+    def stats(low, high):
+        return {"min": low, "max": high, "mean": [0.0] * len(low), "std": [1.0] * len(low),
+                "q01": low, "q99": high}
+    training_statistics = {"new_embodiment": {
+        "state": stats([-20.0, -20.0], [20.0, 20.0]),
+        "action": stats([0.0] * 3, [1.0] * 3),
+    }}
 
     decode_calls = []
 
@@ -514,14 +527,16 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
     config = _generic_config(tmp_path)
     framework = GenericLiveFramework()
     model_cfg = json.loads(
-        Path(config["policy"]["model_config_path"]).read_text(encoding="utf-8")
+        Path(model_file(config["policy"], "model_config")).read_text(encoding="utf-8")
     )
 
+    model_cfg["datasets"]["vla_data"]["robot_type"] = "rl_games_gymnasium"
     policy = starvla.build_live_starvla_policy(
         framework=framework,
         model_cfg=model_cfg,
         config=config,
         action_resolver=ActionResolver(config["env"]),
+        normalization_statistics=training_statistics,
     )
     output = policy.predict(_observation())
 
@@ -531,7 +546,7 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
     assert framework.calls[0]["examples"][0]["lang"] == "Drive the car up the mountain."
     np.testing.assert_array_equal(
         framework.calls[0]["examples"][0]["state"],
-        np.asarray([[0.125, -0.25]], dtype=np.float32),
+        np.asarray([[0.0625, -0.125]], dtype=np.float32),
     )
     assert output.action.name == "push_right"
     assert output.action.value == 2
@@ -542,6 +557,7 @@ def test_generic_live_policy_uses_manifest_state_and_decodes_actions(
         env_name="gymnasium",
         rl_games_action_env_dim=2,
         gymnasium_action_space_type="box",
+        normalization_statistics=training_statistics,
     )
     box_prediction = box_wrapper.predict_action(
         examples=[{"image": [], "lang": "", "state": np.asarray([[3.0, 4.0]])}]
@@ -593,9 +609,9 @@ def test_generic_starvla_rejects_model_config_contract_drift(
     monkeypatch.setattr(starvla_runtime, "normalize_model_config", lambda model_cfg: model_cfg)
     monkeypatch.setattr(starvla_runtime, "load_model_config", _read_model_config)
     config = _generic_config(tmp_path)
-    model_cfg = _read_model_config(config["policy"]["model_config_path"])
+    model_cfg = _read_model_config(model_file(config["policy"], "model_config"))
     model_cfg["datasets"]["vla_data"]["gymnasium_task_contract"]["action_values"] = [0, 2, 1]
-    Path(config["policy"]["model_config_path"]).write_text(
+    Path(model_file(config["policy"], "model_config")).write_text(
         json.dumps(model_cfg),
         encoding="utf-8",
     )

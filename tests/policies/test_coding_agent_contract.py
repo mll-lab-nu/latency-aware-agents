@@ -3,6 +3,7 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -15,6 +16,7 @@ from latency_bench.core.actions import ActionResolver
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Action, Observation
 from latency_bench.envs.base import ENV_RAW_RGB_FRAME_STACK_INFO_KEY as RGB
+from latency_bench.envs.factory import environment_integration, resolve_env_config
 from latency_bench.envs.tasks.contracts import gymnasium_action_space_contract, gymnasium_task_contract
 from latency_bench.policy.coding_agent_config import adapt_reference_config
 from latency_bench.policy.coding_agent_contract import (
@@ -44,13 +46,18 @@ def agent_config(reference, tmp_path):
     return adapt_reference_config(reference, client["policy"], provider="codex", protocol=protocol)
 
 
-@pytest.mark.parametrize("task", REFERENCES)
-def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_path, task):
+@pytest.mark.parametrize("task,transport", [(task, False) for task in REFERENCES] + [("ant", True)])
+def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_path, monkeypatch, task, transport):
     reference = load_config(ROOT / REFERENCES[task])
+    reference["policy"]["checkpoint"] = "checkpoints/not_loaded.pt"
+    resolve_env_config(reference)
     env = reference["env"]
     cfg = reference["policy"]
     cfg.pop("latency_prompt_map_path", None)
     cfg.pop("gymnasium_training_task_contract", None)
+    cfg["root"] = str(tmp_path)
+    if transport:
+        cfg["state_source"] = "transport"
     include_state = "state_space" in env or task == "flappy"
     state_dim = len(env["state_space"]["labels"]) if "state_space" in env else 7
     native_count = {"flappy": 2, "deadly_corridor": 7, "demon_attack": 6,
@@ -60,10 +67,37 @@ def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_p
     model = {"framework": {"name": "QwenOFT", "action_model": {"state_dim": state_dim, "action_env_dim": model_action_dim}},
              "datasets": {"vla_data": {"include_state": include_state, "image_mode": "single"}},
              "rl_games": {"env_eval": {"image_size": 24}}}
+    if environment_integration(reference) == "gymnasium":
+        model["datasets"]["vla_data"]["robot_type"] = "rl_games_gymnasium_native"
+        cfg["unnorm_key"] = "test_task"
+        def statistics(dim):
+            return {"min": [-2] * dim, "max": [2] * dim, "mean": [0] * dim,
+                    "std": [1] * dim, "q01": [-2] * dim, "q99": [2] * dim}
+        (tmp_path / "dataset_statistics.json").write_text(json.dumps({
+            "test_task": {"state": statistics(state_dim), "action": statistics(model_action_dim)},
+        }))
+        # Test delegation at the external training-transform boundary. Its actual
+        # normalization is exercised by test_generic_gymnasium_starvla_policy.
+        class TrainingTransform:
+            unnorm_key = "test_task"
+
+            @classmethod
+            def from_statistics(cls, model_cfg, saved_statistics, *, unnorm_key, robot_type):
+                assert unnorm_key == "test_task" and robot_type == "rl_games_gymnasium_native"
+                assert saved_statistics[unnorm_key]["state"] == statistics(state_dim)
+                assert model_cfg["datasets"]["vla_data"]["include_state"] == include_state
+                return cls()
+
+            def apply_state(self, state):
+                np.testing.assert_array_equal(state, np.ones((1, state_dim)))
+                return np.full((1, state_dim), 0.375, dtype=np.float32)
+
+        monkeypatch.setitem(sys.modules, "deployment.model_server.policy_norm_processor",
+                            SimpleNamespace(PolicyNormProcessor=TrainingTransform))
     sidecar = tmp_path / "config.full.yaml"
     sidecar.write_text(yaml.safe_dump(model))
-    cfg["model_config_path"] = str(sidecar)
-    if env["name"] == "gymnasium":
+    cfg["model_config"] = str(sidecar)
+    if environment_integration(reference) == "gymnasium":
         manifest = {"integration_name": "gymnasium", "gymnasium_task": gymnasium_task_contract(env),
                     "active_action_dim": model_action_dim, "uses_state": include_state}
         if include_state:
@@ -77,7 +111,8 @@ def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_p
     resolver = ActionResolver(config["env"])
     observer, prompt, contract, input_contract = build_reference_observer(config, resolver)
     frames = np.random.default_rng(2).integers(0, 256, (4, 32, 40, 3), dtype=np.uint8)
-    observation = Observation(None, 4, 100, {RGB: frames, "gymnasium_state": np.ones(state_dim),
+    observation = Observation({"transport": np.ones(state_dim)} if transport else None, 4, 100,
+                              {RGB: frames, "gymnasium_state": np.ones(state_dim),
                                             "latency_ms": 987654321, "numeric_obs": "PRIVATE"})
     example = observer(observation)
     height, width = config["env"]["obs_resize"]
@@ -85,7 +120,11 @@ def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_p
     assert "987654321" not in prompt and set(example) <= {"image", "state"}
     assert (input_contract["state"] is not None) == include_state
     if include_state:
-        np.testing.assert_array_equal(example["state"], np.zeros((1, state_dim)))
+        # The transformed value must reach the agent, for native and history state.
+        expected = 0.375 if environment_integration(reference) == "gymnasium" else 0.0
+        np.testing.assert_allclose(example["state"], np.full((1, state_dim), expected), atol=1e-6)
+        if environment_integration(reference) == "gymnasium":
+            assert input_contract["state"]["normalization"] == statistics(state_dim)
     else:
         assert "state" not in example
     if task == "deadly_corridor":
@@ -128,11 +167,11 @@ def test_robot_multiview_state_full_chunks_and_frozen_prefix(tmp_path, task, hor
     model_path = tmp_path / "config.full.yaml"
     model_path.write_text(yaml.safe_dump({"framework": {"name": "QwenOFT"}, "datasets": {
         "vla_data": {"include_state": True, "obs_image_size": [24, 32], "image_mode": "single"}}}))
-    reference["policy"].update(task_contract_path=str(contract_path), model_config_path=str(model_path))
+    reference["policy"].update(task_contract_path=str(contract_path), model_config=str(model_path))
     config = agent_config(reference, tmp_path)
     prepare_coding_agent_config(config)
     if task == "balance" and state_dim > 198:
-        assert config["env"]["name"] == "balance_profile"
+        assert config["env"]["name"] == "g1_sonic_balance_simple"
         assert config["env"]["action_context_horizon"] == horizon
     resolver = ActionResolver(config["env"])
     observer, _, actual_contract, input_contract = build_reference_observer(config, resolver)
@@ -204,9 +243,9 @@ def test_composition_keeps_reference_and_requires_explicit_protocol(tmp_path):
     assert config["env"] == reference["env"]
     assert config["scheduler"] == reference["scheduler"]
     assert config["policy"]["reference_policy"] == reference["policy"]
-    assert "eval_suites" not in config["evaluation"]
-    assert config["evaluation"]["eval_parallel_envs"] == 1
-    config["evaluation"]["eval_parallel_envs"] = 2
+    assert "suites" not in config["evaluation"]
+    assert config["executor"]["parallel_envs"] == 1
+    config["executor"]["parallel_envs"] = 2
     with pytest.raises(ValueError, match="one parallel environment"):
         prepare_coding_agent_config(config)
 
@@ -214,6 +253,7 @@ def test_composition_keeps_reference_and_requires_explicit_protocol(tmp_path):
 @pytest.mark.parametrize("mode", ["packed", "multi", "stitch", "kv"])
 def test_reference_temporal_windows_and_transport_are_shared(tmp_path, mode):
     reference = load_config(ROOT / REFERENCES["flappy"])
+    reference["policy"]["checkpoint"] = "checkpoints/not_loaded.pt"
     reference["env"].update(env_fps=30, obs_fps=15, frame_stack=1, obs_resize=[16, 24])
     model = {"framework": {"name": "QwenOFT", "action_model": {"state_dim": 6},
                            "kv_memory": {"enabled": mode == "kv"}},
@@ -222,7 +262,7 @@ def test_reference_temporal_windows_and_transport_are_shared(tmp_path, mode):
                           "num_obs_frames": 3, "stitch_grid": [1, 3]}}}
     path = tmp_path / "model.yaml"
     path.write_text(yaml.safe_dump(model))
-    reference["policy"].update(model_config_path=str(path), state_source="transport")
+    reference["policy"].update(model_config=str(path), state_source="transport")
     reference["policy"].pop("latency_prompt_map_path", None)
     config = agent_config(reference, tmp_path)
     prepare_coding_agent_config(config)
@@ -269,6 +309,7 @@ def test_first_party_factory_runs_serial_episode_and_history_path(tmp_path, monk
     from latency_bench.policy.codex import CodexPolicyRunner
 
     reference = load_config(ROOT / REFERENCES["flappy"])
+    reference["policy"]["checkpoint"] = "checkpoints/not_loaded.pt"
     reference["env"].update(frame_stack=1, obs_resize=[16, 24])
     if history:
         reference["env"]["action_history_decisions"] = 2
@@ -276,10 +317,10 @@ def test_first_party_factory_runs_serial_episode_and_history_path(tmp_path, monk
     path = tmp_path / "model.yaml"
     path.write_text(yaml.safe_dump({"framework": {"name": "QwenOFT", "action_model": {"state_dim": 6}},
                                    "datasets": {"vla_data": {"include_state": True, "image_mode": "single"}}}))
-    reference["policy"]["model_config_path"] = str(path)
+    reference["policy"]["model_config"] = str(path)
     reference["policy"].pop("latency_prompt_map_path", None)
     config = agent_config(reference, tmp_path)
-    config["evaluation"].update(eval_episodes=2, eval_max_steps=3)
+    config["evaluation"].update(episodes=2, max_env_steps=3)
     config["logging"]["video"]["enabled"] = False
 
     class PixelEnv(DummyEnvAdapter):

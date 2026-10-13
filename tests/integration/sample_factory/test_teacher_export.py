@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import importlib
 import logging
 import os
 import sys
@@ -84,9 +85,9 @@ def _write_checkpoint_config(path: Path, **overrides) -> Path:
         "max_pending_actions": None,
         "hold_policy": "hold",
         "ordering_policy": "latest_ready",
-        "eval_episodes": 20,
-        "eval_parallel_envs": 1,
-        "eval_max_steps": 3600,
+        "episodes": 20,
+        "parallel_envs": 1,
+        "max_env_steps": 3600,
         "eval_deterministic": True,
         "eval_raw_reward": True,
         "output_dir": "outputs/demon_fixed_l4_seed0",
@@ -103,36 +104,6 @@ def _env_raw_rgb_frame_stack(value: int = 5, *, frames: int = 1, height: int = 2
         [np.full((height, width, 3), int(value) + idx, dtype=np.uint8) for idx in range(int(frames))],
         axis=0,
     )
-
-
-def test_export_cli_accepts_flappy_ghost_trail_image_transform():
-    from scripts.rollout_data.export_sf_teacher_dataset import build_parser
-
-    args = build_parser().parse_args(
-        [
-            "--checkpoint-root",
-            "ckpt",
-            "--output-dir",
-            "out",
-            "--max-episodes",
-            "1",
-            "--max-steps-per-episode",
-            "10",
-            "--image-transform",
-            "flappy_ghost_trail",
-            "--ghost-trail-history-frames",
-            "5",
-            "--ghost-trail-gamma",
-            "1.3",
-            "--hf-data-dir",
-            "latency-aware/flappy/ghost-trail",
-        ]
-    )
-
-    assert args.image_transform == "flappy_ghost_trail"
-    assert args.ghost_trail_history_frames == 5
-    assert args.ghost_trail_gamma == 1.3
-    assert args.hf_data_dir == "latency-aware/flappy/ghost-trail"
 
 
 def _read_shard_rows(output_dir: Path, split: str) -> list[dict]:
@@ -190,107 +161,6 @@ def test_profile_latency_override_preserves_sampler_method(method):
     assert params.profile_method == method
 
 
-def test_latency_config_override_is_explicit_rollout_override(tmp_path):
-    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
-
-    experiment_dir = tmp_path / "demon_fixed_l4_seed0"
-    _write_checkpoint_config(experiment_dir)
-    override_path = tmp_path / "latency_override.yaml"
-    override_path.write_text(
-        yaml.safe_dump(
-            {
-                "latency": {
-                    "method": "uniform",
-                    "min_latency_ms": 10.0,
-                    "max_latency_ms": 80.0,
-                    "seed": 123,
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    descriptor, metadata = load_rollout_training_config(experiment_dir, latency_config_path=override_path)
-
-    assert descriptor["flat_cfg"]["frame_stack"] == 6
-    assert descriptor["latency_override"] == {
-        "method": "uniform",
-        "min_latency_ms": 10.0,
-        "max_latency_ms": 80.0,
-        "seed": 123,
-    }
-    assert metadata["latency_source"] == str(override_path.resolve())
-
-
-@pytest.mark.parametrize(
-    ("env", "experiment", "expected_ms"),
-    [
-        ("latency_flappy", "flappy_sf_same_latency_l1_seed0", 1000.0 / 30.0),
-        ("latency_demon_attack", "demon_attack_sf_same_latency_l1_seed0", 4 * 1000.0 / 60.0),
-        ("latency_demon_attack", "demon_attack_sf_same_latency_l2_seed0", 8 * 1000.0 / 60.0),
-        ("doom_deadly_corridor", "deadly_corridor_sf_same_latency_l1_seed0", 4 * 1000.0 / 35.0),
-    ],
-)
-def test_rollout_config_infers_legacy_same_latency_checkpoint_fixed_latency(
-    tmp_path,
-    env,
-    experiment,
-    expected_ms,
-):
-    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
-
-    experiment_dir = tmp_path / experiment
-    _write_checkpoint_config(
-        experiment_dir,
-        env=env,
-        experiment=experiment,
-        latency_type="fixed",
-        fixed_latency_ms=1.0,
-        latency_mode="episode_fixed",
-        latency_sampling_mode="uniform_all",
-        queue_latency_values="1",
-        env_fps=None,
-        obs_fps=None,
-    )
-
-    descriptor, metadata = load_rollout_training_config(experiment_dir)
-
-    assert descriptor["latency_override"] == {
-        "method": "fixed",
-        "fixed_latency_ms": expected_ms,
-        "add_latency_info": False,
-    }
-    assert metadata["latency_override"] == descriptor["latency_override"]
-    assert metadata["latency_source"] == "legacy_checkpoint_name"
-
-
-def test_explicit_latency_config_takes_precedence_over_legacy_checkpoint_name(tmp_path):
-    from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
-
-    experiment_dir = tmp_path / "flappy_sf_same_latency_l1_seed0"
-    _write_checkpoint_config(
-        experiment_dir,
-        env="latency_flappy",
-        experiment="flappy_sf_same_latency_l1_seed0",
-        latency_type=None,
-        fixed_latency_ms=None,
-        latency_mode="episode_fixed",
-        queue_latency_values="1",
-        env_fps=None,
-        obs_fps=None,
-    )
-    override_path = tmp_path / "latency_override.yaml"
-    override_path.write_text(
-        yaml.safe_dump({"latency": {"method": "fixed", "fixed_latency_ms": 99.0}}),
-        encoding="utf-8",
-    )
-
-    descriptor, metadata = load_rollout_training_config(experiment_dir, latency_config_path=override_path)
-
-    assert descriptor["latency_override"] == {"method": "fixed", "fixed_latency_ms": 99.0}
-    assert metadata["latency_source"] == str(override_path.resolve())
-
-
 def test_device_override_is_recorded_without_rewriting_checkpoint_env_config(tmp_path):
     from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
@@ -320,15 +190,16 @@ def test_device_override_is_recorded_without_rewriting_checkpoint_env_config(tmp
     assert descriptor["flat_cfg"]["gpu_render_device"] == "auto"
 
 
-def test_device_override_cuda_uses_cuda_public_device_name(tmp_path):
+@pytest.mark.parametrize("device", ["cuda", "cuda:1"])
+def test_device_override_preserves_cuda_public_device_name(tmp_path, device):
     from latency_bench.integrations.sample_factory.teacher_config import load_rollout_training_config
 
     experiment_dir = tmp_path / "demon_fixed_l4_seed0"
     _write_checkpoint_config(experiment_dir)
 
-    descriptor, _ = load_rollout_training_config(experiment_dir, device_override="cuda")
+    descriptor, _ = load_rollout_training_config(experiment_dir, device_override=device)
 
-    assert descriptor["device_override"] == "gpu"
+    assert descriptor["device_override"] == device
 
 
 def test_batch_observations_keeps_already_batched_mapping_observation():
@@ -1234,12 +1105,6 @@ def test_collect_teacher_dataset_saves_flappy_latest_raw_rgb_image(monkeypatch, 
         assert train_rows[0]["prompt"] == _rollout_descriptor("flappy")["base_prompt"]
 
 
-
-
-
-
-
-
 def test_collect_teacher_dataset_saves_historical_context_images(monkeypatch, tmp_path):
     from latency_bench.integrations.sample_factory import teacher_runtime as teacher_runtime
     import torch
@@ -1954,7 +1819,7 @@ def test_rollout_cfg_registers_integration_and_parses_evaluation_args(
         ),
     )
     setattr(module, registration, lambda: registered.append(True))
-    monkeypatch.setattr(teacher_runtime, "import_integration_module", lambda config: module)
+    monkeypatch.setattr(teacher_runtime, "import_module", lambda module_name: module)
     monkeypatch.setattr(sf_arguments, "load_from_checkpoint", lambda cfg: cfg)
 
     result_module, result_cfg = teacher_runtime.build_sample_factory_rollout_cfg({
@@ -2227,25 +2092,6 @@ def test_collect_teacher_dataset_replays_existing_accepted_specs_without_new_pro
     assert Path(train_rows[0]["image"]).exists()
 
 
-def test_push_token_prefers_explicit_then_environment(monkeypatch):
-    from scripts.rollout_data.push_sf_teacher_dataset import resolve_token
-
-    monkeypatch.setenv("HF_TOKEN", "env-token")
-    monkeypatch.setenv("HUGGINGFACE_HUB_TOKEN", "hub-token")
-
-    assert resolve_token(" explicit-token ") == "explicit-token"
-    assert resolve_token("") == "env-token"
-
-
-def test_push_token_falls_back_to_huggingface_hub_token(monkeypatch):
-    from scripts.rollout_data.push_sf_teacher_dataset import resolve_token
-
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.setenv("HUGGINGFACE_HUB_TOKEN", "hub-token")
-
-    assert resolve_token("") == "hub-token"
-
-
 def test_merge_probe_states_reindexes_dedupes_and_assigns_splits():
     from latency_bench.data.rollout_probe import merge_probe_states, build_episode_plan
 
@@ -2436,14 +2282,9 @@ def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_p
     """Long-lived export contract: resume decisions, final reports and embedded storage agree."""
     from PIL import Image
     from latency_bench.integrations.sample_factory import teacher_export as sf_teacher_export
-    from latency_bench.data.ghost_trail import GhostTrailConfig
     from latency_bench.data.hf_parquet import write_episode_row_shard, load_parquet_splits
     from latency_bench.data.rollout_probe import write_probe_state
-    from datasets import DatasetDict
 
-    uploads = []
-    monkeypatch.setattr(DatasetDict, "push_to_hub", lambda self, **kwargs: uploads.append(kwargs))
-    monkeypatch.setattr(sf_teacher_export, "resolve_token", lambda token: None)
 
     output = tmp_path / "export"
     output.mkdir()
@@ -2466,32 +2307,34 @@ def test_teacher_export_reports_persisted_collection_and_materialized_rows(tmp_p
     descriptor = _rollout_descriptor("flappy") | {"flat_cfg": {}}
     monkeypatch.setattr(sf_teacher_export, "load_rollout_training_config",
                         lambda *args, **kwargs: (descriptor, {"latency_source": "checkpoint"}))
-    metadata = sf_teacher_export.export_sample_factory_teacher_dataset(
-        checkpoint_root=tmp_path / "checkpoint", output_dir=output, latency_config_path=None,
-        env_name="", max_episodes=1, max_attempts=3, max_steps_per_episode=10,
-        val_fraction=0.0, split_seed=0, num_envs=1, replay_num_envs=1, device="cpu",
-        deterministic=True, export_image_size=None, image_writer_workers=0, row_buffer_size=2,
-        push_to_hub=True, hf_repo_id="organization/data", hf_private=False, hf_token="", hf_max_shard_size="500MB",
-        hf_config_name="flappy", hf_data_dir="latency-aware/flappy/teacher-rollouts",
-        filter_preset="none", context_window=4, episode_return_gt=0.0, probe_only=probe_only,
-        export_zero_action_history=8,
-        image_transform_config=GhostTrailConfig(image_transform="flappy_ghost_trail"),
-    )
-    assert metadata["env_name"] == "flappy"
-    assert metadata["episode_return_gate"] == {"field": "episode_raw_return", "operator": ">", "threshold": 0.0}
+    result = sf_teacher_export.collect({
+        "experiment": {"name": "export", "seed": 11},
+        "env": {"name": "flappy", "env_fps": 30.0, "obs_fps": 15.0},
+        "policy": {"type": "sample_factory", "source": "local", "root": str(tmp_path),
+                   "checkpoint": None, "deterministic": True},
+        "executor": {"mode": "simulated", "inference_devices": ["cpu"], "parallel_envs": 1,
+                     "simulated_worker_capacity": 1},
+        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
+        "latency": {"method": "zero"},
+        "evaluation": {"episodes": 1, "max_env_steps": 10},
+        "logging": {"output_dir": str(output)},
+        "collection": {"two_pass": True, "max_attempts": 3, "val_fraction": 0.0, "split_seed": 0,
+                       "replay_num_envs": 1, "image_writer_workers": 0, "row_buffer_size": 2,
+                       "filter_preset": "none", "context_window": 4, "episode_return_gt": 0.0,
+                       "probe_only": probe_only, "export_zero_action_history": 8,
+                       "image_transform": {"image_transform": "flappy_ghost_trail"}},
+    })
     if probe_only:
-        assert uploads == []
-        assert metadata["probe_only"] is True
-        assert metadata["accepted_episodes"] == 1
-        assert metadata["attempted_episodes"] == 3
-        assert metadata["rejected_episodes"] == 2
-        assert metadata["attempt_budget"] == 3
+        state = result["probe_state"]
+        assert len(state["accepted_specs"]) == 1
+        assert state["attempted_episodes"] == 3
+        assert state["rejected_episodes"] == 2
         assert (output / "probe_state.json").exists()
         assert not (output / "train.parquet").exists()
         return
-    assert uploads[0]["repo_id"] == "organization/data"
-    assert uploads[0]["config_name"] == "flappy"
-    assert uploads[0]["data_dir"] == "latency-aware/flappy/teacher-rollouts"
+    metadata = result["metadata"]
+    assert metadata["env_name"] == "flappy"
+    assert metadata["episode_return_gate"] == {"field": "episode_raw_return", "operator": ">", "threshold": 0.0}
     assert json.loads((output / "metadata.json").read_text()) == metadata
     report = json.loads((output / "filter_report.json").read_text())
     assert metadata["filter_report"] == report

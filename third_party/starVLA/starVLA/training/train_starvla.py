@@ -37,11 +37,12 @@ from tqdm import tqdm
 from transformers import AutoProcessor, get_scheduler
 
 # Local Modules
+from starVLA.model.framework.share_tools import resolve_pretrained_checkpoint_path
 from starVLA.dataloader import build_dataloader
 from starVLA.dataloader.worker_context import build_cpu_only_dataloader_kwargs
 from starVLA.model.framework.base_framework import build_framework
 from starVLA.model.framework.share_tools import apply_config_compat
-from starVLA.training.rl_games import CheckpointSyncManager, apply_action_spec, apply_model_alias, build_rl_games_eval_runner, sync_kv_memory_obs_window, validate_rl_games_config
+from starVLA.training.rl_games import CheckpointRetention, apply_action_spec, apply_model_alias, build_rl_games_eval_runner, sync_kv_memory_obs_window, validate_rl_games_config
 from starVLA.training.rl_games.auth import login_training_services
 from starVLA.training.rl_games.eval_core import EvalResult
 from starVLA.training.rl_games import action_cc_f1
@@ -468,24 +469,79 @@ def setup_directories(cfg) -> Path:
 
 
 def prepare_data(cfg, accelerator, output_dir) -> tuple[DataLoader, DataLoader | None]:
-    """Prepare VLA training data."""
-    logger.info(f"Creating VLA Dataset with Mixture `{cfg.datasets.vla_data.data_mix}`")
-    vla_train_dataloader = build_dataloader(cfg=cfg, dataset_py=cfg.datasets.vla_data.dataset_py)
-    vla_eval_dataloader = None
-    eval_data_mix = getattr(cfg.datasets.vla_data, "eval_data_mix", None)
+    """Build loaders, freezing Gymnasium validation and resume to the training statistics."""
+    resume_checkpoint = None
+    if getattr(cfg.trainer, "is_resume", False):
+        checkpoint = getattr(cfg.trainer, "pretrained_checkpoint", None)
+        if checkpoint:
+            step = int(getattr(cfg.trainer, "resume_step", None) or VLATrainer._step_from_checkpoint_path(str(checkpoint)))
+        else:
+            checkpoint, step = VLATrainer._get_latest_checkpoint(str(Path(output_dir) / "checkpoints"))
+        if checkpoint:
+            resume_checkpoint = str(checkpoint)
+        else:
+            logger.warning("No checkpoint found in %s; starting a new training run", output_dir)
+            cfg.trainer.is_resume = False
+
+    data_cfg = cfg.datasets.vla_data
+    gymnasium = data_cfg.dataset_py == "lerobot_datasets" and "gymnasium_task_contract" in data_cfg
+    training_statistics = None
+    source_stats_path = None
+    if gymnasium and resume_checkpoint is not None:
+        checkpoint_path = Path(resume_checkpoint)
+        if checkpoint_path.is_dir():
+            run_dir = checkpoint_path.parents[1]
+        else:
+            _, run_dir = resolve_pretrained_checkpoint_path(resume_checkpoint)
+        source_stats_path = run_dir / "dataset_statistics.json"
+        training_statistics = json.loads(source_stats_path.read_text(encoding="utf-8"))
+        resume_model_cfg = OmegaConf.to_container(OmegaConf.load(run_dir / "config.yaml"), resolve=True)
+
+    logger.info(f"Creating VLA Dataset with Mixture `{data_cfg.data_mix}`")
+    train_loader = build_dataloader(
+        cfg=cfg, dataset_py=data_cfg.dataset_py,
+        save_statistics_filename=None if gymnasium else "dataset_statistics.json",
+    )
+    if gymnasium:
+        from starVLA.dataloader.gr00t_lerobot.registry import get_dataset_named_mixture, resolve_robot_type
+
+        # Persist an existing config field so exported single-type mixtures are portable.
+        robot_types = {entry[2] for entry in get_dataset_named_mixture(data_cfg.data_mix)}
+        if resume_checkpoint is not None and robot_types != {resolve_robot_type(resume_model_cfg)}:
+            raise ValueError("Resume training DataConfig differs from the checkpoint's training DataConfig")
+        if len(robot_types) == 1:
+            data_cfg.robot_type = next(iter(robot_types))
+        if training_statistics is not None:
+            train_loader.dataset.apply_cached_statistics(training_statistics)
+        destination = Path(output_dir) / "dataset_statistics.json"
+        if accelerator.is_main_process and (source_stats_path is None or source_stats_path.resolve() != destination.resolve()):
+            if source_stats_path is None:
+                train_loader.dataset.save_dataset_statistics(destination)
+            else:
+                shutil.copyfile(source_stats_path, destination)
+        _distributed_barrier()
+        training_statistics = json.loads(destination.read_text(encoding="utf-8"))
+
+    if resume_checkpoint is not None:
+        cfg.trainer.pretrained_checkpoint = resume_checkpoint
+        cfg.trainer.resume_step = step
+
+    eval_loader = None
+    eval_data_mix = getattr(data_cfg, "eval_data_mix", None)
     if eval_data_mix:
         logger.info(f"Creating VLA Eval Dataset with Mixture `{eval_data_mix}`")
-        vla_eval_dataloader = build_dataloader(
-            cfg=cfg,
-            dataset_py=cfg.datasets.vla_data.dataset_py,
-            data_mix=str(eval_data_mix),
-            mode="eval",
-            save_statistics_filename="dataset_statistics_eval.json",
+        eval_loader = build_dataloader(
+            cfg=cfg, dataset_py=data_cfg.dataset_py, data_mix=str(eval_data_mix), mode="eval",
+            save_statistics_filename=None if gymnasium else "dataset_statistics_eval.json",
         )
+        if gymnasium:
+            eval_loader.dataset.apply_cached_statistics(training_statistics)
+            if accelerator.is_main_process:
+                eval_loader.dataset.save_dataset_statistics(Path(output_dir) / "dataset_statistics_eval.json")
 
     accelerator.dataloader_config.dispatch_batches = False
     _distributed_barrier()
-    return vla_train_dataloader, vla_eval_dataloader
+    return train_loader, eval_loader
 
 
 def build_initial_framework(cfg):
@@ -584,7 +640,7 @@ class VLATrainer(TrainerUtils):
 
         self.completed_steps = 0
         self.total_batch_size = self._calculate_total_batch_size()
-        self._checkpoint_sync_manager = CheckpointSyncManager(cfg=self.config)
+        self._checkpoint_retention = CheckpointRetention(cfg=self.config)
         self._rl_games_eval_runner = None
         self._pending_full_state_resume = None
         self._save_best_model_enabled = _as_bool(
@@ -698,6 +754,7 @@ class VLATrainer(TrainerUtils):
         if self.accelerator.is_main_process:
             wandb_name = self.config.wandb_name if "wandb_name" in self.config else self.config.run_id
             wandb.init(
+                mode="disabled" if not self.config.wandb_project else None,
                 name=wandb_name,
                 dir=os.path.join(self.config.output_dir, "wandb"),
                 project=self.config.wandb_project,
@@ -748,31 +805,15 @@ class VLATrainer(TrainerUtils):
         self.resume_from_checkpoint = pretrained_checkpoint
 
         if is_resume:
-            if pretrained_checkpoint:
-                resume_from_checkpoint = str(pretrained_checkpoint)
-                self.completed_steps = int(
-                    getattr(self.config.trainer, "resume_step", None) or self._step_from_checkpoint_path(resume_from_checkpoint)
-                )
+            self.completed_steps = int(
+                getattr(self.config.trainer, "resume_step", None) or self._step_from_checkpoint_path(str(pretrained_checkpoint))
+            )
+            if os.path.isdir(self.resume_from_checkpoint):
+                self._pending_full_state_resume = self.resume_from_checkpoint
             else:
-                resume_from_checkpoint, self.completed_steps = self._get_latest_checkpoint(self.checkpoint_dir)
-            if resume_from_checkpoint:
-                self.resume_from_checkpoint = resume_from_checkpoint
-                if os.path.isdir(self.resume_from_checkpoint):
-                    self._pending_full_state_resume = self.resume_from_checkpoint
-                    logger.info(
-                        f"Will resume full training state from checkpoint: "
-                        f"{self.resume_from_checkpoint}, steps: {self.completed_steps}"
-                    )
-                else:
-                    self.model = self.load_pretrained_backbones(self.model, self.resume_from_checkpoint, reload_modules=None)
-                    logger.info(
-                        f"Resuming model weights from checkpoint: "
-                        f"{self.resume_from_checkpoint}, steps: {self.completed_steps}"
-                    )
-                return
-
-            logger.warning(f"No valid checkpoint found in {self.checkpoint_dir}. Starting training from scratch.")
-            self.completed_steps = 0
+                self.model = self.load_pretrained_backbones(self.model, self.resume_from_checkpoint, reload_modules=None)
+            logger.info("Resuming checkpoint %s at step %s", self.resume_from_checkpoint, self.completed_steps)
+            return
 
         if pretrained_checkpoint:
             reload_modules = getattr(self.config.trainer, "reload_modules", None)
@@ -939,19 +980,8 @@ class VLATrainer(TrainerUtils):
         step_metrics["checkpoint/best_score"] = float(self._best_score)
         step_metrics["checkpoint/best_step"] = float(self._best_step)
         step_metrics["checkpoint/is_new_best"] = float(is_new_best)
-        self._checkpoint_sync_manager.sync_eval_result(
-            eval_path=eval_result.path,
-            stage="mid_train",
-            step=self.completed_steps,
-        )
         return step_metrics
 
-    def _best_config_paths(self) -> list[str]:
-        output_dir = Path(self.config.output_dir)
-        return [
-            str(output_dir / "config.full.yaml"),
-            str(output_dir / "config.yaml"),
-        ]
 
     def _save_best_checkpoint(self, eval_result, score: float, stage: str) -> bool:
         if not self._save_best_model_enabled:
@@ -991,11 +1021,6 @@ class VLATrainer(TrainerUtils):
             self.accelerator.print(
                 f"✅ New best checkpoint saved at {self._best_state_path} "
                 f"(step={self._best_step}, score={self._best_score:.6f})"
-            )
-            self._checkpoint_sync_manager.sync_best_checkpoint(
-                state_path=self._best_state_path,
-                metadata_path=self._best_metadata_path,
-                config_paths=self._best_config_paths(),
             )
         self.accelerator.wait_for_everyone()
         return True
@@ -1042,7 +1067,7 @@ class VLATrainer(TrainerUtils):
                 self.accelerator.print(f"✅ Checkpoint state saved at {saved_state_path}")
             if model_checkpoint_path is not None:
                 self.accelerator.print(f"✅ Model checkpoint saved at {model_checkpoint_path}")
-            self._checkpoint_sync_manager.register_local_checkpoint(
+            self._checkpoint_retention.register_local_checkpoint(
                 step=self.completed_steps,
                 state_path=saved_state_path,
                 model_path=model_checkpoint_path,
@@ -1057,7 +1082,10 @@ class VLATrainer(TrainerUtils):
         self.accelerator.wait_for_everyone()
 
     def _log_wandb(self, metrics):
-        wandb.log({**metrics, "global_step": self.completed_steps})
+        payload = {**metrics, "global_step": self.completed_steps}
+        with (Path(self.config.output_dir) / "training_metrics.jsonl").open("a") as stream:
+            stream.write(json.dumps(payload) + "\n")
+        wandb.log(payload)
 
     def _log_metrics(self, metrics):
         """Record training metrics."""
@@ -1141,7 +1169,7 @@ class VLATrainer(TrainerUtils):
             command = json.loads(continue_path.read_text(encoding="utf-8"))
         else:
             # latency_bench is an optional integration for upstream StarVLA training.
-            from latency_bench.integrations.starvla_resident_dagger import serve_resident_inference
+            from latency_bench.integrations.starvla.resident_dagger import serve_resident_inference
             from latency_bench.policy.starvla import build_live_starvla_policy
 
             resident_config = json.loads(
@@ -1154,8 +1182,14 @@ class VLATrainer(TrainerUtils):
             was_training = self.model.training
             self.model.eval()
             unwrapped = self.accelerator.unwrap_model(self.model)
+            normalization_statistics = None
+            if resident_config["env"]["name"] == "gymnasium" and "task_contract_path" not in resident_config["policy"]:
+                normalization_statistics = json.loads(
+                    (Path(self.config.output_dir) / "dataset_statistics.json").read_text(encoding="utf-8")
+                )
             policy = build_live_starvla_policy(
                 framework=unwrapped,
+                normalization_statistics=normalization_statistics,
                 model_cfg=model_config,
                 config=resident_config,
                 action_resolver=None,
@@ -2480,11 +2514,6 @@ class VLATrainer(TrainerUtils):
                 if self._save_best_model_enabled:
                     final_metrics["checkpoint/best_score"] = float(self._best_score)
                     final_metrics["checkpoint/best_step"] = float(self._best_step)
-                self._checkpoint_sync_manager.sync_eval_result(
-                    eval_path=eval_result.path,
-                    stage="post_train",
-                    step=self.completed_steps,
-                )
                 self._log_wandb(final_metrics)
 
         if self.accelerator.is_main_process:

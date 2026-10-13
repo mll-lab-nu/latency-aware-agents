@@ -14,7 +14,7 @@ import uuid
 
 import yaml
 
-from latency_bench.data.starvla_tasks import read_task_contract
+from latency_bench.integrations.starvla.task_contracts import read_task_contract
 from scripts.starvla.dagger_mixture import write_dagger_mixture
 from scripts.starvla.train_task import inference_bundle
 from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCIES
@@ -22,7 +22,6 @@ from scripts.tasks.mikasa_intercept_grab_fast.fixed_latency import FIXED_LATENCI
 
 ROOT = Path(__file__).resolve().parents[3]
 STARVLA = ROOT / "third_party/starVLA"
-PACKAGER_PROJECT = ROOT / "third_party/MIKASA-Robo/utils/convert_rlds_to_lerobot"
 DEVELOPMENT_SEED = 4_242_424_442
 HELDOUT_SEED = 4_242_424_542
 
@@ -138,13 +137,12 @@ def _delta(args, round_number: int, checkpoint: Path,
     if not (lerobot / "task_contract.json").is_file():
         if lerobot.exists():
             shutil.rmtree(lerobot)
-        command = [
-            args.uv, "run", "--frozen", "--project", PACKAGER_PROJECT, "python",
-            "-m", "scripts.tasks.mikasa_intercept_grab_fast.prepare_conditioned_h8_dataset",
-            "--raw-root", raw, "--output-train", lerobot,
-            "--normalization-source", args.bootstrap / "lerobot",
-            "--task", args.task,
-        ]
+        conversion = {"conversion": {"format": "lerobot", "input_dir": str(raw), "output_dir": str(lerobot),
+            "normalization_source": str(args.bootstrap / "lerobot"), "task": args.task}}
+        conversion_path = directory / "convert.json"
+        _write_json(conversion_path, conversion)
+        command = [args.lerobot_python,
+                   "-m", "latency_bench", "convert", "--config", conversion_path]
         package_env = os.environ | {"PYTHONPATH": str(ROOT)}
         _run(command, directory / "package.log", env=package_env)
     result = json.loads((raw / "collection.json").read_text(encoding="utf-8"))
@@ -193,6 +191,8 @@ def _alive(pid: int) -> bool:
 def _trainer_config(args, resume_state: Path | None) -> Path:
     config = yaml.safe_load((args.source_run / "bootstrap.yaml").read_text(encoding="utf-8"))
     config["run_id"] = "dagger"
+    config["wandb_project"] = args.wandb_project
+    config["wandb_entity"] = args.wandb_entity
     config["run_root_dir"] = str(args.output / "training")
     config["wandb_name"] = f"mikasa-h8-dagger-{args.condition}-{args.model}"
     config["wandb_group"] = args.output.name
@@ -252,7 +252,7 @@ def _launch_trainer(args) -> int:
         "PYTHONPATH": os.pathsep.join((str(ROOT), str(STARVLA))),
         "TOKENIZERS_PARALLELISM": "false",
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-        "WANDB_MODE": "disabled" if args.smoke else "online",
+        "WANDB_MODE": "online" if args.wandb_project is not None and not args.smoke else "disabled",
         "WANDB_RUN_ID": f"mikasa-h8-dagger-{args.condition}-{args.model}-"
                         + json.loads((args.source_run / "run.json").read_text())["run_id"],
         "WANDB_RESUME": "allow",
@@ -393,7 +393,7 @@ def run(args) -> None:
         config_dir.mkdir(exist_ok=True)
         for latency in range(5):
             config = yaml.safe_load(args.eval_config.read_text())
-            config["latency"] = ({"method": "zero", "sync_cuda": False} if latency == 0 else
+            config["latency"] = ({"method": "zero"} if latency == 0 else
                                  {"method": "fixed", "fixed_latency_ms": latency * 50.0})
             path = config_dir / f"eval_{latency}.yaml"
             path.write_text(yaml.safe_dump(config, sort_keys=False))
@@ -459,7 +459,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--vla-python", type=Path, required=True)
     parser.add_argument("--task-python", type=Path, required=True)
-    parser.add_argument("--uv", type=Path, required=True)
+    parser.add_argument("--lerobot-python", type=Path, required=True)
     parser.add_argument("--train-devices", required=True)
     parser.add_argument("--inference-gpu", type=int, required=True)
     parser.add_argument("--simulator-gpu", type=int, required=True)
@@ -467,6 +467,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--inference-batch-size", type=int, default=8)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--wandb-project", help="Enable W&B in this project")
+    parser.add_argument("--wandb-entity", help="Optional W&B account or team")
     run(parser.parse_args())
 
 

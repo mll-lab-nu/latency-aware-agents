@@ -8,6 +8,9 @@ experiment:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 1
 env:
   env_fps: 30
   obs_fps: 30
@@ -16,27 +19,27 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: results/Checkpoints/openvla_flappy_fixed_l2/final_model
-  device: cuda
   unnorm_key: new_embodiment
   latency_prompt_map_path: /mnt/data/latency_data/playground/Datasets/rl_games/flappy_train/latency_prompt_map.json
   actions:
     - noop
     - flap
 
+  source: local
+  root: results/Checkpoints/openvla_flappy_fixed_l2
+  checkpoint: final_model
 latency:
   method: fixed
   fixed_latency_ms: 66.66666666666667
 
 evaluation:
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 2000
-  eval_suites:
-    fixed:
-      - [2]
-    normal: []
-    uniform: []
+  episodes: 5
+  max_env_steps: 2000
+  suites:
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 66.66666666666667
 
 logging:
   output_dir: outputs/starvla_openvla_flappy_fixed_l2

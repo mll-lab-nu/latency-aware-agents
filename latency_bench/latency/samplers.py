@@ -12,10 +12,8 @@ from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.config import (
     SEEDED_STOCHASTIC_METHODS,
     latency_type_from_config,
-    resolve_latency_method,
 )
 from latency_bench.latency.inverse_cdf import sample_inverse_cdf
-from latency_bench.latency.profile import load_profile_manifest
 from latency_bench.latency.sample import LatencySample
 from latency_bench.utils.io import read_json
 
@@ -261,16 +259,14 @@ class HiddenRegimeSampler(LatencySampler):
         return switch / (switch + stay)
 
     def _sample_burst_dwell(self) -> int:
-        return self._sample_dwell(self.model["burst_dwell_distribution"])
-
-    def _sample_dwell(self, dwell: dict[str, Any]) -> int:
+        dwell = self.model["burst_dwell_distribution"]
         quantile = self.rng.random()
         # The dwell's length quantile seeds the severity copula draws of this
         # dwell's slot states.
         self._dwell_z = _STANDARD_NORMAL.inv_cdf(min(max(quantile, 1e-12), 1.0 - 1e-12))
-        return max(1, round(sample_inverse_cdf(
+        return round(sample_inverse_cdf(
             self.rng, dwell["quantile_levels"], dwell["latency_ms"], quantile=quantile
-        )))
+        ))
 
     def _begin_dwell(self, *, entry_slot: int) -> None:
         template = self.rng.choice(self.model["burst_slot_rank_templates"])
@@ -293,7 +289,7 @@ class HiddenRegimeSampler(LatencySampler):
             # observed for such a slot, so it stays calm through the dwell.
             return {"rank": None, "severity": 0.0, "level": 0.0}
         process = self.rank_processes[rank]
-        rho = max(-0.999999, min(0.999999, process["dwell_length_spearman_rho"]))
+        rho = process["dwell_length_spearman_rho"]
         z_severity = rho * self._dwell_z + math.sqrt(1.0 - rho * rho) * self.rng.normalvariate(0.0, 1.0)
         severity = sample_inverse_cdf(
             self.rng,
@@ -434,7 +430,7 @@ def _sample_joint_emission(
     rng: random.Random,
     clock: EnvClock,
 ) -> LatencySample:
-    rho = max(-0.999999, min(0.999999, distribution["spearman_rho"]))
+    rho = distribution["spearman_rho"]
     z_observation_to_action = rng.normalvariate(0.0, 1.0)
     z_worker = rho * z_observation_to_action + math.sqrt(
         1.0 - rho * rho
@@ -522,7 +518,7 @@ def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySam
         )
     elif method == "temporal":
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
-        profile = load_profile_manifest(profile_path)
+        profile = read_json(profile_path)
         sampler = _build_temporal(profile, profile_path=profile_path, clock=clock, seed=seed)
         profile_metadata = _profile_metadata(profile)
     else:
@@ -545,7 +541,7 @@ def build_episode_sampler_factory(
     machine state across episodes: one sampler per replica, reused across that
     replica's episodes.
     """
-    method = resolve_latency_method(latency_cfg)
+    method = latency_cfg["method"]
     if method == "iid":
         if "seed" not in latency_cfg:
             return None
@@ -568,7 +564,7 @@ def build_episode_sampler_factory(
 
     if method == "temporal":
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
-        profile = load_profile_manifest(profile_path)
+        profile = read_json(profile_path)
         _load_temporal_model(profile, profile_path=profile_path)
         return None
     elif method not in SEEDED_STOCHASTIC_METHODS or "seed" not in latency_cfg:
@@ -601,7 +597,7 @@ def _load_iid_profile(
     profile_path: str | Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     resolved_profile_path = _resolve_profile_manifest_path(profile_path)
-    profile = load_profile_manifest(resolved_profile_path)
+    profile = read_json(resolved_profile_path)
     distribution_path = _profile_relative_path(
         resolved_profile_path, profile["distribution_path"]
     )

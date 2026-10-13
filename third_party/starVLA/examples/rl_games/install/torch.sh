@@ -16,11 +16,6 @@ pip_install \
   triton==3.6.0 \
   --index-url "${TORCH_INDEX_URL}"
 
-"$PYTHON_BIN" - <<'PY'
-import torch
-
-print(f"[install/torch] torch={torch.__version__} cuda={torch.version.cuda}")
-print(f"[install/torch] gpu={torch.cuda.get_device_name(0)}")
-PY
+"$PYTHON_BIN" -m scripts.install.validate torch
 
 echo "[install/torch] done"

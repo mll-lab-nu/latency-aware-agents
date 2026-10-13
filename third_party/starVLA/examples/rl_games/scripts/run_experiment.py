@@ -353,8 +353,6 @@ def _setup_namespace(cfg: dict[str, Any], workspace_dir: Path, run_root_dir: str
         ),
         initialization_hf_repo_id=str(_get(cfg, "initialization.checkpoint_hf_repo_id", "") or ""),
         initialization_checkpoint_filename=str(_get(cfg, "initialization.checkpoint_filename", "") or ""),
-        checkpoint_sync_enabled=str(_as_bool(_get(cfg, "checkpoint.sync.enabled", False))).lower(),
-        checkpoint_sync_repo_id=str(_get(cfg, "checkpoint.sync.repo_id", "") or ""),
         hf_repo_id="",
     )
 

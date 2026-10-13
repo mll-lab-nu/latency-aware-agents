@@ -3,7 +3,6 @@ experiment:
   seed: 0
 
 backend:
-  type: sample_factory
   algo: APPO
   device: cuda
   train_dir: results/checkpoints
@@ -14,6 +13,7 @@ executor:
   mode: simulated
   simulated_worker_capacity: null
 
+  parallel_envs: 100
 env:
   name: flappy
   # note that env_fps must be an integer multiple of obs_fps!
@@ -63,6 +63,7 @@ policy:
     - noop
     - flap
 
+  deterministic: true
 training:
   train_for_env_steps: 25000000
   num_workers: 2
@@ -93,26 +94,39 @@ training:
 
 evaluation:
   eval_interval_steps: 1000000
-  eval_episodes: 15
-  eval_parallel_envs: 100
-  eval_max_steps: 3600
-  eval_deterministic: true
   eval_raw_reward: false
-  eval_suites:
-    fixed:
-      - [0, 3]    # [start, end]
-    normal:
-      # - [2.0, 0.5, 0, 15]   # low latency, low jitter
-      - [2.0, 1.0, 0, 15]   # low latency, medium jitter
-      # - [4.0, 0.5, 0, 15]   # high latency, low jitter
-      # - [4.0, 1.0, 0, 15]   # high latency, medium jitter
-      # - [4.0, 2.0, 0, 15]   # high latency, high jitter
-    uniform:
-      - [1, 3]  # low latency, low jitter
-      # - [0, 4]  # low latency, high jitter
-      # - [3, 5]  # high latency, low jitter
-      # - [2, 6]  # high latency, high jitter
-
+  episodes: 15
+  max_env_steps: 3600
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
+  - name: fixed_1
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 66.66666666666667
+  - name: fixed_3
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
+  - name: normal_mean_2_std_1_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 66.66666666666667
+      std_latency_ms: 33.333333333333336
+      min_latency_ms: 0.0
+      max_latency_ms: 500.00000000000006
+      seed: 0
+  - name: uniform_min_1_max_3
+    latency:
+      method: uniform
+      min_latency_ms: 33.333333333333336
+      max_latency_ms: 100.0
+      seed: 0
 logging:
   output_dir: outputs/flappy_base
   video:
@@ -121,7 +135,7 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
-  wandb_project: latency-sensitive-bench
+  wandb_project: null
   wandb_group: flappy-new(remove training episode limit)
   wandb_job_type: sample_factory
   wandb_tags: ""

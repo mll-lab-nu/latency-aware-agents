@@ -26,33 +26,22 @@ class _SlotArray:
 
 
 @dataclass
-class AttachedSharedObservation:
-    observation: Observation
-    blocks: list[shared_memory.SharedMemory]
-
-    def close(self) -> None:
-        for block in self.blocks:
-            block.close()
-
-
-@dataclass
 class ObservationAttachmentCache:
+    """Own shared-memory attachments reused for one inference worker lifetime."""
+
     blocks: dict[str, shared_memory.SharedMemory]
 
-    def attach(self, observation: Observation) -> AttachedSharedObservation:
-        data = _attach_value(observation.data, [], cache=self)
+    def attach(self, observation: Observation) -> Observation:
+        data = _attach_value(observation.data, self)
         metadata = {
-            key: _attach_value(value, [], cache=self)
+            key: _attach_value(value, self)
             for key, value in observation.metadata.items()
         }
-        return AttachedSharedObservation(
-            Observation(
-                data=data,
-                env_step=observation.env_step,
-                sim_time_ms=observation.sim_time_ms,
-                metadata=metadata,
-            ),
-            [],
+        return Observation(
+            data=data,
+            env_step=observation.env_step,
+            sim_time_ms=observation.sim_time_ms,
+            metadata=metadata,
         )
 
     def block(self, name: str) -> shared_memory.SharedMemory:
@@ -170,22 +159,6 @@ class ObservationLocalizer:
         return value
 
 
-def attach_observation_arrays(observation: Observation) -> AttachedSharedObservation:
-    blocks: list[shared_memory.SharedMemory] = []
-    data = _attach_value(observation.data, blocks)
-    metadata = {
-        key: _attach_value(value, blocks)
-        for key, value in observation.metadata.items()
-    }
-    attached_observation = Observation(
-        data=data,
-        env_step=observation.env_step,
-        sim_time_ms=observation.sim_time_ms,
-        metadata=metadata,
-    )
-    return AttachedSharedObservation(attached_observation, blocks)
-
-
 def _allocate_slot_value(value: Any, blocks: list[shared_memory.SharedMemory], capacity: int) -> Any:
     if isinstance(value, np.ndarray):
         block = shared_memory.SharedMemory(create=True, size=value.nbytes * capacity)
@@ -251,14 +224,10 @@ def _write_slot_value(value: Any, template: Any, slot_id: int) -> Any:
 
 def _attach_value(
     value: Any,
-    blocks: list[shared_memory.SharedMemory],
-    *,
-    cache: ObservationAttachmentCache | None = None,
+    cache: ObservationAttachmentCache,
 ) -> Any:
     if isinstance(value, ObservationSlotRef):
-        block = cache.block(value.name) if cache is not None else shared_memory.SharedMemory(name=value.name)
-        if cache is None:
-            blocks.append(block)
+        block = cache.block(value.name)
         dtype = np.dtype(value.dtype)
         slot_nbytes = int(np.prod(value.shape)) * dtype.itemsize
         return np.ndarray(
@@ -269,17 +238,17 @@ def _attach_value(
         )
     if isinstance(value, dict):
         return {
-            key: _attach_value(item, blocks, cache=cache)
+            key: _attach_value(item, cache)
             for key, item in value.items()
         }
     if isinstance(value, list):
         return [
-            _attach_value(item, blocks, cache=cache)
+            _attach_value(item, cache)
             for item in value
         ]
     if isinstance(value, tuple):
         return tuple(
-            _attach_value(item, blocks, cache=cache)
+            _attach_value(item, cache)
             for item in value
         )
     return value

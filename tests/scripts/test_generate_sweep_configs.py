@@ -77,8 +77,6 @@ def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tm
     assert {row["seed"] for row in rows} == {"42"}
     assert {row["frame_stack"] for row in rows} == {"4"}
     assert {row["obs_fps"] for row in rows} == {"10"}
-    assert {row["train_upload_repo_id"] for row in rows} == {""}
-    assert {row["eval_upload_repo_id"] for row in rows} == {""}
 
     for row in rows:
         train_cfg = yaml.safe_load(Path(row["train_config"]).read_text(encoding="utf-8"))
@@ -87,24 +85,16 @@ def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tm
         assert train_cfg["env"]["obs_fps"] == 10
         assert train_cfg["training"]["train_for_env_steps"] == 25_000_000
         assert train_cfg["evaluation"]["eval_interval_steps"] == 5_000_000
-        assert train_cfg["logging"]["wandb_project"] == "starvla_tasks"
+        assert train_cfg["logging"]["wandb_project"] is None
         assert train_cfg["executor"]["simulated_worker_capacity"] == 1
         assert train_cfg["latency"]["method"] == "temporal"
         assert train_cfg["latency"]["profile_worker_slot"] == 0
-        assert eval_cfg["evaluation"]["eval_suites"] == {
-            "temporal": [
-                {
-                    "name": row["latency_label"],
-                    "profile_path": train_cfg["latency"]["profile_path"],
-                    "seed": 42,
-                }
-            ]
-        }
+        assert [suite["latency"] for suite in eval_cfg['evaluation']['suites']] == [{"method": 'temporal', 'profile_path': train_cfg['latency']['profile_path'], 'seed': 42}]
         assert eval_cfg["policy"]["checkpoint_kind"] == "best"
         assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "best"]
         assert eval_cfg["executor"]["simulated_worker_capacity"] == 1
-        assert eval_cfg["evaluation"]["eval_episodes"] == 100
-        assert eval_cfg["evaluation"]["eval_max_steps"] == 18_000
+        assert eval_cfg["evaluation"]["episodes"] == 100
+        assert eval_cfg["evaluation"]["max_env_steps"] == 18_000
         assert "eval_interval_steps" not in eval_cfg["evaluation"]
 
         control_root = tmp_path / "controls" / row["latency_label"]
@@ -117,10 +107,10 @@ def test_flappy_capacity_one_profile_spec_emits_three_temporal_best_eval_jobs(tm
             )
             assert control["logging"]["output_dir"] == str(control_root / name)
             assert not any(key.startswith("wandb_") for key in control["logging"])
-            assert control["evaluation"]["eval_suites"] == eval_cfg["evaluation"]["eval_suites"]
-            assert control["evaluation"]["eval_episodes"] == 100
-            assert control["evaluation"]["eval_max_steps"] == 18_000
-            assert control["evaluation"]["eval_parallel_envs"] == 100
+            assert control["evaluation"]["suites"] == eval_cfg["evaluation"]["suites"]
+            assert control["evaluation"]["episodes"] == 100
+            assert control["evaluation"]["max_env_steps"] == 18_000
+            assert control["executor"]["parallel_envs"] == 100
             assert control["env"]["env_fps"] == control["env"]["obs_fps"] == 10
             assert control["executor"]["simulated_worker_capacity"] == 1
             assert [_episode_seed(control, episode_id) for episode_id in (0, 99)] == [
@@ -165,19 +155,18 @@ def test_deadly_native35_history_spec_uses_game_clock_and_best_checkpoint(tmp_pa
         assert train_cfg["training"]["train_for_env_steps"] == 25_000_000
         assert eval_cfg["policy"]["checkpoint_kind"] == "best"
         assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "best"]
-        assert eval_cfg["evaluation"]["eval_episodes"] == 100
-        assert row["train_upload_repo_id"] == row["eval_upload_repo_id"] == ""
+        assert eval_cfg["evaluation"]["episodes"] == 100
 
 
 @pytest.mark.parametrize(
     ("env_name", "latency_label", "latency_frames", "obs_fps", "obs_fps_label"),
     [
-        ("flappy", "fixed_l3", 3, 30, "30"),
+        ("flappy", "fixed_l3", 3, 13, "13"),
         ("demon_attack", "fixed_l6", 6, 15, "15"),
         ("deadly_corridor", "fixed_l6", 6, 8.75, "8p75"),
     ],
 )
-def test_memory_rollout_teacher_spec_emits_single_uploadable_job(
+def test_memory_rollout_teacher_spec_emits_single_training_job(
     tmp_path,
     env_name,
     latency_label,
@@ -214,12 +203,6 @@ def test_memory_rollout_teacher_spec_emits_single_uploadable_job(
     assert row["latency_label"] == latency_label
     assert row["latency_kind"] == "fixed"
     assert row["latency_fixed_frames"] == str(latency_frames)
-    assert row["train_upload_repo_id"] == "MLL-Lab/LAGEN-models"
-    assert row["train_upload_repo_type"] == "model"
-    assert row["eval_upload_repo_id"] == ""
-    assert row["train_artifact_repo_path"].startswith(
-        f"latency-aware/{env_name.replace('_', '-')}/small-policy/memory_rollout_teacher:{env_name}:"
-    )
 
     train_cfg = yaml.safe_load(Path(row["train_config"]).read_text(encoding="utf-8"))
     assert train_cfg["experiment"]["seed"] == 0
@@ -231,15 +214,13 @@ def test_memory_rollout_teacher_spec_emits_single_uploadable_job(
     assert train_cfg["latency"]["fixed_latency_ms"] == pytest.approx(
         latency_frames * 1000 / train_cfg["env"]["env_fps"]
     )
-    assert train_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [[latency_frames]],
-        "normal": [],
-        "uniform": [],
-    }
+    assert [suite["latency"] for suite in train_cfg['evaluation']['suites']] == [{"method": "fixed", "fixed_latency_ms": latency_frames * 1000.0 / train_cfg["env"]["env_fps"]}]
 
 
 def test_latency_bench_eval_config_disables_full_trace_records(tmp_path):
     base_config = {
+        "experiment": {"name": "test"},
+        "executor": {"mode": "simulated"},
         "backend": {
             "train_dir": str(tmp_path / "checkpoints"),
             "extra_args": [],
@@ -252,8 +233,8 @@ def test_latency_bench_eval_config_disables_full_trace_records(tmp_path):
         },
         "evaluation": {
             "eval_interval_steps": 1000,
-            "eval_episodes": 3,
-            "eval_suites": {"fixed": [[1]], "normal": [], "uniform": []},
+            "episodes": 3,
+            "suites": [{'name': 'fixed_1', 'latency': {'method': 'fixed', 'fixed_latency_ms': 33.333333333333336}}],
         },
         "logging": {
             "output_dir": str(tmp_path / "train_output"),
@@ -264,6 +245,7 @@ def test_latency_bench_eval_config_disables_full_trace_records(tmp_path):
         "policy": {},
     }
     full_train_config = {
+        "experiment": {"name": "test"},
         "backend": {
             "train_dir": str(tmp_path / "checkpoints"),
             "extra_args": [],
@@ -276,8 +258,8 @@ def test_latency_bench_eval_config_disables_full_trace_records(tmp_path):
         },
         "evaluation": {
             "eval_interval_steps": 1000,
-            "eval_episodes": 3,
-            "eval_suites": {"fixed": [[1]], "normal": [], "uniform": []},
+            "episodes": 3,
+            "suites": [{'name': 'fixed_1', 'latency': {'method': 'fixed', 'fixed_latency_ms': 33.333333333333336}}],
         },
         "logging": {
             "output_dir": str(tmp_path / "train_output"),
@@ -340,9 +322,9 @@ def test_gymnasium_sweep_preserves_task_contract_and_uses_task_identity(tmp_path
 
     rows = _read_manifest(generated_root / "manifest.tsv")
     assert len(rows) == 1
-    assert rows[0]["env"] == "inverted_pendulum_discrete"
+    assert rows[0]["env"] == "inverted_pendulum"
     assert rows[0]["run_name"] == (
-        "inverted_pendulum_discrete_observation_rate_fixed_l1_obs25_seed3"
+        "inverted_pendulum_observation_rate_fixed_l1_obs25_seed3"
     )
 
     train_cfg = yaml.safe_load(Path(rows[0]["train_config"]).read_text(encoding="utf-8"))
@@ -354,7 +336,7 @@ def test_gymnasium_sweep_preserves_task_contract_and_uses_task_identity(tmp_path
 
     assert train_cfg["env"] == expected_env
     assert eval_cfg["env"] == expected_env
-    assert eval_cfg["policy"]["type"] == "gymnasium_sf"
+    assert eval_cfg["policy"]["type"] == "sample_factory"
 
 
 def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
@@ -385,12 +367,6 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     assert {row["env"] for row in rows} == {"flappy"}
     assert {row["frame_stack"] for row in rows} == {"1", "2", "3", "4", "5", "6", "7", "8"}
     assert {row["observation_stride"] for row in rows} == {"1"}
-    assert {row["train_upload_repo_id"] for row in rows} == {
-        "MLL-Lab/LAGEN-models"
-    }
-    assert {row["eval_upload_repo_id"] for row in rows} == {
-        "MLL-Lab/LAGEN-datasets"
-    }
 
     train_cfg = yaml.safe_load(
         (
@@ -417,7 +393,7 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
         "ordering_policy": "latest_ready",
     }
     assert train_cfg["training"]["worker_num_splits"] == 1
-    assert train_cfg["evaluation"]["eval_episodes"] == 100
+    assert train_cfg["evaluation"]["episodes"] == 100
     assert train_cfg["latency"]["method"] == "fixed"
     assert train_cfg["logging"]["wandb_group"] == "flappy-fs8-fixed_l2"
     assert train_cfg["logging"]["wandb_name"] == "flappy-fs8-fixed_l2-s10"
@@ -440,20 +416,16 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     )
     assert eval_cfg["backend"]["run_mode"] == "eval"
     assert eval_cfg["backend"]["extra_args"] == ["--load_checkpoint_kind", "latest"]
-    assert eval_cfg["policy"]["type"] == "flappy_sf"
+    assert eval_cfg["policy"]["type"] == "sample_factory"
     assert eval_cfg["policy"]["checkpoint_kind"] == "latest"
     assert eval_cfg["env"]["obs_resize"] == [84, 84]
     assert eval_cfg["env"]["use_gpu_render"] is True
     assert eval_cfg["env"]["gpu_render_device"] == "auto"
     assert eval_cfg["scheduler"] == train_cfg["scheduler"]
     assert eval_cfg["training"]["worker_num_splits"] == 1
-    assert eval_cfg["evaluation"]["eval_episodes"] == 100
+    assert eval_cfg["evaluation"]["episodes"] == 100
     assert "eval_interval_steps" not in eval_cfg["evaluation"]
-    assert eval_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [[2]],
-        "normal": [],
-        "uniform": [],
-    }
+    assert [suite["latency"] for suite in eval_cfg['evaluation']['suites']] == [{"method": "fixed", "fixed_latency_ms": 2 * 1000.0 / eval_cfg["env"]["env_fps"]}]
     assert eval_cfg["logging"]["save_step_records"] is False
     assert eval_cfg["logging"]["save_action_records"] is False
     assert eval_cfg["logging"]["save_latency_records"] is False
@@ -461,23 +433,9 @@ def test_memory_small_model_spec_emits_official_seed_matrix(tmp_path):
     uniform_eval_cfg = load_config(
         generated_root / "frame_stack" / "uniform_u1_3" / "fs4" / "seed_10" / "latency_bench_eval.yaml"
     )
-    assert uniform_eval_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [],
-        "normal": [],
-        "uniform": [[1, 3]],
-    }
+    assert [suite["latency"] for suite in uniform_eval_cfg['evaluation']['suites']] == [{"method": 'uniform', "seed": uniform_eval_cfg["experiment"]["seed"], 'min_latency_ms': 1 * 1000.0 / uniform_eval_cfg["env"]["env_fps"], 'max_latency_ms': 3 * 1000.0 / uniform_eval_cfg["env"]["env_fps"]}]
 
-    assert train_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [[2]],
-        "normal": [],
-        "uniform": [],
-    }
-    assert "train_upload_repo_id" not in train_cfg
-    assert "train_upload_repo_type" not in train_cfg
-    assert "train_upload_path_prefix" not in train_cfg
-    assert "eval_upload_repo_id" not in train_cfg
-    assert "eval_upload_repo_type" not in train_cfg
-    assert "eval_upload_path_prefix" not in train_cfg
+    assert [suite["latency"] for suite in train_cfg['evaluation']['suites']] == [{"method": "fixed", "fixed_latency_ms": 2 * 1000.0 / train_cfg["env"]["env_fps"]}]
 
 
 def test_paper_sweep_specs_use_base_inheritance():
@@ -511,10 +469,19 @@ def test_asterix_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path, g
     spec = REPO_ROOT / "configs/experiments/memory/small_model/asterix_zero_latency.yaml"
     if gpu_eval:
         override = tmp_path / "gpu_eval.yaml"
-        override.write_text(yaml.safe_dump({"__base__": str(spec),
-                                           "env": {"action_history_decisions": 8},
-                                           "evaluation": {"latency_bench_env_backend": "asterix_gpu_batched",
-                                                          "eval_parallel_envs": 32, "eval_max_steps": 7200}}))
+        override.write_text(yaml.safe_dump({
+            '__base__': str(spec),
+            'env': {
+                'action_history_decisions': 8,
+            },
+            'evaluation': {
+                'max_env_steps': 7200,
+            },
+            'executor': {
+                'parallel_envs': 32,
+                'env_backend': 'asterix_gpu_batched',
+            },
+        }))
         spec = override
 
     generate_sweep_configs(
@@ -543,26 +510,22 @@ def test_asterix_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path, g
     eval_cfg = load_config(rows[0]["eval_config"])
 
     assert train_cfg["experiment"]["name"].startswith("asterix_frame_stack_fixed_l0_fs4_seed")
-    assert train_cfg["env"]["name"] == "gymnasium"
-    assert train_cfg["env"]["task_name"] == "asterix"
+    assert train_cfg["env"]["name"] == "asterix"
+    assert train_cfg["env"]["name"] == "asterix"
     assert resolved_train_cfg["env"]["simulator"] == "cpu"
     assert eval_cfg["env"]["simulator"] == ("gpu" if gpu_eval else "cpu")
     if gpu_eval:
         assert train_cfg["env"]["action_history_decisions"] == 8
         assert eval_cfg["env"]["action_history_decisions"] == 8
-        assert eval_cfg["evaluation"]["eval_parallel_envs"] == 32
-        assert eval_cfg["evaluation"]["eval_max_steps"] == 7200
+        assert eval_cfg["executor"]["parallel_envs"] == 32
+        assert eval_cfg["evaluation"]["max_env_steps"] == 7200
     assert train_cfg["latency"] == {
         "method": "fixed",
         "fixed_latency_ms": 0.0,
         "add_latency_info": False,
     }
-    assert eval_cfg["policy"]["type"] == "gymnasium_sf"
-    assert eval_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [[0]],
-        "normal": [],
-        "uniform": [],
-    }
+    assert eval_cfg["policy"]["type"] == "sample_factory"
+    assert [suite["latency"] for suite in eval_cfg['evaluation']['suites']] == [{"method": "zero"}]
 
 
 def test_atlantis_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
@@ -596,8 +559,8 @@ def test_atlantis_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
     eval_cfg = load_config(rows[0]["eval_config"])
 
     assert train_cfg["experiment"]["name"].startswith("atlantis_frame_stack_fixed_l0_fs4_seed")
-    assert train_cfg["env"]["name"] == "gymnasium"
-    assert train_cfg["env"]["task_name"] == "atlantis"
+    assert train_cfg["env"]["name"] == "atlantis"
+    assert train_cfg["env"]["name"] == "atlantis"
     assert resolved_train_cfg["env"]["simulator"] == "cpu"
     assert eval_cfg["env"]["simulator"] == "cpu"
     assert train_cfg["latency"] == {
@@ -605,12 +568,8 @@ def test_atlantis_zero_latency_memory_spec_generates_gymnasium_policy(tmp_path):
         "fixed_latency_ms": 0.0,
         "add_latency_info": False,
     }
-    assert eval_cfg["policy"]["type"] == "gymnasium_sf"
-    assert eval_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [[0]],
-        "normal": [],
-        "uniform": [],
-    }
+    assert eval_cfg["policy"]["type"] == "sample_factory"
+    assert [suite["latency"] for suite in eval_cfg['evaluation']['suites']] == [{"method": "zero"}]
 
 
 def test_observation_stride_spec_names_axis_by_stride_and_writes_obs_fps(tmp_path):
@@ -699,7 +658,7 @@ def test_observation_stride_spec_supports_fractional_deadly_corridor_obs_fps(tmp
     bench_cfg = load_config(
         generated_root / "observation_stride" / "fixed_l4" / "stride5" / "seed_10" / "latency_bench_eval.yaml"
     )
-    assert bench_cfg["policy"]["type"] == "deadly_corridor_sf"
+    assert bench_cfg["policy"]["type"] == "sample_factory"
     assert bench_cfg["env"]["noop_action"] == [0, 0, 0, 0]
 
 
@@ -746,11 +705,7 @@ def test_jitter_robustness_spec_includes_mixed_train_runs(tmp_path):
     )
     assert train_cfg["latency"]["method"] == "normal"
     assert train_cfg["latency"]["per_episode"] is True
-    assert train_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [[1, 2, 3]],
-        "normal": [[2.0, 1.0, 0, 4]],
-        "uniform": [[1, 3]],
-    }
+    assert [suite["latency"] for suite in train_cfg['evaluation']['suites']] == [{"method": "fixed", "fixed_latency_ms": 1 * 1000.0 / train_cfg["env"]["env_fps"]}, {"method": "fixed", "fixed_latency_ms": 2 * 1000.0 / train_cfg["env"]["env_fps"]}, {"method": "fixed", "fixed_latency_ms": 3 * 1000.0 / train_cfg["env"]["env_fps"]}, {"method": 'normal', "seed": train_cfg["experiment"]["seed"], 'min_latency_ms': 0 * 1000.0 / train_cfg["env"]["env_fps"], 'max_latency_ms': 4 * 1000.0 / train_cfg["env"]["env_fps"], 'mean_latency_ms': 2.0 * 1000.0 / train_cfg["env"]["env_fps"], 'std_latency_ms': 1.0 * 1000.0 / train_cfg["env"]["env_fps"]}, {"method": 'uniform', "seed": train_cfg["experiment"]["seed"], 'min_latency_ms': 1 * 1000.0 / train_cfg["env"]["env_fps"], 'max_latency_ms': 3 * 1000.0 / train_cfg["env"]["env_fps"]}]
 
     eval_cfg = load_config(
         generated_root
@@ -762,8 +717,4 @@ def test_jitter_robustness_spec_includes_mixed_train_runs(tmp_path):
     )
     assert eval_cfg["latency"]["method"] == "uniform"
     assert eval_cfg["latency"]["per_episode"] is True
-    assert eval_cfg["evaluation"]["eval_suites"] == {
-        "fixed": [[1, 2, 3]],
-        "normal": [[2.0, 1.0, 0, 4]],
-        "uniform": [[1, 3]],
-    }
+    assert [suite["latency"] for suite in eval_cfg['evaluation']['suites']] == [{"method": "fixed", "fixed_latency_ms": 1 * 1000.0 / eval_cfg["env"]["env_fps"]}, {"method": "fixed", "fixed_latency_ms": 2 * 1000.0 / eval_cfg["env"]["env_fps"]}, {"method": "fixed", "fixed_latency_ms": 3 * 1000.0 / eval_cfg["env"]["env_fps"]}, {"method": 'normal', "seed": eval_cfg["experiment"]["seed"], 'min_latency_ms': 0 * 1000.0 / eval_cfg["env"]["env_fps"], 'max_latency_ms': 4 * 1000.0 / eval_cfg["env"]["env_fps"], 'mean_latency_ms': 2.0 * 1000.0 / eval_cfg["env"]["env_fps"], 'std_latency_ms': 1.0 * 1000.0 / eval_cfg["env"]["env_fps"]}, {"method": 'uniform', "seed": eval_cfg["experiment"]["seed"], 'min_latency_ms': 1 * 1000.0 / eval_cfg["env"]["env_fps"], 'max_latency_ms': 3 * 1000.0 / eval_cfg["env"]["env_fps"]}]

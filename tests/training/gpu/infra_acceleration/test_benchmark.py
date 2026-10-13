@@ -61,7 +61,7 @@ def _base_config(env_name: str, tmp_path: Path) -> dict:
             "num_epochs": 2,
             "num_batches_per_epoch": 2,
         },
-        "evaluation": {"eval_interval_steps": 1_000_000, "eval_episodes": 20, "eval_max_steps": 100},
+        "evaluation": {"eval_interval_steps": 1_000_000, "episodes": 20, "max_env_steps": 100},
         "logging": {
             "output_dir": str(tmp_path / "outputs"),
             "video": {"enabled": True, "num_bins": 10},
@@ -212,7 +212,7 @@ def test_eval_runs_in_fresh_python_subprocess(monkeypatch, tmp_path: Path):
             "experiment": {"name": training_config["experiment"]["name"]},
             "policy": {"checkpoint_path": str(checkpoint_path)},
             "logging": {"output_dir": str(output_dir)},
-            "evaluation": {"eval_episodes": 4},
+            "evaluation": {"episodes": 4},
         }
 
     def fake_run(command, *, cwd):
@@ -258,7 +258,7 @@ def test_eval_subprocess_entry_writes_result_summary(monkeypatch, tmp_path: Path
     eval_config = {
         "experiment": {"name": "infra_accel_flappy_baseline_r0"},
         "logging": {"output_dir": str(tmp_path / "eval")},
-        "evaluation": {"eval_episodes": 2},
+        "evaluation": {"episodes": 2},
     }
 
     class Metric:

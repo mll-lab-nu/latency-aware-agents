@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -47,8 +46,8 @@ def training_config(args: argparse.Namespace):
     OmegaConf.update(cfg, "run_id", run_id)
     OmegaConf.update(cfg, "run_root_dir", str(args.output_root))
     OmegaConf.update(cfg, "seed", 42)
-    OmegaConf.update(cfg, "wandb_entity", "saberrr-zju")
-    OmegaConf.update(cfg, "wandb_project", "starvla_tasks")
+    OmegaConf.update(cfg, "wandb_entity", args.wandb_entity)
+    OmegaConf.update(cfg, "wandb_project", args.wandb_project)
     OmegaConf.update(cfg, "wandb_name", wandb_name, force_add=True)
     OmegaConf.update(cfg, "wandb_group", "decision-history-vla-h8-v2", force_add=True)
     OmegaConf.update(
@@ -135,6 +134,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--wandb-project", help="Enable W&B in this project")
+    parser.add_argument("--wandb-entity", help="Optional W&B account or team")
     args = parser.parse_args()
     args.dataset_dir = args.dataset_dir.resolve()
     args.base_model_dir = args.base_model_dir.resolve()
@@ -144,7 +145,13 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "train.yaml"
     OmegaConf.save(cfg, config_path)
-    wandb_run_id = hashlib.sha256(cfg.wandb_name.encode()).hexdigest()[:8]
+    metadata_path = run_dir / "run_metadata.json"
+    wandb_run_id = json.loads(metadata_path.read_text())["wandb_run_id"] if args.resume else cfg.run_id
+    if not args.resume:
+        revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+        (run_dir / "training_code_snapshot.json").write_text(json.dumps({
+            "revision": revision, "path": "scripts/tasks/decision_history/train_vla_hist8.py",
+        }, indent=2) + "\n")
     metadata = {
         "training_run_id": cfg.run_id, "wandb_run_id": wandb_run_id,
         "recipe_version": "hist8-v2", "history_encoding": "binary_0_1",
@@ -157,13 +164,11 @@ def main() -> None:
         "prefetch_factor": cfg.datasets.vla_data.prefetch_factor,
         "base_model_revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
         "dataset_dir": str(args.dataset_dir),
-        "dataset_manifest_sha256": hashlib.sha256((args.dataset_dir / "manifest.json").read_bytes()).hexdigest(),
-        "code_snapshot_sha256": hashlib.sha256((ROOT / "code_snapshot.json").read_bytes()).hexdigest(),
     }
-    (run_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
     env = os.environ.copy()
-    env["WANDB_MODE"] = "disabled" if args.preflight else "online"
-    if not args.preflight:
+    env["WANDB_MODE"] = "online" if args.wandb_project is not None and not args.preflight else "disabled"
+    if args.wandb_project is not None and not args.preflight:
         env["WANDB_RUN_ID"] = wandb_run_id
         env["WANDB_RESUME"] = "allow" if args.resume else "never"
     env["PYTHONPATH"] = os.pathsep.join([str(ROOT), str(STARVLA), str(ROOT / "third_party/sample-factory")])

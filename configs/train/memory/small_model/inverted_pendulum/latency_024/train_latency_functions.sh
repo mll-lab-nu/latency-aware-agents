@@ -107,21 +107,20 @@ latency:
   fixed_latency_ms: ${ms}
 
 policy:
-  type: gymnasium_sf
+  type: sample_factory
   checkpoint_kind: latest
-  device: cuda
   deterministic: true
 
 evaluation:
-  eval_episodes: 20
-  eval_parallel_envs: 1
-  eval_max_steps: 3600
-  eval_deterministic: true
-  eval_suites:
-    fixed:
-      - [${frames}]
-    normal: []
-    uniform: []
+  episodes: 20
+  max_env_steps: 3600
+  suites:
+    - name: fixed_${frames}
+      latency: {method: fixed, fixed_latency_ms: ${ms}}
+
+executor:
+  inference_devices: [cuda:0]
+  parallel_envs: 1
 
 logging:
   output_dir: ${OUTPUT_ROOT}/latency_bench/frame_stack/${label}/fs1/seed_${seed}
@@ -171,7 +170,7 @@ EOF
         latency_bench
         "${eval_cfg}"
         "python -m training.train --config ${train_cfg}"
-        "python -m latency_bench.run --config ${eval_cfg}"
+        "python -m latency_bench eval --config ${eval_cfg}"
         "${run}"
         "inverted-pendulum-fs1-${label}"
         "inverted-pendulum-fs1-${label}-s${seed}"

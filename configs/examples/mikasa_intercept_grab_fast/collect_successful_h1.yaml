@@ -1,0 +1,30 @@
+experiment:
+  name: mikasa_successful_h1_collection
+  seed: 0
+env:
+  name: mikasa_intercept_grab_fast
+  env_fps: 20
+  obs_fps: 20
+  simulator_device: gpu
+  noop_action: [0, 0, 0, 0, 0, 0, 0]
+executor:
+  mode: simulated
+  parallel_envs: 1
+  inference_devices: [cuda:0]
+  simulated_worker_capacity: 1
+scheduler:
+  ordering_policy: latest_ready
+  hold_policy: hold
+  hold_last_chunk_action: true
+latency:
+  method: fixed
+  seed: 0
+evaluation:
+  max_env_steps: 60
+logging:
+  output_dir: outputs/mikasa/successful_h1
+collection:
+  label_mode: successful_h1
+dataset:
+  train_episodes: 250
+  val_episodes: 25

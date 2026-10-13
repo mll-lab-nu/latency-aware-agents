@@ -9,21 +9,14 @@ PROFILE_REVISION="48d13d3dfa2b77c2d10fbbbcc5210d8af9fc8749"
 SPEC="configs/experiments/flappy/small_policy_qwen_profiles_10fps_25m.yaml"
 MANIFEST="configs/train/flappy/profiled_small_qwen_10fps_25m/manifest.tsv"
 
-export CUDA_HOME=/mnt/ssd/fanqi-lcb-formal/runtime/miles-rootfs/usr/local/cuda-12.9
+export CUDA_HOME="${CUDA_HOME:?CUDA Toolkit directory}"
 export PATH="${CUDA_HOME}/bin:${PATH}"
 export TORCH_CUDA_ARCH_LIST=9.0
 export TORCH_EXTENSIONS_DIR="${REPO_ROOT}/outputs/tasks/flappy/profiled_small_qwen_10fps_25m/torch_extensions_cuda129"
 
-set -a
-source "${REPO_ROOT}/.env"
-set +a
-export WANDB_ENTITY=saberrr-zju
-export WANDB_MODE=online
-export WANDB_RESUME=allow
 
 cd "${REPO_ROOT}"
-CUDA_VISIBLE_DEVICES=0 "${PYTHON}" -c \
-  "from training.flappy_sf.flappy_cuda_extension import load_flappy_cuda_extension; load_flappy_cuda_extension()"
+PYTHON_BIN="${PYTHON}" bash scripts/bash_scripts/build_cuda_extensions.sh --env flappy
 
 "${HF_CLI}" download MLL-Lab/LAGEN-profiles \
   --repo-type dataset \

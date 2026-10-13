@@ -48,7 +48,7 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         *,
         cfg: Any,
         env_config: Any | None,
-        obs_resize: tuple[int, int] | None,
+        obs_resize: tuple[int, int],
         frame_stack: int,
         gpu_render_device: str | torch.device,
         gpu_render_batch_size: int,
@@ -56,22 +56,14 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         gpu_render_profile_interval: int = 1000,
     ):
         super().__init__()
-        if obs_resize is None:
-            raise ValueError("use_gpu_render=true requires env.obs_resize to be set")
-        height, width = int(obs_resize[0]), int(obs_resize[1])
+        height, width = map(int, obs_resize)
         if height != width:
             raise ValueError("use_gpu_render=true currently requires square env.obs_resize")
 
         self.cfg = cfg
         self.env_config = env_config
         self.num_agents = int(gpu_render_batch_size)
-        if self.num_agents <= 0:
-            raise ValueError("gpu_render_batch_size must be a positive integer")
-        env_fps = getattr(cfg, "env_fps", None)
-        obs_fps = getattr(cfg, "obs_fps", None)
-        if env_fps is None or obs_fps is None:
-            raise ValueError("Flappy Sample Factory GPU rendering requires env_fps and obs_fps")
-        self.clock = EnvClock(env_fps=float(env_fps), obs_fps=float(obs_fps))
+        self.clock = EnvClock(env_fps=float(cfg.env_fps), obs_fps=float(cfg.obs_fps))
 
         self.render_device = resolve_gpu_render_device(gpu_render_device)
         self.observation_config = FlappyObservationConfig(
@@ -714,8 +706,8 @@ class FlappyBatchedGpuRenderedEnv(gym.Env):
         return int(action)
 
     @staticmethod
-    def _with_numeric_obs(info: dict[str, Any] | None, numeric_obs: Any) -> dict[str, Any]:
-        out = dict(info or {})
+    def _with_numeric_obs(info: dict[str, Any], numeric_obs: Any) -> dict[str, Any]:
+        out = dict(info)
         out["numeric_obs"] = numeric_obs
         return out
 

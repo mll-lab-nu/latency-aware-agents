@@ -4,8 +4,10 @@ experiment:
   name: gymnasium_air_raid_zero_latency_qwenoft_rtx3090_realtime_eval
 
 policy:
-  checkpoint_path: /workspace/models/extra-envs-checkpoints/OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: /workspace/models/extra-envs-checkpoints/OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k/config.full.yaml
-
+  source: local
+  root:
+    /workspace/models/extra-envs-checkpoints/OpenVLA/zero-latency/air_raid_l0_random_noop_fire_reset_return_gt2500_100ep_openvla_native_sft_5k
+  checkpoint: checkpoints/steps_5000_pytorch_model.pt
+  model_config: config.full.yaml
 logging:
   output_dir: /mnt/results/latency-sensitive-bench/tasks/air_raid/zero_latency_starvla_realtime_eval

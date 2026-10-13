@@ -10,9 +10,12 @@ setting; using a CPU agent does not make ManiSkill or a GPU renderer CPU-only.
 ## Reference inputs and native actions
 
 Select an existing VLA evaluation and provide its **input sidecars**:
-`model_config_path`, plus `task_manifest_path` or `task_contract_path` when the
-reference uses them. Put that policy under `policy.reference_policy`. Its
-checkpoint path is retained as provenance; weights are not loaded. Existing
+`root` and `model_config`, plus `task_manifest_path` or `task_contract_path` when
+the reference uses them. Put that policy under `policy.reference_policy` and use
+a locally prepared artifact root. `checkpoint` is retained as provenance;
+weights are not loaded. For Gymnasium state inputs, place the checkpoint's
+`dataset_statistics.json` under that root: the adapter reuses the training
+transform just as the release model wrapper does. Existing
 StarVLA configuration helpers and CPU dependencies must be installed.
 
 The adapter uses the same input builders as StarVLA: PIL image resizing,
@@ -77,9 +80,9 @@ python -m latency_bench.policy.coding_agent_config \
 ```
 
 This command only writes a configuration. Set `executor.mode: simulated`,
-`executor.simulated_inference_pool: false`, and `evaluation.eval_parallel_envs: 1`
+`executor.inference_pool: false`, and `executor.parallel_envs: 1`
 in the selected protocol. Choose the latency profile, capacity, FPS, seeds and
-episode count deliberately before running `python -m latency_bench.run`.
+episode count deliberately before running `python -m latency_bench eval`.
 The original `type: custom` Flappy pilot files retain their original prompt/input
 contract for reproduction.
 
@@ -183,7 +186,7 @@ Configure the executable, credentials, bubblewrap, profile, runtime, and workspa
 paths in `flappy_claude_haiku55_low.yaml`. Use a new output directory for every run:
 
 ```bash
-python -m latency_bench.run \
+python -m latency_bench eval \
   --config configs/experiments/coding_agent/flappy_claude_haiku55_low.yaml \
   --output-dir /home/ubuntu/lzj/coding-agent/outputs/RUN_ID
 ```

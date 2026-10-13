@@ -1,35 +1,31 @@
 """Resolve public collection settings and the existing canonical task contract."""
+
+from latency_bench.core.config import resolve_runtime_config
 from copy import deepcopy
 from pathlib import Path
 
 from latency_bench.core.clock import validate_clock_rates
+from latency_bench.envs.factory import resolve_env_config, environment_integration
 from latency_bench.core.actions import ActionResolver
 from latency_bench.data.action_layouts import (
     action_spec_for_env, gymnasium_discrete_action_spec, gymnasium_continuous_action_spec,
 )
 from latency_bench.data.ghost_trail import GhostTrailConfig
 from latency_bench.data.prompts import BASE_PROMPTS
-from latency_bench.eval.config import resolve_evaluation_config, _episode_seed
+from latency_bench.eval.config import _episode_seed
+from latency_bench.policy.model_source import resolve_model_source
 
 
 def resolve_collection(config):
-    config = deepcopy(config)
+    config = resolve_model_source(config)
     if config["executor"]["mode"] not in {"paused", "simulated"}:
         raise ValueError("Teacher collection requires executor.mode=paused or simulated")
-    resolve_evaluation_config(config)
+    resolve_runtime_config(config)
+    resolve_env_config(config)
     env = config["env"]
     validate_clock_rates(env["env_fps"], env["obs_fps"])
     collection = config["collection"]
-    defaults = {
-        "val_fraction": 0.0, "split_seed": 0, "max_attempts": None,
-        "two_pass": False, "replay_num_envs": config["evaluation"]["eval_parallel_envs"],
-        "filter_preset": "none", "episode_return_gt": None, "episode_acceptance": None,
-        "demon_episode_threshold": None, "context_window": 1, "probe_only": False,
-        "export_image_size": None, "image_writer_workers": 0, "row_buffer_size": 256,
-    }
-    for key, value in defaults.items():
-        if key not in collection:
-            collection[key] = value
+    options = resolve_collection_options(config)
     student = collection["student_observation"]
     for key, value in {"image_key": None, "state_key": None, "state_source": "metadata"}.items():
         if key not in student:
@@ -38,8 +34,8 @@ def resolve_collection(config):
         raise ValueError("student_observation.state_source must be data or metadata")
     output_dir = Path(config["logging"]["output_dir"]).expanduser().absolute()
     config["logging"]["output_dir"] = str(output_dir)
-    name = env["task_name"] if "task_name" in env else env["name"]
-    if env["name"] in {"gymnasium", "custom"}:
+    name = env["name"]
+    if environment_integration(config) == "gymnasium":
         if "action_space" in env and env["action_space"]["type"] == "box":
             spec = gymnasium_continuous_action_spec(env["action_space"]["labels"])
         else:
@@ -50,7 +46,7 @@ def resolve_collection(config):
             "task_name": name, "base_prompt": base_prompt,
             "env_fps": env["env_fps"], "obs_fps": env["obs_fps"],
             "frame_stack": env["frame_stack"] if "frame_stack" in env else 1,
-            **{key: env[key] for key in ("env_id", "registration_imports", "make_kwargs", "factory") if key in env},
+            **{key: env[key] for key in ("env_id", "registration_imports", "make_kwargs") if key in env},
         }
         if "action_space" in env and env["action_space"]["type"] == "box":
             task_metadata.update(action_space=env["action_space"], noop_action=env["noop_action"])
@@ -72,13 +68,28 @@ def resolve_collection(config):
                 if integration == "gymnasium" and "action_id" in spec.row_fields else None,
                 image_source="env_raw_rgb" if student["image_key"] is None else f"observation.data.{student['image_key']}")
     source.update(teacher_source=deepcopy(config["policy"]), student_observation=student,
-                  latency=deepcopy(config["latency"]), scheduler=deepcopy(config["scheduler"]),
+                  latency=deepcopy(config["latency"]) if config["executor"]["mode"] == "simulated" else {"method": "zero"}, scheduler=deepcopy(config["scheduler"]),
                   prompt_source="task:base_prompt")
-    options = {key: collection[key] for key in defaults}
-    options.update(max_episodes=config["evaluation"]["eval_episodes"],
-                   max_steps_per_episode=config["evaluation"]["eval_max_steps"],
-                   num_envs=config["evaluation"]["eval_parallel_envs"], base_seed=_episode_seed(config, 0),
-                   image_transform_config=GhostTrailConfig())
+    options.update(max_episodes=config["evaluation"]["episodes"],
+                   max_steps_per_episode=config["evaluation"]["max_env_steps"],
+                   num_envs=config["executor"]["parallel_envs"], base_seed=_episode_seed(config, 0),
+                   image_transform_config=GhostTrailConfig(**collection.get("image_transform", {})))
     if options["probe_only"] and not options["two_pass"]:
         raise ValueError("probe_only requires two_pass collection")
     return config, task, options, source
+
+
+def resolve_collection_options(config):
+    """Resolve shared collection defaults once for generic and native execution."""
+    collection = config["collection"]
+    defaults = {
+        "val_fraction": 0.0, "split_seed": 0, "max_attempts": None,
+        "two_pass": False, "replay_num_envs": config["executor"]["parallel_envs"],
+        "filter_preset": "none", "episode_return_gt": None, "episode_acceptance": None,
+        "demon_episode_threshold": None, "context_window": 1, "probe_only": False,
+        "export_image_size": None, "image_writer_workers": 0, "row_buffer_size": 256,
+    }
+    for key, value in defaults.items():
+        if key not in collection:
+            collection[key] = value
+    return {key: collection[key] for key in defaults}

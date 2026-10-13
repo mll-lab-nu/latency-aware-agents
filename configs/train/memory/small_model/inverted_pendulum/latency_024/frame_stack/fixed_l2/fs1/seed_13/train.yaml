@@ -8,11 +8,11 @@ latency:
   fixed_latency_ms: 80.0
 
 evaluation:
-  eval_suites:
-    fixed:
-      - [2]
-    normal: []
-    uniform: []
+  suites:
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 80.0
 
 logging:
   output_dir: outputs/memory/small_model/inverted_pendulum/latency_024/train/frame_stack/fixed_l2/fs1/seed_13

@@ -5,20 +5,52 @@ import os
 from pathlib import Path
 
 import yaml
+import pytest
 
 from latency_bench.executors.thread_env import THREAD_ENV_DEFAULTS
+from latency_bench.profiling.calibration import _summary
+
+
+def test_calibration_summary_uses_linear_percentiles():
+    summary = _summary([10.0, 20.0, 30.0, 40.0])
+    assert summary["p90"] == pytest.approx(37.0)
+    assert summary["p95"] == pytest.approx(38.5)
 
 
 def _write_config(path: Path) -> None:
     payload = {
-        "experiment": {"name": "calibration-test", "seed": 0},
-        "executor": {"mode": "realtime"},
-        "env": {"name": "dummy", "env_fps": 16, "obs_fps": 16, "noop_action": "noop"},
-        "latency": {"device": "cpu", "sync_cuda": False},
-        "scheduler": {"hold_policy": "hold", "ordering_policy": "latest_ready"},
-        "policy": {"type": "constant", "action": "noop", "actions": ["noop"]},
-        "evaluation": {"eval_episodes": 1, "eval_parallel_envs": 1, "eval_latency_values": None, "eval_max_steps": 10},
-        "logging": {"output_dir": str(path.parent / "run")},
+        'experiment': {
+            'name': 'calibration-test',
+            'seed': 0,
+        },
+        'executor': {
+            'mode': 'realtime',
+            'inference_devices': ['cpu', 'cuda:2'],
+            'parallel_envs': 1,
+            'sync_cuda': False,
+        },
+        'env': {
+            'name': 'dummy',
+            'env_fps': 16,
+            'obs_fps': 16,
+            'noop_action': 'noop',
+        },
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+        },
+        'policy': {
+            'type': 'constant',
+            'action': 'noop',
+            'actions': ['noop'],
+        },
+        'evaluation': {
+            'episodes': 1,
+            'max_env_steps': 10,
+        },
+        'logging': {
+            'output_dir': str(path.parent / 'run'),
+        },
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
@@ -33,7 +65,7 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
         monkeypatch.delenv(key, raising=False)
 
     def fake_probe(*, config_path, samples, skip, period_ms, devices):
-        assert devices == ["cuda:0", "cuda:1"]
+        assert devices == ["cpu", "cuda:2"]
         return {
             "period_ms": period_ms,
             "sample_count": samples,
@@ -47,13 +79,9 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
                 {"n": samples - skip, "mean": 34.0, "median": 34.0, "p90": 34.0, "p95": 34.0}
                 for _ in devices
             ],
-            "policy_build_example_ms": {"n": samples - skip, "mean": 1.0, "median": 1.0, "p90": 1.0, "p95": 1.0},
-            "policy_wrapper_predict_action_ms": {"n": samples - skip, "mean": 32.0, "median": 32.0, "p90": 32.0, "p95": 32.0},
-            "policy_decode_ms": {"n": samples - skip, "mean": 1.0, "median": 1.0, "p90": 1.0, "p95": 1.0},
         }
 
     monkeypatch.setattr(module, "_run_spawned_latency_probe", fake_probe)
-    monkeypatch.setattr(module, "visible_cuda_device_count", lambda: 2)
 
     payload = module.calibrate_env_fps_from_saturated_latency(
         config_path=config_path,
@@ -69,4 +97,3 @@ def test_calibrate_env_fps_from_saturated_latency_uses_probe_samples(tmp_path, m
     assert written == payload
     assert payload["calibration_source"] == "saturated_policy_latency"
     assert payload["saturated_latency_summary"]["median"] == 34.0
-    assert payload["policy_stage_summary"]["policy_wrapper_predict_action_ms"]["median"] == 32.0

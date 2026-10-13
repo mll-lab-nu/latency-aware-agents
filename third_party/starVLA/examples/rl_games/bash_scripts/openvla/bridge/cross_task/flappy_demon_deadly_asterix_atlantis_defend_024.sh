@@ -45,10 +45,8 @@ python examples/rl_games/scripts/launch_train.py \
     paths.run_root_dir="${DATA_WORKSPACE_DIR}/results/Checkpoints" \
     paths.dataset_local_dir="${DATA_WORKSPACE_DIR}/playground/Datasets/rl_games" \
     paths.base_model_dir="${DATA_WORKSPACE_DIR}/playground/Pretrained_models/Qwen3-VL-4B-Instruct" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="latency-sensitive-bench/benchmark-models" \
-    checkpoint.sync.enabled=false \
-    checkpoint.sync.repo_id="latency-sensitive-bench/benchmark-models" \
     checkpoint.save_best_model=false \
     checkpoint.local.keep_last_n=1 \
     trainer.max_train_steps=15000 \

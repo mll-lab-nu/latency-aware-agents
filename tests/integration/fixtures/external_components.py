@@ -3,13 +3,15 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
-from gymnasium.spaces import Discrete
+from gymnasium.spaces import Box, Discrete
 
 from latency_bench.core.types import Action, PolicyOutput
 from latency_bench.envs.adapters.dummy import DummyEnvAdapter
+from latency_bench.envs.factory import register_env_adapter
 from latency_bench.policy.base import PolicyRunner
 
 
@@ -52,6 +54,7 @@ class UserPolicy(PolicyRunner):
         return PolicyOutput(Action(self.count), raw_output=self.count)
 
 
+@register_env_adapter("external_counter")
 def make_env(config, noop_action):
     return UserEnv(config, noop_action)
 
@@ -70,27 +73,48 @@ class CollectionEnv(UserEnv):
     def __init__(self, config, noop_action):
         self.frame = np.zeros((8, 8, 3), dtype=np.uint8)
         super().__init__(config, noop_action)
+        if "action_space" in config["env"]:
+            self.action_space = Box(-5.0, 5.0, (1,), dtype=np.float32)
 
     def _make_observation(self, metadata=None):
         observation = super()._make_observation(metadata)
         self.frame.fill(self.env_step)
         observation.data["rgb"] = self.frame
+        observation.data["student_state"] = np.asarray([self.env_step], dtype=np.float32)
         return observation
 
 
 class CollectionPolicy(UserPolicy):
     """Predict from observed state for serial and concurrent collection."""
 
+    def __init__(self, config):
+        super().__init__(config)
+        self.continuous = "action_space" in config["env"]
+
     def predict(self, observation):
-        return PolicyOutput(Action(observation.data["state"] + 1))
+        command = observation.data["state"] + 1
+        return PolicyOutput(Action(np.asarray([command], dtype=np.float32) if self.continuous else command))
 
     def predict_batch(self, observations):
         return [self.predict(observation) for observation in observations]
 
 
+@register_env_adapter("external_collection")
 def make_collection_env(config, noop_action):
     return CollectionEnv(config, noop_action)
 
 
 def make_collection_policy(config, action_resolver):
     return CollectionPolicy(config)
+
+
+class ProfilingPolicy(UserPolicy):
+    """Hold a real worker long enough to exercise concurrent admission and drops."""
+
+    def predict(self, observation):
+        time.sleep(0.06)
+        return super().predict(observation)
+
+
+def make_profiling_policy(config, action_resolver):
+    return ProfilingPolicy(config)

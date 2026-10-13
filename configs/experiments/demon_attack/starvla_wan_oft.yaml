@@ -11,16 +11,17 @@ backend:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 5
 env:
   obs_resize: [224, 224]
   clip_reward: false
 
 policy:
   type: starvla
-  checkpoint_path: third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_6_context5_standard_sft_5000_effbs128_224_currentce/checkpoints/steps_5000_pytorch_model.pt
-  model_config_path: third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_6_context5_standard_sft_5000_effbs128_224_currentce/config.full.yaml
-  device: cuda
-  latency_prompt_map_path: third_party/starVLA/data/demon_attack_fix_latency_6_200ep_context5/demon_attack_train__bridge/latency_prompt_map.json
+  latency_prompt_map_path:
+    /home/lixinyuan/latency-sensitive-bench/third_party/starVLA/data/demon_attack_fix_latency_6_200ep_context5/demon_attack_train__bridge/latency_prompt_map.json
   latency_prompt_key: 6
   actions:
     - 0
@@ -30,21 +31,24 @@ policy:
     - 4
     - 5
 
+  source: local
+  root:
+    third_party/starVLA/results/Checkpoints/wan_oft_demon_attack_fix_latency_6_context5_standard_sft_5000_effbs128_224_currentce
+  checkpoint: checkpoints/steps_5000_pytorch_model.pt
+  model_config: config.full.yaml
 latency:
   method: fixed
   fixed_latency_ms: 100.0
 
 evaluation:
-  eval_episodes: 20
-  eval_parallel_envs: 5
-  eval_max_steps: 14400
-  eval_deterministic: true
   eval_raw_reward: true
-  eval_suites:
-    fixed:
-      - [6]
-    normal: []
-    uniform: []
+  episodes: 20
+  max_env_steps: 14400
+  suites:
+  - name: fixed_6
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
 
 logging:
   output_dir: outputs/starvla_wan_oft_demon_attack_raw6

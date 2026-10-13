@@ -14,6 +14,7 @@ env:
 executor:
   simulated_worker_capacity: 1
 
+  parallel_envs: 100
 seeds: [42]
 
 training:
@@ -22,12 +23,40 @@ training:
 
 evaluation:
   checkpoint_interval_steps: 5000000
-  eval_episodes: 100
-  eval_parallel_envs: 100
-  eval_max_steps: 18000
-
+  episodes: 100
+  max_env_steps: 18000
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
+  - name: fixed_1
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 200.0
+  - name: fixed_3
+    latency:
+      method: fixed
+      fixed_latency_ms: 300.0
+  - name: normal_mean_2_std_1_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 200.0
+      std_latency_ms: 100.0
+      min_latency_ms: 0.0
+      max_latency_ms: 1500.0
+      seed: 0
+  - name: uniform_min_1_max_3
+    latency:
+      method: uniform
+      min_latency_ms: 100.0
+      max_latency_ms: 300.0
+      seed: 0
 logging:
-  wandb_project: starvla_tasks
+  wandb_project: null
   wandb_job_type: flappy_decision_history_temporal
   wandb_tags: [decision_v1]
 

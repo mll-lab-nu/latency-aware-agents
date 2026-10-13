@@ -232,68 +232,71 @@ def build_eval_config(
     bundle = artifact_dir(h1_root, h8_root, job)
     latency_frames = job["latency_frames"]
     latency = (
-        {"method": "zero", "sync_cuda": False}
+        {"method": "zero"}
         if latency_frames == 0
         else {
             "method": "fixed",
             "fixed_latency_ms": latency_frames * 1000.0 / FPS,
-            "sync_cuda": False,
         }
     )
     return {
-        "experiment": {
-            "name": (
-                f"mikasa_intercept_grab_fast_{job['model']}_h{job['horizon']}_"
-                f"fixed_{latency_frames}f"
-            ),
-            "seed": seed,
+        'experiment': {
+            'name': f"mikasa_intercept_grab_fast_{job['model']}_h{job['horizon']}_fixed_{latency_frames}f",
+            'seed': seed,
         },
-        "executor": {
-            "mode": "simulated",
-            "simulated_inference_pool": True,
-            "simulated_worker_capacity": 1,
-            "inference_devices": ["cuda:0"],
-            "inference_batch_size": 8,
+        'executor': {
+            'mode': 'simulated',
+            'sync_cuda': False,
+            'inference_pool': True,
+            'simulated_worker_capacity': 1,
+            'inference_devices': ['cuda:0'],
+            'inference_batch_size': 8,
+            'parallel_envs': 10,
         },
-        "env": {
-            "name": "mikasa_intercept_grab_fast",
-            "env_fps": FPS,
-            "obs_fps": FPS,
-            "frame_stack": 1,
-            "simulator_device": "cuda:0",
-            "noop_action": [0.0] * 7,
-            "base_prompt": "Intercept the rolling ball and grasp it to stop it.",
+        'env': {
+            'name': 'mikasa_intercept_grab_fast',
+            'env_fps': FPS,
+            'obs_fps': FPS,
+            'frame_stack': 1,
+            'simulator_device': 'cuda:0',
+            'noop_action': [0.0] * 7,
+            'base_prompt': 'Intercept the rolling ball and grasp it to stop it.',
         },
-        "latency": latency,
-        "scheduler": {
-            "hold_policy": "hold",
-            "ordering_policy": "latest_ready",
-            "hold_last_chunk_action": True,
+        'latency': latency,
+        'scheduler': {
+            'hold_policy': 'hold',
+            'ordering_policy': 'latest_ready',
+            'hold_last_chunk_action': True,
         },
-        "policy": {
-            "action_prefix": {"mode": "none"},
-            "type": "starvla",
-            "checkpoint_path": str(bundle / "checkpoints/model.pt"),
-            "model_config_path": str(bundle / "config.yaml"),
-            "task_contract_path": str(bundle / "task_contract.json"),
-            "backbone_path": str(backbone_path),
-            "worker_python_executable": str(vla_python),
-            "device": "cuda:0",
-            "state_info_key": "mikasa_proprio",
-            "image_views_info_key": "mikasa_image_views",
+        'policy': {
+            'action_prefix': {
+                'mode': 'none',
+            },
+            'type': 'starvla',
+            'task_contract_path': str(bundle / 'task_contract.json'),
+            'backbone_path': str(backbone_path),
+            'worker_python_executable': str(vla_python),
+            'state_info_key': 'mikasa_proprio',
+            'image_views_info_key': 'mikasa_image_views',
+            'deterministic': True,
+            'checkpoint': str(Path(str(bundle / 'checkpoints/model.pt')).absolute()).lstrip('/'),
+            'source': 'local',
+            'root': '/',
+            'model_config': str(Path(str(bundle / 'config.yaml')).absolute()).lstrip('/'),
         },
-        "evaluation": {
-            "eval_episodes": episodes,
-            "eval_parallel_envs": 10,
-            "eval_max_steps": MAX_STEPS,
-            "eval_deterministic": True,
+        'evaluation': {
+            'episodes': episodes,
+            'max_env_steps': MAX_STEPS,
         },
-        "logging": {
-            "output_dir": str(output_dir),
-            "video": {"enabled": False, "num_bins": 10},
-            "save_step_records": True,
-            "save_action_records": True,
-            "save_latency_records": True,
+        'logging': {
+            'output_dir': str(output_dir),
+            'video': {
+                'enabled': False,
+                'num_bins': 10,
+            },
+            'save_step_records': True,
+            'save_action_records': True,
+            'save_latency_records': True,
         },
     }
 
@@ -650,8 +653,8 @@ def aggregate(
             "episodes_per_condition": episodes,
             "seed_start": seed,
             "seed_end": seed + episodes - 1,
-            "eval_parallel_envs": 10,
-            "eval_max_steps": MAX_STEPS,
+            "parallel_envs": 10,
+            "max_env_steps": MAX_STEPS,
             "simulated_worker_capacity": 1,
             "inference_batch_size": 8,
             "executor": "simulated",

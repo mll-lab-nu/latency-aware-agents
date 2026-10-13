@@ -13,6 +13,9 @@ experiment:
 executor:
   mode: simulated
 
+  inference_devices:
+  - cuda
+  parallel_envs: 4
 env:
   env_fps: 30
   obs_fps: 30
@@ -21,26 +24,41 @@ env:
 
 policy:
   type: starvla
-  checkpoint_path: /workspace/starVLA/results/Checkpoints/flappy_qwenoft_multiframe4/checkpoints/steps_5000_state/model.safetensors
-  device: cuda
   unnorm_key: new_embodiment
   latency_prompt_map_path: /workspace/latency-sensitive-bench/prompt_map/flappy_fix_latency_prompt_map.json
   actions:
     - noop
     - flap
 
+  source: local
+  root: /workspace/starVLA/results/Checkpoints/flappy_qwenoft_multiframe4/checkpoints/steps_5000_state
+  checkpoint: model.safetensors
 latency:
   method: zero
 
 evaluation:
-  eval_episodes: 20
-  eval_parallel_envs: 4
-  eval_max_steps: 3600
-  eval_suites:
-    fixed:
-      - [0, 4]
-    normal: []
-    uniform: []
+  episodes: 20
+  max_env_steps: 3600
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
+  - name: fixed_1
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 66.66666666666667
+  - name: fixed_3
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
+  - name: fixed_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 133.33333333333334
 
 logging:
   output_dir: outputs/starvla_qwenoft_flappy_multiframe4

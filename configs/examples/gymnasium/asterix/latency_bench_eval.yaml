@@ -10,10 +10,8 @@ policy:
   type: random
 
 evaluation:
-  eval_episodes: 5
-  eval_parallel_envs: 1
-  eval_max_steps: 5000
-
+  episodes: 5
+  max_env_steps: 5000
 logging:
   output_dir: outputs/examples/gymnasium_asterix/latency_bench_eval
   video:
@@ -22,3 +20,5 @@ logging:
   save_step_records: true
   save_action_records: true
   save_latency_records: true
+executor:
+  parallel_envs: 1

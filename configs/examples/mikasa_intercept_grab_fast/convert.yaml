@@ -1,0 +1,4 @@
+conversion:
+  format: lerobot
+  input_dir: outputs/mikasa/dataset
+  output_dir: outputs/mikasa/lerobot

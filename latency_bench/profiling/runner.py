@@ -1,445 +1,174 @@
-"""Measure deployment latency and replay profiles through the benchmark evaluator."""
+"""Measure user-configured deployments and fit their recorded latency."""
 
 from __future__ import annotations
 
 import fcntl
-import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from latency_bench.profiling.artifacts import (
-    profile_dir,
-    profile_ref,
-    run_dir,
-    run_ref,
-    run_session_dir,
-    simulation_seed_dir,
-)
-from latency_bench.profiling.profile_resolver import (
-    profile_input_identity,
-    resolve_profile_artifacts,
-    resolve_remote_profile,
-)
-from latency_bench.profiling.runtime_configs import (
-    calibration_config,
-    eval_command,
-    measure_config,
-    simulation_config,
-    write_generated_config,
-)
-from latency_bench.profiling.spec import gpu_name_registry
-from latency_bench.profiling.sync import (
-    publish_run_and_profile,
-    publish_simulation_dirs,
-)
-from latency_bench.profiling.calibration import (
-    calibrate_env_fps_from_saturated_latency,
-)
+from latency_bench.eval.config import _evaluation_seed
+from latency_bench.executors.env_step_backend import START_METHOD_ENV
+from latency_bench.executors.thread_env import set_thread_env_defaults
 from latency_bench.latency.hardware_info import (
-    instance_id_from_gpu_deployment,
-    collect_hardware_fingerprint,
-    describe_participating_gpus,
-    public_hardware_projection,
+    collect_hardware_fingerprint, describe_inference_deployment, public_hardware_projection,
 )
 from latency_bench.latency.profile_builder import build_profile_from_traces
-from latency_bench.utils.io import read_json, write_json
-
-
-_CONTRACT_OUTPUT_DIR = Path("__latency_bench_contract_output__")
-
-
-def current_deployment(spec: dict[str, Any]) -> dict[str, Any]:
-    deployment, _fingerprint = _collect_deployment(spec)
-    return deployment
+from latency_bench.profiling.calibration import calibrate_env_fps_from_saturated_latency
+from latency_bench.policy.model_source import resolve_model_source
+from latency_bench.eval.artifacts import read_runtime_snapshot
+from latency_bench.profiling.runtime_configs import (
+    eval_command, evaluation_environment, measure_config,
+)
+from latency_bench.profiling.spec import path_segment, resolve_profile_config
+from latency_bench.utils.io import read_json, write_json, write_yaml
 
 
 def run_profile(
-    spec: dict[str, Any],
-    *,
-    resume_run_id: str | None,
-    publish: bool,
+    config: dict[str, Any], *, resume_run_id: str | None = None,
 ) -> dict[str, str]:
-    deployment, fingerprint = _collect_deployment(spec)
-    initial_contract = _run_contract(spec, deployment)
-    prepared_identity = initial_contract["input_files_sha256"]
-    for role in ("model", "runtime"):
-        if role in prepared_identity and prepared_identity[role] != spec[f"{role}_provenance"]["files_sha256"]:
-            raise ValueError(f"Resolved {role} artifact changed before profiling")
-    current_ref = profile_ref(
-        spec["model_id"],
-        deployment["gpu_class"],
-        spec["workload_id"],
-        deployment["instance_id"],
+    """Measure and fit one deployment using the ordinary realtime evaluation path."""
+    set_thread_env_defaults()
+    config = resolve_profile_config(resolve_model_source(config))
+    if config["executor"]["mode"] != "realtime":
+        raise ValueError("Profiling requires executor.mode: realtime")
+    options = config["profiling"]
+    fingerprint = collect_hardware_fingerprint()
+    deployment = describe_inference_deployment(fingerprint, config["executor"]["inference_devices"])
+    ref = (
+        Path(options["model_id"]) / deployment["gpu_class"]
+        / options["workload_id"] / deployment["instance_id"]
     )
-    run_id = resume_run_id or _new_run_id()
-    source_ref = run_ref(current_ref, run_id)
-    source_dir = run_dir(spec["artifact_root"], source_ref)
+    run_id = path_segment(resume_run_id) if resume_run_id is not None else _new_run_id()
+    source_dir = Path(config["logging"]["output_dir"]) / "runs" / ref / run_id
     if resume_run_id is None:
         source_dir.mkdir(parents=True)
         write_json(source_dir / "hardware.json", fingerprint)
-        write_json(source_dir / "run_contract.json", initial_contract)
+        write_json(source_dir / "run_contract.json", _run_contract(config, deployment))
     else:
         (source_dir / "hardware.json").read_bytes()
-        _assert_run_contract(spec, deployment, source_dir)
+        _assert_run_contract(config, deployment, source_dir)
 
-    calibration = _calibrate(spec, deployment, source_dir)
-    calibrated_contract = _run_contract(spec, deployment, calibration)
-    if calibrated_contract["input_files_sha256"] != prepared_identity:
-        raise ValueError("Model/backbone/contract inputs changed during calibration")
-    write_json(
-        source_dir / "run_contract.json",
-        calibrated_contract,
-    )
-    session_ids = list(range(spec["session_count"]))
+    calibration = _calibrate(config, deployment, source_dir)
+    for session_id in range(options["repeats"]):
+        _measure_session(config, deployment, calibration, source_dir, session_id,
+                         resume=resume_run_id is not None)
+    fit_profile(source_dir)
+    current_dir = Path(config["logging"]["output_dir"]) / "profiles" / ref
+    with _profile_lock(current_dir):
+        _replace_current(source_dir / "profile", current_dir)
+    return {
+        "PROFILE_REF": ref.as_posix(), "PROFILE_PATH": str(current_dir / "profile.json"),
+        "RUN_DIR": str(source_dir), "RUN_ID": run_id,
+        "GPU_CLASS": deployment["gpu_class"], "INSTANCE_ID": deployment["instance_id"],
+        "MEASUREMENT_STATUS": "complete", "FIT_STATUS": "complete",
+    }
+
+
+def fit_profile(source_dir: str | Path) -> dict[str, str]:
+    """Fit completed local sessions without loading the model or remeasuring hardware."""
+    source_dir = Path(source_dir).expanduser().absolute()
+    contract = read_json(source_dir / "run_contract.json")
+    config = read_runtime_snapshot(contract["config"])
+    options = config["profiling"]
+    calibration = read_json(source_dir / "calibration.json") if options["calibration"] is not None else None
+    config = measure_config(config, contract["deployment"], source_dir, calibration)
+    session_ids = list(range(options["repeats"]))
     for session_id in session_ids:
-        _measure_session(
-            spec,
-            deployment,
-            calibration,
-            source_ref,
-            session_id,
-            resume=resume_run_id is not None,
-        )
-
-    candidate_dir = source_dir / "profile"
-    if not (candidate_dir / "DONE").exists():
-        if candidate_dir.exists():
-            shutil.rmtree(candidate_dir)
+        (source_dir / "sessions" / str(session_id) / "DONE").read_bytes()
+    candidate = source_dir / "profile"
+    deployment = contract["deployment"]
+    if not (candidate / "DONE").exists():
+        if candidate.exists():
+            shutil.rmtree(candidate)
+        provenance = {
+            key: {name: value for name, value in artifact.items() if name != "local_root"}
+            for key, artifact in config["provenance"].items()
+            if key in {"model_artifact", "backbone_artifact"}
+        }
         build_profile_from_traces(
-            sessions=[
-                _profile_session(
-                    run_session_dir(spec["artifact_root"], source_ref, session_id),
-                    session_id,
-                )
-                for session_id in session_ids
-            ],
-            output_dir=candidate_dir,
-            model_id=spec["model_id"],
-            gpu_class=deployment["gpu_class"],
-            workload_id=spec["workload_id"],
-            instance_id=deployment["instance_id"],
-            source_run_id=run_id,
-            env_fps=calibration["selected_env_fps"],
+            sessions=[{"measure_session_id": session_id,
+                       "observation_attempts": source_dir / "sessions" / str(session_id) / "observation_attempts.jsonl"}
+                      for session_id in session_ids],
+            output_dir=candidate, model_id=options["model_id"], gpu_class=deployment["gpu_class"],
+            workload_id=options["workload_id"], instance_id=deployment["instance_id"],
+            source_run_id=source_dir.name, env_fps=config["env"]["env_fps"],
             metadata={
-                "base_config": spec["base_config"],
-                "checkpoint_kind": spec["checkpoint_kind"],
-                "session_ids": session_ids,
-                "model_artifact": spec["model_provenance"],
-                "input_files_sha256": read_json(source_dir / "run_contract.json")["input_files_sha256"],
-                **({"backbone_artifact": spec["backbone_provenance"]}
-                   if "backbone_provenance" in spec else {}),
-                **(
-                    {"runtime_artifact": spec["runtime_provenance"]}
-                    if "runtime_provenance" in spec
-                    else {}
-                ),
+                **provenance, "session_ids": session_ids,
+                "measurement": {
+                    "seed": _evaluation_seed(config), "evaluation": config["evaluation"],
+                    "env_fps": config["env"]["env_fps"], "obs_fps": config["env"]["obs_fps"],
+                    "inference_devices": config["executor"]["inference_devices"],
+                    "policy_type": config["policy"]["type"],
+                },
             },
         )
-        public_hardware = public_hardware_projection(
-            fingerprint,
-            gpu_name_registry=gpu_name_registry(spec["gpu_models"]),
-            cuda_visible_devices=_inference_cuda_visible_devices(spec),
-        )
-        public_hardware["instance_id"] = deployment["instance_id"]
-        write_json(candidate_dir / "hardware.json", public_hardware)
-        (candidate_dir / "DONE").touch()
-
+        hardware = public_hardware_projection(read_json(source_dir / "hardware.json"), deployment=deployment)
+        hardware["instance_id"] = deployment["instance_id"]
+        write_json(candidate / "hardware.json", hardware)
+        (candidate / "DONE").touch()
     (source_dir / "DONE").touch()
-    current_dir = profile_dir(spec["artifact_root"], current_ref)
-    with _profile_lock(current_dir):
-        _replace_current(candidate_dir, current_dir)
-        if publish:
-            _publish(spec, current_ref, current_dir)
-    result = {
-        "PROFILE_REF": current_ref.as_posix(),
-        "PROFILE_PATH": str(current_dir / "profile.json"),
-        "RUN_ID": run_id,
-        "GPU_CLASS": deployment["gpu_class"],
-        "INSTANCE_ID": deployment["instance_id"],
-    }
-    return result
-
-
-def publish_current_profile(spec: dict[str, Any]) -> dict[str, str]:
-    deployment = current_deployment(spec)
-    current_ref = profile_ref(
-        spec["model_id"],
-        deployment["gpu_class"],
-        spec["workload_id"],
-        deployment["instance_id"],
-    )
-    current_dir = profile_dir(spec["artifact_root"], current_ref)
-    with _profile_lock(current_dir):
-        _publish(spec, current_ref, current_dir)
-        profile = read_json(current_dir / "profile.json")
-    return {
-        "PROFILE_REF": current_ref.as_posix(),
-        "PROFILE_PATH": str(current_dir / "profile.json"),
-        "RUN_ID": profile["source_run_id"],
-    }
-
-
-def run_simulation(
-    spec: dict[str, Any],
-    *,
-    gpu_class: str,
-    instance_id: str,
-    method: str,
-    latency_seeds: list[int],
-    publish: bool,
-    model_path: str | Path | None = None,
-    backbone_path: str | Path | None = None,
-) -> dict[str, str]:
-    canonical_ref, selected_profile = resolve_remote_profile(
-        spec,
-        gpu_class=gpu_class,
-        instance_id=instance_id,
-    )
-    profile = read_json(selected_profile)
-    if "input_files_sha256" not in profile["provenance"]:
-        raise ValueError("Profile has no verified evaluation input identity; re-establish the measured artifact provenance")
-    spec = resolve_profile_artifacts(spec, profile, model_path=model_path, backbone_path=backbone_path)
-    output_dirs = [
-        simulation_seed_dir(
-            spec["artifact_root"],
-            canonical_ref,
-            profile["source_run_id"],
-            method,
-            seed,
-        )
-        for seed in latency_seeds
-    ]
-    for output_dir in output_dirs:
-        if (output_dir / "DONE").exists():
-            raise FileExistsError(output_dir / "DONE")
-    for latency_seed, output_dir in zip(latency_seeds, output_dirs):
-        _assert_replay_identity(spec, profile)
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
-        config_path = output_dir / "generated.yaml"
-        config = simulation_config(
-            spec,
-            output_dir=output_dir,
-            profile_path=selected_profile,
-            profile_ref=canonical_ref,
-            profile=profile,
-            method=method,
-            latency_seed=latency_seed,
-        )
-        write_generated_config(config_path, config)
-        _run_evaluation(spec, config_path, output_dir)
-        _assert_replay_identity(spec, profile)
-        (output_dir / "DONE").touch()
-
-    result = {
-        "PROFILE_REF": canonical_ref.as_posix(),
-        "RUN_ID": profile["source_run_id"],
-    }
-    if publish:
-        remote_dirs = [
-            Path("simulations")
-            / canonical_ref
-            / profile["source_run_id"]
-            / method
-            / str(seed)
-            for seed in latency_seeds
-        ]
-        publish_simulation_dirs(
-            spec,
-            local_dirs=output_dirs,
-            remote_dirs=remote_dirs,
-        )
-    return result
-
-
-def _assert_replay_identity(spec: dict[str, Any], profile: dict[str, Any]) -> None:
-    if profile_input_identity(spec) != profile["provenance"]["input_files_sha256"]:
-        raise ValueError("Replay model/backbone/contract inputs differ from those used to measure this profile")
-
-
-def _collect_deployment(spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    fingerprint = collect_hardware_fingerprint()
-    names = gpu_name_registry(spec["gpu_models"])
-    deployment = describe_participating_gpus(
-        gpus=fingerprint["gpus"],
-        topology=fingerprint["gpu"]["topology"],
-        gpu_name_registry=names,
-        cuda_visible_devices=_inference_cuda_visible_devices(spec),
-    )
-    deployment["instance_id"] = instance_id_from_gpu_deployment(deployment)
-    fingerprint["gpu_deployment"] = deployment
-    return deployment, fingerprint
-
-
-def _inference_cuda_visible_devices(spec: dict[str, Any]) -> str:
-    visible = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
-    simulation_gpu = spec["simulation_gpu"]
-    if simulation_gpu is None:
-        return ",".join(visible)
-    inference = [
-        device
-        for logical_index, device in enumerate(visible)
-        if f"cuda:{logical_index}" != simulation_gpu
-    ]
-    if not inference:
-        raise RuntimeError("GPU simulator profiling requires a separate inference GPU")
-    return ",".join(inference)
+    return {"PROFILE_PATH": str(candidate / "profile.json"), "RUN_DIR": str(source_dir), "FIT_STATUS": "complete"}
 
 
 def _calibrate(
-    spec: dict[str, Any],
-    deployment: dict[str, Any],
-    source_dir: Path,
-) -> dict[str, Any]:
+    config: dict[str, Any], deployment: dict[str, Any], source_dir: Path,
+) -> dict[str, Any] | None:
+    options = config["profiling"]["calibration"]
+    if options is None:
+        return None
     calibration_path = source_dir / "calibration.json"
     if (source_dir / "calibration.DONE").exists():
         return read_json(calibration_path)
-    if not spec["calibrate_env_fps"]:
-        base_config = calibration_config(spec, deployment, source_dir / "calibration_probe")
-        calibration = {
-            "selected_env_fps": base_config["env"]["env_fps"],
-            "selected_obs_fps": base_config["env"]["obs_fps"],
-            "calibration_source": "fixed_workload_cadence",
-        }
-        write_json(calibration_path, calibration)
-        (source_dir / "calibration.DONE").touch()
-        return calibration
-    config_path = source_dir / "calibration.generated.yaml"
-    write_generated_config(
-        config_path,
-        calibration_config(spec, deployment, source_dir / "calibration_probe"),
-    )
-    calibration = calibrate_env_fps_from_saturated_latency(
-        config_path=config_path,
-        output=calibration_path,
-        target_latency_frames=spec["target_latency_frames"],
-        worker_utilization_cap=spec["worker_utilization_cap"],
-    )
+    generated = source_dir / "calibration.generated.yaml"
+    write_yaml(generated, measure_config(config, deployment, source_dir / "calibration_probe"))
+    calibration = calibrate_env_fps_from_saturated_latency(config_path=generated, output=calibration_path, **options)
     (source_dir / "calibration.DONE").touch()
     return calibration
 
 
-def _run_contract(
-    spec: dict[str, Any],
-    deployment: dict[str, Any],
-    calibration: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    identity = {
-        "model_id": spec["model_id"],
-        "workload_id": spec["workload_id"],
-        "deployment": deployment,
-        "checkpoint_kind": spec["checkpoint_kind"],
-        "checkpoint_path": spec["checkpoint_path"],
-        "runtime_checkpoint_path": (
-            spec["runtime_checkpoint_path"]
-            if "runtime_checkpoint_path" in spec
-            else None
-        ),
-        "model_provenance": spec["model_provenance"],
-        "runtime_provenance": (
-            spec["runtime_provenance"] if "runtime_provenance" in spec else None
-        ),
-        "evaluation_command": eval_command(
-            spec,
-            _CONTRACT_OUTPUT_DIR / "generated.yaml",
-            _CONTRACT_OUTPUT_DIR,
-        ),
-    }
+def _run_contract(config: dict[str, Any], deployment: dict[str, Any]) -> dict[str, Any]:
     return {
-        "identity": identity,
-        "input_files_sha256": profile_input_identity(spec),
-        "calibration_config": calibration_config(
-            spec,
-            deployment,
-            _CONTRACT_OUTPUT_DIR / "calibration_probe",
-        ),
-        "measurement_config": (
-            measure_config(
-                spec,
-                deployment,
-                _CONTRACT_OUTPUT_DIR,
-                calibration,
-            )
-            if calibration is not None
-            else None
-        ),
+        "config": config,
+        "deployment": deployment,
+        "env_start_method": evaluation_environment()[START_METHOD_ENV],
+        "evaluation_python": sys.executable,
     }
 
 
 def _assert_run_contract(
-    spec: dict[str, Any],
-    deployment: dict[str, Any],
-    source_dir: Path,
+    config: dict[str, Any], deployment: dict[str, Any], source_dir: Path,
 ) -> None:
-    contract_path = source_dir / "run_contract.json"
-    try:
-        actual = read_json(contract_path)
-    except FileNotFoundError as exc:
-        raise FileNotFoundError(
-            f"Cannot resume run without local contract: {contract_path}"
-        ) from exc
-
-    calibration = (
-        read_json(source_dir / "calibration.json")
-        if (source_dir / "calibration.DONE").exists()
-        else None
-    )
-    expected = _run_contract(spec, deployment, calibration)
+    path = source_dir / "run_contract.json"
+    actual = read_json(path)
+    actual["config"] = read_runtime_snapshot(actual["config"])
+    expected = deepcopy(_run_contract(config, deployment))
     if actual != expected:
-        raise ValueError(f"Profile run contract does not match: {contract_path}")
+        raise ValueError(f"Profile run contract does not match: {path}")
 
 
 def _measure_session(
-    spec: dict[str, Any],
-    deployment: dict[str, Any],
-    calibration: dict[str, Any],
-    source_ref: Path,
-    session_id: int,
-    *,
-    resume: bool,
+    config: dict[str, Any], deployment: dict[str, Any], calibration: dict[str, Any] | None,
+    source_dir: Path, session_id: int, *, resume: bool,
 ) -> None:
-    session_dir = run_session_dir(spec["artifact_root"], source_ref, session_id)
-    done = session_dir / "DONE"
+    session = source_dir / "sessions" / str(session_id)
+    done = session / "DONE"
     if done.exists():
         if resume:
             return
         raise FileExistsError(done)
-    if session_dir.exists():
-        shutil.rmtree(session_dir)
-    config_path = session_dir / "generated.yaml"
-    source_dir = run_dir(spec["artifact_root"], source_ref)
-    _assert_run_contract(spec, deployment, source_dir)
-    write_generated_config(
-        config_path,
-        measure_config(spec, deployment, session_dir, calibration),
-    )
-    _run_evaluation(spec, config_path, session_dir)
-    _assert_run_contract(spec, deployment, source_dir)
+    if session.exists():
+        shutil.rmtree(session)
+    generated = session / "generated.yaml"
+    write_yaml(generated, measure_config(config, deployment, session, calibration))
+    _run_evaluation(config, generated, session)
     done.touch()
-
-
-def _publish(
-    spec: dict[str, Any],
-    current_ref: Path,
-    current_dir: Path,
-) -> None:
-    (current_dir / "DONE").read_bytes()
-    profile = read_json(current_dir / "profile.json")
-    source_ref = run_ref(current_ref, profile["source_run_id"])
-    source_dir = run_dir(spec["artifact_root"], source_ref)
-    (source_dir / "DONE").read_bytes()
-    publish_run_and_profile(
-        spec,
-        local_run_dir=source_dir,
-        local_profile_dir=current_dir,
-        run_ref=source_ref,
-        profile_ref=current_ref,
-    )
 
 
 def _replace_current(source: Path, current: Path) -> None:
@@ -472,15 +201,9 @@ def _profile_lock(current: Path):
         yield
 
 
-def _run_evaluation(spec: dict[str, Any], config_path: Path, output_dir: Path) -> None:
-    subprocess.run(eval_command(spec, config_path, output_dir), check=True)
-
-
-def _profile_session(session_dir: Path, session_id: int) -> dict[str, Any]:
-    return {
-        "measure_session_id": session_id,
-        "observation_attempts": session_dir / "observation_attempts.jsonl",
-    }
+def _run_evaluation(config: dict[str, Any], config_path: Path, output_dir: Path) -> None:
+    subprocess.run(eval_command(config["profiling"], config_path, output_dir),
+                   env=evaluation_environment(), check=True)
 
 
 def _new_run_id() -> str:

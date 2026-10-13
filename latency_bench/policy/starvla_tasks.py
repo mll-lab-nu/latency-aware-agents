@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
 from PIL import Image
 
 from latency_bench.core.types import Action, Observation, PolicyOutput
-from latency_bench.data.starvla_tasks import denormalize, normalize
+from latency_bench.integrations.starvla.task_contracts import denormalize, normalize
+from latency_bench.integrations.starvla import runtime as starvla_runtime
 from latency_bench.policy.base import PolicyRunner
+from latency_bench.policy.model_source import model_file
+from latency_bench.policy.starvla_prompts import resolve_starvla_prompt
+from latency_bench.utils.io import read_json
 
 
 class TaskStarVlaPolicyRunner(PolicyRunner):
@@ -21,6 +24,11 @@ class TaskStarVlaPolicyRunner(PolicyRunner):
         self.policy_config = policy_config
         self.model_config = model_config
         self.contract = contract
+        self.latency_prompt_map = (
+            read_json(policy_config["latency_prompt_map_path"])
+            if "latency_prompt_map_path" in policy_config
+            else None
+        )
 
     def _example(self, observation: Observation) -> dict:
         cfg = self.policy_config
@@ -39,7 +47,16 @@ class TaskStarVlaPolicyRunner(PolicyRunner):
 
             # MIKASA's two simultaneous views form one Wan observation, not a video.
             images = [stitch_frames(images, grid=data_cfg["stitch_grid"], size=(width, height))]
-        example = {"image": images, "state": state, "lang": self.contract["prompt"]}
+        language = self.contract["prompt"]
+        if self.latency_prompt_map is not None:
+            language = resolve_starvla_prompt(
+                env_name=self.contract["task"],
+                observation_metadata=observation.metadata,
+                latency_prompt_map=self.latency_prompt_map,
+                prompt_mode=cfg["prompt_mode"] if "prompt_mode" in cfg else None,
+                latency_prompt_key=cfg["latency_prompt_key"] if "latency_prompt_key" in cfg else None,
+            )
+        example = {"image": images, "state": state, "lang": language}
         if "action_prefix" in observation.metadata:
             example["action_prefix"] = normalize(
                 observation.metadata["action_prefix"],
@@ -76,16 +93,19 @@ class TaskStarVlaPolicyRunner(PolicyRunner):
 
 def build_task_starvla_policy(config: dict) -> TaskStarVlaPolicyRunner:
     # StarVLA and torch are optional in the simulator process; workers own them.
+    starvla_runtime.ensure_starvla_path()
     import torch
     from starVLA.model.framework.base_framework import baseframework
-    from starVLA.model.framework.share_tools import read_mode_config
 
     cfg = config["policy"]
-    model_config, _ = read_mode_config(cfg["checkpoint_path"])
+    if "model_config" in cfg:
+        model_config = starvla_runtime.load_model_config(model_file(cfg, "model_config"))
+    else:
+        model_config = starvla_runtime.load_checkpoint_config(model_file(cfg, "checkpoint"))
     framework = baseframework.from_pretrained(
-        cfg["checkpoint_path"], backbone_path=cfg["backbone_path"]
+        model_file(cfg, "checkpoint"), backbone_path=cfg["backbone_path"]
     )
-    framework = framework.to(device=cfg["device"], dtype=torch.bfloat16).eval()
+    framework = framework.to(device=config["executor"]["inference_devices"][0], dtype=torch.bfloat16).eval()
     contract = json.loads(Path(cfg["task_contract_path"]).read_text(encoding="utf-8"))
     return TaskStarVlaPolicyRunner(
         framework, policy_config=cfg, model_config=model_config, contract=contract

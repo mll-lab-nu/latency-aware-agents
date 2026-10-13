@@ -1,0 +1,7 @@
+source_dataset:
+  repo_id: MLL-Lab/LAGEN-datasets
+  revision: d6f0ad0995f6e4b095f315920e8de18e04297048
+  path: zero-latency/defend-the-line/defend_the_line_fixed_latency_0_1000ep_7k2steps
+output_dir: outputs/memory/teacher_datasets/defend_the_line_fixed_latency_0_200ep_7k2steps
+train_episodes: 198
+val_episodes: 2

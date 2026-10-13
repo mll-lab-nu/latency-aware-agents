@@ -12,10 +12,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="openvla_bridge_demon_attack_single_latency_clean_data_exp1" \
     trainer.distributed_backend=none \
     workspace_dir="/workspace" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/openvla_bridge_demon_attack_single_latency_clean_data_exp1" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/openvla_bridge_demon_attack_single_latency_clean_data_exp1" \
     dataset.source_hf=talha15032/demon_attack_zero_latency_parquet \
     checkpoint.local.keep_last_n=1 \
     trainer.max_train_steps=7000 \

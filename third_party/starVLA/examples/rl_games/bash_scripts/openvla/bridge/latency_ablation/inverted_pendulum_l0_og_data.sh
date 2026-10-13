@@ -5,7 +5,7 @@ bash /home/ubuntu/talha/starVLA/examples/rl_games/bash_scripts/install/pre_launc
 
 cd /home/ubuntu/talha/starVLA
 
-bash examples/rl_games/install/install_stack.sh openvla gymnasium
+bash examples/rl_games/install/install_stack.sh openvla inverted_pendulum
 
 conda activate starvla_rl_games_openvla
 
@@ -29,17 +29,12 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="${RUN_ID}" \
     trainer.distributed_backend=none \
     workspace_dir="/home/ubuntu/talha" \
-    wandb_entity="talha1503" \
-    wandb_project=latency-sensitive-bench \
+    wandb_entity="${WANDB_ENTITY:-null}" \
+    wandb_project="${WANDB_PROJECT:-null}" \
     base_model.repo_id=Qwen/Qwen3-VL-4B-Instruct \
     paths.base_model_dir=/home/ubuntu/talha/playground/Pretrained_models/Qwen3-VL-4B-Instruct \
     checkpoint.load=none \
     checkpoint.hf_repo_id="talha15032/${RUN_ID}" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/${RUN_ID}" \
-    checkpoint.sync.keep_last_n=0 \
-    checkpoint.sync.sync_every_n_checkpoints=1 \
-    checkpoint.sync.resume_policy=local_latest \
     checkpoint.local.keep_last_n=1 \
     checkpoint.save_final_model=true \
     checkpoint.save_best_model=false \

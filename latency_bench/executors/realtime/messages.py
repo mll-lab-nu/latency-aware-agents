@@ -12,7 +12,6 @@ from latency_bench.core.types import (
     Observation,
     PolicyOutput,
 )
-from latency_bench.logging.realtime_pipeline import PipelineProfile, REALTIME_PROFILE_METADATA_KEY
 
 
 @dataclass
@@ -23,7 +22,6 @@ class RealtimeObservationTask:
     submit_env_step: int
     submit_time_ms: float
     observation_start_time_ms: float
-    profile: PipelineProfile | None = None
     shared_obs_id: int | None = None
 
 
@@ -38,7 +36,6 @@ class RealtimePolicyCompletion:
     worker_service_time_ms: float
     worker_id: int
     device: str
-    profile: PipelineProfile | None = None
 
 
 @dataclass
@@ -47,7 +44,6 @@ class RealtimePolicyResult:
     policy_output: PolicyOutput
     completion_time_ms: float
     latency_record: LatencyRecord
-    profile: PipelineProfile | None = None
 
 
 @dataclass
@@ -62,7 +58,6 @@ class RealtimeActionDispatch:
     apply_raw_frame: int | None = None
     applied: bool = False
     dropped: bool = False
-    profile: PipelineProfile | None = None
     action_chunk: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -79,14 +74,10 @@ def _action_event_dispatch_payload(event: ActionEvent) -> dict[str, Any]:
     }
     if event.action_chunk is not None:
         payload["action_chunk"] = event.action_chunk
-    profile = event.metadata.get(REALTIME_PROFILE_METADATA_KEY)
-    if profile is not None:
-        payload["profile"] = profile.to_dict()
     return payload
 
 
 def _action_event_from_dispatch_payload(payload: dict[str, Any]) -> RealtimeActionDispatch:
-    profile = PipelineProfile.from_dict(payload["profile"]) if "profile" in payload else None
     return RealtimeActionDispatch(
         action_id=payload["action_id"],
         action=payload["action"],
@@ -95,7 +86,6 @@ def _action_event_from_dispatch_payload(payload: dict[str, Any]) -> RealtimeActi
         ready_step_float=payload["ready_step_float"],
         latency_raw_frames=payload["latency_raw_frames"],
         ready_raw_frame=payload["ready_raw_frame"],
-        profile=profile,
         action_chunk=payload["action_chunk"] if "action_chunk" in payload else None,
     )
 
@@ -117,6 +107,4 @@ def _action_event_ack_payload(event: RealtimeActionDispatch) -> dict[str, Any]:
     ):
         if key in event.metadata:
             payload[key] = event.metadata[key]
-    if event.profile is not None:
-        payload["profile"] = event.profile.to_dict()
     return payload

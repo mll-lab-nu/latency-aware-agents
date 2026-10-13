@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_TIER="dev"
+INSTALL_TIER="use"
 MODEL_TARGET=""
+ENV_TARGET=""
 SKIP_FLASH_ATTN="false"
 RUN_VALIDATE="true"
 PYTHON_VERSION="3.10"
@@ -14,19 +15,30 @@ MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-${MINICONDA_VERSIO
 CONDA_SH_PATH=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LATENCY_BENCH_ROOT="${SCRIPT_DIR}"
+export LATENCY_BENCH_ROOT
+source "${SCRIPT_DIR}/scripts/install/_tasks.sh"
 
 usage() {
     cat <<'EOF'
 Usage: bash install.sh [options]
 
-Installs the shared latency environment and one or all isolated RL-games model
-environments with:
+Installs the shared latency environment, data tools and the pinned Sample Factory
+source with:
 Python 3.10, CUDA Toolkit 12.8.1, and PyTorch 2.11.0+cu128.
 
 Options:
-  --tier <use|dev>         Install runtime or development dependencies (default: dev)
-  --model <name|all>       Required: openvla|pi0|pi05|gr00t|wan_oft|all
-  --skip-validate          Skip final validation in selected model envs
+  --tier <use|dev>         Install runtime or development dependencies (default: use)
+  --env <tasks|all>        Comma-separated task names; omitted installs the base only
+                          flappy,air_raid,demon_attack,asterix,atlantis,
+                          deadly_corridor,ant,half_cheetah,hopper,
+                          humanoid,inverted_pendulum,swimmer,walker2d,
+                          walker2d_continuous,walker2d_continuous_torque,
+                          pendulum_discrete,pendulum_continuous,
+                          lunar_lander_discrete,g1_sonic_balance_simple,
+                          mikasa_intercept_grab_fast
+  --model <name|all>       Optional: openvla|pi0|pi05|gr00t|wan_oft|all
+  --skip-validate          Skip final base and model validation
   --skip-flash-attn        Skip FlashAttention install/check in selected model envs
   -h, --help               Show this help
 EOF
@@ -40,6 +52,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --model)
             MODEL_TARGET="$2"
+            shift 2
+            ;;
+        --env)
+            ENV_TARGET="$2"
             shift 2
             ;;
         --skip-flash-attn)
@@ -71,17 +87,14 @@ case "${INSTALL_TIER}" in
 esac
 
 case "${MODEL_TARGET}" in
-    openvla|pi0|pi05|gr00t|wan_oft|all) ;;
-    "")
-        echo "[install] --model is required" >&2
-        usage >&2
-        exit 1
-        ;;
+    ""|openvla|pi0|pi05|gr00t|wan_oft|all) ;;
     *)
         echo "[install] invalid model '${MODEL_TARGET}'; expected openvla|pi0|pi05|gr00t|wan_oft|all" >&2
         exit 1
         ;;
 esac
+
+resolve_install_tasks "${ENV_TARGET}"
 
 find_conda_sh() {
     local candidates=()
@@ -152,6 +165,7 @@ ensure_latency_env() {
         wheel
         packaging
         "zlib=1.3.2"
+        "ffmpeg=7"
     )
     if conda env list | awk '{print $1}' | grep -qx "${LATENCY_ENV_NAME}"; then
         conda_action="install"
@@ -189,17 +203,20 @@ install_latency_env() {
     python -m pip install pip==25.3 setuptools==80.9.0 wheel==0.47.0
     ensure_uv
     PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
-    pip_install -e ".[dev,sonic]"
-    pip_install imageio ale-py
+    if [[ "${INSTALL_TIER}" == dev ]]; then
+        pip_install -e ".[dev]"
+    else
+        pip_install -e .
+    fi
     pip_install -e third_party/sample-factory
 
-    for env_name in demon_attack deadly_corridor flappy; do
-        PYTHON_BIN=python bash "third_party/starVLA/examples/rl_games/install/env/${env_name}.sh"
-    done
+    install_selected_tasks
 
-    pip_install ninja==1.13.0
-    bash scripts/bash_scripts/build_cuda_extensions.sh
-    python -m pip check
+    # Dataset export uses the tested project stack rather than LeRobot's declared ranges.
+    python -m pip install --no-deps 'lerobot==0.4.4'
+    if [[ "${RUN_VALIDATE}" == true ]]; then
+        python -m scripts.install.validate base
+    fi
     conda deactivate
 
     export LD_LIBRARY_PATH="${original_ld_library_path}"
@@ -221,16 +238,18 @@ unset UV_NO_CACHE UV_LINK_MODE
 echo "[install] fixed stack: python=3.10 cuda=12.8.1 torch=2.11.0+cu128 model=${MODEL_TARGET}"
 install_latency_env
 
-BOOTSTRAP_ARGS=(
-    --tier "${INSTALL_TIER}"
-    --model "${MODEL_TARGET}"
-)
+if [[ -n "${MODEL_TARGET}" ]]; then
+    BOOTSTRAP_ARGS=(--tier "${INSTALL_TIER}" --model "${MODEL_TARGET}")
+    if [[ -n "${ENV_TARGET}" ]]; then
+        BOOTSTRAP_ARGS+=(--env "${ENV_TARGET}")
+    fi
 
-if [[ "${SKIP_FLASH_ATTN}" == "true" ]]; then
-    BOOTSTRAP_ARGS+=(--skip-flash-attn)
-fi
-if [[ "${RUN_VALIDATE}" == "false" ]]; then
-    BOOTSTRAP_ARGS+=(--skip-validate)
-fi
+    if [[ "${SKIP_FLASH_ATTN}" == "true" ]]; then
+        BOOTSTRAP_ARGS+=(--skip-flash-attn)
+    fi
+    if [[ "${RUN_VALIDATE}" == "false" ]]; then
+        BOOTSTRAP_ARGS+=(--skip-validate)
+    fi
 
     bash third_party/starVLA/examples/rl_games/install/bootstrap.sh "${BOOTSTRAP_ARGS[@]}"
+fi

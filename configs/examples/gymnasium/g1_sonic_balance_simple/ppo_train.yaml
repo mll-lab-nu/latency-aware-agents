@@ -3,7 +3,6 @@ experiment:
   seed: 1
 
 backend:
-  type: sample_factory
   algo: PPO
   device: cuda
   train_dir: outputs/tasks/humanoidbench_balance_simple/ppo_fixed100
@@ -16,12 +15,9 @@ executor:
   mode: simulated
   simulated_worker_capacity: 1
 
+  parallel_envs: 32
 env:
-  name: gymnasium
-  task_name: g1_sonic_balance_simple
-  env_id: LatencyBench/G1SonicBalanceSimple-v0
-  registration_imports:
-    - latency_bench.envs.tasks.humanoidbench.sonic
+  name: g1_sonic_balance_simple
   make_kwargs:
     max_episode_steps: 1000
     render_mode: null
@@ -100,6 +96,7 @@ scheduler:
 policy:
   type: random
 
+  deterministic: true
 training:
   gamma: 1.0
   async_rl: false
@@ -129,11 +126,8 @@ training:
     train_seed_base: 1000001
 
 evaluation:
-  eval_episodes: 64
-  eval_parallel_envs: 32
-  eval_max_steps: 1000
-  eval_deterministic: true
-
+  episodes: 64
+  max_env_steps: 1000
 logging:
   output_dir: outputs/tasks/humanoidbench_balance_simple/ppo_fixed100
   video:
@@ -142,6 +136,6 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
-  wandb_project: latency-sensitive-bench
-  wandb_entity: saberrr-zju
+  wandb_project: null
+  wandb_entity: null
   wandb_group: balance-h16-fixed100-mcppo

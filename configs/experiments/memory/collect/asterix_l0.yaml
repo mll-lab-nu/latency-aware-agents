@@ -1,0 +1,29 @@
+__base__:
+- ../../../base/asterix.yaml
+- base.yaml
+experiment:
+  name: asterix_fixed_latency_0_200ep_7k2steps
+  seed: 11
+backend:
+  run_mode: eval
+policy:
+  source: hf
+  hf_repo: latency-sensitive-bench/paper-experiment-models
+  revision: main
+  root: memory/small_model/asterix/zero_latency_10m_fs4_1min_eval/train/memory_small_model:asterix:frame_stack:fixed_l0:fs4:obs15:stride1:seed11
+  checkpoint_kind: best
+executor:
+  parallel_envs: 64
+latency:
+  method: fixed
+  fixed_latency_ms: 0.0
+evaluation:
+  episodes: 200
+logging:
+  output_dir: outputs/memory/teacher_datasets/asterix_fixed_latency_0_200ep_7k2steps
+collection:
+  replay_num_envs: 64
+  episode_return_gt: 6000
+dataset_experiment:
+  teacher_job: null
+  probe_shards: null

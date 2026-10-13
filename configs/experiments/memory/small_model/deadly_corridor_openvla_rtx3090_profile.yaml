@@ -5,28 +5,51 @@ train_dir: results/checkpoints/memory/small_model/deadly_corridor
 output_root: outputs/memory/small_model/deadly_corridor/openvla_rtx3090_profile
 device: cuda
 restart_behavior: resume
-train_upload_repo_id: MLL-Lab/LAGEN-models
-train_upload_repo_type: model
-train_upload_path_prefix: archive/experiment-runs/memory/small_model/deadly_corridor/openvla_rtx3090_profile_10m_fs4_1min_eval
-eval_upload_repo_id: MLL-Lab/LAGEN-datasets
-eval_upload_repo_type: dataset
-eval_upload_path_prefix: evaluations/archive/paper-experiment-evals/memory/small_model/deadly_corridor/openvla_rtx3090_profile_10m_fs4_1min_eval
+  evaluations/archive/paper-experiment-evals/memory/small_model/deadly_corridor/openvla_rtx3090_profile_10m_fs4_1min_eval
 
 env:
   env_fps: 60
 
 seeds:
-  - 10
-  - 11
-  - 12
-  - 13
-  - 14
+- 10
+- 11
+- 12
+- 13
+- 14
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 1
-  eval_max_steps: 3600
-
+  episodes: 100
+  max_env_steps: 3600
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
+  - name: fixed_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 66.66666666666667
+  - name: fixed_6
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
+  - name: normal_mean_4_std_1_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 66.66666666666667
+      std_latency_ms: 16.666666666666668
+      min_latency_ms: 0.0
+      max_latency_ms: 250.00000000000003
+      seed: 42
+  - name: uniform_min_2_max_6
+    latency:
+      method: uniform
+      min_latency_ms: 33.333333333333336
+      max_latency_ms: 100.0
+      seed: 42
 training:
   train_for_env_steps: 10000000
 
@@ -35,14 +58,13 @@ latency_settings:
     kind: iid
     profile_path: results/profiling/profiles/openvla/1x-rtx3090/deadly_corridor/instance_a5037b165aa0cedc/profile.json
     profile_worker_slot: 0
-    eval_suites:
-      fixed: []
-      normal: []
-      uniform: []
+    suites: []
 
 sweeps:
   frame_stack:
     frame_stack:
-      - 4
+    - 4
     obs_fps:
-      - 15
+    - 15
+executor:
+  parallel_envs: 1

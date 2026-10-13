@@ -48,8 +48,8 @@ def _config(env_name: str = "dummy", output_dir: str = "outputs/factory_test") -
             "action": "noop",
         },
         "evaluation": {
-            "eval_episodes": 1,
-            "eval_max_steps": 5,
+            "episodes": 1,
+            "max_env_steps": 5,
         },
         "logging": {
             "output_dir": output_dir,
@@ -337,7 +337,7 @@ def test_deadly_corridor_adapter_builds_prepared_eval_cfg_from_full_config(monke
     config["backend"] = {"run_mode": "eval"}
     config["training"] = {}
     config["evaluation"] = {"eval_raw_reward": True}
-    config["policy"] = {"type": "deadly_corridor_sf"}
+    config["policy"] = {"type": "sample_factory"}
     config["env"].update(
         {
             "env_id": "doom_deadly_corridor",
@@ -458,7 +458,7 @@ def test_demon_attack_latency_bench_eval_raw_reward_continues_life_loss_terminal
     config = _config("demon_attack")
     config["backend"] = {"run_mode": "eval"}
     config["evaluation"] = {"eval_raw_reward": True}
-    config["policy"] = {"type": "demon_attack_sf"}
+    config["policy"] = {"type": "sample_factory"}
     config["env"].update(
         {
             "env_id": "ALE/DemonAttack-v5",
@@ -495,8 +495,8 @@ def test_demon_attack_formal_small_eval_uses_raw_14400_step_game(config_path):
     assert config["env"]["terminal_on_life_loss"] is True
     assert config["env"]["clip_reward"] is False
     assert config["evaluation"]["eval_raw_reward"] is True
-    assert config["evaluation"]["eval_max_steps"] == 14400
-    assert config["evaluation"]["latency_bench_env_backend"] == "demon_attack_gpu_batched"
+    assert config["evaluation"]["max_env_steps"] == 14400
+    assert config["executor"]["env_backend"] == "demon_attack_gpu_batched"
 
 
 def test_build_executor_uses_registered_env_factory(tmp_path):
@@ -531,7 +531,7 @@ def test_build_env_adapter_passes_explicit_gpu_render_args_when_enabled(monkeypa
 
     monkeypatch.setattr("latency_bench.envs.adapters.flappy.FlappyBirdEnvAdapter", FakeFlappyAdapter)
     config = _flappy_config()
-    config["policy"] = {"type": "flappy_sf"}
+    config["policy"] = {"type": "sample_factory"}
     config["env"].update(
         {
             "use_gpu_render": True,
@@ -662,10 +662,10 @@ def test_latency_bench_flappy_sf_eval_uses_same_obs_resize(monkeypatch, tmp_path
     monkeypatch.setattr(factory, "build_policy", lambda config, action_resolver: CapturingPolicy())
     config = _flappy_config(output_dir=str(tmp_path))
     config["env"].update({"frame_stack": 4, "obs_resize": [84, 84]})
-    config["policy"]["type"] = "flappy_sf"
+    config["policy"]["type"] = "sample_factory"
 
     executor = build_executor(config)
-    executor.run_episode(episode_id=0, seed=0, eval_max_steps=1)
+    executor.run_episode(episode_id=0, seed=0, max_env_steps=1)
 
     assert captured["shape"] == (12, 84, 84)
     assert captured["dtype"] == np.uint8

@@ -19,44 +19,39 @@
 
 ## Overview
 
-The world continues to change while an agent computes its next action.
-**LAGEN** studies how deployment latency affects vision-language agents and
-how training with latency prepares them for real-time interaction.
+LAGEN measures how deployment latency affects vision-language agents.
+It provides evaluation, demonstration collection, latency measurement, and profile replay.
+Use these stages with your own environment, policy, and training framework.
 
-This repository, `latency-sensitive-bench`, provides the benchmark implementation:
+The repository also provides reference recipes for games, Gymnasium tasks, MIKASA manipulation, and HumanoidBench balance.
+Sample Factory supplies reference teacher training.
+The pinned [StarVLA source](third_party/starVLA) supplies reference VLA training and inference.
 
-- **Latency evaluation:** evaluate agents with fixed delays, variable delays,
-  and replayed device profiles.
-- **Deployment profiling:** measure inference and action latency on target
-  hardware, fit latency profiles, and replay them in simulation.
-- **Latency-aware training:** generate teacher demonstrations and train
-  policies under controlled latency conditions.
-
-Tasks include games, Gymnasium environments, MIKASA manipulation, and
-HumanoidBench balance. VLA training and inference use the pinned
-[`third_party/starVLA`](third_party/starVLA) source.
-
-## Released Resources
+## Released resources
 
 | Resource | Contents |
 | --- | --- |
-| [Models](https://huggingface.co/MLL-Lab/LAGEN-models) | Teacher policies, VLA inference weights, model configurations, and task contracts |
-| [Datasets](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets) | Teacher rollouts, training datasets, evaluation records, and experiment manifests |
-| [Profiles](https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles) | Measured latency traces, fitted deployment profiles, and calibration records |
+| [Models](https://huggingface.co/MLL-Lab/LAGEN-models) | Teachers, VLA weights, model configurations, task contracts |
+| [Datasets](https://huggingface.co/datasets/MLL-Lab/LAGEN-datasets) | Demonstrations, training data, evaluation records, experiment manifests |
+| [Profiles](https://huggingface.co/datasets/MLL-Lab/LAGEN-profiles) | Measured traces, fitted latency profiles, calibration records |
 
-Browse all three repositories in the
-[LAGEN collection](https://huggingface.co/collections/MLL-Lab/lagen-6ac750f21139008b8114fff5).
-Use the [artifact registry](docs/artifacts.md) to find experiment manifests,
-exact checkpoint and dataset revisions, evaluation protocols, and publication
-status.
+The [artifact guide](docs/artifacts.md) identifies fixed revisions, paths, evaluation protocols, and publication status.
+Browse the resources in the [LAGEN collection](https://huggingface.co/collections/MLL-Lab/lagen-6ac750f21139008b8114fff5).
 
-## Getting Started
+## Choose a starting point
 
-Use Linux x86_64 with an NVIDIA GPU. Install Git, Git LFS, and the required
-driver and rendering libraries described in the
-[setup guide](docs/QUICK_START.md).
+| Your input | Start here |
+| --- | --- |
+| A published or local model | [Select artifacts](docs/artifacts.md), then [evaluate](docs/workflow.md#evaluate-an-existing-model) |
+| Your own environment or policy | [Run the CPU example](docs/guides/custom_components.md), then replace its factories |
+| A teacher or training dataset | [Collect demonstrations](docs/guides/rollout_collection.md) or use a task cookbook |
+| A model to measure | [Measure and replay latency](docs/cookbooks/profiling.md) |
 
-Clone the repository with its vendored third-party sources:
+The custom CPU example does not require an NVIDIA GPU.
+Reference VLA and GPU simulator recipes require their selected model and simulator dependencies.
+See the [installation guide](docs/installation.md) for each installation path.
+
+Clone the source:
 
 ```bash
 git lfs install
@@ -64,43 +59,33 @@ git clone --filter=blob:none https://github.com/ZihanWang314/latency-sensitive-b
 cd latency-sensitive-bench
 ```
 
-Install the shared benchmark environment and the model environment used by the
-current StarVLA task pipeline:
+Install the package in a Python 3.10 environment to run the CPU example:
 
 ```bash
-bash install.sh --model openvla --tier dev
+python3.10 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+export PYTHONPATH="$PWD/configs/examples/custom_env${PYTHONPATH:+:$PYTHONPATH}"
+python -m latency_bench eval --config configs/examples/custom_env/eval.yaml
 ```
 
-The installation target `openvla` is a historical environment name. The current
-StarVLA variants `qwenoft`, `qwenpi_v3`, `qwengr00t`, and `wanoft` share
-`starvla_rl_games_openvla`. Benchmark and data tools use the `latency`
-environment.
-
-Complete the simulator-specific steps in the [setup guide](docs/QUICK_START.md).
-Then follow the [standard pipeline](docs/standard_pipeline.md) to prepare data,
-train, evaluate, and profile a policy. The task guides below specify the
-required checkpoints, action interfaces, and evaluation settings.
+The [installation guide](docs/installation.md) covers reference GPU environments and task dependencies.
+The [workflow guide](docs/workflow.md) describes each stage's inputs and local outputs.
 
 ## Documentation
 
-| Guide | Use it to |
+| Start here | Purpose |
 | --- | --- |
-| [Installation](docs/QUICK_START.md) | Configure model environments, simulators, and dataset converters |
-| [Standard pipeline](docs/standard_pipeline.md) | Prepare data, train a VLA, evaluate it, and profile deployment latency |
-| [MIKASA Intercept Grab Fast](docs/mikasa/cookbook.md) | Reproduce manipulation workflows |
-| [HumanoidBench Balance Simple](docs/humanoidbench/cookbook.md) | Reproduce balance workflows |
-| [Demon Attack](docs/demon_attack.md) | Use the game-specific training and evaluation protocol |
-| [Latency-aware PPO](docs/mikasa/latency_ppo.md) | Train MIKASA teachers with deployment profiles |
-| [Latency execution semantics](docs/latency_execution_semantics_en.md) | Understand observation timing, action delays, and action application |
-| [Deployment profiling](docs/profiling/cookbook.md) | Measure, publish, resolve, and replay device profiles |
-| [Gymnasium adaptation](docs/gymnasium_adapter.md) · [Examples](docs/gym-adapt/gymnasium/README.md) | Adapt environments and follow worked examples |
-| [Memory and temporal context](docs/memory.md) | Use visual history and policy memory |
-| [Core infrastructure](docs/infra.md) | Locate runtime responsibilities and validation checks |
-| [Artifact registry](docs/artifacts.md) | Select published inputs and inspect experiment evidence |
+| [Documentation index](docs/README.md) | Find guides, cookbooks, references, and experiment recipes |
+| [Installation](docs/installation.md) | Install the selected task and model runtime |
+| [Workflow](docs/workflow.md) | Start from an existing teacher, dataset, model, or profile |
+| [Custom components](docs/guides/custom_components.md) | Run the complete CPU example with your own environment and policy |
+| [Task cookbooks](docs/README.md#cookbooks) | Train, collect, evaluate, and measure reference tasks |
+| [Artifacts](docs/artifacts.md) | Select published inputs and their fixed source protocols |
 
 ## Citation
 
-If you use LAGEN in your research, please cite:
+If you use LAGEN in your research, cite:
 
 ```bibtex
 @misc{chafekar2026lagen,

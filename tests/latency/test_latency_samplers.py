@@ -7,12 +7,8 @@ import pytest
 
 from latency_bench.core.clock import EnvClock
 from latency_bench.latency.burst_profile import (
-    build_hidden_regime_burst_model,
+    build_hidden_regime_burst_model_from_sessions,
     build_worker_slot_distributions_from_sessions,
-)
-from latency_bench.latency.profile import (
-    save_latency_distribution,
-    save_profile_manifest,
 )
 from latency_bench.latency.samplers import (
     FixedSampler,
@@ -24,6 +20,7 @@ from latency_bench.latency.samplers import (
     build_episode_sampler_factory,
     build_sampler,
 )
+from latency_bench.utils.io import write_json
 
 
 def _clock() -> EnvClock:
@@ -59,7 +56,7 @@ def _write_latency_profile(
         }
         for index, (worker_service, action_ready) in enumerate(worker_service_sequence)
     ]
-    burst_model = build_hidden_regime_burst_model(model_samples) if write_burst_model else None
+    burst_model = build_hidden_regime_burst_model_from_sessions([model_samples]) if write_burst_model else None
     distribution = build_worker_slot_distributions_from_sessions(
         [model_samples],
         spike_threshold_ms_by_worker_slot=(
@@ -68,7 +65,7 @@ def _write_latency_profile(
             else {"0": float("inf")}
         ),
     )
-    save_latency_distribution(distribution, profile_dir / "latency_distribution.json")
+    write_json(profile_dir / "latency_distribution.json", distribution)
     if write_burst_model:
         (profile_dir / "latency_burst_model.json").write_text(
             json.dumps(burst_model, indent=2, sort_keys=True) + "\n",
@@ -89,7 +86,7 @@ def _write_latency_profile(
         manifest["latency_method"] = "temporal"
         manifest["sample_model_type"] = "hidden_regime"
         manifest["burst_model_path"] = "latency_burst_model.json"
-    save_profile_manifest(manifest, profile_dir / "profile.json")
+    write_json(profile_dir / "profile.json", manifest)
     return profile_dir
 
 

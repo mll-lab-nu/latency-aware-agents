@@ -9,24 +9,19 @@ env:
   clip_reward: false
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 100
-  eval_max_steps: 14400
-  latency_bench_env_backend: demon_attack_gpu_batched
-  eval_suites:
-    fixed: []
-    normal: []
-    uniform: []
+  episodes: 100
+  max_env_steps: 14400
+  suites: []
 
 latency:
   method: zero
 
 policy:
-  type: demon_attack_sf
-  checkpoint_path: ""
-  device: auto
+  type: sample_factory
   deterministic: true
 
+  source: local
+  root: .
 logging:
   output_dir: outputs/demon_attack_sf_eval_zero_latency
   video:
@@ -35,3 +30,8 @@ logging:
   save_step_records: false
   save_action_records: false
   save_latency_records: false
+executor:
+  inference_devices:
+  - auto
+  parallel_envs: 100
+  env_backend: demon_attack_gpu_batched

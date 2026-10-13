@@ -2,7 +2,6 @@ experiment:
   name: demon_attack-qwenpi_v3-hist8-scratch-s42-v2-vlm3e-6-step5000-history01-profile-par32
   seed: 1000000
 backend:
-  type: sample_factory
   algo: APPO
   device: cpu
   train_dir: results/sample_factory
@@ -11,11 +10,13 @@ backend:
 executor:
   mode: simulated
   simulated_worker_capacity: 1
-  simulated_inference_pool: true
   inference_devices:
   - cuda:0
   - cuda:1
   inference_batch_size: 16
+  inference_pool: true
+  parallel_envs: 32
+  env_backend: demon_attack_gpu_batched
 env:
   name: demon_attack
   env_id: ALE/DemonAttack-v5
@@ -55,14 +56,15 @@ policy:
   - LEFT
   - RIGHTFIRE
   - LEFTFIRE
-  checkpoint_path: checkpoints/model.pt
-  model_config_path: config.yaml
-  device: cuda:0
   unnorm_key: new_embodiment
   prompt_mode: latency_neutral
   backbone_path: BACKBONE_SNAPSHOT
   worker_python_executable: python
   state_source: transport
+  source: local
+  root: .
+  checkpoint: checkpoints/model.pt
+  model_config: config.yaml
 training:
   train_for_env_steps: 25000000
   num_workers: 1
@@ -93,17 +95,10 @@ training:
   keep_checkpoints: 5
 evaluation:
   eval_interval_steps: 1000000
-  eval_episodes: 100
-  eval_parallel_envs: 32
-  eval_max_steps: 7200
-  eval_deterministic: true
   eval_raw_reward: true
-  eval_suites:
-    fixed: []
-    normal: []
-    uniform: []
-  latency_bench_env_backend: demon_attack_gpu_batched
-  eval_latency_values: null
+  episodes: 100
+  max_env_steps: 7200
+  suites: []
 logging:
   output_dir: replay_outputs/profile
   video:

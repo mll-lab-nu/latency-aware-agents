@@ -22,10 +22,8 @@ python examples/rl_games/scripts/launch_train.py \
     run_id="openvla_bridge_demon_attack_latency_6_ghost_trail_memory_exp1_15" \
     trainer.distributed_backend=none \
     workspace_dir="$WORKSPACE_DIR" \
-    wandb_entity="talha1503" \
+    wandb_entity="${WANDB_ENTITY:-null}" \
     checkpoint.hf_repo_id="talha15032/openvla_bridge_demon_attack_latency_6_ghost_trail_memory_exp1_15" \
-    checkpoint.sync.enabled=true \
-    checkpoint.sync.repo_id="talha15032/openvla_bridge_demon_attack_latency_6_ghost_trail_memory_exp1_15" \
     dataset.source_hf="latency-sensitive-bench/benchmark-datasets" \
     dataset.source_subdir=experiments/visual-history/archive/demon-attack/demon_attack_ghost15_200ep/demon_latency_6 \
     dataset.revision=c65ee4c303358dc448022bed9bc25e78984449a8 \

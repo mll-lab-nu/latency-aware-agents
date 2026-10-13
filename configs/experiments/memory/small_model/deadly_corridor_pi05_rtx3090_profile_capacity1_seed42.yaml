@@ -12,19 +12,48 @@ env:
 executor:
   simulated_worker_capacity: 1
 
+  parallel_envs: 1
 seeds:
-  - 42
+- 42
 
 evaluation:
-  eval_episodes: 100
-  eval_parallel_envs: 1
-  eval_max_steps: 3600
-
+  episodes: 100
+  max_env_steps: 3600
+  suites:
+  - name: fixed_0
+    latency:
+      method: zero
+  - name: fixed_2
+    latency:
+      method: fixed
+      fixed_latency_ms: 33.333333333333336
+  - name: fixed_4
+    latency:
+      method: fixed
+      fixed_latency_ms: 66.66666666666667
+  - name: fixed_6
+    latency:
+      method: fixed
+      fixed_latency_ms: 100.0
+  - name: normal_mean_4_std_1_min_0_max_15
+    latency:
+      method: normal
+      mean_latency_ms: 66.66666666666667
+      std_latency_ms: 16.666666666666668
+      min_latency_ms: 0.0
+      max_latency_ms: 250.00000000000003
+      seed: 42
+  - name: uniform_min_2_max_6
+    latency:
+      method: uniform
+      min_latency_ms: 33.333333333333336
+      max_latency_ms: 100.0
+      seed: 42
 training:
   train_for_env_steps: 10000000
 
 logging:
-  wandb_project: starvla_tasks
+  wandb_project: null
   wandb_job_type: deadly_corridor_profiled_small_capacity1
 
 latency_settings:
@@ -32,14 +61,11 @@ latency_settings:
     kind: iid
     profile_path: results/profiling/profiles/pi05/1x-rtx3090/deadly_corridor/instance_a5037b165aa0cedc/profile.json
     profile_worker_slot: 0
-    eval_suites:
-      fixed: []
-      normal: []
-      uniform: []
+    suites: []
 
 sweeps:
   frame_stack:
     frame_stack:
-      - 4
+    - 4
     obs_fps:
-      - 15
+    - 15

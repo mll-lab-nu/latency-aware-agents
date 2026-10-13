@@ -43,8 +43,7 @@ records original repositories, revisions, and canonical paths.
 Model releases contain inference weights and necessary metadata. Optimizer states
 and training recovery files are not part of the published inference bundles.
 Original configurations and evaluation records remain experiment evidence.
-Use `--no-publish` for local task training. Formal task runs otherwise publish
-automatically. Profiling uploads only with `--publish`.
+Training, evaluation, collection, and profiling save local outputs.
 
 ## Paper experiments
 
@@ -68,49 +67,24 @@ manifest's model configuration before comparing architectures.
 
 ## Task protocols and source limits
 
-- [Balance](humanoidbench/cookbook.md): the current shared runner needs an H8
-  teacher and its training configuration. The default H8 teacher download path
-  is unavailable. Published H1 teachers do not satisfy that contract.
-- [MIKASA](mikasa/cookbook.md): distinguish image-only H1, state-based H1,
+- [Balance](cookbooks/balance.md): the current H8/H16 recipe uses an H1 FastTD3 teacher
+  and its matching resolved training configuration.
+- [MIKASA](cookbooks/mikasa.md): distinguish image-only H1, state-based H1,
   unconditioned H8, and conditioned H8. Published 71D conditioned bundles do not
-  use the current 63D v3 input. The 63D transfer matrix is a development snapshot.
-- [Profile PPO](mikasa/latency_ppo.md): fixed model and profile revisions identify
+  use the current 63D v3 input. Use the current 63D recipe with a matching dataset and model bundle.
+- [Profile PPO](cookbooks/mikasa_latency_ppo.md): fixed model and profile revisions identify
   the four MIKASA teacher experiments.
-- [Demon Attack](demon_attack.md): score the full game across life losses with
+- [Demon Attack](reference/demon_attack.md): score the full game across life losses with
   the declared frame budget. A first-life return is not the full-game return.
 
-Model revision
-`95aed229d8a90c0146885eb8f496518e98625d5f` contains the 18 hist8 game VLAs.
-They use eight-decision input history
-and H1 actions. Their 27 evaluation conditions each contain 100 episodes.
-This hist8 input is distinct from an H8 output chunk.
-Nine earlier profile-trained small policies did not enforce the evaluation
-worker-capacity contract. Their old scores are not valid matched-protocol baselines.
-
-The Standard-Pipeline import contains 37 H1 VLAs and 28 small policies across
-seven Gymnasium tasks at model revision `ad37dff2ec7ea0adea072024330d19b5e7099e21`.
-It has no profile-trained HalfCheetah GR00T/Pi0.5 VLA or profile-trained Humanoid VLA.
-Seven zero-trained QwenOFT bundles lack standalone manifests and latency prompt maps.
-Their available contracts come from the archived full configurations.
-
-Figure 2 source records identify six game weights and six reused MIKASA weights.
-Flappy GR00T step 3000 is missing. Two historical OpenVLA curve-to-checkpoint
-bindings remain unresolved. Original training-data revisions for those game runs
-are also missing. Keep these limits with the
-[published source bindings](https://huggingface.co/MLL-Lab/LAGEN-models/blob/main/reports/latency-degradation-20261007/README.md).
-Other selected checkpoints cannot substitute for these weights.
-
-The factor-sweep manifests retain four missing Deadly Corridor step-48836 weights
-and one missing Demon C=12 uniform-delay seed-14 weight as explicit gaps.
-Nine Deadly evaluations instead bind step 48840 through complete action traces.
-Task-transfer manifests retain the 5812 versus 5832.25 paper/evaluation difference,
-the raw-frame versus latency-label difference, and missing mixed-policy training metadata.
+Some historical curves lack an exact checkpoint or training-data binding.
+Their [source report](https://huggingface.co/MLL-Lab/LAGEN-models/blob/main/reports/latency-degradation-20261007/README.md) identifies these limits.
+Use the selected experiment's manifest and protocol when reproducing results.
 
 ## Prepare a backbone for evaluation
 
-Select the exact model repository and revision from the checkpoint's recorded
-provenance or its explicit `backbone` metadata. A directory named after a model
-is not evidence of its identity. Prepare the model before starting inference:
+Select the backbone repository and revision from the checkpoint's provenance or `backbone` metadata.
+Prepare the backbone before starting inference:
 
 ```bash
 hf download MODEL_REPO_ID --revision MODEL_COMMIT
@@ -134,8 +108,10 @@ artifact for the selected experiment:
 ```yaml
 __base__: /ABSOLUTE/CHECKOUT/configs/examples/gymnasium/inverted_pendulum/starvla_eval.yaml
 policy:
-  checkpoint_path: /ABSOLUTE/ARTIFACT/checkpoints/steps_2000_pytorch_model.pt
-  model_config_path: /ABSOLUTE/ARTIFACT/config.full.yaml
+  source: local
+  root: /ABSOLUTE/ARTIFACT
+  checkpoint: checkpoints/steps_2000_pytorch_model.pt
+  model_config: config.full.yaml
   task_manifest_path: /ABSOLUTE/DATASET/manifest.json
   latency_prompt_map_path: /ABSOLUTE/DATASET/latency_prompt_map.json
   backbone_path: /ABSOLUTE/HF_CACHE/snapshots/MODEL_COMMIT
@@ -143,10 +119,11 @@ logging:
   output_dir: /ABSOLUTE/RESULTS/inverted_pendulum_eval
 ```
 
-Run it in the installed benchmark environment:
+For StarVLA, use the model interpreter with the selected task dependencies installed:
 
 ```bash
-python -m latency_bench.run --config /ABSOLUTE/PATH/local_eval.yaml
+conda activate starvla_rl_games_openvla
+python -m latency_bench eval --config /ABSOLUTE/PATH/local_eval.yaml
 ```
 
 The overlay changes artifact locations only. Preserve the base recipe's model,
