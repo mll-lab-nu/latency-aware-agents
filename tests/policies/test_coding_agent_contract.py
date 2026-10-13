@@ -3,7 +3,6 @@
 from copy import deepcopy
 import json
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -47,7 +46,7 @@ def agent_config(reference, tmp_path):
 
 
 @pytest.mark.parametrize("task,transport", [(task, False) for task in REFERENCES] + [("ant", True)])
-def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_path, monkeypatch, task, transport):
+def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_path, task, transport):
     reference = load_config(ROOT / REFERENCES[task])
     reference["policy"]["checkpoint"] = "checkpoints/not_loaded.pt"
     resolve_env_config(reference)
@@ -76,24 +75,6 @@ def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_p
         (tmp_path / "dataset_statistics.json").write_text(json.dumps({
             "test_task": {"state": statistics(state_dim), "action": statistics(model_action_dim)},
         }))
-        # Test delegation at the external training-transform boundary. Its actual
-        # normalization is exercised by test_generic_gymnasium_starvla_policy.
-        class TrainingTransform:
-            unnorm_key = "test_task"
-
-            @classmethod
-            def from_statistics(cls, model_cfg, saved_statistics, *, unnorm_key, robot_type):
-                assert unnorm_key == "test_task" and robot_type == "rl_games_gymnasium_native"
-                assert saved_statistics[unnorm_key]["state"] == statistics(state_dim)
-                assert model_cfg["datasets"]["vla_data"]["include_state"] == include_state
-                return cls()
-
-            def apply_state(self, state):
-                np.testing.assert_array_equal(state, np.ones((1, state_dim)))
-                return np.full((1, state_dim), 0.375, dtype=np.float32)
-
-        monkeypatch.setitem(sys.modules, "deployment.model_server.policy_norm_processor",
-                            SimpleNamespace(PolicyNormProcessor=TrainingTransform))
     sidecar = tmp_path / "config.full.yaml"
     sidecar.write_text(yaml.safe_dump(model))
     cfg["model_config"] = str(sidecar)
@@ -120,8 +101,9 @@ def test_ten_standard_environments_keep_reference_pixels_state_and_actions(tmp_p
     assert "987654321" not in prompt and set(example) <= {"image", "state"}
     assert (input_contract["state"] is not None) == include_state
     if include_state:
-        # The transformed value must reach the agent, for native and history state.
-        expected = 0.375 if environment_integration(reference) == "gymnasium" else 0.0
+        # Real training min/max [-2, 2] maps 1 to 0.5. Manifest [0, 2] would
+        # incorrectly map it to zero; both native and history state must match.
+        expected = 0.5 if environment_integration(reference) == "gymnasium" else 0.0
         np.testing.assert_allclose(example["state"], np.full((1, state_dim), expected), atol=1e-6)
         if environment_integration(reference) == "gymnasium":
             assert input_contract["state"]["normalization"] == statistics(state_dim)
