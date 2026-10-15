@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "8bdd5390574fc0047e4f3c0c5a1acd8a926955a5b9a66bd0f7715227763654ee",
+  "scores": {
+   "A": 0,
+   "B": 0
+  },
+  "winner": "B",
+  "k": 31
+ },
+ "source": "revision darts-5 (2026-10-08): the first 31 darts of golden/duel-s1-A (reference vs reference, seed 1, A first) and a clock forfeit of seat A at its 32nd dart, B wins; replaces the legacy record of the same name (common random numbers, retired with darts-5)"
+}

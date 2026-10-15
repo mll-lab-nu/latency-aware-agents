@@ -1,0 +1,39 @@
+{
+ "format": "eightball",
+ "formats": {
+  "duel": {
+   "first": [
+    "A",
+    "B"
+   ],
+   "seats": [
+    "A",
+    "B"
+   ]
+  },
+  "eightball": {
+   "opponent": true,
+   "seats": [
+    "A"
+   ]
+  }
+ },
+ "official": {
+  "first_any": true,
+  "levels": [
+   1,
+   2
+  ],
+  "seeds": [
+   1,
+   2,
+   3,
+   4,
+   6,
+   8
+  ]
+ },
+ "protocol": "turn",
+ "sport": "billiards",
+ "task": "billiards-eightball-program-standard"
+}

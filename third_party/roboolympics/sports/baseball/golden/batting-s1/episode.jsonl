@@ -1,0 +1,12 @@
+{"ev": "header", "ts": 1791318911.382, "wall": 0.0001, "cfg": {"sport": "baseball", "format": "batting", "seats": ["A"], "seed": 1, "first": "A", "slowdown": null, "level": null, "action_level": "low", "play": "program", "params": {}, "sides": null, "renderer": null}, "sport": "baseball", "revision": "baseball-wallclock-3+duel-1+core-0.2", "protocol": "realtime", "source_sha": null, "versions": {"core": "0.2.2", "sport": "baseball-wallclock-3+duel-1+core-0.2"}, "local": true}
+{"ev": "cmd", "ts": 1791318916.263, "wall": 4.8807, "k": 135, "seat": "A", "cmd": {"type": "swing", "t": 0.2908, "plane": 4.0, "height": 0.926, "speed": 34.0, "reach": -0.1451}}
+{"ev": "resume", "ts": 1791318920.795, "wall": 9.4125, "k": 170}
+{"ev": "cmd", "ts": 1791318924.147, "wall": 12.765, "k": 250, "seat": "A", "cmd": {"type": "swing", "t": 0.29224, "plane": 4.0, "height": 0.7758, "speed": 34.0, "reach": 0.1085}}
+{"ev": "resume", "ts": 1791318928.716, "wall": 17.334, "k": 284}
+{"ev": "cmd", "ts": 1791318932.406, "wall": 21.0236, "k": 410, "seat": "A", "cmd": {"type": "swing", "t": 0.29123, "plane": 4.0, "height": 0.9113, "speed": 34.0, "reach": -0.0648}}
+{"ev": "resume", "ts": 1791318937.432, "wall": 26.0496, "k": 445}
+{"ev": "cmd", "ts": 1791318940.102, "wall": 28.7197, "k": 530, "seat": "A", "cmd": {"type": "swing", "t": 0.30066, "plane": 4.0, "height": 0.7915, "speed": 34.0, "reach": -0.0901}}
+{"ev": "resume", "ts": 1791318945.175, "wall": 33.7928, "k": 566}
+{"ev": "resume", "ts": 1791318953.755, "wall": 42.3726, "k": 687}
+{"ev": "cmd", "ts": 1791318957.012, "wall": 45.63, "k": 825, "seat": "A", "cmd": {"type": "swing", "t": 0.322, "plane": 4.0, "height": 0.5818, "speed": 34.0, "reach": 0.1372}}
+{"ev": "end", "ts": 1791318962.223, "wall": 50.8402, "k": 862, "reason": "match_over"}

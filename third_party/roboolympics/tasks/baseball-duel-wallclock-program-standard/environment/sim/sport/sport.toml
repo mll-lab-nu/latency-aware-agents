@@ -1,0 +1,190 @@
+# baseball: robot baseball in real time (docs/framework_zh.md §4.2, §8). Migrated from the legacy tree in stage 4
+# (scripts/olympiad/baseball, scripts/olympiad/shared/baseball): the simulator (bb.py: ball flight, swing rig,
+# bat-ball impact, fielders, the scripted pitcher; bbrt.py: the 100 Hz pitch clock; bbduel.py: pitcher against batter)
+# is unchanged, so the legacy recordings replay bit-exactly (golden/convert.py). [[tasks]] ids keep the legacy task
+# names (baseball-batting-wallclock-program-standard, baseball-duel-wallclock-program-standard).
+
+[sport]
+name = "baseball"
+title = "Robot baseball"
+summary = "robot baseball in real time (slowed down): a kinematic swing rig with a 0.84 m wooden bat against pitches with drag and Magnus lift, a bat-ball impulse model and fixed fielders; the score is the bases a batter collects (walk or single 1, double 2, home run 4); format batting: you bat 5 plate appearances against a scripted computer pitcher (levels 1-4, `game spec` match.opponent_level) and need at least 4 bases; format duel: two players alternate as batter and pitcher, 5 plate appearances each, more bases wins"
+protocol = "realtime"
+revision = "baseball-wallclock-3+duel-2+core-0.2"   # bump on any change that alters play
+physics = "mujoco 3.3.7 (scene, rig, rendering) + a published ball model (RK4 in pure Python, bb.py)"
+image = "ghcr.io/mll-lab-nu/eai-olympiad:0.1.0"
+status = "sport"
+publish = true
+category = "robotics-sports-arena"
+
+[rulebook]
+name = "MLB Official Baseball Rules"
+version = "2026"
+url = "https://mktg.mlbstatic.com/mlb/official-information/2026-official-baseball-rules.pdf"
+
+[[deviations]]
+id = "D1"
+rule = "5.05, 5.06, 7.01"
+text = "no base runners, runs or innings: each plate appearance scores the bases the batter reaches (walk or single 1, double 2, home run 4; no triples); format duel: plate appearances alternate between the players, 5 each"
+affects_result = true
+[[deviations]]
+id = "D2"
+rule = "5.05(b)(2)"
+text = "the batter has no body, so there is no hit by pitch"
+affects_result = true
+[[deviations]]
+id = "D3"
+rule = "5.09(a)(1), Foul Tip"
+text = "fouls are never caught and there are no foul tips"
+affects_result = true
+[[deviations]]
+id = "D4"
+rule = "Fair Ball"
+text = "fair or foul is judged at the first landing point, also for short balls"
+affects_result = true
+[[deviations]]
+id = "D5"
+rule = "Strike Zone"
+text = "the strike zone is judged in one plane (y = 0) at fixed heights (0.46-1.07 m, |x| <= 0.216 m, grown by the ball radius)"
+affects_result = true
+[[deviations]]
+id = "D6"
+rule = "2.01"
+text = "a uniform fence 100 m from home plate, 3 m high (MLB: 325 ft at the lines, 400 ft to centre); fixed fielders without errors"
+affects_result = true
+[[deviations]]
+id = "D7"
+rule = "-"
+text = "a plate appearance that reaches 15 pitches without ending is an out (MLB has no limit; two-strike fouls cannot stall the game)"
+affects_result = true
+[[deviations]]
+id = "D8"
+rule = "5.07(c)"
+text = "format duel: the pitcher only chooses the pitch (type, speed, target at the plate; a fixed windup and release point, a seeded execution scatter); no pitch commanded by the release is an automatic ball, like a pitch-clock violation"
+affects_result = true
+[[deviations]]
+id = "D9"
+rule = "7.01(b)"
+text = "format duel: level bases after the regulation plate appearances: one more each, up to 5 extra pairs (MLB plays extra innings until decided); still level, the last resort is not from the rulebook: the winner of the last pitch (the batter if it ended the plate appearance on base, else the pitcher)"
+affects_result = true
+
+[formats.batting]                     # one seat against the scripted pitcher inside the world (bbrt.RT over bb.Game)
+seats = ["A"]
+opponent = false                      # a solo score: success = a valid, complete game with at least 4 bases
+success = { score_at_least = 4 }      # (core/grading.py; decision B2 of 2026-10-07, see README)
+levels = [1, 2, 3, 4]                 # the pitcher level (RCB_LEVEL; default 1)
+[formats.duel]                        # two seats (bbduel.Duel): plate appearances alternate, one bats, the other pitches
+seats = ["A", "B"]
+first = ["A", "B"]                    # the first batter (FIRST_PLAYER); the runner plays both orders
+
+[modes]
+action_levels = ["low"]               # one level: the swing rig's (and the pitcher's) own command
+plays = ["program"]
+
+[timing]
+start_timeout_s = 1800                # the second seat may start up to 30 min after the first (legacy START_TIMEOUT_S)
+ready_timeout_s = 300                 # each review after a pitch (legacy READY_TIMEOUT_S of the duel), else the late side loses
+
+[actions.cli]                         # `game swing T PLANE HEIGHT SPEED REACH`, `game none`; a pitch: `game act JSON`
+low = { swing = ["t", "plane", "height", "speed", "reach"], none = [] }
+
+[observation]
+fields = ["pitch", "plate_appearance", "n_plate_appearances", "count", "bases", "threshold", "pa_results",
+          "role", "batter", "pitcher", "your_plate_appearances", "score", "pitch_phase", "t_since_release",
+          "release_in_s", "heard", "command", "last_pitch"]
+renderer = "mujoco"                   # the sport draws its own views (the legacy 2 x 4 tiles, MuJoCo; plugin.Views)
+frame_budget_ms = 4000                # one observation, 8 tiles of 480 x 360 (CPU osmesa: about 0.2 s)
+columns = 4
+
+[spec]                                # the rule constants (the simulator's values; tests/test_baseball.py checks them)
+plate_appearance = "a plate appearance ends with a strikeout (3 strikes), a walk (4 balls), a ball in play (an out or a hit) or, at 15 pitches, an out; a foul is a strike unless there are already 2 strikes; a ball in play is a single, double or home run (over the fence) unless a fielder catches it in the air or throws the batter out at first base"
+pitch = "the pitcher winds up for 0.60-1.20 s with the ball in its hand at the release point (-0.50, 16.80, 1.80) m, then releases; the pitch is over 0.05 s after the contact or after the ball reaches the plate, then the world freezes for the reviews"
+swing = "{'type':'swing','t':T,'plane':PLANE_DEG,'height':HEIGHT,'speed':SPEED,'reach':REACH}: the bat square (along +x over the plate) T s after the control step at which the command takes effect (0 < T <= 2.5); the swing starts 3.9741 / SPEED s before that (at once if that is already past) and, once started, cannot be changed or stopped; a swing command before the release is refused; a later command replaces a planned swing that has not started; {'type':'none'} cancels it. Ranges: -15 <= PLANE_DEG <= 35, 0.30 <= HEIGHT <= 1.40 m, 15 <= SPEED <= 34 m/s, -0.20 <= REACH <= 0.20 m. The executed swing scatters by about 3 ms, 1 degree, 8 mm, 1.5 % and 8 mm"
+duel_pitch = "format duel, the pitcher: {'type':'pitch','pitch':TYPE,'speed':m/s,'x':m,'z':m} during the windup (a later one replaces an earlier one; at the release the last one is thrown, with a scatter of 3 cm on the target and 0.3 m/s on the speed); types fastball 34-42, slider 33-37.5, changeup 29-35.5, curveball 28-33.5 m/s, each with its fixed spin (`game spec` match.pitching); target -0.6 <= x <= 0.6, 0.2 <= z <= 1.6 m at the plate; no pitch by the release is an automatic ball"
+duel = "format duel: plate appearances alternate (match.first_player bats in plate appearances 1, 3, 5, ...); each player bats 5 times and pitches to the other; each player's execution scatter is independent of the opponent's within a match: the windups and the pitch and swing scatters of your plate appearances (as batter) are one seeded stream, those of the opponent's another; the two matches of a duel pair (the same seed, the first batter swapped) swap the scatter sequences, so over the pair both players meet the same draws; level after 5 each: one more plate appearance each until the bases differ, at most 5 times; then the winner of the last pitch wins"
+ball = "mass 0.145 kg, radius 0.0365 m, air density 1.19 kg/m^3, C_D 0.35, Magnus lift C_L = 1.5 S (S < 0.1) else 0.09 + 0.6 S with S = R|w|/|v|, spin decaying with a 30 s time constant; the bat-ball impact has a coefficient of restitution max(0.10, 0.50 - 4.0 (s - 0.69)^2) along the bat (s from the knob) and friction 0.5"
+observation = "a PNG of 2 rows (catcher camera behind home plate, side camera near the pitcher) x 4 columns (frames 30 ms apart, oldest left, each stamped with its time since release; view_times); no ball coordinates; `game spec` gives both cameras' poses and intrinsics (pinhole, tile 480 x 360). The state gives the count, the bases, the time since release, what you heard (release, bat, mitt), your command and the last pitch's result"
+
+[tiebreaks]
+order = ["bases", "last_pitch"]
+text = "format duel: more bases after 5 plate appearances each; if level, one more plate appearance each until the bases differ, at most 5 times; then (last resort, not from the rulebook) the winner of the last pitch: the batter if it ended the plate appearance on base (walk or hit), else the pitcher"
+last_resort_in_prompt = true
+
+[[exploits]]
+id = "E1"
+text = "an out-of-range, non-finite or malformed command, or the other role's command in the duel, is refused (HTTP 400) and changes nothing"
+test = "test_exploit_bad_commands_are_refused"
+[[exploits]]
+id = "E2"
+text = "a swing cannot be planned before the release and cannot be changed or cancelled once it has started; a pitch cannot be changed after the release"
+test = "test_exploit_commands_lock"
+[[exploits]]
+id = "E3"
+text = "the observation holds no ball position, velocity or spin and no pitch type before the pitch is over (only the images, the heard events and the count)"
+test = "test_exploit_no_ball_state_in_observation"
+[[exploits]]
+id = "E4"
+text = "stalling gains nothing: a plate appearance that reaches 15 pitches (two-strike fouls) is an out"
+test = "test_exploit_pitch_limit"
+[[exploits]]
+id = "E5"
+text = "never pitching gains nothing: no pitch by the release is an automatic ball, so the batter walks"
+test = "test_exploit_no_pitch_is_a_ball"
+[[exploits]]
+id = "E6"
+text = "taking every pitch does not reach the success line of the batting game at the official configurations (the scripted pitcher throws enough strikes)"
+test = "test_exploit_taking_every_pitch"
+[[exploits]]
+id = "E7"
+text = "the other half's pitches tell nothing about yours: within a duel the two batters' plate appearances draw independent streams (windup, pitch and swing scatter), and the two matches of a pair (the same seed, the first batter swapped) swap them, so over the pair both players meet the same draws as batter and as pitcher (until duel-1 the n-th pitch to either batter had the same windup and scatter, which a player who batted or pitched later could pre-compensate)"
+test = "test_exploit_independent_scatter_streams"
+[[exploits]]
+id = "E8"
+text = "the rule constants the players are told (/spec, [spec]) are the simulator's"
+test = "test_exploit_spec_is_the_simulator"
+
+[players]
+reference = "reference"               # camera-only (the legacy bat_player.py and the duel's reference pitcher)
+reference_class = "builtin_players:Reference"
+check = []                            # the generic tests play the reference only (each view draws 8 tiles)
+
+[fairness]
+# rival = the reference player with aim errors of its own (seeded by seed, seat and pitch). In-process (no delay) two
+# deterministic references hit a home run in nearly every plate appearance, so every duel went to the last resort and
+# the second batter won it (seed 1: 40:40 after 10 extra plate appearances); rivals measure the format between two
+# equal, imperfect players.
+policy = "rival"
+matches_per_order = 20                # N = 40 (the contract's minimum): an in-process duel draws ~1800 views of 8 tiles;
+                                      # a realtime sport's interval wider than +-5 pp only warns
+max_advantage_pp = 5
+mirror = "statistical"                # the state names the seats (batter, pitcher); the format alternates roles
+
+[official]
+seeds = [1, 2, 3, 301, 311, 321, 302, 312, 322, 303, 313, 323, 304, 314, 324]   # duel: 1-3; batting: the level seeds
+levels = [1, 2, 3, 4]                 # (grade.py applies the legacy pairs: batting seed by level, duel any seed)
+slowdowns = { program = [1, 2, 5, 10, 20] }
+first_any = true
+
+[broadcast]                           # the spectator video camera (core/spectator.py; never part of a match)
+camera = { name = "behind", pos = [1.6, -5.0, 3.3], lookat = [-0.2, 4.0, 0.6], fovy_deg = 34.0, width = 640, height = 360 }
+
+[golden]
+episodes = "golden"                   # + the legacy records of the golden-data store, converted by golden/convert.py
+
+[[tasks]]
+id = "baseball-batting-wallclock-program-standard"
+format = "batting"
+action_level = "low"
+[[tasks]]
+id = "baseball-duel-wallclock-program-standard"
+format = "duel"
+action_level = "low"
+
+[capabilities]                        # docs/capabilities_zh.md §6
+a1 = 2                                # the ball's flight only from two cameras (rays, a flight fit)
+a2 = 2                                # drag, Magnus lift, the bat-ball impact, the batted ball's flight
+a3 = 2                                # the swing rig: timing, plane, height, reach under execution scatter
+a4 = 2                                # real time: the ball reaches the plate in ~0.45 s; the command takes effect later
+b1 = 2                                # the count, strike zone, fair/foul, the fielders, the plate-appearance limit
+b2 = 2                                # duel: pitch selection against the batter, reading the pitcher's mix
+b3 = 0
+physics = ["spin_bounce", "drag", "collision"]

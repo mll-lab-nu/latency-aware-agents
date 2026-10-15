@@ -1,0 +1,18 @@
+{
+ "N": 40,
+ "first_server_wins": 16,
+ "first_server_adv_pp": [
+  -10.0,
+  15.2
+ ],
+ "seat_A_wins": 20,
+ "seat_adv_pp": [
+  0.0,
+  15.5
+ ],
+ "server_won_points": [
+  144,
+  320
+ ],
+ "mirror_pairs": 2
+}

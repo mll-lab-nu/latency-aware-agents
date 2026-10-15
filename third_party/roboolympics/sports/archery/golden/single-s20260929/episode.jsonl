@@ -1,0 +1,14 @@
+{"ev": "header", "ts": 1791308547.726, "wall": 0.0001, "cfg": {"sport": "archery", "format": "single", "seats": ["A"], "seed": 20260929, "first": "A", "slowdown": null, "level": null, "action_level": "low", "play": "program", "params": {}, "sides": null, "renderer": null}, "sport": "archery", "revision": "archery-3+core-0.2", "protocol": "turn", "source_sha": null, "versions": {"core": "0.2.1", "sport": "archery-3+core-0.2"}, "local": true}
+{"ev": "cmd", "ts": 1791308551.099, "wall": 3.3729, "k": 0, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 2.9372, "azim_deg": 0.1108, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308551.377, "wall": 3.6502, "k": 1, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 2.9203, "azim_deg": 0.1354, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308551.703, "wall": 3.9768, "k": 2, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 2.9134, "azim_deg": 0.1316, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308552.034, "wall": 4.3074, "k": 3, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 4.3306, "azim_deg": -0.0212, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308552.324, "wall": 4.5973, "k": 4, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 4.3215, "azim_deg": -0.0257, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308552.702, "wall": 4.9761, "k": 5, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 4.328, "azim_deg": 0.12, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308552.998, "wall": 5.2714, "k": 6, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 4.3584, "azim_deg": 0.1134, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308553.263, "wall": 5.5368, "k": 7, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 4.3583, "azim_deg": 0.1202, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308553.576, "wall": 5.8491, "k": 8, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 4.3568, "azim_deg": 0.0917, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308553.832, "wall": 6.106, "k": 9, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 5.7669, "azim_deg": -0.2463, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308554.131, "wall": 6.4047, "k": 10, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 5.7678, "azim_deg": -0.2137, "draw": 1.0}}
+{"ev": "cmd", "ts": 1791308554.451, "wall": 6.7248, "k": 11, "seat": "A", "cmd": {"type": "shoot", "elev_deg": 5.7537, "azim_deg": -0.1957, "draw": 1.0}}
+{"ev": "end", "ts": 1791308554.456, "wall": 6.7295, "k": 12, "reason": "match_over"}

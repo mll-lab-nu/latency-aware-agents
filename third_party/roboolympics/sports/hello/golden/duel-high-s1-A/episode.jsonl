@@ -1,0 +1,12 @@
+{"ev": "header", "ts": 1791301993.937, "wall": 0.0001, "cfg": {"sport": "hello", "format": "duel", "seats": ["A", "B"], "seed": 1, "first": "A", "slowdown": null, "level": null, "action_level": "high", "play": "program", "params": {}, "sides": null, "renderer": null}, "sport": "hello", "revision": "hello-1", "protocol": "turn", "source_sha": null, "versions": {"core": "0.2.0", "sport": "hello-1"}, "local": true}
+{"ev": "cmd", "ts": 1791301994.667, "wall": 0.7301, "k": 0, "seat": "A", "cmd": {"type": "throw", "yaw": 3.896589, "pitch": 35.0, "speed": 6.539488}}
+{"ev": "cmd", "ts": 1791301994.839, "wall": 0.9024, "k": 1, "seat": "B", "cmd": {"type": "throw", "yaw": 3.896589, "pitch": 35.0, "speed": 6.539488}}
+{"ev": "cmd", "ts": 1791301995.036, "wall": 1.0987, "k": 2, "seat": "A", "cmd": {"type": "throw", "yaw": 3.754234, "pitch": 35.0, "speed": 6.421591}}
+{"ev": "cmd", "ts": 1791301995.23, "wall": 1.2934, "k": 3, "seat": "B", "cmd": {"type": "throw", "yaw": 3.535363, "pitch": 35.0, "speed": 6.517018}}
+{"ev": "cmd", "ts": 1791301995.433, "wall": 1.4965, "k": 4, "seat": "A", "cmd": {"type": "throw", "yaw": 3.600819, "pitch": 35.0, "speed": 6.505303}}
+{"ev": "cmd", "ts": 1791301995.566, "wall": 1.6291, "k": 5, "seat": "B", "cmd": {"type": "throw", "yaw": 3.251839, "pitch": 35.0, "speed": 6.555892}}
+{"ev": "cmd", "ts": 1791301995.753, "wall": 1.8162, "k": 6, "seat": "A", "cmd": {"type": "throw", "yaw": 3.246995, "pitch": 35.0, "speed": 6.49733}}
+{"ev": "cmd", "ts": 1791301995.976, "wall": 2.0389, "k": 7, "seat": "B", "cmd": {"type": "throw", "yaw": 3.251839, "pitch": 35.0, "speed": 6.555892}}
+{"ev": "cmd", "ts": 1791301996.181, "wall": 2.2443, "k": 8, "seat": "A", "cmd": {"type": "throw", "yaw": 3.284822, "pitch": 35.0, "speed": 6.543415}}
+{"ev": "cmd", "ts": 1791301996.346, "wall": 2.409, "k": 9, "seat": "B", "cmd": {"type": "throw", "yaw": 3.251839, "pitch": 35.0, "speed": 6.555892}}
+{"ev": "end", "ts": 1791301996.349, "wall": 2.4121, "k": 10, "reason": "match_over"}

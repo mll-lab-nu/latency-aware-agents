@@ -1,0 +1,13 @@
+{
+ "expect": {
+  "state_sha": "e19ee86c4b311226a89dfdc29a027cf70a5665732da722fb87a8557ec39dbd93",
+  "scores": {
+   "A": 0,
+   "opponent": 0
+  },
+  "winner": null,
+  "k": 0
+ },
+ "source": "recorded by the legacy task airhockey-match-wallclock-program-standard (golden-data store case nop, commit d4664a8b), converted by golden/convert.py",
+ "tag": "rule-change:core-0.2.7-prestart-noshow: the single player never started and its session was collected inside the start window: a valid loss by no_show (success 0) at the collect, as in the legacy no_start (cores 0.2.2-0.2.6: collected, not a valid trial); a single player's forfeit has no winner side (legacy final winner: B); the replay itself is identical; revision v5 (the real iiwa 14 limits): the state hash now covers the arms' setpoint generators (and the scripted opponent moves under the real limits), so the expected hash was updated; scores, winner and k are unchanged; revision v6 (the mallet stays within +-2 cm of the table): the state hash now also covers the mallets' Cartesian path generators and the height-violation counters, so the expected hash was updated; scores, winner and k are unchanged"
+}

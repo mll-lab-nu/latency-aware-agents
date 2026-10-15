@@ -1,0 +1,34 @@
+# Toolkit manifest: air hockey (KUKA LBR iiwa 14), HIGH level ("Agent as Athlete"). The platform's skills, executed
+# by the trusted simulator within the real iiwa 14 limits; no robot model, no joint interface.
+
+[toolkit]
+id = "airhockey-high"
+version = "0.1.0"
+level = "high"
+body = "kuka_iiwa14"
+body_revision = "iiwa14-limits-2"
+sport_revision = "airhockey-program-v6"
+definition = "RoboOlympics two-mode definition (framework §6.3), 2026-10-08"
+
+[skills.move]
+call = "{type: move, x, y}"
+does = "the mallet to (x, y) along the platform's path (at most 2 m/s and 10 m/s^2, retimed so that no joint exceeds its velocity limit; IK; motors) and held there; the official sport's target command"
+
+[skills.strike]
+call = "{type: strike, t, x, y, dx, dy, speed}"
+does = "at game time t the puck centre is at (x, y) (your prediction); the mallet hits it moving along the unit direction (dx, dy) at speed m/s: the platform approaches the wind-up point behind the contact point (around the puck if needed), settles there, drives along the line timed to pass the contact point at t with the speed (capped to what the joints allow on that line), follows through and stops"
+reply = "contact_t, speed, speed_cap, late_s, feasible, why, windup_point, drive_accel"
+implementation = "planner.py (the same planner as our low-level reference)"
+
+[skills.none]
+call = "{type: none}"
+does = "hold where the mallet is"
+
+[interfaces.observe]
+fields = ["t", "k", "rally", "score", "puck", "puck_v", "mallet", "mallet_v", "opp_mallet", "opp_mallet_v", "q", "qd",
+          "q_target", "q_target_v", "plan_rows_left", "control", "puck_half", "puck_half_s", "play_time_left_s"]
+truth = "TRUE state (pilot simplification; the official sport gives a camera image)"
+
+[forbidden]
+interfaces = ["plan", "hold"]
+privileged = "no simulator handle; observations only"

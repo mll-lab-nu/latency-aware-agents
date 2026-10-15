@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "2dcd77fa062b3f6628dc8eb66c5db242429ae2ba7e8c49d8651e133f187bc7e2",
+  "scores": {
+   "A": 6,
+   "B": 7
+  },
+  "winner": "B",
+  "k": 3119
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'reference'}, cfg {'sport': 'tabletennis', 'format': 'duel', 'seats': ['A', 'B'], 'seed': 2, 'first': 'B', 'action_level': 'low', 'sides': None}"
+}

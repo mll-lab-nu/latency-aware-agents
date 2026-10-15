@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "8e640e263a2b73ed554ddadae824e72ebb668f4a29e128d5d8a57ab3eaf0c34e",
+  "scores": {
+   "A": 7,
+   "B": 11
+  },
+  "winner": "B",
+  "k": 10431
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'reference'}, cfg {'sport': 'badminton', 'format': 'duel-wallclock', 'seats': ['A', 'B'], 'seed': 3, 'first': 'B', 'action_level': 'high', 'sides': None}"
+}

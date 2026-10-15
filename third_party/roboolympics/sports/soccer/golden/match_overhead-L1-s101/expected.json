@@ -1,0 +1,23 @@
+{
+ "expect": {
+  "state_sha": "329a6192c7485cd5e4186c747d335961fc7b41212dc9901abef02d4fb7970a6a",
+  "scores": {
+   "A": 10,
+   "opponent": 4
+  },
+  "winner": "A",
+  "k": 30052
+ },
+ "source": "core/local.py, players {'A': 'reference'}, cfg {'sport': 'soccer', 'format': 'match_overhead', 'seats': ['A'], 'seed': 101, 'first': 'A', 'action_level': 'low', 'sides': None, 'level': 1} (soccer-2v2-10, recorded with docker on mll-4090-1)",
+ "re_recorded": {
+  "soccer-2v2-9": {
+   "state_sha": "ae26e68568b4a410d6b3ec87832e1fef71b76dfda58935c61f966f8284751a2d",
+   "scores": {
+    "A": 8,
+    "opponent": 8
+   },
+   "winner": "A",
+   "k": 34031
+  }
+ }
+}

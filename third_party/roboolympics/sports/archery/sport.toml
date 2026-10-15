@@ -1,0 +1,149 @@
+# archery: target archery in the wind (migrated from the legacy task archery-program-standard, docs/framework_zh.md
+# §10 stage 1). The simulator is the unchanged legacy archery.py; the legacy records of the golden-data store replay
+# bit-exactly (golden/convert.py). One format, the single round (review item B10, 2026-10-07: the legacy duel
+# archery-duel-program-standard had no interaction, identical lanes, and is retired; compare players by their single
+# scores on the same seeds).
+
+[sport]
+name = "archery"
+title = "Target archery in the wind"
+summary = "shoot a round of 4 ends x 3 arrows at a World Archery 122 cm 10-ring face (50, 70, 70, 90 m) in a seeded, gusty wind, reading the wind from windsocks in the camera images"
+protocol = "turn"
+revision = "archery-4+core-0.2"       # = plugin.REVISION; bump on any change that alters play
+physics = "deterministic point-mass arrow ballistics (RK4, 1 ms) with quadratic drag in the wind + MuJoCo scene"
+image = "ghcr.io/mll-lab-nu/eai-olympiad:0.1.0"
+status = "sport"
+publish = true
+category = "robotics-sports-arena"
+
+[rulebook]
+name = "World Archery Rulebook, Book 3: Target Archery"
+version = "2026-03-13"
+url = "https://extranet.worldarchery.sport/documents/index.php/?doc=7626&inline=1"
+
+[[deviations]]
+id = "D1"
+rule = "Book 3, standard rounds"
+text = "a short custom round (4 ends x 3 arrows at 50, 70, 70 and 90 m) instead of a standard round; no practice ends"
+affects_result = true
+[[deviations]]
+id = "D2"
+rule = "11.2"
+text = "the arrows are shot by a release primitive with a stated scatter; time is a chess clock (60 minutes, running while the round is on) instead of end and arrow time limits"
+affects_result = true
+# DRAFT, not in force (review HB12, user decision U9 pending: recurve or compound bow). The release primitive (D2)
+# is to be declared after a real bow-shooting machine, the Spot-Hogg Hooter Shooter (a mechanical fixture that holds
+# and shoots a real bow; used for bow speed tests, e.g.
+# https://www.outdoorlife.com/how-we-test-methodology-behind-rankings-our-2017-bow-shootout/).
+# The full-draw speed V_FULL = 68 m/s ("assumed" in archery.py) is NOT changed until U9 is decided:
+#   option recurve (Olympic bow, review suggestion): V_FULL = 58 m/s (55.6-60 m/s all pass B9: 204/204 10-ring
+#     situations reachable at 50/70/90 m; expected round total 116.0 of 120 vs 116.5 at 68), new revision archery-5,
+#     golden re-recorded;
+#   option compound: V_FULL stays 68 m/s (inside the compound range), declaration only.
+# The audit's machine numbers (recurve >= 55.6 m/s, compound >= 97 m/s, attributed to World Archery) are still to be
+# checked against a primary source before this goes in. Arrow mass 20 g and drag are "assumed" (no source) either way.
+# [[deviations]]
+# id = "D3"
+# rule = "Book 3 (the athlete shoots the bow)"
+# text = "the arrows are shot by a declared bow-shooting machine like the Hooter Shooter, which holds and releases a
+#   real <recurve | compound> bow: full-draw launch speed <58 | 68> m/s (source: <to be confirmed>); the draw fraction
+#   scales it (0.5-1.0); the execution scatter, the arrow's mass and drag are estimates"
+# affects_result = true
+
+[formats.single]
+seats = ["A"]
+opponent = false                      # solo: no opponent; success = the round's total reaches the line
+success = { score_at_least = 110 }    # of 120, as the legacy task
+
+[modes]
+action_levels = ["low"]               # one level: the release primitive (elevation, azimuth, draw)
+plays = ["program"]
+
+[timing]
+clock_s = 3600
+start_timeout_s = 1800
+
+[actions.cli]
+low = { shoot = ["elev_deg", "azim_deg", "draw"] }
+
+[observation]
+fields = ["stage", "distance_m", "end", "of_ends", "arrow", "arrows_per_end", "this_end", "total", "scorecard",
+          "arrows", "last_arrow"]
+renderer = "mujoco"
+frame_budget_ms = 4000                # four tiles (1.7 Mpx) on the CPU (osmesa); turn-based, nothing moves meanwhile
+columns = 2
+reply_images = "the reply to each arrow shows the target close-up (600 x 600, the `target` camera) of the face with this end's arrows, the one just shot included (also the third arrow of an end, before the arrows are pulled)"
+
+[spec]                                # the rule constants: /spec shows them, the prompt lists them
+round = "4 ends x 3 arrows at a World Archery 122 cm 10-ring face: end 1 at 50 m, ends 2 and 3 at 70 m, end 4 at 90 m; 120 points at most"
+distances_m = [50.0, 70.0, 70.0, 90.0]
+arrows_per_end = 3
+scoring = "each arrow scores the zone it lands in: 10 (gold centre) down to 1 (outer white); X = the inner 10, counts 10; an arrow touching a dividing line scores the higher zone; off the face = M (0)"
+face = "zones 6.1 cm wide: 1-2 white, 3-4 black, 5-6 blue, 7-8 red, 9-10 gold; the gold centre at (D, 0, 1.30); on a 1.30 m square straw boss; white lines cross the range every 10 m"
+face_centre_z_m = 1.3
+world = { origin = "the ground at the middle of the shooting line", "+x" = "down the range (the target face is the vertical plane x = D)", "+y" = "to your left", "+z" = "up" }
+launch_point_m = [0.0, 0.0, 1.5]
+shot = "shoot ELEV AZIM DRAW: elev_deg = the arrow's launch direction above horizontal (-10 to 30); azim_deg = its heading, 0 = straight down the range, + = to your left (-20 to 20); draw = the draw fraction (0.5 to 1.0): launch speed = 68 m/s x draw"
+full_draw_speed_m_s = 68.0
+execution_scatter_1sigma = { elev_deg = 0.03, azim_deg = 0.03, speed_rel = 0.003 }
+arrow_flight = "a point mass (20 g, shaft diameter 5.5 mm) under gravity (9.81 m/s^2) and quadratic air drag on its velocity relative to the air: a = -g z - K |v - w| (v - w), K = rho Cd A / (2 m) (rho = 1.2 kg/m^3, Cd = 1.5 on the shaft cross-section A = pi d^2 / 4), w = the wind"
+drag_K_per_m = 0.0010691
+wind = "horizontal, uniform over the range and constant during a flight; it changes from end to end and gusts from arrow to arrow; the windsocks always show the wind of the arrow you are about to shoot"
+windsocks = "a windsock points downwind; its angle below horizontal is 90 deg x (1 - speed / 10 m/s), horizontal at 10 m/s or more; 1.2 m long, 5 stripes, orange at the mouth; three on 4 m poles at y = +3.5 and x = D/4, D/2, 3D/4, a 0.6-size one on a 3.1 m pole at (D, 1.1); `windsocks_by_distance` gives their mouths"
+windsock_full_speed_m_s = 10.0
+images = "one PNG of four camera tiles (observation.tiles): archer (1000 x 600, from just behind the bow down the range, with the windsocks), scope (600 x 600, from the arrow rest centred on the gold), side (800 x 500, from 12 m right of the range at half the distance, looking across at the middle windsock; image right = towards the target), target (600 x 600, a close-up of the face with your arrows of this end: nock and fletching magenta = arrow 1, lime = 2, cyan = 3; arrows are pulled after each end); no coordinates and no wind numbers; `cameras_by_distance` gives every camera's pose and intrinsics (pinholes, square pixels)"
+act_reply = "after each arrow: its score (X, 10 ... 1, M), the spotter's call (the clock position of an arrow on the face, e.g. '9 at 2 o'clock', or where a miss went), the target close-up of the face with this end's arrows (observation.image_png_b64, as observe; the third arrow included, before the arrows are pulled) and, after the third arrow, the end's scorecard"
+
+[[exploits]]
+id = "E1"
+text = "an out-of-range or malformed shot is refused (HTTP 400) and changes nothing"
+test = "test_exploit_bad_actions_are_refused"
+[[exploits]]
+id = "E2"
+text = "shooting before the start, or before the review of one's last arrow, is refused (HTTP 409)"
+test = "test_exploit_out_of_turn"
+[[exploits]]
+id = "E3"
+text = "the observation holds no wind number and no coordinate (the wind and the arrows are seen only in the images)"
+test = "test_exploit_no_wind_or_positions_in_observation"
+[[exploits]]
+id = "E6"
+text = "stalling gains nothing: when the chess clock runs out the round ends there (success 0)"
+test = "test_exploit_stalling_loses"
+[[exploits]]
+id = "E8"
+text = "the rule constants of the prompt ([spec]) are the simulator's own (a stale prompt would mislead the players)"
+test = "test_exploit_spec_matches_the_simulator"
+[[exploits]]
+id = "E9"
+text = "the reply image of an arrow shows the face as that arrow left it (this end's arrows, the third included) and nothing about the next arrow (its wind or distance)"
+test = "test_exploit_reply_image_shows_only_this_end"
+
+[players]
+reference = "reference"
+reference_class = "builtin_players:Reference"
+check = ["random"]
+
+[official]
+seeds = [1, 2, 3, 20260929]           # 20260929 = the legacy standard lane; 1 = the default
+
+[golden]
+episodes = "golden"
+
+[[tasks]]
+format = "single"
+action_level = "low"
+id = "archery-program-standard"       # the legacy task name (needs the [[tasks]] id hook of tools/generate.py)
+
+[broadcast]
+camera = { name = "broadcast", pos = [-6.0, -5.0, 3.0], lookat = [30.0, 0.0, 1.3], fovy_deg = 40, width = 640, height = 360 }
+
+[capabilities]                        # docs/capabilities_zh.md: 2 primary, 1 secondary, 0 none
+a1 = 1                                # 3D: windsock directions from two views, the arrows on the face
+a2 = 2                                # ballistics with drag in a gusty wind, read from the windsocks
+a3 = 2                                # execution: a release with stated scatter; the aim solves the flight
+a4 = 0                                # turn-based: no time pressure
+b1 = 0
+b2 = 0
+b3 = 0
+physics = ["ballistics", "wind", "drag"]

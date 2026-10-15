@@ -1,0 +1,60 @@
+schema_version = "1.3"
+artifacts = [
+  "/app/output/",
+  { source = "/data/final.json", service = "sim" },
+  { source = "/data/episode.jsonl", service = "sim" },
+  { source = "/data/replay_check.json", service = "sim" },
+  { source = "/data/replay.mp4", service = "sim" },
+  { source = "/data/video.json", service = "sim" },
+  { source = "/data/broadcast.jsonl", service = "sim" },
+  { source = "/data/think_usage_A.json", service = "sim" },
+  { source = "/data/think_calls_A.jsonl", service = "sim" },
+]
+
+[task]
+name = "robot-coding-bench/soccer_ssl-match-wallclock-program-standard"
+description = "Wheeled robot soccer 5 v 5 (RoboCup SSL Division B), PROGRAM PLAY, match, action level high (eai-standard-realtime/1.0): wheeled robot soccer 5 v 5 under the RoboCup Small Size League rules (Division B): ten omnidirectional SSL robots after TIGERs Mannheim's v2020 (kicker, chip kicker, dribbler; their real speed, acceleration, kick and dribbler limits) and an orange golf ball on the 9 x 6 m field, two halves of 300 s of playing time, a shoot-out when level, an automatic referee for every rule an SSL auto-referee judges; you command your robots with three skills (move to a pose, optionally by a time and at a speed; kick flat or chipped along the robot's heading, now or the moment the ball reaches it; spin the dribbler) and see the game through the four overhead cameras of the shared vision, 40 ms late; in the `match` format you command the blue team against a scripted team, in the `duel` format another player commands the yellow team, in the `team` format each robot has its own player. Generated from sports/soccer_ssl/sport.toml by tools/generate.py on the v0.2 core."
+authors = [{ name = "RoboOlympics" }]
+keywords = ["program-play", "soccer_ssl", "sports", "realtime", "vision", "roboolympics-v0.2"]
+
+[metadata]
+revision = "soccer_ssl-1"
+author_name = "RoboOlympics"
+category = "robotics-sports-arena"
+task_type = "trajectory"
+simulator = "MuJoCo 3.3.7 (1 ms physics steps, 10 ms control steps; ten planar SSL robots (bodies/ssl_robot: the library's PlanarBase servo at the real limits, an impulse kicker behind a break beam, a contact dribbler with a capped grip); a golf ball sliding and rolling on carpet (condim 6, elliptic cone), chip bounces; robot-robot, robot-ball, wall and goal contacts)"
+robot = "ssl_robot"
+robot_configuration = "ssl_robot@ssl-1+bare#ba3ad264d897"
+family = "soccer_ssl_match"
+mode = "standard"
+protocol = "eai-standard-realtime/1.0"
+play = "program"
+action_level = "high"
+oracle = "full"
+oracle_evidence = "solution/: the sport's reference player (camera images and /spec only); tools/check runs it live and it wins the default configuration"
+parameters = "RCB_SEED, RO_RENDERER (the players' image renderer)"
+expert_time_estimate_hours = 0.5
+
+[[seats]]
+name = "A"
+service = "player"
+agent_kwargs = { think_proxy_url = "http://sim:18090/v1" }
+setup_networks = ["egress"]
+
+[verifier]
+timeout_sec = 900.0
+environment_mode = "separate"
+network_mode = "no-network"
+
+[[verifier.collect]]
+service = "sim"
+command = "for i in $(seq 1 90); do [ -f /data/server.pid ] && break; sleep 2; done; kill -USR1 $(cat /data/server.pid); for i in $(seq 1 1800); do grep -q '\"graded_ready\": true' /data/final.json 2>/dev/null && break; sleep 1; done; [ x$RCB_RENDER_VIDEO = x1 ] && for i in $(seq 1 1800); do [ -f /data/video.json ] && break; sleep 1; done; cat /data/final.json | head -c 2000"
+timeout_sec = 3780
+
+[agent]
+timeout_sec = 14400.0
+
+[environment]
+build_timeout_sec = 1200.0
+cpus = 1
+memory_mb = 1024

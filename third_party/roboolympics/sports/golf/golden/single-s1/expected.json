@@ -1,0 +1,11 @@
+{
+ "expect": {
+  "state_sha": "660f10ba15492b347cdcae4f0c5d2bde9cdbb6e957415e52615cfa08d47fc96a",
+  "scores": {
+   "A": 6
+  },
+  "winner": null,
+  "k": 6
+ },
+ "source": "core/local.py, players {'A': 'reference'}, cfg {'sport': 'golf', 'format': 'single', 'seats': ['A'], 'seed': 1, 'first': 'A', 'action_level': 'low'}"
+}

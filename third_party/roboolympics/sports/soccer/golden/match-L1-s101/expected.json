@@ -1,0 +1,68 @@
+{
+ "expect": {
+  "state_sha": "6e5876c6e993acc00c6f4b507150d640f80a96662045713081cbc88e9c92b383",
+  "scores": {
+   "A": 3,
+   "opponent": 4
+  },
+  "winner": "opponent",
+  "k": 30082
+ },
+ "source": "core/local.py, players {'A': 'reference'}, cfg {'sport': 'soccer', 'format': 'match', 'seats': ['A'], 'seed': 101, 'first': 'A', 'action_level': 'low', 'sides': None, 'level': 1}",
+ "re_recorded": {
+  "soccer-2v2-4": {
+   "state_sha": "d6e66d2155c0cff5d0b284439f9478d161c0eba8e9e1d155871ac19c871bd394",
+   "scores": {
+    "A": 0,
+    "opponent": 3
+   },
+   "winner": "opponent",
+   "k": 15000
+  },
+  "soccer-2v2-5": {
+   "state_sha": "0c7841a9e7d63e57f6494cf3ff8e164358eaa01657d5295a21ff941ca9015823",
+   "scores": {
+    "A": 2,
+    "opponent": 6
+   },
+   "winner": "opponent",
+   "k": 30115
+  },
+  "soccer-2v2-7": {
+   "state_sha": "23dca3ea11e129c339de026a45491cb302689521ed02986f42819e49fc33a897",
+   "scores": {
+    "A": 2,
+    "opponent": 7
+   },
+   "winner": "opponent",
+   "k": 30115
+  },
+  "soccer-2v2-8": {
+   "state_sha": "26b946efe29c7452f95917cee8a8149414422fb5831c5714060f29fa83f15a32",
+   "scores": {
+    "A": 0,
+    "opponent": 1
+   },
+   "winner": "opponent",
+   "k": 30000
+  },
+  "soccer-2v2-9": {
+   "state_sha": "426807456ae07009823b9fcfd1823ccb8e08136a115c20b1b2a638cd33a09e19",
+   "scores": {
+    "A": 2,
+    "opponent": 4
+   },
+   "winner": "opponent",
+   "k": 30000
+  },
+  "soccer-2v2-10 (peak 2 s, PR draft)": {
+   "state_sha": "1950a5e2c84ab4ba2c1561a43f2db6200e568aa18d9da2b331c2c80912b78504",
+   "scores": {
+    "A": 0,
+    "opponent": 4
+   },
+   "winner": "opponent",
+   "k": 30000
+  }
+ }
+}

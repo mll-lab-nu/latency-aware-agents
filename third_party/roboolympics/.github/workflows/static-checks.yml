@@ -1,0 +1,44 @@
+name: static-checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: static-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: MuJoCo for the robot library's self-collision check (check-robot-limits.py L5); Pillow for the broadcast tests
+        run: python3 -m pip install --quiet mujoco==3.3.7 numpy pillow==12.3.0
+      - name: Static checks on all tasks (includes tools/generate.py check)
+        run: bash ci_checks/run_all.sh
+      - name: Task conventions (README, task.toml, test.sh are what scripts/task_conventions.py writes)
+        run: python3 scripts/task_conventions.py --check tasks/*/
+      - name: Unit tests that need no simulator
+        env:
+          BILLIARDS_HELPER_TEST: "0"     # the billiards helper part needs the billiards sim image
+        run: |
+          set -e
+          python3 scripts/olympiad/test_dispatch.py
+          python3 scripts/olympiad/test_program_play.py          # the metering sources (core/metering, players/metering)
+          for t in tasks/*/; do python3 scripts/olympiad/test_program_play.py "$t"; done   # every task's copies
+          python3 scripts/olympiad/test_sol_route.py
+          python3 scripts/olympiad/test_codex_sub.py             # astra-sub: ChatGPT subscription, seat-scoped
+          python3 scripts/olympiad/test_harbor_guard.py          # run scripts start only the pinned multi-seat Harbor fork
+          python3 scripts/olympiad/test_run_plan.py              # run_round / monitor plans = sport.toml + tasks/
+          python3 tools/test_check.py                            # tools/check stage 5 reference check (official levels only)
+          python3 scripts/olympiad/test_live_queue_resume.py     # run_round --missing over two hosts' results
+          python3 players/metering/test_think_proxy.py
+          python3 bodies/tests/test_limits.py                   # the arm's setpoint generator: no overshoot, no ringing, within the limits
+          python3 skilleval/tests/test_skilleval.py             # skilleval: contracts, the skill in the loop (hosts, socket, timing, rules)
+          python3 tools/test_check.py                            # tools/check stage 5 verdicts (no docker)
+          for t in airhockey audience billiards delivery program quality racing soccer; do
+            python3 scripts/olympiad/test_broadcast_$t.py
+          done

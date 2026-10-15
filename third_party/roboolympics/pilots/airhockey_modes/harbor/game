@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""game spec | status | start | observe | act JSON | wait [TIMEOUT] | ready WHY PLAN  (the match service's calls)"""
+import json
+import sys
+
+sys.path.insert(0, "/opt/robot")
+from client import Game  # noqa: E402
+
+g = Game()
+a = sys.argv[1:]
+if not a:
+    print(__doc__)
+    sys.exit(2)
+c = a[0]
+if c == "spec":
+    r = g.spec()
+elif c == "status":
+    r = g.status()
+elif c == "start":
+    r = g.start()
+elif c == "observe":
+    r = g.observe()
+elif c == "act":
+    r = g.act(json.loads(a[1]))
+elif c == "wait":
+    r = g.wait(float(a[1]) if len(a) > 1 else 60)
+elif c == "ready":
+    r = g.ready(a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else "")
+else:
+    print(__doc__)
+    sys.exit(2)
+print(json.dumps(r, indent=1))

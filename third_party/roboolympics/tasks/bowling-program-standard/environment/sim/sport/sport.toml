@@ -1,0 +1,127 @@
+# Ten-pin bowling (docs/framework_zh.md §4.2, §8; migrated from the Season-1 task bowling-program-standard, docs §10
+# stage 1). One format, the single game (user decision of 2026-10-08, as review item B10 for archery and basketball:
+# the legacy duel bowling-duel-program-standard had no interaction between the players, two identical lanes, and is
+# retired; compare players by their single scores on the same seeds). The declarations as data: the core, the generator
+# (tools/generate.py), the checks (tools/check) and the prompt/README read this file. The simulator and its rules
+# module are sim/ (unchanged from the legacy tree but the release-speed cap of bowling-4, D5); turnshot.py maps them
+# onto contract ② (README.md, "Pattern for the shared turn-based server").
+
+[sport]
+name = "bowling"
+title = "Ten-pin bowling"
+summary = "bowl a 10-frame game of ten-pin bowling on a regulation MuJoCo lane (oiled front end, dry back end, 10 rigid pins, a 7 kg ball), each ball a release (board, launch angle, speed, rev rate, axis rotation) chosen from the camera images"
+protocol = "turn"
+revision = "bowling-4"                # bowling-1 = the Season-1 service (turn-1); 3: single only (the duel retired);
+                                      # 4: release speed capped to USBC's E.A.R.L. (D5)
+physics = "mujoco"
+image = "ghcr.io/mll-lab-nu/eai-olympiad:0.1.0"
+status = "sport"
+publish = true
+category = "robotics-sports-arena"
+
+[rulebook]
+name = "USBC Playing Rules 2025-2026 (Chapter 2, General Playing Rules; rev. 07/25)"
+version = "2025-2026"
+url = "https://bowl.com/getmedia/cabf49db-8cc5-4ce4-abc0-dfca1a1d7706/071724_USBC-Playing-Rules.pdf"
+
+[[deviations]]
+id = "D1"
+rule = "6a"
+text = "a pin counts as down if it tilts more than 20 degrees or leaves the lane surface (gutter, pit, kickbacks); a pin standing anywhere on the lane counts as standing (USBC 7b)"
+affects_result = true
+[[deviations]]
+id = "D2"
+rule = "5a"
+text = "no fouls: the ball is laid down 35 cm past the foul line by the release primitive"
+affects_result = false
+[[deviations]]
+id = "D3"
+rule = "6b.2"
+text = "no rear cushion rule: pins that rebound from the pit are counted like any other pin (down if off the lane surface)"
+affects_result = false
+[[deviations]]
+id = "D5"
+rule = "Chapter 2 (the bowler delivers the ball)"
+text = "the ball is delivered by a declared release machine, like the United States Bowling Congress's E.A.R.L. bowling robot (Enhanced Automated Robotic Launcher, USBC equipment specifications, https://bowl.com/equipment-specifications2024/e-a-r-l-the-robot), not by a bowler: you set its release and it rolls the ball with a stated execution scatter. Release speed 4.47 to 10.73 m/s = E.A.R.L.'s 10 to 24 mph (until bowling-3: 3 to 11 m/s, beyond the robot's range at both ends); rev rate 0 to 700 rpm (E.A.R.L.: 50 to 900 rpm; rates below 50 rpm, a ball with practically no revs, are kept, an allowance beyond the robot); the caps hold for the commanded release, the executed one scatters around it; the execution scatter is an estimate, not a number of E.A.R.L.'s"
+affects_result = true
+
+[formats.single]
+seats = ["A"]
+opponent = false                      # solo: success = a complete game of at least 200 (the old task's line)
+success = { score_at_least = 200 }
+
+[modes]
+action_levels = ["low"]               # the release primitive is the only level (no robot body)
+plays = ["program"]
+
+[timing]
+clock_s = 3600                        # the chess clock (the game's turns, reviews included)
+start_timeout_s = 1800
+
+[actions.cli]                         # `game roll BOARD ANGLE_DEG SPEED RPM AXIS_DEG`
+low = { roll = ["board", "angle_deg", "speed", "rpm", "axis_deg"] }
+
+[observation]
+fields = ["decision", "game_over", "score", "last_shot"]   # the whitelist of Match.observe()
+renderer = "mujoco"                   # the sport draws its own views (sim/bowling.py Views, MuJoCo + osmesa)
+frame_budget_ms = 2000                # per observation, all four views (about 150-300 ms on a CPU)
+columns = 1
+
+[spec]                                # the rule constants (shown in /spec and in the prompt's Rules)
+game = "one game of 10 frames per player; standard ten-pin scoring: a strike scores 10 plus your next two balls, a spare 10 plus your next ball; a strike or spare in the 10th frame gives bonus balls (three balls at most); 300 is perfect"
+deck = "each frame's first ball (and in the 10th frame each ball after a strike or spare) gets a fresh rack; after the first ball of a frame the fallen pins are swept away and the pins still standing stay where they are, even if they were moved"
+pin_down = "a pin counts as down if it tilts more than 20 degrees or leaves the lane surface (gutter, pit, kickbacks); a pin standing anywhere on the lane counts as standing (USBC 7b)"
+gutter_ball = "a ball that leaves the lane before it reaches the pins scores no pins, and the pins it moved are respotted (USBC 6b.1)"
+roll = "{'type':'roll','board':B,'angle_deg':A,'speed':V,'rpm':R,'axis_deg':X}: board = where the ball's centre is laid down, 35 cm past the foul line, in boards from the RIGHT gutter (39 boards of 27.03 mm; 1 = rightmost, 20 = centre, 39 = leftmost; fractions allowed; 1 to 39); angle_deg = launch direction from the lane's axis, + = towards the left (-10 to 10); speed = ball speed at release, m/s (4.47 to 10.73, the E.A.R.L. bowling robot's range, D5); rpm = rev rate, revolutions per minute (0 to 700); axis_deg = axis rotation: the spin axis is horizontal, 0 = end over end (no hook), 90 = all side roll; + hooks left, - hooks right (-90 to 90)"
+execution_scatter_1sigma = { board = 1.0, angle_deg = 0.24, speed_rel = 0.015, rpm_rel = 0.04, axis_deg = 2.0 }
+lane = "the front of the lane is oiled (the ball skids), the back end is dry (a spinning ball hooks, then rolls); the oil runs further down the middle boards than the outside boards; the pattern and the friction are not given and change with the seed"
+world = { origin = "the foul line at the centre of the lane, on the lane surface", "+x" = "down the lane towards the pins (head pin at 18.288 m)", "+y" = "across the lane, to the left", "+z" = "up" }
+image_layout = "one PNG of four views (their rectangles are `image.tiles` in /spec and `observation.tiles`): approach (the bowler's eye behind the foul line), pindeck (the pins standing now), pindeck_after (the deck right after your previous ball settled, before the sweep; black before your first ball) and lane (the lane from straight above in four stacked 5 m panels, image right = towards the pins, image up = left; the path of your previous ball as yellow dots, one every 1/30 s); no ball or pin coordinates are given"
+hearing = "after each ball you are told how many pins fell (not which ones)"
+
+[[exploits]]
+id = "E1"
+text = "an out-of-range or malformed roll (unknown field, NaN, a string, a missing field) is refused (HTTP 400) and changes nothing"
+test = "test_exploit_bad_actions_are_refused"
+[[exploits]]
+id = "E2"
+text = "rolling before the start or before the review of the previous ball is refused (HTTP 409)"
+test = "test_exploit_out_of_turn"
+[[exploits]]
+id = "E3"
+text = "stalling gains nothing: a game that ends early (abandoned or on the clock) is a valid failure (session_end)"
+test = "test_exploit_stalling_loses"
+[[exploits]]
+id = "E4"
+text = "no world state reaches the player: no ball or pin coordinates, no oil numbers and no seed in the observation or /spec (world_state, seed_hidden)"
+test = "test_exploit_no_world_state"
+[[exploits]]
+id = "E5"
+text = "a gutter ball cannot reset a bad leave: it scores no pins and the pins it moved are respotted (USBC 6b.1)"
+test = "test_exploit_gutter_respots"
+
+[players]
+reference = "reference"               # Sport.players(): camera-only, reaches 200 on the default seed
+reference_class = "builtin_players:Reference"
+check = ["random"]
+
+[official]                            # the Season-1 official seeds (20260930 = the standard lane); the default is 1
+seeds = [20260930, 2, 3]
+
+[golden]
+episodes = "golden"                   # golden/<case>/ + golden/convert.py (the Season-1 records, RO_GOLDEN_DATA)
+
+[[tasks]]
+id = "bowling-program-standard"       # the Season-1 task name ([[tasks]] id)
+format = "single"
+action_level = "low"
+
+[capabilities]                        # docs/capabilities_zh.md: 2 primary, 1 secondary, 0 none
+a1 = 1                                # the pins and the ball's path from the camera images (no coordinates)
+a2 = 2                                # oil and hook: skid, hook and roll on an unknown oil pattern; pin action
+a3 = 2                                # five release parameters under execution scatter
+a4 = 0                                # turn-based: no time pressure
+b1 = 0                                # scoring is standard; nothing to exploit in the rules
+b2 = 1                                # strike or spare lines, adjusting to the lane
+b3 = 0
+physics = ["friction_rolling", "collision"]

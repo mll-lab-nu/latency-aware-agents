@@ -1,0 +1,57 @@
+# Toolkit manifest: air hockey (KUKA LBR iiwa 14), LOW level ("Agent as Robotics Engineer"). Everything a low-level
+# program may use is listed here; anything else (the platform's skills move / strike, the planner behind them
+# (planner.py), the simulator) is not available. Our low-level reference implementation (programs/ref_low_skill.py)
+# is built only from these. toolkit_check.py verifies the hashes. Part of the pilot's version (airhockey-modes-pilot-1).
+
+[toolkit]
+id = "airhockey-low"
+version = "0.1.0"
+level = "low"
+body = "kuka_iiwa14"
+body_revision = "iiwa14-limits-2"
+sport_revision = "airhockey-program-v6"
+attachment = "the Air Hockey Challenge striker: two passive-style striker joints with small motors and a mallet (radius 0.04815 m)"
+definition = "RoboOlympics two-mode definition (framework §6.3, §9 robot and mode rules 3-5, 10), 2026-10-08"
+
+[robot_model]
+file = "toolkit/iiwa_mallet.xml"             # seat A's arm alone (no table, no puck), MuJoCo MJCF; table frame, base at (-1.51, 0, -0.1)
+sha256 = "bae8d801a750dd2ae089895a7388d1dec41487f091ab6ccfd46ba7771d2abc21"
+joints = ["iiwa_1/joint_1..7 (the iiwa axes)", "iiwa_1/striker_joint_1, iiwa_1/striker_joint_2"]
+mallet = "body iiwa_1/striker_mallet: its origin is the mallet centre, at z = 0.0645 when the mallet sits flat on the table"
+
+[ik_library]
+module = "toolkit/lib/ahkin.py"              # Kin: fk(q) -> (p, R), jac(q) -> (Jp, Jr), ik([x, y], q0) -> (q, residual); limits
+sha256 = "791066638950b2fd4fdfb36d0369d64cc02701abe06b673c1adb0f76ddf119b4"
+needs = ["numpy", "mujoco==3.3.7"]
+choice = "the platform's own damped-least-squares IK (sports/airhockey/hockey.py Hockey.solve) on the robot-only model"
+
+[interfaces.observe]
+fields = ["t", "k", "rally", "score", "puck", "puck_v", "mallet", "mallet_v", "opp_mallet", "opp_mallet_v", "q", "qd",
+          "q_target", "q_target_v", "plan_rows_left", "control", "puck_half", "puck_half_s", "play_time_left_s"]
+truth = "TRUE state (pilot simplification; the official sport gives a camera image)"
+
+[interfaces.plan]
+call = "{type: plan, q: rows}: rows of the 9 joint targets, row 0 = the target at the end of the next 10 ms control step"
+row_dt_s = 0.01
+max_rows = 300
+servo = "between rows the target is interpolated linearly at 1 kHz; the robot's setpoint generator (bodies/limits.JerkLimiter) keeps the setpoint within the velocity, acceleration and jerk limits; PD with inverse dynamics (100 / 20) on the setpoint; torques clipped to the motors"
+checks = ["joint ranges", "row-to-row velocity <= the velocity limit, counted from q_target", "row-to-row acceleration <= the acceleration limit, counted from q_target_v", "the mallet centre (forward kinematics of every row) within the workspace (1 cm tolerance) and within 2 cm of its table height", "the setpoints the setpoint generator makes of the rows (and of the hold after them) keep the mallet within 2 cm of its table height"]
+replace = "a plan replaces the one under way; after its last row the target holds"
+hold = "{type: hold}: drop the plan, hold the current target"
+
+[limits]                                     # B0: bodies/kuka_iiwa14/body.toml (KUKA data sheet; AHC; jerk estimate)
+velocity_rad_s = [1.40935, 1.40935, 1.65806, 1.24355, 2.15548, 2.23838, 2.23838, 3.0, 3.0]    # iiwa: 0.95 x data sheet (AHC); striker: the model's servo
+acceleration_rad_s2 = [14.8353, 14.8353, 17.4533, 13.09, 22.6893, 23.5619, 23.5619, 50.0, 50.0]   # iiwa: AHC 10 x data sheet velocity
+jerk_rad_s3 = [741.765, 741.765, 872.665, 654.5, 1134.465, 1178.095, 1178.095]                  # estimate (50 x acceleration); enforced by the setpoint generator
+torque_nm = [320.0, 320.0, 176.0, 176.0, 110.0, 40.0, 40.0, 10.0, 10.0]
+workspace = "own half: 0.05 <= -x <= 0.92, |y| <= 0.47, within 1.45 m of the base at (-1.51, 0)"
+
+[forbidden]
+skills = ["move", "strike"]                  # the high level's skills: you implement them
+modules = ["planner", "world", "sports.*", "hockey"]
+privileged = "no simulator handle; observations only"
+
+[versions]
+mujoco = "3.3.7"
+python = "3.12"
+image = "ghcr.io/mll-lab-nu/eai-olympiad:0.1.0"

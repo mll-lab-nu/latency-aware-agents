@@ -1,0 +1,17 @@
+{
+  "_comment": "Olympiad dispatcher (dispatch.py). Token variables are names in the repository's .env, never tokens. Lanes in priority order: a match goes to the first lane one of its players belongs to; workers = matches at once per host. Azure Astra: 2. About 7.6% of its calls hit HTTP 429 (rate_limit_exceeded) on one deployment and were completed by the proxy's failover to another (431 of 5,700 calls, 2026-10-04); the 429s were invisible in the call status.",
+  "accounts": {
+    "claude-1": {"kind": "claude-subscription", "token_env": "CLAUDE_CODE_OAUTH_TOKEN", "slot": "1", "models": ["opus", "fable"]},
+    "claude-2": {"kind": "claude-subscription", "token_env": "CLAUDE_CODE_OAUTH_TOKEN_2", "slot": "2", "models": ["opus"]},
+    "azure-astra": {"kind": "fixed", "models": ["astra"], "note": "one Azure key, failover over three deployments (AZURE_DEPLOYMENTS)"},
+    "openrouter": {"kind": "fixed", "models": ["luna"]}
+  },
+  "prefer": {"opus": ["claude-1"], "fable": ["claude-1"]},
+  "quota": {"max_utilization": 0.70, "per_seat": 0.15, "refusal_cache_s": 120},
+  "lanes": {
+    "astra": {"players": ["astra"], "workers": 2},
+    "opus": {"players": ["opus"], "workers": 2},
+    "fable": {"players": ["fable"], "workers": 2},
+    "luna": {"players": ["luna"], "workers": 2}
+  }
+}

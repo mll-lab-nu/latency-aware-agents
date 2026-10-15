@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "98837967a34fda60463a1f388cd46fb44f9d211e2e9f61e13158b15ea9d13a27",
+  "scores": {
+   "A": 5,
+   "B": 0
+  },
+  "winner": "A",
+  "k": 3759
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'random'}, cfg {'sport': 'tennis', 'format': 'duel', 'seats': ['A', 'B'], 'seed': 1, 'first': 'A', 'action_level': 'high'}"
+}

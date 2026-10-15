@@ -1,0 +1,43 @@
+{
+ "format": "duel",
+ "formats": {
+  "duel": {
+   "first": [
+    "A"
+   ],
+   "seats": [
+    "A",
+    "B"
+   ]
+  },
+  "racing": {
+   "levels": [
+    1,
+    2,
+    3
+   ],
+   "opponent": false,
+   "seats": [
+    "A"
+   ],
+   "success": {
+    "score_at_least": 1
+   }
+  }
+ },
+ "official": {
+  "levels": [
+   1,
+   2,
+   3
+  ],
+  "seeds": [
+   1,
+   2,
+   3
+  ]
+ },
+ "protocol": "realtime",
+ "sport": "drone",
+ "task": "drone-duel-wallclock-program-standard"
+}

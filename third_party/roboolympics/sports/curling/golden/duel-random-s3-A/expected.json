@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "610f56d1cdd37bf95804223ec821a489a10f41d043234b20ac13259ef29663ef",
+  "scores": {
+   "A": 12,
+   "B": 0
+  },
+  "winner": "A",
+  "k": 40
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'random'}, cfg {'sport': 'curling', 'format': 'duel', 'seats': ['A', 'B'], 'seed': 3, 'first': 'A', 'action_level': 'low'}"
+}

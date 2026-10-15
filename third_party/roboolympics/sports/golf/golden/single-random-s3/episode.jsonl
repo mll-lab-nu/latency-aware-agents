@@ -1,0 +1,26 @@
+{"ev": "header", "ts": 1791474473.898, "wall": 0.0, "cfg": {"sport": "golf", "format": "single", "seats": ["A"], "seed": 3, "first": "A", "slowdown": null, "level": null, "action_level": "low", "play": "program", "params": {}, "sides": null, "renderer": null}, "sport": "golf", "revision": "golf-3", "protocol": "turn", "source_sha": null, "versions": {"core": "0.2.11", "sport": "golf-3"}, "local": true}
+{"ev": "cmd", "ts": 1791474476.675, "wall": 2.7764, "k": 0, "seat": "A", "cmd": {"type": "putt", "aim_deg": 18.733, "speed": 0.5621, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474477.003, "wall": 3.1048, "k": 1, "seat": "A", "cmd": {"type": "putt", "aim_deg": 9.025, "speed": 1.1142, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474477.303, "wall": 3.4046, "k": 2, "seat": "A", "cmd": {"type": "putt", "aim_deg": -1.861, "speed": 3.0938, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474477.649, "wall": 3.751, "k": 3, "seat": "A", "cmd": {"type": "putt", "aim_deg": 31.278, "speed": 2.7229, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474477.946, "wall": 4.0479, "k": 4, "seat": "A", "cmd": {"type": "putt", "aim_deg": 20.453, "speed": 2.9074, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474478.277, "wall": 4.3785, "k": 5, "seat": "A", "cmd": {"type": "putt", "aim_deg": 24.216, "speed": 1.6263, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474480.892, "wall": 6.9934, "k": 6, "seat": "A", "cmd": {"type": "putt", "aim_deg": 17.52, "speed": 1.2598, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474481.286, "wall": 7.3876, "k": 7, "seat": "A", "cmd": {"type": "putt", "aim_deg": 35.021, "speed": 1.5405, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474481.679, "wall": 7.7809, "k": 8, "seat": "A", "cmd": {"type": "putt", "aim_deg": 32.825, "speed": 1.3039, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474482.007, "wall": 8.1083, "k": 9, "seat": "A", "cmd": {"type": "putt", "aim_deg": -26.144, "speed": 1.2229, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474482.376, "wall": 8.4782, "k": 10, "seat": "A", "cmd": {"type": "putt", "aim_deg": -23.231, "speed": 3.3247, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474482.768, "wall": 8.87, "k": 11, "seat": "A", "cmd": {"type": "putt", "aim_deg": -36.06, "speed": 2.3203, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474485.284, "wall": 11.3857, "k": 12, "seat": "A", "cmd": {"type": "putt", "aim_deg": -31.819, "speed": 2.9355, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474485.621, "wall": 11.723, "k": 13, "seat": "A", "cmd": {"type": "putt", "aim_deg": -31.988, "speed": 2.2175, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474485.969, "wall": 12.0703, "k": 14, "seat": "A", "cmd": {"type": "putt", "aim_deg": -6.768, "speed": 1.0717, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474486.416, "wall": 12.5172, "k": 15, "seat": "A", "cmd": {"type": "putt", "aim_deg": 37.046, "speed": 0.6865, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474486.914, "wall": 13.0158, "k": 16, "seat": "A", "cmd": {"type": "putt", "aim_deg": -24.868, "speed": 2.4593, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474487.373, "wall": 13.475, "k": 17, "seat": "A", "cmd": {"type": "putt", "aim_deg": -14.616, "speed": 0.5879, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474489.876, "wall": 15.9779, "k": 18, "seat": "A", "cmd": {"type": "putt", "aim_deg": -13.609, "speed": 1.9383, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474490.233, "wall": 16.3346, "k": 19, "seat": "A", "cmd": {"type": "putt", "aim_deg": -2.617, "speed": 3.226, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474490.687, "wall": 16.7888, "k": 20, "seat": "A", "cmd": {"type": "putt", "aim_deg": 35.699, "speed": 2.8162, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474491.123, "wall": 17.2246, "k": 21, "seat": "A", "cmd": {"type": "putt", "aim_deg": -15.287, "speed": 2.3453, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474491.548, "wall": 17.6499, "k": 22, "seat": "A", "cmd": {"type": "putt", "aim_deg": -3.375, "speed": 3.0563, "clock_left_s": {"A": 3600.0}}}
+{"ev": "cmd", "ts": 1791474491.877, "wall": 17.9784, "k": 23, "seat": "A", "cmd": {"type": "putt", "aim_deg": -23.317, "speed": 1.556, "clock_left_s": {"A": 3600.0}}}
+{"ev": "end", "ts": 1791474491.886, "wall": 17.988, "k": 24, "reason": "match_over"}

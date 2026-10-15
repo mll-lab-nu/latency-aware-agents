@@ -1,0 +1,50 @@
+{
+ "expect": {
+  "state_sha": "b0e3cf29a145fc1f2572b5c2a266acd4808021b485ac824688d5f81d29a04662",
+  "scores": {
+   "A": {
+    "heats_won": 1,
+    "warnings": 0,
+    "checkpoints": 62,
+    "laps": 3,
+    "obstacle_crashes": 0,
+    "points": 70,
+    "position": 3,
+    "retired": 0
+   },
+   "B": {
+    "heats_won": 1,
+    "warnings": 2,
+    "checkpoints": 49,
+    "laps": 2,
+    "obstacle_crashes": 0,
+    "points": 67,
+    "position": 4,
+    "retired": 0
+   },
+   "C": {
+    "heats_won": 1,
+    "warnings": 1,
+    "checkpoints": 48,
+    "laps": 3,
+    "obstacle_crashes": 1,
+    "points": 70,
+    "position": 2,
+    "retired": 0
+   },
+   "D": {
+    "heats_won": 1,
+    "warnings": 0,
+    "checkpoints": 64,
+    "laps": 4,
+    "obstacle_crashes": 0,
+    "points": 73,
+    "position": 1,
+    "retired": 0
+   }
+  },
+  "winner": "D",
+  "k": 9703
+ },
+ "source": "recorded by the legacy task racing-race-wallclock-program-standard (golden-data store case oooo-s1-A, commit d4664a8b), converted by golden/convert.py"
+}

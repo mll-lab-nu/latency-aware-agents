@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "28bb39458cba73f3c81220a1ebd7219f4d7b47bb13180f2704327574e1e8075c",
+  "scores": {
+   "A": 44,
+   "B": 48
+  },
+  "winner": "B",
+  "k": 10
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'reference'}, cfg {'sport': 'hello', 'format': 'duel', 'seats': ['A', 'B'], 'seed': 2, 'first': 'B', 'action_level': 'low'}"
+}
