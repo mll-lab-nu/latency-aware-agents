@@ -1,0 +1,6 @@
+__base__: tabletennis.yaml
+latency:
+  method: fixed
+  fixed_latency_ms: 100
+logging:
+  output_dir: outputs/roboolympics_tabletennis/fixed_100ms

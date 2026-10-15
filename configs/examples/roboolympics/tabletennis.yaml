@@ -1,0 +1,32 @@
+experiment:
+  name: roboolympics_tabletennis
+  seed: 1
+env:
+  name: roboolympics_tabletennis
+  registration_imports: [latency_bench.envs.tasks.roboolympics]
+  env_fps: 100
+  obs_fps: 20
+  level: 1
+  noop_action: null
+policy:
+  type: custom
+  factory: latency_bench.envs.tasks.roboolympics:make_reference_policy
+executor:
+  mode: simulated
+  parallel_envs: 1
+  inference_pool: false
+  inference_devices: [cpu]
+  sync_cuda: false
+latency:
+  method: zero
+scheduler:
+  hold_policy: one_frame_then_noop
+  ordering_policy: latest_ready
+evaluation:
+  episodes: 1
+  max_env_steps: 100000
+logging:
+  output_dir: outputs/roboolympics_tabletennis/zero
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true

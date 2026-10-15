@@ -60,6 +60,16 @@ fork revisions identify the LAGEN adaptations imported during migration.
 - Filtered baseline: `e31942b2947ac15795f20ba1adea8e68a6981a94`
 - Initial LAGEN snapshot: `bfb63711ebe41bc0965287353b657f9bc52699da` from https://github.com/mindorigin150/humanoid-bench.git
 
+### roboolympics
+
+- Directory: `third_party/roboolympics`
+- Upstream: https://github.com/CHIGUI0/roboolympics.git (private)
+- Branch: `main`
+- Upstream baseline: `da1f787f775ea6524d698c0b063157ded4c0fef9`
+- Filtered baseline: `124a21b44b8bab6d5f685e654b551a7462da00e6`
+- Table-tennis revision: `wallclock-15+duel-wallclock-12+low-inloop-1+core-0.2`
+- The imported source tree matches the frozen upstream tree. LAGEN's adapter lives outside it.
+
 ## Resource filters
 
 The filter removes presentation media with `.gif`, `.mp4`, `.webm`, `.mov`,
