@@ -1,0 +1,651 @@
+[
+ {
+  "layout": "ssl4",
+  "size": [
+   640,
+   480
+  ],
+  "scenes": 40,
+  "mm_per_px_top": 7.81,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.0007,
+   "p95": 0.0013,
+   "max": 0.0016
+  },
+  "robot_pos_px": {
+   "median": 0.0907,
+   "p95": 0.1728
+  },
+  "robot_yaw_deg": {
+   "median": 0.2212,
+   "p95": 0.6189,
+   "max": 0.8684
+  },
+  "ball_found": 0.95,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.8181818181818182,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0016,
+   "p95": 0.0051,
+   "max": 0.011
+  },
+  "ball_pos_px": {
+   "median": 0.2098,
+   "p95": 0.6483
+  },
+  "ball_missed": [
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 37,
+    "ball": {
+     "x": -3.3507294633019233,
+     "y": 0.5149640916920832
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "ssl4",
+  "size": [
+   800,
+   600
+  ],
+  "scenes": 40,
+  "mm_per_px_top": 6.25,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.0006,
+   "p95": 0.0013,
+   "max": 0.0016
+  },
+  "robot_pos_px": {
+   "median": 0.1022,
+   "p95": 0.2041
+  },
+  "robot_yaw_deg": {
+   "median": 0.1734,
+   "p95": 0.4688,
+   "max": 0.6696
+  },
+  "ball_found": 0.95,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.8181818181818182,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0023,
+   "p95": 0.0051,
+   "max": 0.0123
+  },
+  "ball_pos_px": {
+   "median": 0.3673,
+   "p95": 0.8177
+  },
+  "ball_missed": [
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 37,
+    "ball": {
+     "x": -3.3507294633019233,
+     "y": 0.5149640916920832
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "ssl4",
+  "size": [
+   1024,
+   768
+  ],
+  "scenes": 40,
+  "mm_per_px_top": 4.88,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.0003,
+   "p95": 0.0009,
+   "max": 0.001
+  },
+  "robot_pos_px": {
+   "median": 0.0716,
+   "p95": 0.178
+  },
+  "robot_yaw_deg": {
+   "median": 0.1227,
+   "p95": 0.3398,
+   "max": 0.5345
+  },
+  "ball_found": 0.95,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.8181818181818182,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0024,
+   "p95": 0.0055,
+   "max": 0.0123
+  },
+  "ball_pos_px": {
+   "median": 0.5003,
+   "p95": 1.1161
+  },
+  "ball_missed": [
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 37,
+    "ball": {
+     "x": -3.3507294633019233,
+     "y": 0.5149640916920832
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "ssl4",
+  "size": [
+   640,
+   480
+  ],
+  "offsamples": 0,
+  "scenes": 40,
+  "mm_per_px_top": 7.81,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.0008,
+   "p95": 0.002,
+   "max": 0.0024
+  },
+  "robot_pos_px": {
+   "median": 0.1076,
+   "p95": 0.2547
+  },
+  "robot_yaw_deg": {
+   "median": 0.2998,
+   "p95": 0.8654,
+   "max": 1.0871
+  },
+  "ball_found": 0.95,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.8181818181818182,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0028,
+   "p95": 0.0056,
+   "max": 0.0132
+  },
+  "ball_pos_px": {
+   "median": 0.3538,
+   "p95": 0.7214
+  },
+  "ball_missed": [
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 37,
+    "ball": {
+     "x": -3.3507294633019233,
+     "y": 0.5149640916920832
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "ssl4",
+  "size": [
+   800,
+   600
+  ],
+  "offsamples": 0,
+  "scenes": 40,
+  "mm_per_px_top": 6.25,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.0006,
+   "p95": 0.0011,
+   "max": 0.0015
+  },
+  "robot_pos_px": {
+   "median": 0.0959,
+   "p95": 0.1789
+  },
+  "robot_yaw_deg": {
+   "median": 0.1932,
+   "p95": 0.5939,
+   "max": 0.7818
+  },
+  "ball_found": 0.95,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.8181818181818182,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0032,
+   "p95": 0.0059,
+   "max": 0.0129
+  },
+  "ball_pos_px": {
+   "median": 0.504,
+   "p95": 0.9395
+  },
+  "ball_missed": [
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 37,
+    "ball": {
+     "x": -3.3507294633019233,
+     "y": 0.5149640916920832
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "ssl2",
+  "size": [
+   600,
+   800
+  ],
+  "scenes": 40,
+  "mm_per_px_top": 8.34,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.001,
+   "p95": 0.002,
+   "max": 0.0025
+  },
+  "robot_pos_px": {
+   "median": 0.1244,
+   "p95": 0.2389
+  },
+  "robot_yaw_deg": {
+   "median": 0.2684,
+   "p95": 0.7751,
+   "max": 0.9762
+  },
+  "ball_found": 0.95,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.8181818181818182,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0029,
+   "p95": 0.0061,
+   "max": 0.009
+  },
+  "ball_pos_px": {
+   "median": 0.3437,
+   "p95": 0.7315
+  },
+  "ball_missed": [
+   {
+    "scene": 7,
+    "ball": {
+     "x": -2.284232284681609,
+     "y": 2.4063108191413205
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "single",
+  "size": [
+   1200,
+   840
+  ],
+  "scenes": 40,
+  "mm_per_px_top": 8.0,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.0008,
+   "p95": 0.0019,
+   "max": 0.0022
+  },
+  "robot_pos_px": {
+   "median": 0.0998,
+   "p95": 0.2327
+  },
+  "robot_yaw_deg": {
+   "median": 0.2395,
+   "p95": 0.6586,
+   "max": 1.0423
+  },
+  "ball_found": 0.925,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.7272727272727273,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0053,
+   "p95": 0.0105,
+   "max": 0.012
+  },
+  "ball_pos_px": {
+   "median": 0.6644,
+   "p95": 1.31
+  },
+  "ball_missed": [
+   {
+    "scene": 7,
+    "ball": {
+     "x": -2.284232284681609,
+     "y": 2.4063108191413205
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 33,
+    "ball": {
+     "x": 1.7431956686312815,
+     "y": -0.5384418889714837
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "single",
+  "size": [
+   1200,
+   840
+  ],
+  "offsamples": 0,
+  "scenes": 40,
+  "mm_per_px_top": 8.0,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.001,
+   "p95": 0.0016,
+   "max": 0.0019
+  },
+  "robot_pos_px": {
+   "median": 0.1258,
+   "p95": 0.2036
+  },
+  "robot_yaw_deg": {
+   "median": 0.2371,
+   "p95": 0.6997,
+   "max": 1.038
+  },
+  "ball_found": 0.925,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.7272727272727273,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0065,
+   "p95": 0.012,
+   "max": 0.0131
+  },
+  "ball_pos_px": {
+   "median": 0.8066,
+   "p95": 1.4986
+  },
+  "ball_missed": [
+   {
+    "scene": 7,
+    "ball": {
+     "x": -2.284232284681609,
+     "y": 2.4063108191413205
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 33,
+    "ball": {
+     "x": 1.7431956686312815,
+     "y": -0.5384418889714837
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "single",
+  "size": [
+   960,
+   672
+  ],
+  "scenes": 40,
+  "mm_per_px_top": 10.0,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.0015,
+   "p95": 0.0022,
+   "max": 0.0029
+  },
+  "robot_pos_px": {
+   "median": 0.1473,
+   "p95": 0.2202
+  },
+  "robot_yaw_deg": {
+   "median": 0.3508,
+   "p95": 1.0338,
+   "max": 1.6054
+  },
+  "ball_found": 0.925,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.7272727272727273,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.0045,
+   "p95": 0.011,
+   "max": 0.0136
+  },
+  "ball_pos_px": {
+   "median": 0.4472,
+   "p95": 1.1047
+  },
+  "ball_missed": [
+   {
+    "scene": 7,
+    "ball": {
+     "x": -2.284232284681609,
+     "y": 2.4063108191413205
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 33,
+    "ball": {
+     "x": 1.7431956686312815,
+     "y": -0.5384418889714837
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ },
+ {
+  "layout": "ssl4",
+  "size": [
+   400,
+   300
+  ],
+  "scenes": 40,
+  "mm_per_px_top": 12.5,
+  "robot_found": 1.0,
+  "robot_team_ok": 1.0,
+  "robot_id_ok": 1.0,
+  "robot_false": 0,
+  "robot_pos_m": {
+   "median": 0.0019,
+   "p95": 0.0035,
+   "max": 0.0043
+  },
+  "robot_pos_px": {
+   "median": 0.1515,
+   "p95": 0.2822
+  },
+  "robot_yaw_deg": {
+   "median": 0.4349,
+   "p95": 1.3443,
+   "max": 1.9614
+  },
+  "ball_found": 0.925,
+  "ball_false": 0,
+  "ball_found_free": 1.0,
+  "ball_found_at_robot": 0.7272727272727273,
+  "ball_at_robot_scenes": 11,
+  "ball_pos_m": {
+   "median": 0.003,
+   "p95": 0.0058,
+   "max": 0.006
+  },
+  "ball_pos_px": {
+   "median": 0.2413,
+   "p95": 0.467
+  },
+  "ball_missed": [
+   {
+    "scene": 1,
+    "ball": {
+     "x": 1.6839836975028948,
+     "y": -2.8257293696446606
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 24,
+    "ball": {
+     "x": -4.155795702884719,
+     "y": 0.565551300275166
+    },
+    "nearest_robot_m": 0.0949,
+    "dets": []
+   },
+   {
+    "scene": 37,
+    "ball": {
+     "x": -3.3507294633019233,
+     "y": 0.5149640916920832
+    },
+    "nearest_robot_m": 0.0948,
+    "dets": []
+   }
+  ]
+ }
+]

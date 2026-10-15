@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "fe340fe2969ed51c369acec773af1a74253bd5dcc524e60bd45fd37a056cac1f",
+  "scores": {
+   "A": 5,
+   "opponent": 0
+  },
+  "winner": "A",
+  "k": 8134
+ },
+ "source": "golden/convert.py of the golden-data store case foosball-match-wallclock-program-standard/o-L1"
+}

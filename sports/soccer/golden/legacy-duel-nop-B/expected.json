@@ -1,0 +1,14 @@
+{
+ "expect": {
+  "state_sha": "2ff92be488cf6773d411c8b314721b19cc087b230999911c616fb5ab0b7cb76b",
+  "scores": {
+   "A": 0,
+   "B": 0
+  },
+  "winner": "A",
+  "k": 0
+ },
+ "source": "the legacy record soccer-duel-wallclock-program-standard/nop-B of the golden-data store (recorded 2026-10-06 by the Season-1 task), converted by golden/convert.py",
+ "intended_rule_change": "no_show: B never started (legacy: incomplete, winner None)",
+ "re_expected": "soccer-2v2-4 (real T1 limits, swing kick): the same commands replayed on the new world; soccer-2v2-3 expected state_sha 878367b137a24d67..., scores {'A': 0, 'B': 0}, winner A, k 0; two fresh-process replays agree"
+}

@@ -1,0 +1,59 @@
+{
+ "expect": {
+  "state_sha": "ca0984847070373f6a2a663ea1f31ff6a849aedaa2fad7da37e165cf7c05a1cb",
+  "scores": {
+   "A": 1,
+   "B": 6
+  },
+  "winner": "B",
+  "k": 30092
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'reference'}, cfg {'sport': 'soccer', 'format': 'duel', 'seats': ['A', 'B'], 'seed': 1, 'first': 'A', 'action_level': 'low', 'sides': None}",
+ "re_recorded": {
+  "soccer-2v2-4": {
+   "state_sha": "3166a32ef4dc245e6a02262c6f97277eed68b1116ec77d3a370972e451fb1ae6",
+   "scores": {
+    "A": 1,
+    "B": 2
+   },
+   "winner": "B",
+   "k": 15017
+  },
+  "soccer-2v2-5": {
+   "state_sha": "f2d7f5bedaa6c0b44badf6be4e46f65113f62be2976f363a53878510414857ab",
+   "scores": {
+    "A": 3,
+    "B": 2
+   },
+   "winner": "A",
+   "k": 30270
+  },
+  "soccer-2v2-7": {
+   "state_sha": "13478734b44a5738f4311d243ed8cfb576f7a5be405bf9a4dd4e455a6b5e0116",
+   "scores": {
+    "A": 4,
+    "B": 3
+   },
+   "winner": "A",
+   "k": 30270
+  },
+  "soccer-2v2-9": {
+   "state_sha": "44421d1989ae4b3a53e6bad5bb0652009b6f2ff589a3b7bda6c279eab5b44d68",
+   "scores": {
+    "A": 2,
+    "B": 2
+   },
+   "winner": "A",
+   "k": 31445
+  },
+  "soccer-2v2-10 (peak 2 s, PR draft)": {
+   "state_sha": "87b36b0c7a0f4788ecc871f7021dcc3e9ef39b20eec3c7b5b5e7d9e97e00ced8",
+   "scores": {
+    "A": 0,
+    "B": 7
+   },
+   "winner": "B",
+   "k": 30039
+  }
+ }
+}

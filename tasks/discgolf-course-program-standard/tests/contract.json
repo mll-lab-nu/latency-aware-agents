@@ -1,0 +1,24 @@
+{
+ "format": "single",
+ "formats": {
+  "single": {
+   "opponent": false,
+   "seats": [
+    "A"
+   ],
+   "success": {
+    "score_at_most": 21
+   }
+  }
+ },
+ "official": {
+  "seeds": [
+   20261005,
+   2,
+   3
+  ]
+ },
+ "protocol": "turn",
+ "sport": "discgolf",
+ "task": "discgolf-course-program-standard"
+}

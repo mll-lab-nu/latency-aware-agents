@@ -1,0 +1,42 @@
+{
+ "format": "duel",
+ "formats": {
+  "duel": {
+   "first": [
+    "A",
+    "B"
+   ],
+   "seats": [
+    "A",
+    "B"
+   ]
+  },
+  "match": {
+   "opponent": true,
+   "seats": [
+    "A"
+   ]
+  }
+ },
+ "official": {
+  "first_any": true,
+  "levels": [
+   1,
+   2
+  ],
+  "seeds": [
+   1,
+   2,
+   3,
+   7101,
+   7111,
+   7121,
+   7202,
+   7212,
+   7222
+  ]
+ },
+ "protocol": "turn",
+ "sport": "curling",
+ "task": "curling-duel-program-standard"
+}

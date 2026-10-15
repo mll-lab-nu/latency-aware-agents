@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "a25336cfdc9ddfe5eeb9c99273692ac9097426ecf45a11ebcad649e92223b4e7",
+  "scores": {
+   "A": 0,
+   "B": 1
+  },
+  "winner": "A",
+  "k": 13
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'reference'}, cfg {'sport': 'billiards', 'format': 'duel', 'seats': ['A', 'B'], 'seed': 3, 'first': 'B', 'action_level': 'low'}"
+}

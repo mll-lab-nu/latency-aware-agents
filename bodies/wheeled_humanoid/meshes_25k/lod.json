@@ -1,0 +1,302 @@
+{
+ "files": {
+  "LINK_1.stl": {
+   "sha256": "2195d4d858a52308738c5d0ae90000c4a8ed5f858b9fbf74c6b5b95ac02b13cc",
+   "source": "LINK_1.obj",
+   "source_sha256": "6cf0655a994d0090439311ca4fa7582f3d326ed41405d2a536ef520b8e2f530c",
+   "triangles": 220
+  },
+  "LINK_10_0.stl": {
+   "sha256": "25c3dc16703b3533cb92b38651a12be47476036ac6ecb3467d610456a978de0d",
+   "source": "LINK_10_0.obj",
+   "source_sha256": "bc288e730f4bf1c4b9993e56f4f42f1ab9779429c8dbe15f0895bf29421f6ab7",
+   "triangles": 229
+  },
+  "LINK_10_1.stl": {
+   "sha256": "48170f985d4ad0f5cb23745c5175f74ce5f645428605bac1cac40de84d72cbf0",
+   "source": "LINK_10_1.obj",
+   "source_sha256": "fbb38cc8acd99e2c66e31368ba015e364ffdf929f407d34052cb27f7e566a5e1",
+   "triangles": 64
+  },
+  "LINK_11.stl": {
+   "sha256": "3fb0a2d4662e381f07bb3d699a6af59b89a0801040189c6edc66cf425b9bc665",
+   "source": "LINK_11.obj",
+   "source_sha256": "2fa1f05f7a388850f2de3a0b3fce3fce2dc52b8500fa6c970b6bf33b33e12573",
+   "triangles": 220
+  },
+  "LINK_12_0_V1.1.stl": {
+   "sha256": "1a4af7c2d5da3685b13e703cd18026893235fe1b4cceb00dea63caec16634d54",
+   "source": "LINK_12_0_V1.1.obj",
+   "source_sha256": "be889587b3220f7616e877129d6cfcfbf64e7f9e96c7c3f644f97d069f1d5a93",
+   "triangles": 70
+  },
+  "LINK_12_1_V1.1.stl": {
+   "sha256": "33d04037202f1cb477f8001a8546df225da02932d3d37b5cd962e0b4eaf47610",
+   "source": "LINK_12_1_V1.1.obj",
+   "source_sha256": "a4d148411185eea117b0cc4a55eee875663b68575482229f620d0a195882955c",
+   "triangles": 304
+  },
+  "LINK_13_0_V1.1.stl": {
+   "sha256": "1960c6acad76275a44c4aa1758832d07e3096a418bcf105f1ebdd09691a6ebdd",
+   "source": "LINK_13_0_V1.1.obj",
+   "source_sha256": "e10cce43a0817e463aa13b95ab3484d4bc0578fef1b9e322e56c7f055ffb4f39",
+   "triangles": 637
+  },
+  "LINK_13_1_V1.1.stl": {
+   "sha256": "f93828016beca3b8732a8d9219d77c547df854e1ba55810683cf1d0ba401b788",
+   "source": "LINK_13_1_V1.1.obj",
+   "source_sha256": "af0bbd469fee9fbb3c196c536cf359a6295abe51203e3d34e10ef8175467884c",
+   "triangles": 449
+  },
+  "LINK_14.stl": {
+   "sha256": "5c27bb3e2b8011e6b6f802fcdcba1500d2c14f32f10c1304c5124e627570f350",
+   "source": "LINK_14.obj",
+   "source_sha256": "853f81eb2b38b713a4bf71358f5da2dcf293526c1eae3008f79ded03795f4a5c",
+   "triangles": 278
+  },
+  "LINK_15.stl": {
+   "sha256": "2171d32915fe2403868391ae7f88b57f9c01221ae24db08f9e750b4af733a25a",
+   "source": "LINK_15.obj",
+   "source_sha256": "6a8ebd676bc80fda41280a2eeb2681a258f1a1da5803059ba3cffa5d78caa7a8",
+   "triangles": 118
+  },
+  "LINK_16_0.stl": {
+   "sha256": "6f208e836a9a905cbf2439bfba23305cf9ef6c8ab8a261d8503e796e055c3019",
+   "source": "LINK_16_0.obj",
+   "source_sha256": "e89cf7c31276c1161f8c6c39eb9822185cbad632d10297715101493035f8705f",
+   "triangles": 288
+  },
+  "LINK_16_1.stl": {
+   "sha256": "3993d5226e8ad635a63f4a0c95f51938d4de8b611bed2d292da8311ad1f4669b",
+   "source": "LINK_16_1.obj",
+   "source_sha256": "1f829f66ff53074d8d281b44ce6677a1b2dbd7ce4ece5ccf4fdfbadcda4cfb63",
+   "triangles": 178
+  },
+  "LINK_17_0.stl": {
+   "sha256": "203664b331566eb49a09abbcadc92345f1afc83d5546ccb3e5fd933ff010cf50",
+   "source": "LINK_17_0.obj",
+   "source_sha256": "c02d1973c59c7af81fc8acf62a92639309ef68c48b2ce1c5d1947d3b12089767",
+   "triangles": 228
+  },
+  "LINK_17_1.stl": {
+   "sha256": "a7ab1de2af18b6c5d5f32778a2941d78bf1c37f6ee90d8ce810febeeccf246a5",
+   "source": "LINK_17_1.obj",
+   "source_sha256": "5af0be66dfc63cc8a3f2a164716b2175c648575e7121d29f03bcf678f55a38b9",
+   "triangles": 64
+  },
+  "LINK_18.stl": {
+   "sha256": "25b78391cf3b9d9b68fe6368dce08f27b17fa5e108ea5153234f0860a9ccd8c1",
+   "source": "LINK_18.obj",
+   "source_sha256": "ec958b0d3766155f0725b1935777b4ec6d28219a4ea57a7d8127cc6d99e666e3",
+   "triangles": 220
+  },
+  "LINK_19_0_V1.1.stl": {
+   "sha256": "c30121dc0d123539a3c39f96c50a55093a6245adf3a7aa77730fd06d3ca4aa6d",
+   "source": "LINK_19_0_V1.1.obj",
+   "source_sha256": "93c823818cfbe00ed1739ce506a6abc099fb8191918828c0040d56471e8c7941",
+   "triangles": 71
+  },
+  "LINK_19_1_V1.1.stl": {
+   "sha256": "74c643135844d96aea8d4fd30a355a9902d15086b58970dde83c6f92f5f147fb",
+   "source": "LINK_19_1_V1.1.obj",
+   "source_sha256": "cc5fd9357283423825a9107ae376ffe130a1579934cb95fa761f3ed3d2efc933",
+   "triangles": 304
+  },
+  "LINK_20_0_V1.1.stl": {
+   "sha256": "b3caee4421d143b736ead59ae967fd6a31ff109cea06b30bcc39f9933be7e14e",
+   "source": "LINK_20_0_V1.1.obj",
+   "source_sha256": "416e4064873aea1c4096153cdfd5bc2a78932723da6cf164a6983be1ad4a6ce5",
+   "triangles": 638
+  },
+  "LINK_20_1_V1.1.stl": {
+   "sha256": "7794248afe80d22860adcbec8cbb1c996caccecaa83c7c6a4b8d72290f78c8c0",
+   "source": "LINK_20_1_V1.1.obj",
+   "source_sha256": "c1f06f82b53b22b84ad606b3e55d686074d0c29f9022cbda418e04744914decf",
+   "triangles": 449
+  },
+  "LINK_2_0.stl": {
+   "sha256": "3ccf70ee6be09aae65aeab48f5c8c7f5b3247b2d614d53e23fb20c8c4eb22a47",
+   "source": "LINK_2_0.obj",
+   "source_sha256": "1cd714a7a8ab8c0d6935205802d0c4bfbbbb21508e99ad3783597459a5d14b37",
+   "triangles": 330
+  },
+  "LINK_2_1.stl": {
+   "sha256": "34398ff95914e6fd900d477470e2b850032640939819bf5f0f051b98974bb718",
+   "source": "LINK_2_1.obj",
+   "source_sha256": "ffcfa78ef693bfa47a309519d064f3b41e02f721becaac59c6d9a43eb2872acf",
+   "triangles": 437
+  },
+  "LINK_3_0.stl": {
+   "sha256": "ab19f9b5b38290ce091baa5013932c946c27ad4274b2f4794fae9aa4999b7798",
+   "source": "LINK_3_0.obj",
+   "source_sha256": "2422bc1bf688ee4dcab7692ff25223bc011109e47c6d6608b0576257f04b2313",
+   "triangles": 332
+  },
+  "LINK_3_1.stl": {
+   "sha256": "eaf08bd45457091678fec8ffef2dfee2ee2b289029501dbef0b8e96e29fa733b",
+   "source": "LINK_3_1.obj",
+   "source_sha256": "f356a03c48f621e11b5f0d5c66a2730e2a3f43245f1ba7c58bb945d24b4c53e9",
+   "triangles": 426
+  },
+  "LINK_4.stl": {
+   "sha256": "7f451c0e863a24628fc8f7949a8ae4fa5b71b38dfba491e0b0d08c0fd7773b77",
+   "source": "LINK_4.obj",
+   "source_sha256": "77a212fb80a44179373aa88026c8e1f3976751ab2d5a17acbfeb03054dc8cc48",
+   "triangles": 262
+  },
+  "LINK_5.stl": {
+   "sha256": "af5aa3f2e46d17d7c5704b84396ebd6dfd81f83c399cb340a101e3160f59da8c",
+   "source": "LINK_5.obj",
+   "source_sha256": "7355dd106c4c82125e1ae480108906977f296857d24d54bb37a0d7ff74d3d4d4",
+   "triangles": 224
+  },
+  "LINK_6_0.stl": {
+   "sha256": "9a2a86a88178ec3adaaba3f1cb39064009d540cbce2bed74a83f4b3c7881ce92",
+   "source": "LINK_6_0.obj",
+   "source_sha256": "5874e63d2efd44d19b90814091aa7200927380c20ab9a1a382acf30b7d6c8694",
+   "triangles": 6
+  },
+  "LINK_6_1.stl": {
+   "sha256": "36208fc1d890defd969ab790763513dd5e83e5fa84d93bc3560a41857420a2ca",
+   "source": "LINK_6_1.obj",
+   "source_sha256": "c669faff7f7d01c629af51cbd7127eb5f410714c46eaea7c29954570ad966764",
+   "triangles": 64
+  },
+  "LINK_6_2.stl": {
+   "sha256": "df12afdaa2f042b176ca2dfaf18b3dc1441408ac693dca80bfa40c391aa39dab",
+   "source": "LINK_6_2.obj",
+   "source_sha256": "37d6eeb21573d633b21d3e324134f551b03c91dc1efd2fa3bb5f8b198b313eb6",
+   "triangles": 2561
+  },
+  "LINK_6_3.stl": {
+   "sha256": "41f5c58385713f998df6766a99b097d288cf77e30b76500cff17698d0314e8fb",
+   "source": "LINK_6_3.obj",
+   "source_sha256": "94631d4a28138fbf98520704a90aec87614c488f87a30d02f3afaa07df1ef5b2",
+   "triangles": 285
+  },
+  "LINK_6_4.stl": {
+   "sha256": "efd2d266b91a02ec1828214f2a5df15fc9b6755de17038785a707afc2cd2e921",
+   "source": "LINK_6_4.obj",
+   "source_sha256": "93b94ae5aa523bfa33409800e1a06df19bb368f747ed92e5be6505588e6d2ea1",
+   "triangles": 774
+  },
+  "LINK_6_5.stl": {
+   "sha256": "493b65c93634f747f154c3893189cb04627cce027f11fb2085e6a01ac104aec3",
+   "source": "LINK_6_5.obj",
+   "source_sha256": "d4cf81fc9a3e1c5f1caeeb21fc887f844e6927bf51abdd8f0385c0157da0c4c8",
+   "triangles": 613
+  },
+  "LINK_7.stl": {
+   "sha256": "4bbcb9b3c7c5c7751b520ca7f08d224c17a4b6ec6b98d282bcecbdfb326b753e",
+   "source": "LINK_7.obj",
+   "source_sha256": "d9a5b48f77ff626d43d71a0c99dc4716fa3c9d92c044fb2cc1601d59f3515a4a",
+   "triangles": 278
+  },
+  "LINK_8.stl": {
+   "sha256": "4fc29b9ce6f84bf9576f246337f3a6460fc0a9223ebf696dad405d82d4374150",
+   "source": "LINK_8.obj",
+   "source_sha256": "5256a8a76eb091b697a7caa7d5ffa6423707c2e45ec90a270e5fd6dc2427b28c",
+   "triangles": 118
+  },
+  "LINK_9_0.stl": {
+   "sha256": "f4fda15285b1cef2700abcf8f55467dd990310a5ca307f7fc70ae91fb0f0bc5c",
+   "source": "LINK_9_0.obj",
+   "source_sha256": "54b7fff3e84a76ae7a343083f9db2b5ce3fc978cd68de9124df2dbcb28db6fc0",
+   "triangles": 293
+  },
+  "LINK_9_1.stl": {
+   "sha256": "8be2ad7c5281d83e96b6af42fef8538841cdfa98587216167ee837491cd822f6",
+   "source": "LINK_9_1.obj",
+   "source_sha256": "8f692494bb598250a09af4cc2b0f5d139f187889ec398fedb67edc5ba8b60b57",
+   "triangles": 155
+  },
+  "MECANUM_WHEEL.stl": {
+   "sha256": "fcffa0f9b616ac012881cd90c20f222de833e4835c5a05da2222eed80fb798e0",
+   "source": "MECANUM_WHEEL.obj",
+   "source_sha256": "7208c59a209690ea59c0c6c3594deb65557b7ccaa18fcc535cc2da9a6638248f",
+   "triangles": 5034
+  },
+  "MECANUM_WHEEL_M.stl": {
+   "sha256": "bcc5f08db0dc1128a7cea2d8cdde6fd268db4473a9c744996fed55b0ce373705",
+   "source": "MECANUM_WHEEL_M.obj",
+   "source_sha256": "3bcc5a3d361ab5241d8b62da4ff713e5ff65332d1e6ed3e7d7c3b403814a9597",
+   "triangles": 5070
+  },
+  "NECK_0.stl": {
+   "sha256": "2b3f22839d1a30c126854e38be3c32852cf85c5ba8a10064e9e189b691bd8204",
+   "source": "NECK_0.obj",
+   "source_sha256": "6b3728cbf1a7eb7808fb7ff5d0b91bc0a9f8d0ed1ee3a2e2a090cb2de106111c",
+   "triangles": 136
+  },
+  "NECK_1.stl": {
+   "sha256": "c2c2da0fab9a4743be54f32938678acac07375a89714a22e230c56850d508963",
+   "source": "NECK_1.obj",
+   "source_sha256": "c96c073ed7e9bd3d4e4bcb0a7603ad8d338190dde879d5fa298e9352c24d4e77",
+   "triangles": 284
+  },
+  "NECK_2_0.stl": {
+   "sha256": "f063bc85f49cfbd6de7b44356ad116d857f0d7ce5df56c9bdfefe1ffb1e53c34",
+   "source": "NECK_2_0.obj",
+   "source_sha256": "e8314bbcece26510ba7add4bc8a5ef50d8b0a70721705074946f4515be220ee9",
+   "triangles": 126
+  },
+  "NECK_2_1.stl": {
+   "sha256": "83d89fa3a692d34d1737d3883b968ae54aef364ea9baf4f8389aed25ba5cb961",
+   "source": "NECK_2_1.obj",
+   "source_sha256": "6b8d1205e385116c49c3af16ca893526d10ff3b7d1d1b2678f928a8bb350eb52",
+   "triangles": 114
+  },
+  "m_base_1.stl": {
+   "sha256": "b04978ced9eeba2168ea0789a363267895178a4732ea68dcbadf9e0002de6a13",
+   "source": "m_base_1.obj",
+   "source_sha256": "e7bec3194a47937fa3f029e1799e1da6e16d7c192e1328a9c381079c27339064",
+   "triangles": 64
+  },
+  "m_base_2.stl": {
+   "sha256": "91c536844790bcbb59c8ee48a9430a0448b2aa9628a44ac47d8394ab2bfbb7ad",
+   "source": "m_base_2.obj",
+   "source_sha256": "e567f4df8343f525ff6153cfa02048a7e81d3f9c2cf4a3e62fd7508d3d3e6174",
+   "triangles": 416
+  },
+  "m_base_3.stl": {
+   "sha256": "64aec408e03cd9166c5f9b80f1547733525d27bdb32ccb78a26c763af93d30a2",
+   "source": "m_base_3.obj",
+   "source_sha256": "05729f8545febba72e68c2031b35ae97d0ed4ecb986b66bf8d6c78e3a80108c1",
+   "triangles": 43
+  },
+  "m_base_4.stl": {
+   "sha256": "bb2d6ff6cbb84c26e253fbcc3acc36cc7b1a39414f5034cb374c325505edf3a9",
+   "source": "m_base_4.obj",
+   "source_sha256": "2a0e167fcdd7b358fb6d35bb379307bc495c0ccbd2f1d2a47ad9b7d55e0b31b1",
+   "triangles": 63
+  },
+  "m_base_5.stl": {
+   "sha256": "26a3265a4fe9fed877ec38358f053c8f33557cba9dd71bc80342ac766de4b055",
+   "source": "m_base_5.obj",
+   "source_sha256": "9fbfefdd6a0d5e3a3024dd657f727872c0b410c238ae850c1d1814a6013eab99",
+   "triangles": 650
+  },
+  "m_base_6.stl": {
+   "sha256": "71655ddae0328b44e82b212162dafd1b86d13ee4f3cce56966c456c48067c903",
+   "source": "m_base_6.obj",
+   "source_sha256": "2a2eb2fff7b60872f26a183ded5f29b6570abbe07b601f31ec8d3ea64a5afb4f",
+   "triangles": 226
+  },
+  "m_base_7.stl": {
+   "sha256": "a25b028b6354578f2d1371efe4af3e816e433103d8a0e1f6b1094d878ae26354",
+   "source": "m_base_7.obj",
+   "source_sha256": "920b41f08115f6ea1ddec6963c0db5f617b030989b9228e70159258e13eddb92",
+   "triangles": 835
+  }
+ },
+ "level": "25k",
+ "note": "Levels of detail of the library's robots (the players' images, renderer rule 6; user decision D1, 2026-10-08): a robot's fine meshes (meshes_fine/, the unchanged upstream meshes, not in git) decimated to a triangle budget and committed as meshes_<level>/ (e.g. meshes_25k/), so that a sport draws its players' images of the robot with the appearance of the real robot at a small cost (a body's mount(..., lod=\"25k\")).",
+ "robot": "wheeled_humanoid",
+ "source_triangles": 161802,
+ "target_triangles": 25000,
+ "tools": {
+  "fast-simplification": "0.2.0",
+  "trimesh": "5.1.1"
+ },
+ "triangles": 25248
+}

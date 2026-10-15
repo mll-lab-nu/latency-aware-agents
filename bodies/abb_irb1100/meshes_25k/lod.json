@@ -1,0 +1,74 @@
+{
+ "files": {
+  "base.stl": {
+   "sha256": "38b6c5849d46b0ed63b357c25abd8f30f7fe5042b0d14236e9c74bbc0721b0e0",
+   "source": "base.stl",
+   "source_sha256": "1e835b59bf6fb38767b7ea7ec2319344f8ad5e22d8db860e894175068f01267f",
+   "triangles": 792
+  },
+  "gantry_x.stl": {
+   "sha256": "cccfccfe1f544461f377b7b95690cb962632d0fbbae2079ce44a29f8a2fdcd9d",
+   "source": "gantry_x.stl",
+   "source_sha256": "d32ee99d9e6e00e6b65b79b658916065ff6773d02054e80a8e26916e92a89a40",
+   "triangles": 24
+  },
+  "gantry_y.stl": {
+   "sha256": "f8e01fecfab1f250f94a1cd5a656d0fb76f2b1683dddc9f611d51eeb51dc7503",
+   "source": "gantry_y.stl",
+   "source_sha256": "62a35f1cc0719e4b9cc374c6182a13469162f417b80ed23f3f690cf90db82e28",
+   "triangles": 12
+  },
+  "link_0.stl": {
+   "sha256": "c57eaa86e6caaadd2fc2d3ab0f125f6ced46d8027df5e25d6af588fe1fae2f17",
+   "source": "link_0.stl",
+   "source_sha256": "1d6b978c4128c820db31821517a82838b233534ce233ed41b2ab2059292192f5",
+   "triangles": 140
+  },
+  "link_1.stl": {
+   "sha256": "ba021e38b6094bca23cd645d4f7444d2cf5af66e01f573318a15df5fcfa408a5",
+   "source": "link_1.stl",
+   "source_sha256": "ee6566e9277d3f09ffefa572ff3388d56eeb507dd88d9701378b6a6a3ad9727c",
+   "triangles": 704
+  },
+  "link_2.stl": {
+   "sha256": "46e0022ee7da082447e8a63bfffde591612089064cdf618a04e5edbca11caee4",
+   "source": "link_2.stl",
+   "source_sha256": "9dcde3c5f364985d29d5f966861f47ee18a20e52966a79f95c5558164193307c",
+   "triangles": 576
+  },
+  "link_3.stl": {
+   "sha256": "d196d8f4ba73be4798f3a1bfff41af9acac1e56b48aef186a28a49ef0098b60c",
+   "source": "link_3.stl",
+   "source_sha256": "119d1e8911281a9233f4ec5292e8eda36fcc292aef885645deba582ebbeabac9",
+   "triangles": 588
+  },
+  "link_4.stl": {
+   "sha256": "f5337f3106d96b1f3e01266599eabcd6ee2439fd79ecd6af60f14ac2f2529f90",
+   "source": "link_4.stl",
+   "source_sha256": "4d582ab88b844b5d770a12722cfbe0f4e53cabea3ac109d0ea1afe600952690e",
+   "triangles": 576
+  },
+  "link_5.stl": {
+   "sha256": "ec42edd8578c5439a0621c9511ad59b5b142421dda76a7fe798766653d1530dd",
+   "source": "link_5.stl",
+   "source_sha256": "3021688f4b8e4298eb6c25635ac2401d821aff5acc237eb2b61a59d1171e7db0",
+   "triangles": 576
+  },
+  "link_6.stl": {
+   "sha256": "8d32b4c31e6bdd3162149c4b630145a429ced8d4aee809bfa6cbc97c0cc2724d",
+   "source": "link_6.stl",
+   "source_sha256": "431e38914c164d8e1f2e1f0dbe4e101ec313bca3c81d738ac711e3ebc2b8c8de",
+   "triangles": 128
+  }
+ },
+ "level": "25k",
+ "note": "Levels of detail of the library's robots (the players' images, renderer rule 6; user decision D1, 2026-10-08): a robot's fine meshes (meshes_fine/, the unchanged upstream meshes, not in git) decimated to a triangle budget and committed as meshes_<level>/ (e.g. meshes_25k/), so that a sport draws its players' images of the robot with the appearance of the real robot at a small cost (a body's mount(..., lod=\"25k\")).",
+ "robot": "abb_irb1100",
+ "source_triangles": 4116,
+ "target_triangles": 25000,
+ "tools": {
+  "fast-simplification": "0.2.0",
+  "trimesh": "5.1.1"
+ },
+ "triangles": 4116
+}

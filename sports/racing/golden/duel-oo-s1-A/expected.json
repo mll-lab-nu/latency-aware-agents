@@ -1,0 +1,24 @@
+{
+ "expect": {
+  "state_sha": "a5518979e50a9ad11a930f6ac1ef8b830e1fd256d86552341652f802c6e1efc7",
+  "scores": {
+   "A": {
+    "heats_won": 2,
+    "warnings": 0,
+    "checkpoints": 46,
+    "laps": 2,
+    "obstacle_crashes": 0
+   },
+   "B": {
+    "heats_won": 1,
+    "warnings": 0,
+    "checkpoints": 44,
+    "laps": 1,
+    "obstacle_crashes": 0
+   }
+  },
+  "winner": "A",
+  "k": 6236
+ },
+ "source": "recorded by the legacy task racing-duel-wallclock-program-standard (golden-data store case oo-s1-A, commit d4664a8b), converted by golden/convert.py"
+}

@@ -1,0 +1,14 @@
+{
+ "expect": {
+  "state_sha": "e5927254082ca3c81386a9fcb49caf7cb5dfb4004cecc630e1ea032c012283d0",
+  "scores": {
+   "A": 0,
+   "opponent": 0
+  },
+  "winner": null,
+  "k": 0
+ },
+ "source": "the legacy record soccer-match-wallclock-program-standard/nop of the golden-data store (recorded 2026-10-06 by the Season-1 task), converted by golden/convert.py",
+ "intended_rule_change": "rule-change:core-0.2.7-prestart-noshow: the session was collected inside the start window (cores 0.2.2-0.2.6: unfinished; core 0.2.7: a valid loss at the collect); no_show: A never started (legacy: collected, winner B)",
+ "re_expected": "soccer-2v2-4 (real T1 limits, swing kick): the same commands replayed on the new world; soccer-2v2-3 expected state_sha 3f2315f6fd97ad20..., scores {'A': 0, 'opponent': 0}, winner None, k 0; two fresh-process replays agree"
+}

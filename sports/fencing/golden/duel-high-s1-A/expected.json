@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "1db921fa27c493b3ef07fd39ff5b47f231c285f0845761dd4d4e0ec195052f1d",
+  "scores": {
+   "A": 5,
+   "B": 4
+  },
+  "winner": "A",
+  "k": 5254
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'reference'}, cfg {'sport': 'fencing', 'format': 'duel', 'seats': ['A', 'B'], 'seed': 1, 'first': 'A', 'action_level': 'high', 'sides': None}"
+}

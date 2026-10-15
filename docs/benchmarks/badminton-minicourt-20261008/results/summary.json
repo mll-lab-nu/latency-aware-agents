@@ -1,0 +1,1598 @@
+{
+ "b9f-r0": {
+  "tag": "b9f-r0",
+  "oracle": {
+   "n": 105,
+   "legal": 100,
+   "knobs": {
+    "variant": "b9f-r0",
+    "gain": 4.0,
+    "court_scale": 0.4,
+    "base_v": 5.0,
+    "base_a": 50.0,
+    "base_j": 1250.0,
+    "base_f": 2500.0,
+    "arm": "franka_panda FCI limits"
+   },
+   "faults": {
+    "not producible (head-speed cap)": 5
+   },
+   "by_type": {
+    "short": {
+     "legal": 41,
+     "returned": 41,
+     "speed": [
+      5.5,
+      10.05
+     ]
+    },
+    "mid": {
+     "legal": 29,
+     "returned": 27,
+     "speed": [
+      6.25,
+      11.72
+     ]
+    },
+    "long-flat": {
+     "legal": 13,
+     "returned": 12,
+     "speed": [
+      7.22,
+      8.28
+     ]
+    },
+    "long-high": {
+     "legal": 17,
+     "returned": 17,
+     "speed": [
+      8.5,
+      12.6
+     ]
+    }
+   },
+   "returned": 97,
+   "frac": 0.97,
+   "speed": [
+    5.5,
+    12.6
+   ],
+   "by_family": {
+    "low": {
+     "attempted": 35,
+     "legal": 30
+    },
+    "mid": {
+     "attempted": 35,
+     "legal": 35
+    },
+    "high": {
+     "attempted": 35,
+     "legal": 35
+    }
+   },
+   "unreturned": [
+    {
+     "i": 15,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 1.73,
+      "i": 15,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.25,
+     "land": [
+      -0.074,
+      1.694
+     ],
+     "t_flight": 1.083,
+     "cause": "strokes tried, none good: miss 34, own_side 6"
+    },
+    {
+     "i": 28,
+     "plan": {
+      "fam": "low",
+      "x": -0.76,
+      "y": 2.337,
+      "i": 28,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 7.4,
+     "land": [
+      -0.744,
+      2.288
+     ],
+     "t_flight": 1.087,
+     "cause": "strokes tried, none good: miss 19, out 4, own_side 17"
+    },
+    {
+     "i": 56,
+     "plan": {
+      "fam": "mid",
+      "x": -0.3,
+      "y": 2.033,
+      "i": 56,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 7.41,
+     "land": [
+      -0.294,
+      1.997
+     ],
+     "t_flight": 1.223,
+     "cause": "strokes tried, none good: miss 21, out 8, own_side 11"
+    }
+   ],
+   "wall_s": 1391
+  }
+ },
+ "b9f-r20": {
+  "tag": "b9f-r20",
+  "oracle": {
+   "n": 105,
+   "legal": 100,
+   "knobs": {
+    "variant": "b9f-r20",
+    "gain": 4.0,
+    "court_scale": 0.4,
+    "base_v": 5.0,
+    "base_a": 50.0,
+    "base_j": 1250.0,
+    "base_f": 2500.0,
+    "arm": "franka_panda FCI limits"
+   },
+   "faults": {
+    "not producible (head-speed cap)": 5
+   },
+   "by_type": {
+    "short": {
+     "legal": 41,
+     "returned": 39,
+     "speed": [
+      5.5,
+      10.05
+     ]
+    },
+    "mid": {
+     "legal": 29,
+     "returned": 22,
+     "speed": [
+      6.25,
+      11.72
+     ]
+    },
+    "long-flat": {
+     "legal": 13,
+     "returned": 10,
+     "speed": [
+      7.22,
+      8.28
+     ]
+    },
+    "long-high": {
+     "legal": 17,
+     "returned": 17,
+     "speed": [
+      8.5,
+      12.6
+     ]
+    }
+   },
+   "returned": 88,
+   "frac": 0.88,
+   "speed": [
+    5.5,
+    12.6
+   ],
+   "by_family": {
+    "low": {
+     "attempted": 35,
+     "legal": 30
+    },
+    "mid": {
+     "attempted": 35,
+     "legal": 35
+    },
+    "high": {
+     "attempted": 35,
+     "legal": 35
+    }
+   },
+   "unreturned": [
+    {
+     "i": 4,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 0.82,
+      "i": 4,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.73,
+     "land": [
+      -0.962,
+      0.792
+     ],
+     "t_flight": 1.069,
+     "cause": "strokes tried, none good: miss 5, own_side 1"
+    },
+    {
+     "i": 15,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 1.73,
+      "i": 15,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.25,
+     "land": [
+      -0.074,
+      1.694
+     ],
+     "t_flight": 1.083,
+     "cause": "strokes tried, none good: miss 36, out 1, own_side 3"
+    },
+    {
+     "i": 20,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 2.033,
+      "i": 20,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.6,
+     "land": [
+      -0.075,
+      1.995
+     ],
+     "t_flight": 1.072,
+     "cause": "strokes tried, none good: miss 38, own_side 2"
+    },
+    {
+     "i": 22,
+     "plan": {
+      "fam": "low",
+      "x": -0.52,
+      "y": 2.033,
+      "i": 22,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.86,
+     "land": [
+      -0.51,
+      1.994
+     ],
+     "t_flight": 1.093,
+     "cause": "strokes tried, none good: miss 36, out 3, own_side 1"
+    },
+    {
+     "i": 23,
+     "plan": {
+      "fam": "low",
+      "x": -0.76,
+      "y": 2.033,
+      "i": 23,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 7.06,
+     "land": [
+      -0.749,
+      1.998
+     ],
+     "t_flight": 1.109,
+     "cause": "strokes tried, none good: miss 38, own_side 2"
+    },
+    {
+     "i": 26,
+     "plan": {
+      "fam": "low",
+      "x": -0.3,
+      "y": 2.337,
+      "i": 26,
+      "cap": 1.8
+     },
+     "type": "long-flat",
+     "speed": 7.33,
+     "land": [
+      -0.294,
+      2.297
+     ],
+     "t_flight": 1.13,
+     "cause": "strokes tried, none good: miss 35, out 2, own_side 3"
+    },
+    {
+     "i": 28,
+     "plan": {
+      "fam": "low",
+      "x": -0.76,
+      "y": 2.337,
+      "i": 28,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 7.4,
+     "land": [
+      -0.744,
+      2.288
+     ],
+     "t_flight": 1.087,
+     "cause": "strokes tried, none good: miss 37, own_side 3"
+    },
+    {
+     "i": 29,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 2.337,
+      "i": 29,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 7.62,
+     "land": [
+      -0.967,
+      2.299
+     ],
+     "t_flight": 1.102,
+     "cause": "strokes tried, none good: miss 38, own_side 2"
+    },
+    {
+     "i": 39,
+     "plan": {
+      "fam": "mid",
+      "x": -0.98,
+      "y": 0.82,
+      "i": 39,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.73,
+     "land": [
+      -0.962,
+      0.792
+     ],
+     "t_flight": 1.069,
+     "cause": "strokes tried, none good: miss 5, own_side 1"
+    },
+    {
+     "i": 51,
+     "plan": {
+      "fam": "mid",
+      "x": -0.3,
+      "y": 1.73,
+      "i": 51,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.74,
+     "land": [
+      -0.293,
+      1.696
+     ],
+     "t_flight": 1.165,
+     "cause": "strokes tried, none good: miss 36, own_side 4"
+    },
+    {
+     "i": 55,
+     "plan": {
+      "fam": "mid",
+      "x": -0.08,
+      "y": 2.033,
+      "i": 55,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 7.27,
+     "land": [
+      -0.077,
+      1.998
+     ],
+     "t_flight": 1.212,
+     "cause": "strokes tried, none good: miss 28, out 4, own_side 8"
+    },
+    {
+     "i": 56,
+     "plan": {
+      "fam": "mid",
+      "x": -0.3,
+      "y": 2.033,
+      "i": 56,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 7.41,
+     "land": [
+      -0.294,
+      1.997
+     ],
+     "t_flight": 1.223,
+     "cause": "strokes tried, none good: miss 38, out 2"
+    }
+   ],
+   "wall_s": 1670
+  }
+ },
+ "b9f-r20-x100": {
+  "tag": "b9f-r20-x100",
+  "oracle": {
+   "n": 12,
+   "legal": 12,
+   "knobs": {
+    "variant": "b9f-r20-x100",
+    "gain": 4.0,
+    "court_scale": 0.4,
+    "base_v": 5.0,
+    "base_a": 50.0,
+    "base_j": 1250.0,
+    "base_f": 2500.0,
+    "arm": "franka_panda FCI limits"
+   },
+   "faults": {},
+   "by_type": {
+    "short": {
+     "legal": 2,
+     "returned": 0,
+     "speed": [
+      5.73,
+      5.73
+     ]
+    },
+    "mid": {
+     "legal": 7,
+     "returned": 3,
+     "speed": [
+      6.25,
+      7.41
+     ]
+    },
+    "long-flat": {
+     "legal": 3,
+     "returned": 1,
+     "speed": [
+      7.33,
+      7.62
+     ]
+    }
+   },
+   "returned": 4,
+   "frac": 0.3333,
+   "speed": [
+    5.73,
+    7.62
+   ],
+   "by_family": {
+    "low": {
+     "attempted": 8,
+     "legal": 8
+    },
+    "mid": {
+     "attempted": 4,
+     "legal": 4
+    },
+    "high": {
+     "attempted": 0,
+     "legal": 0
+    }
+   },
+   "unreturned": [
+    {
+     "i": 0,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 0.82,
+      "i": 0,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.73,
+     "land": [
+      -0.962,
+      0.792
+     ],
+     "t_flight": 1.069,
+     "cause": "racket: no stroke within the head-speed cap reaches the server's court over the net"
+    },
+    {
+     "i": 1,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 1.73,
+      "i": 1,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.25,
+     "land": [
+      -0.074,
+      1.694
+     ],
+     "t_flight": 1.083,
+     "cause": "strokes tried, none good: miss 92, out 2, own_side 6"
+    },
+    {
+     "i": 2,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 2.033,
+      "i": 2,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.6,
+     "land": [
+      -0.075,
+      1.995
+     ],
+     "t_flight": 1.072,
+     "cause": "strokes tried, none good: miss 94, out 1, own_side 5"
+    },
+    {
+     "i": 3,
+     "plan": {
+      "fam": "low",
+      "x": -0.52,
+      "y": 2.033,
+      "i": 3,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.86,
+     "land": [
+      -0.51,
+      1.994
+     ],
+     "t_flight": 1.093,
+     "cause": "strokes tried, none good: miss 90, out 3, own_side 7"
+    },
+    {
+     "i": 6,
+     "plan": {
+      "fam": "low",
+      "x": -0.76,
+      "y": 2.337,
+      "i": 6,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 7.4,
+     "land": [
+      -0.744,
+      2.288
+     ],
+     "t_flight": 1.087,
+     "cause": "strokes tried, none good: miss 95, own_side 5"
+    },
+    {
+     "i": 7,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 2.337,
+      "i": 7,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 7.62,
+     "land": [
+      -0.967,
+      2.299
+     ],
+     "t_flight": 1.102,
+     "cause": "strokes tried, none good: miss 89, out 4, own_side 7"
+    },
+    {
+     "i": 8,
+     "plan": {
+      "fam": "mid",
+      "x": -0.98,
+      "y": 0.82,
+      "i": 8,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.73,
+     "land": [
+      -0.962,
+      0.792
+     ],
+     "t_flight": 1.069,
+     "cause": "racket: no stroke within the head-speed cap reaches the server's court over the net"
+    },
+    {
+     "i": 9,
+     "plan": {
+      "fam": "mid",
+      "x": -0.3,
+      "y": 1.73,
+      "i": 9,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.74,
+     "land": [
+      -0.293,
+      1.696
+     ],
+     "t_flight": 1.165,
+     "cause": "strokes tried, none good: miss 90, own_side 10"
+    }
+   ],
+   "wall_s": 976
+  }
+ },
+ "b9f-ref": {
+  "tag": "b9f-ref",
+  "ref": {
+   "n": 105,
+   "legal": 100,
+   "knobs": {
+    "variant": "b9f-ref",
+    "gain": 4.0,
+    "court_scale": 0.4,
+    "base_v": 5.0,
+    "base_a": 50.0,
+    "base_j": 1250.0,
+    "base_f": 2500.0,
+    "arm": "franka_panda FCI limits"
+   },
+   "faults": {
+    "not producible (head-speed cap)": 5
+   },
+   "by_type": {
+    "short": {
+     "legal": 41,
+     "returned": 17,
+     "speed": [
+      5.5,
+      10.05
+     ]
+    },
+    "mid": {
+     "legal": 29,
+     "returned": 16,
+     "speed": [
+      6.25,
+      11.72
+     ]
+    },
+    "long-flat": {
+     "legal": 13,
+     "returned": 8,
+     "speed": [
+      7.22,
+      8.28
+     ]
+    },
+    "long-high": {
+     "legal": 17,
+     "returned": 16,
+     "speed": [
+      8.5,
+      12.6
+     ]
+    }
+   },
+   "returned": 57,
+   "frac": 0.57,
+   "speed": [
+    5.5,
+    12.6
+   ],
+   "by_family": {
+    "low": {
+     "attempted": 35,
+     "legal": 30
+    },
+    "mid": {
+     "attempted": 35,
+     "legal": 35
+    },
+    "high": {
+     "attempted": 35,
+     "legal": 35
+    }
+   },
+   "unreturned": [
+    {
+     "i": 6,
+     "plan": {
+      "fam": "low",
+      "x": -0.3,
+      "y": 1.123,
+      "i": 6,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.5,
+     "land": [
+      -0.291,
+      1.092
+     ],
+     "t_flight": 1.048,
+     "cause": "out"
+    },
+    {
+     "i": 8,
+     "plan": {
+      "fam": "low",
+      "x": -0.76,
+      "y": 1.123,
+      "i": 8,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.97,
+     "land": [
+      -0.747,
+      1.093
+     ],
+     "t_flight": 1.093,
+     "cause": "A's serve landed in B's service court (x=-0.75, y=1.09): B did not return it"
+    },
+    {
+     "i": 9,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 1.123,
+      "i": 9,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.92,
+     "land": [
+      -0.964,
+      1.093
+     ],
+     "t_flight": 1.053,
+     "cause": "A's serve landed in B's service court (x=-0.96, y=1.09): B did not return it"
+    },
+    {
+     "i": 10,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 1.427,
+      "i": 10,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.95,
+     "land": [
+      -0.074,
+      1.392
+     ],
+     "t_flight": 1.091,
+     "cause": "A's serve landed in B's service court (x=-0.07, y=1.39): B did not return it"
+    },
+    {
+     "i": 11,
+     "plan": {
+      "fam": "low",
+      "x": -0.3,
+      "y": 1.427,
+      "i": 11,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.79,
+     "land": [
+      -0.291,
+      1.393
+     ],
+     "t_flight": 1.042,
+     "cause": "A's serve landed in B's service court (x=-0.29, y=1.39): B did not return it"
+    },
+    {
+     "i": 12,
+     "plan": {
+      "fam": "low",
+      "x": -0.52,
+      "y": 1.427,
+      "i": 12,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.97,
+     "land": [
+      -0.51,
+      1.395
+     ],
+     "t_flight": 1.058,
+     "cause": "A's serve landed in B's service court (x=-0.51, y=1.40): B did not return it"
+    },
+    {
+     "i": 14,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 1.427,
+      "i": 14,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 6.18,
+     "land": [
+      -0.964,
+      1.394
+     ],
+     "t_flight": 1.037,
+     "cause": "A's serve landed in B's service court (x=-0.96, y=1.40): B did not return it"
+    },
+    {
+     "i": 15,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 1.73,
+      "i": 15,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.25,
+     "land": [
+      -0.074,
+      1.694
+     ],
+     "t_flight": 1.083,
+     "cause": "A's serve landed in B's service court (x=-0.07, y=1.69): B did not return it"
+    },
+    {
+     "i": 16,
+     "plan": {
+      "fam": "low",
+      "x": -0.3,
+      "y": 1.73,
+      "i": 16,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.38,
+     "land": [
+      -0.292,
+      1.692
+     ],
+     "t_flight": 1.094,
+     "cause": "A's serve landed in B's service court (x=-0.29, y=1.69): B did not return it"
+    },
+    {
+     "i": 18,
+     "plan": {
+      "fam": "low",
+      "x": -0.76,
+      "y": 1.73,
+      "i": 18,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.49,
+     "land": [
+      -0.747,
+      1.696
+     ],
+     "t_flight": 1.063,
+     "cause": "out"
+    },
+    {
+     "i": 19,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 1.73,
+      "i": 19,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.71,
+     "land": [
+      -0.966,
+      1.696
+     ],
+     "t_flight": 1.081,
+     "cause": "out"
+    },
+    {
+     "i": 20,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 2.033,
+      "i": 20,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.6,
+     "land": [
+      -0.075,
+      1.995
+     ],
+     "t_flight": 1.072,
+     "cause": "out"
+    },
+    {
+     "i": 21,
+     "plan": {
+      "fam": "low",
+      "x": -0.3,
+      "y": 2.033,
+      "i": 21,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.71,
+     "land": [
+      -0.292,
+      1.994
+     ],
+     "t_flight": 1.081,
+     "cause": "out"
+    },
+    {
+     "i": 22,
+     "plan": {
+      "fam": "low",
+      "x": -0.52,
+      "y": 2.033,
+      "i": 22,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.86,
+     "land": [
+      -0.51,
+      1.994
+     ],
+     "t_flight": 1.093,
+     "cause": "out"
+    },
+    {
+     "i": 23,
+     "plan": {
+      "fam": "low",
+      "x": -0.76,
+      "y": 2.033,
+      "i": 23,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 7.06,
+     "land": [
+      -0.749,
+      1.998
+     ],
+     "t_flight": 1.109,
+     "cause": "out"
+    },
+    {
+     "i": 27,
+     "plan": {
+      "fam": "low",
+      "x": -0.52,
+      "y": 2.337,
+      "i": 27,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 7.47,
+     "land": [
+      -0.511,
+      2.297
+     ],
+     "t_flight": 1.14,
+     "cause": "out"
+    },
+    {
+     "i": 29,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 2.337,
+      "i": 29,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 7.62,
+     "land": [
+      -0.967,
+      2.299
+     ],
+     "t_flight": 1.102,
+     "cause": "out"
+    },
+    {
+     "i": 32,
+     "plan": {
+      "fam": "low",
+      "x": -0.52,
+      "y": 2.64,
+      "i": 32,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 7.86,
+     "land": [
+      -0.512,
+      2.598
+     ],
+     "t_flight": 1.119,
+     "cause": "out"
+    },
+    {
+     "i": 33,
+     "plan": {
+      "fam": "low",
+      "x": -0.76,
+      "y": 2.64,
+      "i": 33,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 8.04,
+     "land": [
+      -0.75,
+      2.602
+     ],
+     "t_flight": 1.131,
+     "cause": "out"
+    },
+    {
+     "i": 34,
+     "plan": {
+      "fam": "low",
+      "x": -0.98,
+      "y": 2.64,
+      "i": 34,
+      "cap": 2.4
+     },
+     "type": "long-flat",
+     "speed": 8.22,
+     "land": [
+      -0.969,
+      2.603
+     ],
+     "t_flight": 1.144,
+     "cause": "out"
+    },
+    {
+     "i": 35,
+     "plan": {
+      "fam": "mid",
+      "x": -0.08,
+      "y": 0.82,
+      "i": 35,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.5,
+     "land": [
+      -0.074,
+      0.792
+     ],
+     "t_flight": 1.105,
+     "cause": "out"
+    },
+    {
+     "i": 36,
+     "plan": {
+      "fam": "mid",
+      "x": -0.3,
+      "y": 0.82,
+      "i": 36,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.72,
+     "land": [
+      -0.292,
+      0.793
+     ],
+     "t_flight": 1.128,
+     "cause": "out"
+    },
+    {
+     "i": 37,
+     "plan": {
+      "fam": "mid",
+      "x": -0.52,
+      "y": 0.82,
+      "i": 37,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.5,
+     "land": [
+      -0.509,
+      0.793
+     ],
+     "t_flight": 1.078,
+     "cause": "A's serve landed in B's service court (x=-0.51, y=0.79): B did not return it"
+    },
+    {
+     "i": 38,
+     "plan": {
+      "fam": "mid",
+      "x": -0.76,
+      "y": 0.82,
+      "i": 38,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.81,
+     "land": [
+      -0.746,
+      0.793
+     ],
+     "t_flight": 1.109,
+     "cause": "A's serve landed in B's service court (x=-0.75, y=0.79): B did not return it"
+    },
+    {
+     "i": 40,
+     "plan": {
+      "fam": "mid",
+      "x": -0.08,
+      "y": 1.123,
+      "i": 40,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.7,
+     "land": [
+      -0.074,
+      1.091
+     ],
+     "t_flight": 1.098,
+     "cause": "out"
+    },
+    {
+     "i": 41,
+     "plan": {
+      "fam": "mid",
+      "x": -0.3,
+      "y": 1.123,
+      "i": 41,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.5,
+     "land": [
+      -0.291,
+      1.092
+     ],
+     "t_flight": 1.048,
+     "cause": "out"
+    },
+    {
+     "i": 43,
+     "plan": {
+      "fam": "mid",
+      "x": -0.76,
+      "y": 1.123,
+      "i": 43,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.97,
+     "land": [
+      -0.747,
+      1.093
+     ],
+     "t_flight": 1.093,
+     "cause": "A's serve landed in B's service court (x=-0.75, y=1.09): B did not return it"
+    },
+    {
+     "i": 45,
+     "plan": {
+      "fam": "mid",
+      "x": -0.08,
+      "y": 1.427,
+      "i": 45,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 5.95,
+     "land": [
+      -0.074,
+      1.392
+     ],
+     "t_flight": 1.091,
+     "cause": "A's serve landed in B's service court (x=-0.07, y=1.39): B did not return it"
+    },
+    {
+     "i": 46,
+     "plan": {
+      "fam": "mid",
+      "x": -0.3,
+      "y": 1.427,
+      "i": 46,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 6.11,
+     "land": [
+      -0.292,
+      1.394
+     ],
+     "t_flight": 1.106,
+     "cause": "out"
+    },
+    {
+     "i": 47,
+     "plan": {
+      "fam": "mid",
+      "x": -0.52,
+      "y": 1.427,
+      "i": 47,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 6.3,
+     "land": [
+      -0.51,
+      1.395
+     ],
+     "t_flight": 1.124,
+     "cause": "out"
+    },
+    {
+     "i": 48,
+     "plan": {
+      "fam": "mid",
+      "x": -0.76,
+      "y": 1.427,
+      "i": 48,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 6.54,
+     "land": [
+      -0.747,
+      1.395
+     ],
+     "t_flight": 1.146,
+     "cause": "out"
+    },
+    {
+     "i": 49,
+     "plan": {
+      "fam": "mid",
+      "x": -0.98,
+      "y": 1.427,
+      "i": 49,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 6.79,
+     "land": [
+      -0.965,
+      1.396
+     ],
+     "t_flight": 1.17,
+     "cause": "out"
+    },
+    {
+     "i": 51,
+     "plan": {
+      "fam": "mid",
+      "x": -0.3,
+      "y": 1.73,
+      "i": 51,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.74,
+     "land": [
+      -0.293,
+      1.696
+     ],
+     "t_flight": 1.165,
+     "cause": "out"
+    },
+    {
+     "i": 52,
+     "plan": {
+      "fam": "mid",
+      "x": -0.52,
+      "y": 1.73,
+      "i": 52,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.92,
+     "land": [
+      -0.511,
+      1.695
+     ],
+     "t_flight": 1.18,
+     "cause": "out"
+    },
+    {
+     "i": 53,
+     "plan": {
+      "fam": "mid",
+      "x": -0.76,
+      "y": 1.73,
+      "i": 53,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 7.15,
+     "land": [
+      -0.749,
+      1.696
+     ],
+     "t_flight": 1.201,
+     "cause": "out"
+    },
+    {
+     "i": 55,
+     "plan": {
+      "fam": "mid",
+      "x": -0.08,
+      "y": 2.033,
+      "i": 55,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 7.27,
+     "land": [
+      -0.077,
+      1.998
+     ],
+     "t_flight": 1.212,
+     "cause": "out"
+    },
+    {
+     "i": 68,
+     "plan": {
+      "fam": "mid",
+      "x": -0.76,
+      "y": 2.64,
+      "i": 68,
+      "cap": 2.4
+     },
+     "type": "long-high",
+     "speed": 9.25,
+     "land": [
+      -0.753,
+      2.604
+     ],
+     "t_flight": 1.37,
+     "cause": "out"
+    },
+    {
+     "i": 71,
+     "plan": {
+      "fam": "high",
+      "x": -0.3,
+      "y": 0.82,
+      "i": 71,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 6.36,
+     "land": [
+      -0.293,
+      0.793
+     ],
+     "t_flight": 1.223,
+     "cause": "A's serve landed in B's service court (x=-0.29, y=0.79): B did not return it"
+    },
+    {
+     "i": 73,
+     "plan": {
+      "fam": "high",
+      "x": -0.76,
+      "y": 0.82,
+      "i": 73,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 7.06,
+     "land": [
+      -0.748,
+      0.793
+     ],
+     "t_flight": 1.296,
+     "cause": "A's serve landed in B's service court (x=-0.75, y=0.79): B did not return it"
+    },
+    {
+     "i": 77,
+     "plan": {
+      "fam": "high",
+      "x": -0.52,
+      "y": 1.123,
+      "i": 77,
+      "cap": 1.8
+     },
+     "type": "short",
+     "speed": 7.46,
+     "land": [
+      -0.513,
+      1.094
+     ],
+     "t_flight": 1.334,
+     "cause": "out"
+    },
+    {
+     "i": 79,
+     "plan": {
+      "fam": "high",
+      "x": -0.98,
+      "y": 1.123,
+      "i": 79,
+      "cap": 2.4
+     },
+     "type": "short",
+     "speed": 8.24,
+     "land": [
+      -0.968,
+      1.094
+     ],
+     "t_flight": 1.407,
+     "cause": "out"
+    },
+    {
+     "i": 82,
+     "plan": {
+      "fam": "high",
+      "x": -0.52,
+      "y": 1.427,
+      "i": 82,
+      "cap": 2.4
+     },
+     "type": "short",
+     "speed": 8.33,
+     "land": [
+      -0.514,
+      1.397
+     ],
+     "t_flight": 1.415,
+     "cause": "out"
+    },
+    {
+     "i": 93,
+     "plan": {
+      "fam": "high",
+      "x": -0.76,
+      "y": 2.033,
+      "i": 93,
+      "cap": 3.0
+     },
+     "type": "mid",
+     "speed": 10.62,
+     "land": [
+      -0.745,
+      1.978
+     ],
+     "t_flight": 1.601,
+     "cause": "out"
+    }
+   ],
+   "rx_outcomes": {
+    "in": 57,
+    "out": 29,
+    "A's serve landed in B's service court (x=-0.75, y=1.09): B did not return it": 2,
+    "A's serve landed in B's service court (x=-0.96, y=1.09): B did not return it": 1,
+    "A's serve landed in B's service court (x=-0.07, y=1.39): B did not return it": 2,
+    "A's serve landed in B's service court (x=-0.29, y=1.39): B did not return it": 1,
+    "A's serve landed in B's service court (x=-0.51, y=1.40): B did not return it": 1,
+    "A's serve landed in B's service court (x=-0.96, y=1.40): B did not return it": 1,
+    "A's serve landed in B's service court (x=-0.07, y=1.69): B did not return it": 1,
+    "A's serve landed in B's service court (x=-0.29, y=1.69): B did not return it": 1,
+    "A's serve landed in B's service court (x=-0.51, y=0.79): B did not return it": 1,
+    "A's serve landed in B's service court (x=-0.75, y=0.79): B did not return it": 2,
+    "A's serve landed in B's service court (x=-0.29, y=0.79): B did not return it": 1
+   }
+  }
+ },
+ "b9f-r34": {
+  "tag": "b9f-r34",
+  "oracle": {
+   "n": 105,
+   "legal": 89,
+   "knobs": {
+    "variant": "b9f-r34",
+    "gain": 4.0,
+    "court_scale": 0.4,
+    "base_v": 5.0,
+    "base_a": 50.0,
+    "base_j": 1250.0,
+    "base_f": 2500.0,
+    "arm": "franka_panda FCI limits"
+   },
+   "faults": {
+    "not producible (head-speed cap)": 5,
+    "out (lands outside the service court)": 11
+   },
+   "by_type": {
+    "short": {
+     "legal": 29,
+     "returned": 29,
+     "speed": [
+      5.42,
+      8.95
+     ]
+    },
+    "mid": {
+     "legal": 33,
+     "returned": 32,
+     "speed": [
+      6.15,
+      11.48
+     ]
+    },
+    "long-flat": {
+     "legal": 13,
+     "returned": 13,
+     "speed": [
+      7.1,
+      8.15
+     ]
+    },
+    "long-high": {
+     "legal": 14,
+     "returned": 14,
+     "speed": [
+      8.36,
+      12.4
+     ]
+    }
+   },
+   "returned": 88,
+   "frac": 0.9888,
+   "speed": [
+    5.42,
+    12.4
+   ],
+   "by_family": {
+    "low": {
+     "attempted": 35,
+     "legal": 29
+    },
+    "mid": {
+     "attempted": 35,
+     "legal": 30
+    },
+    "high": {
+     "attempted": 35,
+     "legal": 30
+    }
+   },
+   "unreturned": [
+    {
+     "i": 20,
+     "plan": {
+      "fam": "low",
+      "x": -0.08,
+      "y": 2.033,
+      "i": 20,
+      "cap": 1.8
+     },
+     "type": "mid",
+     "speed": 6.49,
+     "land": [
+      -0.043,
+      1.948
+     ],
+     "t_flight": 1.064,
+     "cause": "strokes tried, none good: miss 25, out 6, own_side 9"
+    }
+   ],
+   "wall_s": 1034
+  }
+ }
+}

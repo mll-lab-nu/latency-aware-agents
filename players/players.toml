@@ -1,0 +1,175 @@
+# The players list (docs/framework_zh.md §3 "选手", §9 选手规则 3): a player = a model + the harness it runs in + its
+# play configuration, defined ONCE here with a version. Run scripts, the dispatcher and the season tools read it.
+# Credentials are never here: account_env names environment variables of the repository's .env (never values).
+# Check:  python3 players/players.py check      (python >= 3.11)
+#
+# Fields
+#   id               the short name the run scripts use (--agent / --a / --b)
+#   model            provider model id as Harbor takes it (empty for built-in players)
+#   deployment       the Azure deployment that serves it, when its name differs from the model's (pinned route); for
+#                    a ChatGPT subscription player (route "chatgpt") the backend model its seat's proxy pins every call
+#                    to (THINK_CHATGPT_MODEL_<seat>, `players.py chatgpt-model <id>`)
+#                    model (+ deployment) = the seat's model lock THINK_MODEL_<seat>, which every run script sets
+#                    (players.py think-model <id>; README.md "Model lock")
+#   harness          claude-code | codex | builtin
+#   harness_version  the pinned harness version the adapter installs (--seat-kwarg version=...)
+#   agent_import_path  Harbor agent class (module:Class); built-in players use Harbor's own (oracle) or none (nop)
+#   play             the play modes this player supports: program (writes and runs code); direct (no-code)
+#                    play was removed on 2026-10-10 (branch archive/direct-play)
+#   agent_kwargs     the fixed --seat-kwarg values of program play
+#   disabled_tools   tools the harness never gets (no web search: it runs at the provider, past the network isolation)
+#   account_env      environment variable NAMES holding this player's credentials (values only in .env)
+#   account_scope    "seat": the credentials reach only the metering proxy of the seat this player plays (the run
+#                    script exports <VAR>_<seat>; the compose file passes no unsuffixed copy, so in a duel the other
+#                    seat's proxy never has them); default: every proxy of the task gets the unsuffixed variables
+#   route            the metering proxy's route for OpenAI-style calls (THINK_OPENAI_ROUTE: openrouter | azure |
+#                    azure_sol), if any; "chatgpt": the ChatGPT backend only (a subscription player): the run script
+#                    exports THINK_OPENAI_ROUTE_<seat>=chatgpt, the seat's proxy forwards /backend-api/* and refuses any
+#                    other model call, and core/launch.py gives that proxy no task-wide credential (no OpenRouter key)
+#   config_version   bump on any change that can alter results (results record it, rule: 4 versions per result)
+
+schema_version = "1"
+
+[[player]]
+id = "opus"
+model = "anthropic/claude-opus-5-5"
+harness = "claude-code"
+harness_version = "2.1.284"
+agent_import_path = "players.harnesses.claude_think:ClaudeThink"
+play = ["program"]
+agent_kwargs = { version = "2.1.284", disallowed_tools = "WebSearch,WebFetch" }
+disabled_tools = ["WebSearch", "WebFetch"]
+account_env = ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_2"]
+config_version = "1"
+
+[[player]]
+id = "fable"
+model = "anthropic/claude-fable-5-1"
+harness = "claude-code"
+harness_version = "2.1.284"
+agent_import_path = "players.harnesses.claude_think:ClaudeThink"
+play = ["program"]
+agent_kwargs = { version = "2.1.284", disallowed_tools = "WebSearch,WebFetch" }
+disabled_tools = ["WebSearch", "WebFetch"]
+account_env = ["CLAUDE_CODE_OAUTH_TOKEN"]
+config_version = "1"
+
+[[player]]
+id = "astra"
+model = "openrouter/openai/gpt-6-astra"
+harness = "codex"
+harness_version = "0.158.0"
+agent_import_path = "players.harnesses.codex_openrouter:CodexOpenRouter"
+play = ["program"]
+agent_kwargs = { version = "0.158.0", reasoning_effort = "medium", web_search = "disabled" }
+disabled_tools = ["web_search"]
+account_env = ["AZURE_AI_ENDPOINT", "AZURE_AI_API_KEY", "AZURE_DEPLOYMENTS"]
+route = "azure"
+config_version = "1"
+
+# sol: GPT-6.1 SOL on a second Azure resource (Azure AI Services, Responses API), route azure_sol: the metering proxy
+# of its seat alone gets AZURE_SOL_* (run_duel.sh reads them from SOL_ENV_FILE, never from .env, so the other seat's
+# proxy never has them). Same harness, version and play configuration as astra. Codex 0.158.0 has no metadata for
+# "gpt-6.1-sol" (it would fall back to generic metadata: other instructions, tools and limits), so the seat sends
+# Codex's slug for the family, "gpt-6-sol", and the pinned route serves it with the deployment below.
+[[player]]
+id = "sol"
+model = "openrouter/openai/gpt-6-sol"
+deployment = "gpt-6.1-sol"
+harness = "codex"
+harness_version = "0.158.0"
+agent_import_path = "players.harnesses.codex_openrouter:CodexOpenRouter"
+play = ["program"]
+agent_kwargs = { version = "0.158.0", reasoning_effort = "medium", web_search = "disabled" }
+disabled_tools = ["web_search"]
+account_env = ["AZURE_SOL_ENDPOINT", "AZURE_SOL_API_KEY", "AZURE_SOL_DEPLOYMENTS"]
+route = "azure_sol"
+config_version = "2"
+
+# astra-sub: GPT-6 Astra on a ChatGPT (Pro) subscription instead of Azure. Codex 0.158.0 is logged in "with ChatGPT"
+# through a placeholder auth.json and talks to its seat's metering proxy at <think_proxy_url>/backend-api/codex; the proxy
+# replaces the placeholders with the subscription's CODEX_ACCESS_TOKEN / CODEX_ACCOUNT_ID (seat-scoped: run_single.sh /
+# run_duel.sh read them from .env and pass them to that seat's proxy only) and forwards to https://chatgpt.com; the seat
+# reaches the ChatGPT backend only (route "chatgpt"). Same harness version and play configuration as astra, reasoning
+# effort medium like every API player (config_version 3: medium; 2 was high).
+[[player]]
+id = "astra-sub"
+model = "openai/gpt-6-astra"
+harness = "codex"
+harness_version = "0.158.0"
+agent_import_path = "players.harnesses.codex_chatgpt_think:CodexChatGPTThink"
+play = ["program"]
+agent_kwargs = { version = "0.158.0", reasoning_effort = "medium", web_search = "disabled" }
+disabled_tools = ["web_search"]
+account_env = ["CODEX_ACCESS_TOKEN", "CODEX_ACCOUNT_ID"]
+account_scope = "seat"
+route = "chatgpt"
+config_version = "3"
+
+# sol-sub / luna-sub: GPT-6.1 SOL and GPT-6 Luna on the same ChatGPT subscription, configured as astra-sub. sol-sub
+# MUST play GPT-6.1 SOL: Codex 0.158.0 has metadata for the family slug "gpt-6-sol" only, so the seat sends that slug
+# and its proxy pins every ChatGPT-backend call to the deployment below (THINK_CHATGPT_MODEL_<seat>; the request goes
+# out with "gpt-6.1-sol", think_calls records model_alias "gpt-6-sol"). If the backend names GPT-6.1 SOL differently,
+# change `deployment` (and bump config_version).
+[[player]]
+id = "sol-sub"
+model = "openai/gpt-6-sol"
+deployment = "gpt-6.1-sol"
+harness = "codex"
+harness_version = "0.158.0"
+agent_import_path = "players.harnesses.codex_chatgpt_think:CodexChatGPTThink"
+play = ["program"]
+agent_kwargs = { version = "0.158.0", reasoning_effort = "medium", web_search = "disabled" }
+disabled_tools = ["web_search"]
+account_env = ["CODEX_ACCESS_TOKEN", "CODEX_ACCOUNT_ID"]
+account_scope = "seat"
+route = "chatgpt"
+config_version = "3"
+
+[[player]]
+id = "luna-sub"
+model = "openai/gpt-6-luna"
+harness = "codex"
+harness_version = "0.158.0"
+agent_import_path = "players.harnesses.codex_chatgpt_think:CodexChatGPTThink"
+play = ["program"]
+agent_kwargs = { version = "0.158.0", reasoning_effort = "medium", web_search = "disabled" }
+disabled_tools = ["web_search"]
+account_env = ["CODEX_ACCESS_TOKEN", "CODEX_ACCOUNT_ID"]
+account_scope = "seat"
+route = "chatgpt"
+config_version = "3"
+
+[[player]]
+id = "luna"
+model = "openrouter/openai/gpt-6-luna"
+harness = "codex"
+harness_version = "0.158.0"
+agent_import_path = "players.harnesses.codex_openrouter:CodexOpenRouter"
+play = ["program"]
+agent_kwargs = { version = "0.158.0", reasoning_effort = "medium", web_search = "disabled" }
+disabled_tools = ["web_search"]
+account_env = ["OPENROUTER_API_KEY"]
+route = "openrouter"
+config_version = "1"
+
+# Built-in players (no model): the sport's reference player (solution/) and a seat that never calls.
+[[player]]
+id = "oracle"
+model = ""
+harness = "builtin"
+agent_import_path = "oracle"
+play = ["program"]
+disabled_tools = []
+account_env = []
+config_version = "1"
+
+[[player]]
+id = "nop"
+model = ""
+harness = "builtin"
+agent_import_path = "nop"
+play = ["program"]
+disabled_tools = []
+account_env = []
+config_version = "1"

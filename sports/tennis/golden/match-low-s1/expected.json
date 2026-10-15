@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "ac5b9d6d57bd9d81f47b03d2649f16456abfb7be0d18caa8b457b2f96d916267",
+  "scores": {
+   "A": 0,
+   "opponent": 5
+  },
+  "winner": "opponent",
+  "k": 3866
+ },
+ "source": "core/local.py, players {'A': 'reference'}, cfg {'sport': 'tennis', 'format': 'match', 'seats': ['A'], 'seed': 1, 'first': 'A', 'action_level': 'low'}"
+}

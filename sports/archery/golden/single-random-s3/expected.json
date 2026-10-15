@@ -1,0 +1,11 @@
+{
+ "expect": {
+  "state_sha": "0425757492b09cedd1293d963a5eb2f9034095cc4a36a2905ce98dabedf65cd2",
+  "scores": {
+   "A": 3
+  },
+  "winner": null,
+  "k": 12
+ },
+ "source": "core/local.py, players {'A': 'random'}, cfg {'sport': 'archery', 'format': 'single', 'seats': ['A'], 'seed': 3, 'first': 'A', 'action_level': 'low'}"
+}

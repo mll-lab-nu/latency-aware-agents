@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "2f66c6b53237288046b41e46284e5cc3bb042e7a2e1591a2f0dd36f03d28ffb8",
+  "scores": {
+   "A": 0,
+   "B": 1
+  },
+  "winner": "B",
+  "k": 12000
+ },
+ "source": "core/local.py, players {'A': 'reference', 'B': 'reference'}, cfg {'sport': 'airhockey', 'format': 'duel', 'seats': ['A', 'B'], 'seed': 1, 'first': 'A', 'action_level': 'low', 'sides': None}"
+}

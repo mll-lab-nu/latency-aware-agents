@@ -1,0 +1,11 @@
+{
+ "expect": {
+  "state_sha": "62a9e27559ca51677ed36645d9fc0a00f121ebccd6c2f4b3861ff368207052fb",
+  "scores": {
+   "A": 212
+  },
+  "winner": null,
+  "k": 15
+ },
+ "source": "core/local.py, players {'A': 'reference'}, cfg {'sport': 'bowling', 'format': 'single', 'seats': ['A'], 'seed': 1, 'first': 'A', 'action_level': 'low'}"
+}

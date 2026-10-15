@@ -1,0 +1,116 @@
+{
+ "files": {
+  "Base_L.stl": {
+   "sha256": "03b6a3cfdaccf77af7d64786a218b3c30cad6c86d691a65be42ca3bcd319d3a2",
+   "source": "Base_L.stl",
+   "source_sha256": "f22c309ed8cacd2fc776e2f72a2fc5618d9da84315267377edd3205e91ebbcb5",
+   "triangles": 214
+  },
+  "Base_R.stl": {
+   "sha256": "03b6a3cfdaccf77af7d64786a218b3c30cad6c86d691a65be42ca3bcd319d3a2",
+   "source": "Base_R.stl",
+   "source_sha256": "f22c309ed8cacd2fc776e2f72a2fc5618d9da84315267377edd3205e91ebbcb5",
+   "triangles": 214
+  },
+  "Link1_L.stl": {
+   "sha256": "0a21923a7a3c7ef798da709e3f66285a8ce14101fa0bb7ee384826e462dd4ca8",
+   "source": "Link1_L.stl",
+   "source_sha256": "d00097eec49600a4111ee5a124d6636f50ea09a7a1dc8486d98f4370dde7a932",
+   "triangles": 592
+  },
+  "Link1_R.stl": {
+   "sha256": "0a21923a7a3c7ef798da709e3f66285a8ce14101fa0bb7ee384826e462dd4ca8",
+   "source": "Link1_R.stl",
+   "source_sha256": "fdb1075fe0b41e5c2cb7c2fe13c9d2e62ff4dd6eb540ea841b8603db28369dd0",
+   "triangles": 592
+  },
+  "Link2_L.stl": {
+   "sha256": "a2e1daa64e8d55e2b7869afb727e90b6ad6790001264b7fe035a6c3d4d9edbbf",
+   "source": "Link2_L.stl",
+   "source_sha256": "4776a6a2086ddc61b1643aff93386e545baccef2751db29d863fe027a76f325e",
+   "triangles": 1348
+  },
+  "Link2_R.stl": {
+   "sha256": "a2e1daa64e8d55e2b7869afb727e90b6ad6790001264b7fe035a6c3d4d9edbbf",
+   "source": "Link2_R.stl",
+   "source_sha256": "53eb9fc69c939d2ebd4f32c1df341c1c42bc3d9d0911db0c9fcee70aa2701b34",
+   "triangles": 1348
+  },
+  "Link3_L.stl": {
+   "sha256": "72015002235ad92b6ef06eb9a8e92801870507454ae122ce1cc616fce8eef1b9",
+   "source": "Link3_L.stl",
+   "source_sha256": "d58f1039bd3eb2ccc1a1959b89d2de7ae714344ad8cb8b78ef97b92dcd317d26",
+   "triangles": 668
+  },
+  "Link3_R.stl": {
+   "sha256": "72015002235ad92b6ef06eb9a8e92801870507454ae122ce1cc616fce8eef1b9",
+   "source": "Link3_R.stl",
+   "source_sha256": "122456d8fc3e81694f352fc1f29d0bc19066f7f3d7572857a1be1e7c030dec9c",
+   "triangles": 668
+  },
+  "Link4_L.stl": {
+   "sha256": "6269ca6fb3ead55945c0f8913d172056006433e82095dc9b17e49175c05289d5",
+   "source": "Link4_L.stl",
+   "source_sha256": "77f18566339f38acac1785fae517b05ff1e5247b95404ce26536d215bbed9cd7",
+   "triangles": 1330
+  },
+  "Link4_R.stl": {
+   "sha256": "6269ca6fb3ead55945c0f8913d172056006433e82095dc9b17e49175c05289d5",
+   "source": "Link4_R.stl",
+   "source_sha256": "77f18566339f38acac1785fae517b05ff1e5247b95404ce26536d215bbed9cd7",
+   "triangles": 1330
+  },
+  "Link5_L.stl": {
+   "sha256": "4239a9a40cef5a6bfff5dbfde12be3dc3ac533bbba4f571769f9897c779a7f23",
+   "source": "Link5_L.stl",
+   "source_sha256": "573f15ee62b0a9b2d62aceeb756800fd86969a685535e91416b73d51f1c57613",
+   "triangles": 2874
+  },
+  "Link5_R.stl": {
+   "sha256": "3862aa8cb7f9ff73f17db317f5fa123cedc136df207b2b779ece0ce8017d2c88",
+   "source": "Link5_R.stl",
+   "source_sha256": "2de51a340695c89b2fd58b1171dfacc4d85aa4e6cd50879e021a2d0bde8599a8",
+   "triangles": 3062
+  },
+  "Link6_L.stl": {
+   "sha256": "2474fa7a457aa46d66a3a75f0327007c46a5db72422fb45f379232efb483b9fb",
+   "source": "Link6_L.stl",
+   "source_sha256": "b6b7570d8ebf1d2acb01baf8941b892f5a5f72aaa05503ab8340da8a2a7b2c13",
+   "triangles": 326
+  },
+  "Link6_R.stl": {
+   "sha256": "2474fa7a457aa46d66a3a75f0327007c46a5db72422fb45f379232efb483b9fb",
+   "source": "Link6_R.stl",
+   "source_sha256": "49722d14b9ac34a84a41c95f49bd0b2a8859d4a05f66b247822bf36b0a703cd5",
+   "triangles": 326
+  },
+  "Link7_L.stl": {
+   "sha256": "623d4ea823b8b79777b8048d2212a21bad62e9b1c6970e8231218e1875c78ca5",
+   "source": "Link7_L.stl",
+   "source_sha256": "126cc7d41c37049ce34d2636bfe2d460c21e3429ed080877d1c5e983109ef798",
+   "triangles": 2694
+  },
+  "Link7_R.stl": {
+   "sha256": "86b07dd4f45158df58e080dba262bbd4400cb912719010a32a6433a9a13737f7",
+   "source": "Link7_R.stl",
+   "source_sha256": "6eb75b059ff383e90a153be840bcce84b23d8f8afd074b1bc9dfec1b18c2351f",
+   "triangles": 2716
+  },
+  "ZJ_Robot_link.stl": {
+   "sha256": "1a9d8a309a2ff299b9dd0f9298cc432cb04708570b4c1f92d64bae7d6f9ece33",
+   "source": "ZJ_Robot_link.stl",
+   "source_sha256": "5d4273499a047dd5c3b4d59e2b9374d68da7e332607932e118ca3a5cf9ca157e",
+   "triangles": 10383
+  }
+ },
+ "level": "25k",
+ "note": "Levels of detail of the library's robots (the players' images, renderer rule 6; user decision D1, 2026-10-08): a robot's fine meshes (meshes_fine/, the unchanged upstream meshes, not in git) decimated to a triangle budget and committed as meshes_<level>/ (e.g. meshes_25k/), so that a sport draws its players' images of the robot with the appearance of the real robot at a small cost (a body's mount(..., lod=\"25k\")).",
+ "robot": "tianji_marvin_pro",
+ "source_triangles": 474385,
+ "target_triangles": 25000,
+ "tools": {
+  "fast-simplification": "0.2.0",
+  "trimesh": "5.1.1"
+ },
+ "triangles": 30685
+}

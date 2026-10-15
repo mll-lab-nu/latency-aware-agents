@@ -1,0 +1,205 @@
+{
+ "loc_err_m": {
+  "median": 0.0703949603292415,
+  "p90": 8.620643521871822,
+  "p99": 8.755810640585281,
+  "max": 9.035510824687705,
+  "frac_over_0_3": 0.4188905547226387,
+  "frac_over_1": 0.3775112443778111
+ },
+ "yaw_err_deg": {
+  "median": 0.5976629092084552,
+  "p90": 179.75337158675745
+ },
+ "deadreckon_err_m": {
+  "median": 0.008301109021479078,
+  "p90": 0.1882608558624947,
+  "final_median": null
+ },
+ "loc_err_by_time": {
+  "0-10s": {
+   "loc_med": 0.169,
+   "loc_p90": 8.603,
+   "dr_med": 0.004
+  },
+  "10-20s": {
+   "loc_med": 0.039,
+   "loc_p90": 8.621,
+   "dr_med": 0.025
+  }
+ },
+ "per_robot": {
+  "blue0": {
+   "max": 9.036,
+   "final": 9.009,
+   "frac_over_0_5": 1.0
+  },
+  "blue1": {
+   "max": 5.052,
+   "final": 0.046,
+   "frac_over_0_5": 0.964
+  },
+  "blue2": {
+   "max": 0.488,
+   "final": 0.058,
+   "frac_over_0_5": 0.0
+  },
+  "blue3": {
+   "max": 0.292,
+   "final": 0.028,
+   "frac_over_0_5": 0.0
+  },
+  "blue4": {
+   "max": 0.45,
+   "final": 0.04,
+   "frac_over_0_5": 0.0
+  }
+ },
+ "ball": {
+  "frames": 3335,
+  "in_fov": 0.7289355322338831,
+  "visible": 0.5757121439280359,
+  "detected_when_visible": 1.0,
+  "false_detect_when_not_visible": 0.03250883392226148,
+  "by_range": {
+   "0-1m": {
+    "n": 382,
+    "err_robotframe_med": 0.003,
+    "err_robotframe_p90": 0.007,
+    "err_world_med": 0.039,
+    "err_world_p90": 0.979,
+    "detected_when_visible": 1.0
+   },
+   "1-2m": {
+    "n": 242,
+    "err_robotframe_med": 0.005,
+    "err_robotframe_p90": 0.025,
+    "err_world_med": 0.015,
+    "err_world_p90": 4.863,
+    "detected_when_visible": 1.0
+   },
+   "2-4m": {
+    "n": 839,
+    "err_robotframe_med": 0.035,
+    "err_robotframe_p90": 0.105,
+    "err_world_med": 0.117,
+    "err_world_p90": 4.522,
+    "detected_when_visible": 1.0
+   },
+   "4-10m": {
+    "n": 457,
+    "err_robotframe_med": 0.21,
+    "err_robotframe_p90": 0.36,
+    "err_world_med": 4.374,
+    "err_world_p90": 5.991,
+    "detected_when_visible": 1.0
+   }
+  },
+  "seen_by_team_any": {
+   "blue": 0.9655172413793104,
+   "yellow": 0.0
+  },
+  "unseen_gaps": {
+   "blue": {
+    "n": 3,
+    "median_s": 0.21,
+    "p90_s": 0.26,
+    "max_s": 0.27
+   },
+   "yellow": {
+    "n": 1,
+    "median_s": 20.01,
+    "p90_s": 20.01,
+    "max_s": 20.01
+   }
+  }
+ },
+ "robots": {
+  "visible_pairs": 13676,
+  "detected": 0.8395729745539632,
+  "detected_full": 0.8978886397608371,
+  "detected_partial": 0.629542395693136,
+  "partial_share": 0.21731500438724774,
+  "by_range": {
+   "0-1m": {
+    "n": 1083,
+    "detected": 0.963,
+    "err_robotframe_med": 0.015,
+    "err_world_med": 0.035,
+    "err_world_p90": 2.48
+   },
+   "1-2m": {
+    "n": 2422,
+    "detected": 0.906,
+    "err_robotframe_med": 0.023,
+    "err_world_med": 0.041,
+    "err_world_p90": 5.369
+   },
+   "2-4m": {
+    "n": 5912,
+    "detected": 0.87,
+    "err_robotframe_med": 0.052,
+    "err_world_med": 0.181,
+    "err_world_p90": 4.095
+   },
+   "4-10m": {
+    "n": 4259,
+    "detected": 0.729,
+    "err_robotframe_med": 0.137,
+    "err_world_med": 3.099,
+    "err_world_p90": 6.16
+   }
+  },
+  "team_colour_read": 0.9865877024908553,
+  "team_colour_correct": 0.9539194915254238,
+  "team_by_association_correct": 0.6084305870057481,
+  "assoc_correct_mates": 0.3253588516746411,
+  "assoc_correct_opponents": 0.8820003425244048,
+  "opponents_seen_by_team": {
+   "blue": {
+    "opponents_seen_mean": 3.99,
+    "frames": 667
+   },
+   "yellow": {
+    "opponents_seen_mean": 0.0,
+    "frames": 667
+   }
+  }
+ },
+ "tag": "L2L3_s1_global",
+ "rec": "docs/screening/soccer_ssl/onboard/results/rec_L2L3_s1.npz",
+ "fps": 30.0,
+ "size": [
+  640,
+  480
+ ],
+ "hfov": 90.0,
+ "pitch": 15.0,
+ "band": true,
+ "particles": 3000,
+ "drift": 1.0,
+ "lines": true,
+ "boundary": true,
+ "seconds": 20.00000000000146,
+ "teleports_reset": 1,
+ "injections": 0,
+ "pitch_jitter": 0.0,
+ "pitch_robust": false,
+ "noise": 0.0,
+ "kidnap": null,
+ "global_init": true,
+ "meta": {
+  "blue": "L2",
+  "yellow": "L3",
+  "seed": 1,
+  "score": {
+   "blue": 0,
+   "yellow": 0
+  }
+ },
+ "timing_ms_per_robot_frame": {
+  "render": 19.12,
+  "perceive": 9.45,
+  "pf": 311.83
+ }
+}

@@ -1,0 +1,250 @@
+{
+ "loc_err_m": {
+  "median": 0.03620260891174902,
+  "p90": 0.16309929033710552,
+  "p99": 0.46757424227759004,
+  "max": 0.6667977041905322,
+  "frac_over_0_3": 0.0548,
+  "frac_over_1": 0.0
+ },
+ "yaw_err_deg": {
+  "median": 0.5941417853599928,
+  "p90": 3.1350387418463703
+ },
+ "deadreckon_err_m": {
+  "median": 0.04972862401685392,
+  "p90": 0.2779258310139222,
+  "final_median": null
+ },
+ "loc_err_by_time": {
+  "0-10s": {
+   "loc_med": 0.019,
+   "loc_p90": 0.137,
+   "dr_med": 0.005
+  },
+  "10-20s": {
+   "loc_med": 0.028,
+   "loc_p90": 0.136,
+   "dr_med": 0.038
+  },
+  "20-30s": {
+   "loc_med": 0.045,
+   "loc_p90": 0.216,
+   "dr_med": 0.084
+  },
+  "30-40s": {
+   "loc_med": 0.042,
+   "loc_p90": 0.192,
+   "dr_med": 0.114
+  },
+  "40-50s": {
+   "loc_med": 0.044,
+   "loc_p90": 0.169,
+   "dr_med": 0.119
+  },
+  "50-60s": {
+   "loc_med": 0.045,
+   "loc_p90": 0.131,
+   "dr_med": 0.163
+  }
+ },
+ "per_robot": {
+  "blue0": {
+   "max": 0.046,
+   "final": 0.007,
+   "frac_over_0_5": 0.0
+  },
+  "blue1": {
+   "max": 0.218,
+   "final": 0.046,
+   "frac_over_0_5": 0.0
+  },
+  "blue2": {
+   "max": 0.422,
+   "final": 0.2,
+   "frac_over_0_5": 0.0
+  },
+  "blue3": {
+   "max": 0.142,
+   "final": 0.026,
+   "frac_over_0_5": 0.0
+  },
+  "blue4": {
+   "max": 0.27,
+   "final": 0.01,
+   "frac_over_0_5": 0.0
+  },
+  "yellow0": {
+   "max": 0.042,
+   "final": 0.01,
+   "frac_over_0_5": 0.0
+  },
+  "yellow1": {
+   "max": 0.667,
+   "final": 0.05,
+   "frac_over_0_5": 0.079
+  },
+  "yellow2": {
+   "max": 0.252,
+   "final": 0.066,
+   "frac_over_0_5": 0.0
+  },
+  "yellow3": {
+   "max": 0.167,
+   "final": 0.055,
+   "frac_over_0_5": 0.0
+  },
+  "yellow4": {
+   "max": 0.185,
+   "final": 0.049,
+   "frac_over_0_5": 0.0
+  }
+ },
+ "ball": {
+  "frames": 20000,
+  "in_fov": 0.764,
+  "visible": 0.569,
+  "detected_when_visible": 0.967311072056239,
+  "false_detect_when_not_visible": 0.025522041763341066,
+  "by_range": {
+   "0-1m": {
+    "n": 1665,
+    "err_robotframe_med": 0.015,
+    "err_robotframe_p90": 0.057,
+    "err_world_med": 0.031,
+    "err_world_p90": 0.156,
+    "detected_when_visible": 1.0
+   },
+   "1-2m": {
+    "n": 2118,
+    "err_robotframe_med": 0.093,
+    "err_robotframe_p90": 0.331,
+    "err_world_med": 0.123,
+    "err_world_p90": 0.399,
+    "detected_when_visible": 1.0
+   },
+   "2-4m": {
+    "n": 4032,
+    "err_robotframe_med": 0.398,
+    "err_robotframe_p90": 1.313,
+    "err_world_med": 0.445,
+    "err_world_p90": 1.328,
+    "detected_when_visible": 1.0
+   },
+   "4-10m": {
+    "n": 3193,
+    "err_robotframe_med": 1.36,
+    "err_robotframe_p90": 5.924,
+    "err_world_med": 1.364,
+    "err_world_p90": 5.962,
+    "detected_when_visible": 0.896
+   }
+  },
+  "seen_by_team_any": {
+   "blue": 0.854,
+   "yellow": 0.874
+  },
+  "unseen_gaps": {
+   "blue": {
+    "n": 118,
+    "median_s": 0.03,
+    "p90_s": 0.13,
+    "max_s": 2.16
+   },
+   "yellow": {
+    "n": 111,
+    "median_s": 0.03,
+    "p90_s": 0.15,
+    "max_s": 0.75
+   }
+  }
+ },
+ "robots": {
+  "visible_pairs": 76394,
+  "detected": 0.4686755504358981,
+  "detected_full": 0.47618023621265754,
+  "detected_partial": 0.4402132998745295,
+  "partial_share": 0.20865512998403016,
+  "by_range": {
+   "0-1m": {
+    "n": 5677,
+    "detected": 0.959,
+    "err_robotframe_med": 0.028,
+    "err_world_med": 0.055,
+    "err_world_p90": 0.199
+   },
+   "1-2m": {
+    "n": 13423,
+    "detected": 0.842,
+    "err_robotframe_med": 0.081,
+    "err_world_med": 0.107,
+    "err_world_p90": 0.319
+   },
+   "2-4m": {
+    "n": 29029,
+    "detected": 0.492,
+    "err_robotframe_med": 0.182,
+    "err_world_med": 0.21,
+    "err_world_p90": 0.438
+   },
+   "4-10m": {
+    "n": 28265,
+    "detected": 0.169,
+    "err_robotframe_med": 0.247,
+    "err_world_med": 0.265,
+    "err_world_p90": 0.461
+   }
+  },
+  "team_colour_read": 0.977656127806949,
+  "team_colour_correct": 0.9373785853045367,
+  "team_by_association_correct": 0.8443190704949167,
+  "assoc_correct_mates": 0.7999517520053073,
+  "assoc_correct_opponents": 0.8825885657805753,
+  "opponents_seen_by_team": {
+   "blue": {
+    "opponents_seen_mean": 2.69,
+    "frames": 2000
+   },
+   "yellow": {
+    "opponents_seen_mean": 2.85,
+    "frames": 2000
+   }
+  }
+ },
+ "tag": "L2L3_s1_jitter05",
+ "rec": "docs/screening/soccer_ssl/onboard/results/rec_L2L3_s1.npz",
+ "fps": 30.0,
+ "size": [
+  640,
+  480
+ ],
+ "hfov": 90.0,
+ "pitch": 15.0,
+ "band": true,
+ "particles": 300,
+ "drift": 1.0,
+ "lines": true,
+ "boundary": true,
+ "seconds": 59.999999999950866,
+ "teleports_reset": 2,
+ "injections": 0,
+ "pitch_jitter": 0.5,
+ "pitch_robust": false,
+ "noise": 0.0,
+ "kidnap": null,
+ "global_init": false,
+ "meta": {
+  "blue": "L2",
+  "yellow": "L3",
+  "seed": 1,
+  "score": {
+   "blue": 0,
+   "yellow": 0
+  }
+ },
+ "timing_ms_per_robot_frame": {
+  "render": 19.05,
+  "perceive": 10.68,
+  "pf": 19.97
+ }
+}

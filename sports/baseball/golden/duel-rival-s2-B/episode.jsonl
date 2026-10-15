@@ -1,0 +1,50 @@
+{"ev": "header", "ts": 1791477841.276, "wall": 0.0001, "cfg": {"sport": "baseball", "format": "duel", "seats": ["A", "B"], "seed": 2, "first": "B", "slowdown": null, "level": null, "action_level": "low", "play": "program", "params": {}, "sides": null, "renderer": null}, "sport": "baseball", "revision": "baseball-wallclock-3+duel-2+core-0.2", "protocol": "realtime", "source_sha": null, "versions": {"core": "0.2.11", "sport": "baseball-wallclock-3+duel-2+core-0.2"}, "local": true}
+{"ev": "cmd", "ts": 1791477842.318, "wall": 1.0418, "k": 0, "seat": "A", "cmd": {"type": "pitch", "pitch": "changeup", "speed": 35.1, "x": 0.111, "z": 0.718}}
+{"ev": "cmd", "ts": 1791477845.185, "wall": 3.9085, "k": 110, "seat": "B", "cmd": {"type": "swing", "t": 0.27716, "plane": 4.0, "height": 0.7327, "speed": 34.0, "reach": 0.0837}}
+{"ev": "resume", "ts": 1791477848.869, "wall": 7.5927, "k": 143}
+{"ev": "cmd", "ts": 1791477848.953, "wall": 7.6772, "k": 145, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.59, "x": -0.058, "z": 0.783}}
+{"ev": "cmd", "ts": 1791477851.274, "wall": 9.9982, "k": 260, "seat": "A", "cmd": {"type": "swing", "t": 0.23929, "plane": 4.0, "height": 0.8232, "speed": 34.0, "reach": -0.0807}}
+{"ev": "resume", "ts": 1791477854.226, "wall": 12.95, "k": 290}
+{"ev": "cmd", "ts": 1791477854.498, "wall": 13.2214, "k": 290, "seat": "A", "cmd": {"type": "pitch", "pitch": "slider", "speed": 36.47, "x": 0.152, "z": 0.646}}
+{"ev": "cmd", "ts": 1791477856.938, "wall": 15.6614, "k": 390, "seat": "B", "cmd": {"type": "swing", "t": 0.2806, "plane": 4.0, "height": 0.6483, "speed": 34.0, "reach": 0.072}}
+{"ev": "resume", "ts": 1791477860.219, "wall": 18.9428, "k": 423}
+{"ev": "cmd", "ts": 1791477860.421, "wall": 19.1452, "k": 425, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.02, "x": 0.05, "z": 1.18}}
+{"ev": "resume", "ts": 1791477866.303, "wall": 25.0269, "k": 571}
+{"ev": "cmd", "ts": 1791477866.515, "wall": 25.2386, "k": 575, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.58, "x": -0.088, "z": 1.18}}
+{"ev": "resume", "ts": 1791477871.827, "wall": 30.5505, "k": 724}
+{"ev": "cmd", "ts": 1791477871.902, "wall": 30.6253, "k": 725, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.56, "x": -0.082, "z": 0.615}}
+{"ev": "cmd", "ts": 1791477874.202, "wall": 32.9254, "k": 860, "seat": "A", "cmd": {"type": "swing", "t": 0.24215, "plane": 4.0, "height": 0.6208, "speed": 34.0, "reach": -0.1444}}
+{"ev": "resume", "ts": 1791477876.952, "wall": 35.6754, "k": 890}
+{"ev": "cmd", "ts": 1791477877.148, "wall": 35.8715, "k": 890, "seat": "A", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.11, "x": 0.055, "z": 0.818}}
+{"ev": "cmd", "ts": 1791477879.723, "wall": 38.4467, "k": 1005, "seat": "B", "cmd": {"type": "swing", "t": 0.22582, "plane": 4.0, "height": 0.7978, "speed": 34.0, "reach": 0.0179}}
+{"ev": "resume", "ts": 1791477882.955, "wall": 41.6788, "k": 1033}
+{"ev": "cmd", "ts": 1791477883.181, "wall": 41.9051, "k": 1035, "seat": "B", "cmd": {"type": "pitch", "pitch": "changeup", "speed": 34.03, "x": 0.189, "z": 0.36}}
+{"ev": "resume", "ts": 1791477888.866, "wall": 47.5897, "k": 1158}
+{"ev": "cmd", "ts": 1791477888.967, "wall": 47.691, "k": 1160, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.41, "x": -0.33, "z": 0.451}}
+{"ev": "resume", "ts": 1791477893.626, "wall": 52.3497, "k": 1285}
+{"ev": "cmd", "ts": 1791477893.793, "wall": 52.5165, "k": 1285, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.74, "x": -0.161, "z": 1.18}}
+{"ev": "resume", "ts": 1791477898.615, "wall": 57.3388, "k": 1428}
+{"ev": "cmd", "ts": 1791477898.825, "wall": 57.5485, "k": 1430, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 40.83, "x": -0.092, "z": 0.878}}
+{"ev": "cmd", "ts": 1791477901.209, "wall": 59.9329, "k": 1550, "seat": "A", "cmd": {"type": "swing", "t": 0.24815, "plane": 4.0, "height": 0.9281, "speed": 34.0, "reach": -0.1414}}
+{"ev": "resume", "ts": 1791477904.592, "wall": 63.316, "k": 1580}
+{"ev": "cmd", "ts": 1791477904.816, "wall": 63.5401, "k": 1580, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.28, "x": 0.139, "z": 0.786}}
+{"ev": "cmd", "ts": 1791477907.554, "wall": 66.2776, "k": 1690, "seat": "A", "cmd": {"type": "swing", "t": 0.21678, "plane": 4.0, "height": 0.7322, "speed": 34.0, "reach": 0.0713}}
+{"ev": "resume", "ts": 1791477910.801, "wall": 69.5244, "k": 1717}
+{"ev": "cmd", "ts": 1791477910.9, "wall": 69.6236, "k": 1720, "seat": "A", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 40.59, "x": 0.015, "z": 0.728}}
+{"ev": "cmd", "ts": 1791477913.714, "wall": 72.4377, "k": 1840, "seat": "B", "cmd": {"type": "swing", "t": 0.22964, "plane": 4.0, "height": 0.7042, "speed": 34.0, "reach": -0.0212}}
+{"ev": "resume", "ts": 1791477917.124, "wall": 75.8476, "k": 1869}
+{"ev": "cmd", "ts": 1791477917.338, "wall": 76.062, "k": 1870, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.21, "x": -0.151, "z": 0.695}}
+{"ev": "cmd", "ts": 1791477920.468, "wall": 79.1918, "k": 2005, "seat": "A", "cmd": {"type": "swing", "t": 0.20427, "plane": 4.0, "height": 0.6567, "speed": 34.0, "reach": -0.1418}}
+{"ev": "resume", "ts": 1791477923.885, "wall": 82.6083, "k": 2031}
+{"ev": "cmd", "ts": 1791477924.117, "wall": 82.841, "k": 2035, "seat": "A", "cmd": {"type": "pitch", "pitch": "slider", "speed": 36.3, "x": -0.184, "z": 0.36}}
+{"ev": "resume", "ts": 1791477931.182, "wall": 89.9061, "k": 2148}
+{"ev": "cmd", "ts": 1791477931.452, "wall": 90.1761, "k": 2150, "seat": "A", "cmd": {"type": "pitch", "pitch": "curveball", "speed": 33.45, "x": 0.056, "z": 0.847}}
+{"ev": "cmd", "ts": 1791477934.664, "wall": 93.3877, "k": 2235, "seat": "B", "cmd": {"type": "swing", "t": 0.30468, "plane": 4.0, "height": 0.842, "speed": 34.0, "reach": 0.0156}}
+{"ev": "resume", "ts": 1791477939.658, "wall": 98.3817, "k": 2271}
+{"ev": "cmd", "ts": 1791477939.759, "wall": 98.4831, "k": 2275, "seat": "B", "cmd": {"type": "pitch", "pitch": "slider", "speed": 36.95, "x": -0.33, "z": 0.657}}
+{"ev": "resume", "ts": 1791477946.829, "wall": 105.5528, "k": 2389}
+{"ev": "cmd", "ts": 1791477947.04, "wall": 105.7639, "k": 2390, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.76, "x": 0.164, "z": 1.18}}
+{"ev": "resume", "ts": 1791477952.926, "wall": 111.6494, "k": 2510}
+{"ev": "cmd", "ts": 1791477953.178, "wall": 111.9016, "k": 2510, "seat": "B", "cmd": {"type": "pitch", "pitch": "fastball", "speed": 41.1, "x": -0.048, "z": 0.69}}
+{"ev": "cmd", "ts": 1791477956.355, "wall": 115.0786, "k": 2635, "seat": "A", "cmd": {"type": "swing", "t": 0.21331, "plane": 4.0, "height": 0.7301, "speed": 34.0, "reach": -0.1075}}
+{"ev": "end", "ts": 1791477959.948, "wall": 118.6715, "k": 2662, "reason": "match_over"}

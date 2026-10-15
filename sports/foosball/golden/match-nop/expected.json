@@ -1,0 +1,13 @@
+{
+ "expect": {
+  "state_sha": "7c7a77a6c33671c16ab8bf2a192ec98fbfa5a595ffef9a7f448e483549d913d5",
+  "scores": {
+   "A": 0,
+   "opponent": 0
+  },
+  "winner": null,
+  "k": 0
+ },
+ "source": "golden/convert.py of the golden-data store case foosball-match-wallclock-program-standard/nop",
+ "tag": "rule-change:core-0.2.7-prestart-noshow: the single player never started and its session was collected inside the start window: a valid loss (no_show at the collect, success 0) without a winner side (cores 0.2.2-0.2.6: an incomplete match); legacy: reason no_start, a valid loss with winner B (the scripted team)"
+}

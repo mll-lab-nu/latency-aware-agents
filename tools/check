@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# tools/check SPORT [options]: every check a sport must pass (see tools/check.py). Needs python >= 3.11 (PYTHON=...)
+# and docker; the simulation runs in the sport's image.
+set -euo pipefail
+py="${PYTHON:-python3}"
+"$py" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null || {
+  echo "tools/check needs python >= 3.11 (tomllib): set PYTHON=/path/to/python3.11+" >&2; exit 2; }
+exec "$py" "$(dirname "$0")/check.py" "$@"

@@ -1,0 +1,25 @@
+{
+ "expect": {
+  "state_sha": "dfe54abf85434ea846fdf70e5a3e031fcbf2ed5e88214ddb6cf337f8262bbc0e",
+  "scores": {
+   "A": {
+    "heats_won": 0,
+    "warnings": 0,
+    "checkpoints": 0,
+    "laps": 0,
+    "obstacle_crashes": 0
+   },
+   "opponent": {
+    "heats_won": 0,
+    "warnings": 0,
+    "checkpoints": 0,
+    "laps": 0,
+    "obstacle_crashes": 0
+   }
+  },
+  "winner": null,
+  "k": 302
+ },
+ "source": "recorded by the legacy task racing-match-wallclock-program-standard (golden-data store case abandon-60s, commit d4664a8b), converted by golden/convert.py",
+ "tag": "rule-change:core-0.2.6-abandoned: session collected mid-race. Core 0.2.6: a started single player whose session ends before the end loses (forfeit row `abandoned`, a valid loss, success 0), as the legacy racing server scored it (session_ended); cores 0.2.2-0.2.5 ended it `collected` (incomplete, no valid result). The world replays bit-exactly; the replayed result (no winner) is the same"
+}

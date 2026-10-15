@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+/exps/
+/jobs/
+*.log
+.env
+.env.*
+!.env.example
+images/mujoco/rcb_mj/
+build/
+
+# presentation-scene model files (renderers/presentation/assets.py fetch)
+/.cache/
+
+# hidden official seed sets (tools/seeds.py): private, never committed
+*.hidden_seeds.json

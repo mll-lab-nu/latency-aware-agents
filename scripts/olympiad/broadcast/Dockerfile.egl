@@ -1,0 +1,12 @@
+# Viewer-only image: never used to run or verify a match.
+# Build once per simulator image, e.g.:
+# docker build -f scripts/olympiad/broadcast/Dockerfile.egl -t eai-broadcast-egl:0.1.0 .
+ARG BASE_IMAGE=ghcr.io/mll-lab-nu/eai-olympiad:0.1.0
+FROM ${BASE_IMAGE}
+RUN apt-get update -qq && apt-get install -y --no-install-recommends libegl1 libgles2 \
+    && rm -rf /var/lib/apt/lists/*
+# NVIDIA's container runtime injects the driver libraries, but not always this manifest.
+RUN mkdir -p /usr/share/glvnd/egl_vendor.d \
+    && printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+       > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+ENV __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json

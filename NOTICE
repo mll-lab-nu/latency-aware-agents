@@ -1,0 +1,71 @@
+RoboOlympics
+
+This repository was split out of robot_coding_bench (https://github.com/JamesKrW/robot_coding_bench, branch
+`olympiad`, commit 5563ed49fe4539cb2870617ab81b75f69d88b37d), which is released under the MIT License
+(Copyright (c) 2026 Kangrui Wang and robot_coding_bench contributors). Only the RoboOlympics part was imported, as a
+clean first commit without the earlier history. The license is unchanged (see LICENSE).
+
+Task names keep the `robot-coding-bench/` prefix and code ids keep "olympiad", so that branches of the original
+repository can still be ported by applying patches (same relative layout: scripts/olympiad/, tasks/, ci_checks/, ...).
+
+Third-party models of the presentation scenes (spectator renders only; renderers/presentation/). These files are NOT
+in this repository: they are fetched at build time from MuJoCo Menagerie (https://github.com/google-deepmind/
+mujoco_menagerie), pinned to commit f054586a8e90465d49ee5be15335c4a0c7f57caf and checked by sha256
+(renderers/presentation/menagerie.json), and used unmodified (only their visual meshes, materials and poses are read):
+  * franka_emika_panda (Franka Emika Panda, derived from Franka Emika's franka_ros description), Apache License 2.0,
+    renderers/presentation/LICENSE.franka_emika_panda;
+  * kuka_iiwa_14 (KUKA LBR iiwa 14, derived from the Drake developers' iiwa14 description), BSD 3-Clause License,
+    Copyright 2012-2022 Robot Locomotion Group @ CSAIL, renderers/presentation/LICENSE.kuka_iiwa_14;
+  * booster_t1 (Booster T1, derived from Booster Robotics' booster_gym description), Apache License 2.0,
+    renderers/presentation/LICENSE.booster_t1.
+The presentation scenes that combine them with a sport's match scene are derived works, generated at render time.
+Levels of detail (renderers/presentation/lod/, lod.json; players' images, renderer rule 6) are derived works of the
+same pinned files: their visual meshes decimated (quadric error metrics, renderers/presentation/lod.py), committed
+here and bundled into the simulator directories of the sports that declare them, under the same licences (the
+LICENSE.<model> files are copied with them).
+
+Robot library (bodies/, bodies/README.md): third-party robot models, each with its own licence file next to it. The
+fine meshes (meshes_fine/) are not in git: each robot's tools/make_model.py fetches or regenerates them. Each robot's
+meshes_25k/ (the players' level of detail, about 25 k triangles; bodies/lod.py, lod.json with every file's sha256)
+holds derived works of its upstream meshes, decimated and committed under the same licence as the robot.
+  * bodies/abb_irb1100 (ABB IRB 1100-4/0.58 on a two-axis gantry) has no upstream model: model.xml and its meshes are
+    original work of this repository (MIT), written from ABB's published product specification (3HAC064993-001:
+    dimensions, ranges, speeds) and Google DeepMind's published description of its table-tennis robot; no ABB CAD
+    data and no third-party model are included (bodies/abb_irb1100/LICENSE). "ABB" and "IRB" name the real robot the
+    approximation stands for.
+- bodies/wheeled_humanoid: the Rainbow Robotics RB-Y1 M model and meshes of MuJoCo Menagerie
+  (https://github.com/google-deepmind/mujoco_menagerie/tree/main/rainbow_robotics_rby1, commit
+  f054586a8e90465d49ee5be15335c4a0c7f57caf), Apache License 2.0 (bodies/wheeled_humanoid/LICENSE), derived by
+  Menagerie from Rainbow Robotics' RB-Y1 URDF. meshes/ and model.xml are modified
+  (bodies/wheeled_humanoid/tools/make_model.py lists every change).
+- bodies/unitree_g1: the Unitree G1 (29 DOF, rev 1.0) model and meshes of MuJoCo Menagerie
+  (https://github.com/google-deepmind/mujoco_menagerie/tree/main/unitree_g1, commit
+  f054586a8e90465d49ee5be15335c4a0c7f57caf), BSD 3-Clause License (bodies/unitree_g1/LICENSE), derived by Menagerie
+  from Unitree's g1_description. meshes/ and model.xml are modified (bodies/unitree_g1/tools/make_model.py).
+- bodies/unitree_g1/policy, bodies/unitree_h1/policy: Unitree's pretrained G1 and H1-2 walking policies
+  (deploy/pre_train/{g1,h1_2}/motion.pt, unchanged; motion.npz holds their weights as arrays, tools/export_policy.py)
+  and deploy configs of unitree_rl_gym (https://github.com/unitreerobotics/unitree_rl_gym, commit
+  276801e46c5d433564f24658bac64f254b7d2d4b), BSD 3-Clause License (policy/LICENSE.unitree_rl_gym).
+- bodies/unitree_g1/policy/falcon_g1_29dof.npz: the weights of FALCON's released G1 policy
+  (sim2real/models/falcon/g1_29dof.onnx of LeCAR-Lab/FALCON, https://github.com/LeCAR-Lab/FALCON, commit
+  a967a6d8494f57777cf8d266a644ac8e45833301; unchanged, as arrays, bodies/unitree_g1/tools/export_falcon.py), MIT
+  License, Copyright (c) 2025 Yuanhang Zhang (policy/LICENSE.falcon); bodies/unitree_g1/falcon.py re-implements its
+  forward pass and the observation of FALCON's deployment code (Y. Zhang et al., "FALCON: Learning Force-Adaptive
+  Humanoid Loco-Manipulation", arXiv:2505.06776).
+- bodies/unitree_g1/policy/agile_g1_velocity_height.npz: the weights and graph constants of NVIDIA WBC-AGILE's released
+  G1 velocity-height policy (agile/data/policy/velocity_height_g1/leapp/Velocity-Height-G1-History-v0/
+  Velocity-Height-G1-History-v0.onnx and the joint order of its .yaml, of nvidia-isaac/WBC-AGILE,
+  https://github.com/nvidia-isaac/WBC-AGILE, commit 6830cf995714e81c91ce63247e8e016d36e28f14; unchanged, as arrays,
+  bodies/unitree_g1/tools/export_agile.py), Apache License 2.0, Copyright (c) NVIDIA CORPORATION & AFFILIATES
+  (policy/LICENSE.agile: the upstream licence file, verbatim); bodies/unitree_g1/agile.py re-implements the graph's
+  observation, history update and forward pass (H. Zhao et al., "AGILE: A Comprehensive Workflow for Humanoid
+  Loco-Manipulation Learning", arXiv:2603.20147).
+- bodies/unitree_h1: the Unitree H1-2 model and meshes of unitree_rl_gym resources/robots/h1_2 (same commit), BSD
+  3-Clause License (bodies/unitree_h1/LICENSE); meshes/ and model.xml are modified (bodies/unitree_h1/tools/make_model.py).
+- bodies/galaxea_r1pro: Galaxea's R1 Pro URDF and meshes of OpenGalaxea/GalaxeaManipSim (commit
+  abe7f5161eeaa150e6eaffdf443af5df7f23f356), Apache License 2.0, Copyright 2025 Galaxea (bodies/galaxea_r1pro/LICENSE);
+  converted to MJCF and decimated (bodies/galaxea_r1pro/tools/make_model.py).
+- bodies/tianji_marvin_pro (TEST USE ONLY): the Tianji Marvin Pro URDF and meshes of KLMmotion/marvin_pro_robotwin
+  (commit 1e30f003984ddb82d2994474b015f0933c131d94), MIT License (bodies/tianji_marvin_pro/LICENSE); converted and
+  decimated (bodies/tianji_marvin_pro/tools/make_model.py). Written confirmation from Guangdong TianJi Intelligent
+  Systems is needed before any public release that includes it.

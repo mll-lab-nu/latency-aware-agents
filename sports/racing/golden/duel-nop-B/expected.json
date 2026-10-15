@@ -1,0 +1,25 @@
+{
+ "expect": {
+  "state_sha": "7038539c57be7c796041c65226d861fdb86e732090b8518e54e206b6a3155f8c",
+  "scores": {
+   "A": {
+    "heats_won": 0,
+    "warnings": 0,
+    "checkpoints": 0,
+    "laps": 0,
+    "obstacle_crashes": 0
+   },
+   "B": {
+    "heats_won": 0,
+    "warnings": 0,
+    "checkpoints": 0,
+    "laps": 0,
+    "obstacle_crashes": 0
+   }
+  },
+  "winner": "A",
+  "k": 0
+ },
+ "source": "recorded by the legacy task racing-duel-wallclock-program-standard (golden-data store case nop-B, commit d4664a8b), converted by golden/convert.py",
+ "tag": "no-show rule (core 0.2.2): B never started, A wins by no_show (valid); the legacy racing server also gave A the win (start_forfeit); core 0.2.1 would have ended the match incomplete"
+}

@@ -1,0 +1,9 @@
+# eai-olympiad-soccer: the soccer sim service's Python stack (pinned). The same MuJoCo / numpy / rendering pins as
+# eai-olympiad, plus the CPU build of torch for the Booster T1 walking policy (TorchScript) and PyYAML for its config.
+mujoco==3.3.7
+numpy==2.2.6
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+PyOpenGL==3.1.10
+pillow==11.3.0
+pyyaml==6.0.3

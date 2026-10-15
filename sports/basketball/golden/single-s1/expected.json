@@ -1,0 +1,11 @@
+{
+ "expect": {
+  "state_sha": "74c8e18a1f4d0c9112cb8dff0aa2ef2220ee946549405d30ac69e99c54221f22",
+  "scores": {
+   "A": 10
+  },
+  "winner": null,
+  "k": 10
+ },
+ "source": "core/local.py, players {'A': 'reference'}, cfg {'sport': 'basketball', 'format': 'single', 'seats': ['A'], 'seed': 1, 'first': 'A', 'action_level': 'low'}"
+}

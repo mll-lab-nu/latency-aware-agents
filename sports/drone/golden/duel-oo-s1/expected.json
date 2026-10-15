@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "cb2dd7f72f374b3076beb305561c57f3c881137dbca022e3495244fe0769fbc1",
+  "scores": {
+   "A": 1,
+   "B": 2
+  },
+  "winner": "B",
+  "k": 14468
+ },
+ "source": "recorded by the legacy task drone-duel-wallclock-program-standard (golden-data store case oo-s1, commit d4664a8b), converted by golden/convert.py"
+}

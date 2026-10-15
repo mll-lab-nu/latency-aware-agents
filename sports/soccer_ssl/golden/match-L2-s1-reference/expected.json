@@ -1,0 +1,12 @@
+{
+ "expect": {
+  "state_sha": "ac87c120094d027544b5ea8494aa8fa0045725e6a8fc7d9e1121a8070a137467",
+  "scores": {
+   "A": 10,
+   "opponent": 1
+  },
+  "winner": "A",
+  "k": 51864
+ },
+ "source": "core/local.py, players {'A': 'reference'}, cfg {'sport': 'soccer_ssl', 'format': 'match', 'seats': ['A'], 'seed': 1, 'first': 'A', 'action_level': 'high', 'sides': None}"
+}

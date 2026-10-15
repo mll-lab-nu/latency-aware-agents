@@ -1,0 +1,12 @@
+{"ev": "header", "ts": 1791516000.463, "wall": 0.0001, "cfg": {"sport": "basketball", "format": "single", "seats": ["A"], "seed": 1, "first": "A", "slowdown": null, "level": null, "action_level": "low", "play": "program", "params": {}, "sides": null, "renderer": null}, "sport": "basketball", "revision": "basketball-5+core-0.2", "protocol": "turn", "source_sha": null, "versions": {"core": "0.2.12", "sport": "basketball-5+core-0.2"}, "local": true}
+{"ev": "cmd", "ts": 1791516002.237, "wall": 1.7738, "k": 0, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 7.2265, "spin_hz": 1.5, "yaw_deg": 4.7545}}
+{"ev": "cmd", "ts": 1791516002.953, "wall": 2.4901, "k": 1, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 7.2265, "spin_hz": 1.5, "yaw_deg": 4.7545}}
+{"ev": "cmd", "ts": 1791516003.51, "wall": 3.0465, "k": 2, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 7.8929, "spin_hz": 1.5, "yaw_deg": -8.7032}}
+{"ev": "cmd", "ts": 1791516004.147, "wall": 3.6843, "k": 3, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 7.8929, "spin_hz": 1.5, "yaw_deg": -8.7032}}
+{"ev": "cmd", "ts": 1791516004.686, "wall": 4.2228, "k": 4, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 8.3889, "spin_hz": 1.5, "yaw_deg": 8.5898}}
+{"ev": "cmd", "ts": 1791516005.331, "wall": 4.868, "k": 5, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 8.3889, "spin_hz": 1.5, "yaw_deg": 8.5898}}
+{"ev": "cmd", "ts": 1791516005.988, "wall": 5.5252, "k": 6, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 9.5116, "spin_hz": 1.5, "yaw_deg": -5.5016}}
+{"ev": "cmd", "ts": 1791516006.527, "wall": 6.0634, "k": 7, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 9.5116, "spin_hz": 1.5, "yaw_deg": -5.5016}}
+{"ev": "cmd", "ts": 1791516007.163, "wall": 6.7004, "k": 8, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 9.0002, "spin_hz": 1.5, "yaw_deg": -5.7189}}
+{"ev": "cmd", "ts": 1791516007.748, "wall": 7.2844, "k": 9, "seat": "A", "cmd": {"type": "shoot", "angle_deg": 54.0, "speed": 9.0002, "spin_hz": 1.5, "yaw_deg": -5.7189}}
+{"ev": "end", "ts": 1791516007.869, "wall": 7.406, "k": 10, "reason": "match_over"}
