@@ -34,7 +34,12 @@ class CodexPolicyRunner(CodingAgentPolicyRunner):
             "CODEX_HOME": "/home/ubuntu/.codex",
         }
         command = ["/opt/codex/bin/codex", "app-server", "--stdio"]
-        settings = {
+        for key, value in self._codex_settings().items():
+            command.extend(["-c", f"{key}={json.dumps(value)}"])
+        return sandbox_command(self.settings["bubblewrap_executable"], workspace, mounts, environment, command)
+
+    def _codex_settings(self):
+        return {
             "cli_auth_credentials_store": "file",
             "model": self.settings["model"],
             "model_reasoning_effort": self.settings["effort"],
@@ -47,9 +52,6 @@ class CodexPolicyRunner(CodingAgentPolicyRunner):
             "log_dir": "/runtime/log",
             "sqlite_home": "/runtime/state",
         }
-        for key, value in settings.items():
-            command.extend(["-c", f"{key}={json.dumps(value)}"])
-        return sandbox_command(self.settings["bubblewrap_executable"], workspace, mounts, environment, command)
 
     def _send(self, request):
         self.process.stdin.write(json.dumps(request) + "\n")

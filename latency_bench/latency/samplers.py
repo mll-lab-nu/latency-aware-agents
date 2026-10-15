@@ -125,10 +125,12 @@ class UniformSampler(LatencySampler):
 class IidInverseCdfSampler(LatencySampler):
     latency_type = "profile_sample"
 
-    def __init__(self, distributions: dict[str, Any], *, clock: EnvClock, seed: int | None = None):
+    def __init__(self, distributions: dict[str, Any], *, clock: EnvClock, seed: int | None = None,
+                 profile_worker_slot: int | None = None):
         self.distributions = distributions["worker_slots"]
         self.clock = clock
         self.rng = random.Random(seed)
+        self.profile_worker_slot = profile_worker_slot
 
     def __deepcopy__(self, memo):
         clone = copy.copy(self)
@@ -138,7 +140,7 @@ class IidInverseCdfSampler(LatencySampler):
         return clone
 
     def sample(self, context: dict[str, Any] | None = None) -> LatencySample:
-        worker_slot = context["worker_slot"]
+        worker_slot = context["worker_slot"] if self.profile_worker_slot is None else self.profile_worker_slot
         distribution = self.distributions[str(worker_slot)]["all"]
         return _sample_joint_emission(distribution, rng=self.rng, clock=self.clock)
 
@@ -515,6 +517,7 @@ def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySam
             distribution,
             clock=clock,
             seed=seed,
+            profile_worker_slot=latency_cfg.get("profile_worker_slot"),
         )
     elif method == "temporal":
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
@@ -553,6 +556,7 @@ def build_episode_sampler_factory(
                 distribution,
                 clock=clock,
                 seed=derive_seed(seed, episode_idx=episode_id),
+                profile_worker_slot=latency_cfg.get("profile_worker_slot"),
             )
             return _finalize_sampler(
                 sampler,

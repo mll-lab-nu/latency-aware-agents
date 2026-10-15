@@ -1,0 +1,93 @@
+experiment:
+  name: asterix_guard_intercept_mid_robust_harness
+  seed: 0
+
+executor:
+  mode: simulated
+  parallel_envs: 1
+  inference_pool: true
+  inference_devices: [cpu, cpu, cpu]
+  simulated_worker_capacity: 8
+  sync_cuda: false
+
+env:
+  name: asterix
+  make_kwargs:
+    base_env_id: ALE/Asterix-v5
+    render_mode: rgb_array
+    screen_size: 84
+    noop_max: 30
+    base_make_kwargs:
+      obs_type: rgb
+      frameskip: 1
+      repeat_action_probability: 0.0
+      full_action_space: false
+      mode: 0
+      difficulty: 0
+      max_num_frames_per_episode: 108000
+  env_fps: 7.5
+  obs_fps: 1.875
+  frame_stack: 1
+  export_env_raw_rgb_frames: false
+  noop_action: noop
+  action_map: {noop: 0, up: 1, right: 2, left: 3, down: 4, upright: 5, upleft: 6, downright: 7, downleft: 8}
+
+policy:
+  type: custom
+  factory: latency_bench.harness.codex:build_policy
+  policy_id: asterix-harness-sol61-low
+  model: gpt-6.1-sol
+  effort: low
+  actions: [noop, up, right, left, down, upright, upleft, downright, downleft]
+  worker_id: 0
+  model_instructions_file: scripts/experiments/asterix_agent/worker_instructions.txt
+  prompt_file: scripts/experiments/asterix_agent/guard_intercept_mid_robust.txt
+  prompt_factory: scripts.experiments.asterix_agent.prompt:format_prompt
+  bubblewrap_executable: /home/ubuntu/lzj/coding-agent/runtime/tools/bubblewrap/usr/bin/bwrap
+  package_root: /home/ubuntu/lzj/coding-agent/runtime/codex-install/packages/standalone/releases/0.162.1-x86_64-unknown-linux-musl
+  codex_home: /home/ubuntu/.codex
+  workspace_root: /home/ubuntu/lxy/runtime/workspaces
+  runtime_root: /home/ubuntu/lxy/runtime/processes
+  turn_timeout_seconds: 180
+  stop_used_percent: 37
+
+harness:
+  image_offsets: [4, 2, 0]
+  action_history: 8
+  plans_enabled: false
+  tools: {}
+  memory_enabled: false
+
+latency:
+  method: iid
+  profile_path: /home/ubuntu/lxy/profiles/asterix/profile.json
+  seed: 42
+  profile_worker_slot: 0
+
+scheduler:
+  hold_policy: hold
+  ordering_policy: latest_ready
+
+evaluation:
+  episodes: 1
+  seeds: [2]
+  rounds: 1
+  max_env_steps: 3600
+
+logging:
+  output_dir: /home/ubuntu/lxy/outputs/asterix_harness
+  save_step_records: true
+  save_action_records: true
+  save_latency_records: true
+  video:
+    enabled: true
+
+provenance:
+  reference_strategy: guard_intercept_mid_robust
+  historical_mean: 1466.7
+  normal_game_fps: 60
+  profile_worker_slot: 0
+  latency_seed_rule: 42 + episode_seed, without derived seeds
+  comparison: same task and latency protocol with minimal worker instructions
+  source_profile: /home/ubuntu/wzh/expts-sol/results/asterix/iterative-intercept-20261014/profile
+  reference_results: /home/ubuntu/wzh/expts-sol/results/asterix/session-approved-compact-20261015

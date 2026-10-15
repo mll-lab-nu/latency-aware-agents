@@ -1,0 +1,12 @@
+base_config: configs/experiments/asterix_agent/reproduce.yaml
+source_revision_file: /home/ubuntu/lxy/outputs/asterix_research_source/source_revision.txt
+source_diff_file: /home/ubuntu/lxy/outputs/asterix_research_source/working_tree.diff
+output_dir: /home/ubuntu/lxy/outputs/asterix_research_first
+active_version_file: /home/ubuntu/lxy/outputs/asterix_research_active.json
+review_episode: /home/ubuntu/lxy/outputs/asterix_harness/round_1/seed_2
+review_seed: 2
+seeds: [2, 11, 17]
+max_env_steps: 1200
+max_game_decisions: 1800
+research_seconds: 1200
+total_seconds: 10800

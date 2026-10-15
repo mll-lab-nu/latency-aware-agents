@@ -124,6 +124,9 @@ class ActionScheduler:
                 self._active_chunk_event = selected
                 self._chunk_seen = True
                 self._chunk_index = current_step - selected.obs_env_step
+                plan = selected.metadata.get("harness_plan")
+                if plan is not None and plan["alignment"] == "acceptance":
+                    self._chunk_index = 0
                 self._stale_prefix_frames = self._chunk_index
                 self._underflow_event_ids.discard(selected.action_id)
 
@@ -139,10 +142,15 @@ class ActionScheduler:
         event = selected if selected is not None else self._active_chunk_event
         if event is None or event.action_chunk is None:
             return None, -1
-        index = current_step - event.obs_env_step
+        plan = event.metadata.get("harness_plan")
+        start = event.obs_env_step
+        if plan is not None and plan["alignment"] == "acceptance":
+            start = event.apply_raw_frame if event.applied else current_step
+        index = current_step - start
         if index < len(event.action_chunk):
             return event, index
-        if self.hold_last_chunk_action:
+        hold_last = self.hold_last_chunk_action if plan is None else plan["end"] == "hold"
+        if hold_last:
             return event, len(event.action_chunk) - 1
         return None, -1
 
@@ -214,11 +222,13 @@ class ActionScheduler:
     def _next_chunk_action(self, current_step: int) -> Action:
         event = self._active_chunk_event
         chunk = event.action_chunk
+        plan = event.metadata.get("harness_plan")
+        hold_last = self.hold_last_chunk_action if plan is None else plan["end"] == "hold"
         self._chunk_age_raw_frames = current_step - event.obs_env_step
         event.metadata["stale_prefix_frames"] = self._stale_prefix_frames
         event.metadata["chunk_age_raw_frames"] = self._chunk_age_raw_frames
         event.metadata["chunk_age_ms"] = self._chunk_age_raw_frames * self.clock.frame_ms
-        event.metadata["hold_last_chunk_action"] = self.hold_last_chunk_action
+        event.metadata["hold_last_chunk_action"] = hold_last
         if self._chunk_index < len(chunk):
             action = chunk[self._chunk_index]
             if not isinstance(action, Action):
@@ -235,7 +245,7 @@ class ActionScheduler:
         event.metadata["underflow_count"] = self._underflow_count
         event.metadata["underflow_frames"] = self._underflow_frames
         event.metadata["underflow_duration_ms"] = self.underflow_duration_ms
-        if self.hold_last_chunk_action:
+        if hold_last:
             action = chunk[-1]
             if not isinstance(action, Action):
                 action = Action(value=action)

@@ -56,6 +56,8 @@ def _inference_worker(connection: Any, config: dict[str, Any], worker_id: int, d
         seed_everything(config["experiment"]["seed"] + worker_id)
         runtime_metadata = _worker_runtime_metadata(worker_id, start_method)
         worker_config = deepcopy(config)
+        if "harness" in worker_config:
+            worker_config["policy"]["worker_id"] = worker_id
         worker_config["executor"]["inference_devices"] = [device]
         action_resolver = ActionResolver(worker_config["env"])
         policy = build_policy(worker_config, action_resolver)

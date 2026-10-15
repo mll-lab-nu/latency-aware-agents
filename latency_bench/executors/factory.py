@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from latency_bench.core.config import resolve_runtime_config
+from latency_bench.core.config import load_factory, resolve_runtime_config
 
 import os
+from functools import partial
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +14,9 @@ from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.core.types import ExecutorMode
 from latency_bench.envs.base import EnvAdapter
 from latency_bench.envs.factory import build_env_adapter
+from latency_bench.harness.history import PublicHistory
+from latency_bench.harness.tools import ToolTasks
+from latency_bench.harness.candidate import CandidateRuntime
 
 from latency_bench.executors.backend_selection import (
     build_env_step_backend,
@@ -53,6 +58,9 @@ def build_executor(
 ) -> Executor:
     """Build an executor; injected environments use config["env"]["env_fps"]."""
     resolve_runtime_config(config)
+    if "harness" in config:
+        if config["executor"]["mode"] != "simulated" or config["executor"]["parallel_envs"] != 1 or env_backend is not None:
+            raise ValueError("The harness requires single-environment simulated execution without env_backend")
     if config["policy"]["type"] == "coding_agent":
         from latency_bench.policy.coding_agent_contract import prepare_coding_agent_config
 
@@ -171,7 +179,8 @@ def _build_simulated_executor(
     parallel_envs = config["executor"]["parallel_envs"]
     num_episodes = int(config["evaluation"]["episodes"])
     if (
-        (
+        "harness" not in config
+        and (
             env_backend is not None
             or parallel_envs > 1
             or config["env"].get("action_history_decisions") is not None
@@ -230,6 +239,7 @@ def _build_single_simulated_executor(
             simulated_worker_capacity=config["executor"]["simulated_worker_capacity"],
             inference_pool=inference_pool,
             action_prefix=config["policy"]["action_prefix"],
+            harness=_build_harness(config, c.clock) if "harness" in config else None,
         )
     except BaseException:
         if inference_pool is not None:
@@ -390,3 +400,19 @@ def _build_clock(config: dict[str, Any]) -> EnvClock:
         env_fps=float(env_cfg["env_fps"]),
         obs_fps=float(env_cfg["obs_fps"]),
     )
+
+
+def _build_harness(config, clock):
+    settings = config["harness"]
+    request_policy = None
+    if "candidate_root" in config["policy"]:
+        runtime = CandidateRuntime(config["policy"]["candidate_root"], config["policy"]["bubblewrap_executable"])
+        functions = {name: partial(runtime.call, reference, "tool") for name, reference in settings["tools"].items()}
+        if settings["request_function"] is not None:
+            request_policy = partial(runtime.call, settings["request_function"], "request")
+    else:
+        functions = {name: load_factory(reference) for name, reference in settings["tools"].items()}
+    tools = ToolTasks(functions, clock=clock, mode="simulated") if functions else None
+    return PublicHistory(Path(config["logging"]["output_dir"]) / "public", clock=clock,
+                         image_offsets=settings["image_offsets"], action_history=settings["action_history"], tools=tools,
+                         request_policy=request_policy)
