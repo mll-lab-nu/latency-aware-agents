@@ -11,7 +11,7 @@ if mujoco.__version__ != "3.3.7":
 
 from latency_bench.core.config import load_config
 from latency_bench.core.types import Action
-from latency_bench.envs.adapters.roboolympics import SPORT, RoboOlympicsTableTennisAdapter
+from latency_bench.envs.adapters.roboolympics import RoboOlympicsAdapter, load_sport
 from latency_bench.executors.factory import build_executor
 from latency_bench.logging.action_trace_replay import load_step_records_by_episode
 
@@ -19,12 +19,13 @@ from core.sport import FINISHED, UNIT_OVER, parse_action
 
 
 WAIT = Action(value=None, name="wait", is_noop=True)
+SPORT = load_sport("tabletennis")
 ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture
 def env():
-    adapter = RoboOlympicsTableTennisAdapter(level=1, seed=7, max_env_steps=10000, noop_action=WAIT)
+    adapter = RoboOlympicsAdapter(sport="tabletennis", level=1, seed=7, max_env_steps=10000, noop_action=WAIT)
     try:
         adapter.reset(seed=7)
         yield adapter

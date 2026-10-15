@@ -1,0 +1,6 @@
+__base__: badminton.yaml
+latency:
+  method: fixed
+  fixed_latency_ms: 100
+logging:
+  output_dir: outputs/roboolympics_badminton/fixed_100ms

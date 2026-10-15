@@ -1,0 +1,6 @@
+__base__: soccer.yaml
+latency:
+  method: fixed
+  fixed_latency_ms: 100
+logging:
+  output_dir: outputs/roboolympics_soccer/fixed_100ms

@@ -1,0 +1,10 @@
+__base__: tabletennis.yaml
+experiment:
+  name: roboolympics_badminton
+  seed: 101
+env:
+  name: roboolympics_badminton
+evaluation:
+  max_env_steps: 200000
+logging:
+  output_dir: outputs/roboolympics_badminton/zero

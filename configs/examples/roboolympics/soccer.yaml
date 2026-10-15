@@ -1,0 +1,13 @@
+__base__: tabletennis.yaml
+experiment:
+  name: roboolympics_soccer
+  seed: 202
+env:
+  name: roboolympics_soccer
+  env_fps: 50
+  obs_fps: 25
+  level: 2
+evaluation:
+  max_env_steps: 200000
+logging:
+  output_dir: outputs/roboolympics_soccer/zero

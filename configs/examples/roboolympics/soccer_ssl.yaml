@@ -1,0 +1,11 @@
+__base__: tabletennis.yaml
+experiment:
+  name: roboolympics_soccer_ssl
+  seed: 1
+env:
+  name: roboolympics_soccer_ssl
+  level: 2
+evaluation:
+  max_env_steps: 200000
+logging:
+  output_dir: outputs/roboolympics_soccer_ssl/zero

@@ -1,10 +1,12 @@
-"""Expose RoboOlympics single-player table tennis to the latency executors."""
+"""Expose the frozen RoboOlympics single-seat matches to latency executors."""
 
 from __future__ import annotations
 
 import base64
+import os
 import sys
 from dataclasses import replace
+from importlib.metadata import distribution
 from io import BytesIO
 
 import numpy as np
@@ -21,32 +23,56 @@ sys.path.insert(0, str(_SOURCE_ROOT))
 from core import spec  # noqa: E402 (the selected task's pinned upstream source)
 from core.episode import load_plugin  # noqa: E402
 from core.local import seat_spec  # noqa: E402
-from core.observe import filter_fields  # noqa: E402
+from core.observe import CameraWorker, filter_fields, players_scene  # noqa: E402
 from core.outcome import decide  # noqa: E402
 from core.sport import FINISHED, UNIT_OVER, MatchConfig, Refused, parse_action  # noqa: E402
 
 
-PLUGIN_PATH = _SOURCE_ROOT / "sports" / "tabletennis" / "plugin.py"
-SPORT = load_plugin(PLUGIN_PATH)
+_SPORTS = {
+    "tabletennis": (100.0, "high", "match"),
+    "badminton": (100.0, "high", "match-wallclock"),
+    "soccer": (50.0, "low", "match"),
+    "soccer_ssl": (100.0, "high", "match"),
+}
+_loaded_sport = None
 
 
-class RoboOlympicsTableTennisAdapter(EnvAdapter):
+def load_sport(name):
+    """Load one sport per process because upstream uses unqualified module names."""
+    global _loaded_sport
+    if name not in _SPORTS:
+        raise ValueError(f"Unsupported RoboOlympics sport: {name}")
+    if _loaded_sport is None:
+        if name == "soccer":
+            # The upstream image copies these pinned package assets to /opt/sai_t1.
+            os.environ["RCB_T1_ASSETS"] = str(
+                distribution("sai-mujoco").locate_file("sai_mujoco/assets/robots/t1"),
+            )
+        plugin = _SOURCE_ROOT / "sports" / name / "plugin.py"
+        _loaded_sport = (name, load_plugin(plugin))
+    elif _loaded_sport[0] != name:
+        raise ValueError("Run different RoboOlympics sports in separate processes (upstream module names overlap)")
+    return _loaded_sport[1]
+
+
+class RoboOlympicsAdapter(EnvAdapter):
     """Advance one native control step and preserve the public player view."""
 
-    OBSERVATION_TYPE = "roboolympics_tabletennis_v1"
-
-    def __init__(self, *, level: int, seed: int, max_env_steps: int, noop_action: Action):
+    def __init__(self, *, sport: str, level: int, seed: int, max_env_steps: int, noop_action: Action):
         if noop_action.value is not None:
             raise ValueError("RoboOlympics noop_action must be null (advance without submitting a command)")
         self.noop_action = noop_action
-        self.env_fps = 100.0
+        self.sport = load_sport(sport)
+        self.plugin_path = _SOURCE_ROOT / "sports" / sport / "plugin.py"
+        self.env_fps, action_level, match_format = _SPORTS[sport]
+        self.OBSERVATION_TYPE = f"roboolympics_{sport}_v1"
         self.max_env_steps = max_env_steps
         self._cfg = MatchConfig(
-            sport="tabletennis", format="match", seats=("A",), seed=seed,
-            level=level, action_level="high", play="program",
+            sport=sport, format=match_format, seats=("A",), seed=seed,
+            level=level, action_level=action_level, play="program",
         )
-        self._allowed = spec.whitelist(spec.load(PLUGIN_PATH))
-        self._layer = SPORT.action_layer("high")
+        self._declaration = spec.load(self.plugin_path)
+        self._allowed = spec.whitelist(self._declaration)
         self._renderer = None
         self._observation = None
         self.match = None
@@ -56,13 +82,24 @@ class RoboOlympicsTableTennisAdapter(EnvAdapter):
         self.close()
         if seed is not None:
             self._cfg = replace(self._cfg, seed=seed)
-        self.match = SPORT.build(self._cfg)
+        self.match = self.sport.build(self._cfg)
+        self._layer = self.sport.action_layer(self._cfg.action_level)
+        if self._cfg.sport == "badminton":
+            # The HTTP planner's wall-time allowance is replaced by bench latency.
+            self._layer.lead = 0
         if self.match.dt != self.frame_ms / 1000:
-            raise ValueError("RoboOlympics native control step must be 10 ms")
+            raise ValueError(f"RoboOlympics native control step must be {self.frame_ms:g} ms")
         self.env_step = 0
         self._spec = seat_spec(
-            SPORT, self._cfg, "A", m=self.match, plugin=PLUGIN_PATH,
+            self.sport, self._cfg, "A", m=self.match, plugin=self.plugin_path,
         )
+        self._spec["timing"] = {"reaction_delay_steps": 0}
+        if self._cfg.sport == "badminton":
+            self._spec["act"].update(
+                lead_steps=0, lead_game_s=0.0,
+                rule="The command takes effect when the latency-bench scheduler releases it; t starts at that step.",
+            )
+            self._spec["skill_contract"]["act"]["notes"]["timing"] = self._spec["act"]["rule"]
         self._observation = None
         return self.observe()
 
@@ -72,7 +109,9 @@ class RoboOlympicsTableTennisAdapter(EnvAdapter):
         if not action.is_noop:
             try:
                 cmd = parse_action(self._layer, "A", action.value, self.match, {})
-                low, planning = self._layer.lower("A", cmd, None, self.match)
+                job = self._layer.snapshot("A", cmd, self.match, self.env_step)
+                prepared = self._layer.prepare(job) if job is not None else None
+                low, planning = self._layer.lower("A", cmd, prepared, self.match)
                 applied = self.match.apply("A", low)
                 info["action_result"] = {**planning, **applied}
                 if "rejected" in applied:
@@ -109,10 +148,22 @@ class RoboOlympicsTableTennisAdapter(EnvAdapter):
             state, leaked = filter_fields(self.match.observe("A"), self._allowed)
             if leaked:
                 raise ValueError(f"RoboOlympics observation contains undeclared fields: {leaked}")
-            if self._renderer is None:
-                self._renderer = SPORT.worker_init("render", "A", self._cfg)
-            job, camera_metadata = self.match.camera_job("A")
-            image = SPORT.worker_call(self._renderer, "render", job)["png"]
+            if self._cfg.sport in ("tabletennis", "badminton"):
+                if self._renderer is None:
+                    self._renderer = self.sport.worker_init("render", "A", self._cfg)
+                job, camera_metadata = self.match.camera_job("A")
+                image = self.sport.worker_call(self._renderer, "render", job)["png"]
+            else:
+                if self._renderer is None:
+                    self._renderer = CameraWorker(
+                        players_scene(self.sport, self.plugin_path, self._cfg), self._cfg.renderer,
+                    )
+                rendered = self._renderer.draw(
+                    self.match.render_state(), self.match.cameras("A"),
+                    self._declaration["observation"]["columns"],
+                )
+                image = rendered["png"]
+                camera_metadata = {"tiles": rendered["tiles"]}
             view = {
                 "state": {
                     **state, "seat": "A", "world": "running", "step": self.env_step,
@@ -123,7 +174,10 @@ class RoboOlympicsTableTennisAdapter(EnvAdapter):
             }
             self._observation = Observation(
                 data=view, env_step=self.env_step, sim_time_ms=self.env_step * self.frame_ms,
-                metadata={"observation": self.OBSERVATION_TYPE, "spec": self._spec, "episode_seed": self._cfg.seed},
+                metadata={
+                    "observation": self.OBSERVATION_TYPE, "spec": self._spec,
+                    "episode_seed": self._cfg.seed, "unit": self.match.unit(),
+                },
             )
         return self._observation
 
@@ -134,7 +188,10 @@ class RoboOlympicsTableTennisAdapter(EnvAdapter):
 
     def close(self) -> None:
         if self._renderer is not None:
-            self._renderer.r.close()
+            if self._cfg.sport in ("tabletennis", "badminton"):
+                self._renderer.r.close()
+            else:
+                self._renderer.renderer.close()
             self._renderer = None
         self.match = None
         self._observation = None

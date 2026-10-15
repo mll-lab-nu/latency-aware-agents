@@ -1,7 +1,18 @@
-# RoboOlympics table tennis
+# Frozen RoboOlympics sports
 
-The task adapter runs the upstream single-player match against its scripted opponent.
-The example policy is the upstream camera-only reference player.
+The adapter runs each upstream single-seat match against its scripted opponent.
+One policy controls the player or the whole team. The example policies are upstream
+camera-only reference players.
+
+| Task suffix | Native format / action level | Environment Hz | Observation Hz | Opponent / public seed |
+| --- | --- | ---: | ---: | --- |
+| `tabletennis` | `match` / high | 100 | 20 | L1 / 1 |
+| `badminton` | `match-wallclock` / high | 100 | 20 | L1 / 101 |
+| `soccer` | `match` / low | 50 | 25 | L2 / 202 |
+| `soccer_ssl` | `match` / high | 100 | 20 | L2 / 1 |
+
+Task names start with `roboolympics_`. Each has a zero-latency config and a
+`_100ms.yaml` config under `configs/examples/roboolympics/`.
 
 ## Install the isolated CPU runtime
 
@@ -13,6 +24,7 @@ The adapter locates it relative to the benchmark checkout. Use Python 3.11:
 conda create --override-channels -c conda-forge -p /path/to/runtime python=3.11 pip
 /path/to/runtime/bin/python -m pip install -r scripts/experiments/roboolympics/requirements.txt
 /path/to/runtime/bin/python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+/path/to/runtime/bin/python -m pip install --no-deps sai-mujoco==0.1.30
 ```
 
 Run from this benchmark checkout. The launcher uses the bundled upstream source.
@@ -37,11 +49,28 @@ export OMP_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 bash scripts/experiments/roboolympics/eval.sh --config configs/examples/roboolympics/tabletennis.yaml
 bash scripts/experiments/roboolympics/eval.sh --config configs/examples/roboolympics/tabletennis_100ms.yaml
+bash scripts/experiments/roboolympics/eval.sh --config configs/examples/roboolympics/badminton.yaml
+bash scripts/experiments/roboolympics/eval.sh --config configs/examples/roboolympics/soccer.yaml
+bash scripts/experiments/roboolympics/eval.sh --config configs/examples/roboolympics/soccer_ssl.yaml
 ```
 
-Use `--output-dir` to select an artifact directory. Use `--max-env-steps` for a short
-smoke run. A truncated run does not establish match completion.
-The default opponent is L1 and the default seed is 1, from `sport.toml [official] seeds`.
+Use `--output-dir` to select an artifact directory. Use `--max-env-steps 20` for a quick
+smoke run.
+The table lists the default opponents and seeds, taken from each sport's public
+protocol. Each new sport's raw-step limit is 200,000. Full matches retain the
+upstream duration, score limits, halves and tie-break rules.
+
+Humanoid soccer uses only the T1 model and mesh files from `sai-mujoco==0.1.30`,
+the same version as the upstream soccer image. Install it with `--no-deps` because
+its environment dependencies differ from the frozen simulator's pins. The adapter
+locates the assets in the installed package. It does not import its environments.
+The bundled walking controller is `sports/soccer/models/robot/lower_t1_control.pt`,
+from `SaiResearch/booster_soccer_models` revision
+`c742ca8668fa88011035ee2505e043bd36488913` (upstream `models/NOTICE.md`).
+
+Run each sport in a separate Python process. Upstream modules use overlapping
+names such as `skill_api` and `builtin_players`. Loading a second sport in the
+same process raises an error. Repeated episodes of the same sport are supported.
 
 ## Latency units and the upstream slowdown
 
@@ -56,23 +85,42 @@ The example uses LAGEN's action queues and configured inference capacity.
 It does not reproduce the upstream HTTP service's per-seat request limits or Harbor's
 direct-play audit. Those belong to a separate protocol-alignment experiment.
 
+Action release time belongs to latency bench. The wheel-football service's
+`reaction_delay_steps = 2` is not applied here. Zero latency adds no artificial
+waiting period. Fixed 100 ms releases a command after 10 control steps in table
+tennis, badminton and wheel football, or 5 steps in humanoid soccer.
+
+Badminton's HTTP planner normally reserves a fixed lead before command execution.
+The adapter sets that lead to zero and reports zero in the public action spec.
+It still runs the native snapshot, planning and lowering sequence at the scheduler's
+release step. Physical movement and stroke durations remain native. Native camera
+delays also remain, including wheel football's 40 ms vision delay. The executor
+does not convert measured CPU planning or rendering time into extra simulated delay.
+
 ## Environment contract
 
-- Task: `roboolympics_tabletennis`, integration: `roboolympics`.
-- Execution: one simulated environment, inline policy inference, high-level native commands.
-- Clock: 100 raw control steps/s, with 10 physics substeps per control step. Default observations: 20/s.
-- Actions: upstream JSON commands, including `act`/`hit`, `move`, `toss`, and `none`.
+- Integration: `roboolympics` for all four tasks.
+- Execution: one simulated environment, inline policy inference, native JSON commands.
+- Clock: each sport's native control step, as listed above. Environment Hz and
+  observation Hz are separate settings.
+- Actions: racket sports use `act`/`hit`, `move`, `toss`, and `none` as declared by
+  their native schemas. Humanoid soccer uses `walk`, `stand` and `kick`, with the
+  robot number in `entity`. Wheel football uses `move`, `kick`, `dribble`,
+  `substitute`, and `batch` for commands to several robots.
   `Action(value=None, is_noop=True)` advances time without submitting a command.
-  The native `none` command cancels the current stroke. Keep `hold_policy: one_frame_then_noop`
+  For racket sports, native `none` cancels the current stroke. Keep `hold_policy: one_frame_then_noop`
   so the scheduler submits each command once. The robot continues its installed trajectory between commands.
 - Observation data: the upstream public `{state, observation}` view, including its PNG camera sheet.
-  The sheet contains two cameras and four historical frames per camera, shape `(720, 1920, 3)`.
+  Racket sports show two cameras with four historical frames each, shape `(720, 1920, 3)`.
+  Humanoid soccer shows two head cameras. Wheel football shows four overhead cameras,
+  retaining their native capture timestamps and vision delay.
   Metadata supplies the public action specification and episode seed to the reference player.
   Hidden simulator state is not supplied to the policy.
 - Reward: the change in own points minus the change in opponent points.
-- Episode: one whole match, including all points. A point boundary resumes play and signals
+- Episode: one whole match, including all points or goals. A unit boundary resumes play and signals
   `soft_reset` to discard outstanding actions and inference results. Reviews take zero simulated time.
-  The reference player retains its match state across those boundaries and restarts at step zero of a new match.
+  The reference player runs its native review hook at unit boundaries and restarts
+  at step zero of a new match.
 - End: native match completion sets `done`. The configured raw-step limit sets `truncated`.
   `task_metrics` records both states, final points, and match success.
   Success follows the native referee's winner, including disqualification decisions.
@@ -85,15 +133,16 @@ not the upstream Harbor protocol's official evaluation.
 
 ## Test on the server
 
-Keep source under `/home/ubuntu/lxy/code/roboolympics-integration/`, runtime under
-`/home/ubuntu/lxy/runtime/roboolympics-integration/`, and artifacts under
-`/home/ubuntu/lxy/outputs/roboolympics-integration/`.
+Keep source under `/home/ubuntu/lxy/code/roboolympics-frozen/`, reuse the isolated
+runtime under `/home/ubuntu/lxy/runtime/roboolympics-integration/`, and save artifacts
+under `/home/ubuntu/lxy/outputs/roboolympics-frozen/`.
 Use the SSH proxy specified in the main checkout's `servers.md`.
 
 ```bash
 export MUJOCO_GL=osmesa
 export PYOPENGL_PLATFORM=osmesa
 "$PYTHON" -m pytest -q tests/envs/adapters/test_roboolympics_env_adapter.py
+"$PYTHON" -m pytest -q tests/envs/adapters/test_roboolympics_frozen_sports.py
 ```
 
 The adapter tests use the bundled source and real simulator. They skip when the optional
