@@ -32,7 +32,7 @@ def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any
     import torch
 
     metadata.update({
-        "worker_torch_version": torch.__version__,
+        "worker_torch_version": str(torch.__version__),
         "worker_torch_cuda_version": torch.version.cuda,
         "worker_cuda_device_count": torch.cuda.device_count(),
     })
