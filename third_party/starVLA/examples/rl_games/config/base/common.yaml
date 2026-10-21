@@ -122,7 +122,7 @@ trainer:
   # used as one shared budget across all latencies.
   per_latency_eval_num_batches: null
   # Log task-specific control-critical precision/recall/F1 on the held-out val set.
-  # Supported tasks: flappy, demon_attack, air_raid, defend_the_line, deadly_corridor, asterix, atlantis.
+  # Supported tasks: flappy, demon_attack, air_raid, deadly_corridor, asterix, atlantis.
   # Disabled by default because online rollout eval is the training-time signal.
   # Enable explicitly with trainer.eval_action_classification=true for offline checks.
   eval_action_classification: false

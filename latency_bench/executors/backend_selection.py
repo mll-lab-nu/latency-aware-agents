@@ -19,7 +19,7 @@ from latency_bench.executors.env_step_backend import (
 )
 
 ENV_BACKEND_DEBUG_ENV = "LATENCY_BENCH_ENV_BACKEND"
-_AUTO_SUBPROC_ENV_NAMES = {"deadly_corridor", "defend_the_line"}
+_AUTO_SUBPROC_ENV_NAMES = {"deadly_corridor"}
 _AUTO_FLAPPY_GPU_BATCHED_POLICY_TYPES = {"flappy_sf", "starvla"}
 
 

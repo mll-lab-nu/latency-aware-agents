@@ -19,6 +19,9 @@
 
 ## Overview
 
+For reuse in another project, install the [framework wheel](docs/python-package.md).
+The default package needs only NumPy and PyYAML.
+
 The world continues to change while an agent computes its next action.
 **LAGEN** studies how deployment latency affects vision-language agents and
 how training with latency prepares them for real-time interaction.

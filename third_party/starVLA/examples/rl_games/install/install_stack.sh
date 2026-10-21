@@ -56,7 +56,7 @@ esac
 
 if [[ ${#POSITIONAL[@]} -eq 2 ]]; then
   case "${POSITIONAL[1]}" in
-    flappy|demon_attack|defend_the_line|deadly_corridor|asterix|atlantis|cross_task) ;;
+    flappy|demon_attack|deadly_corridor|asterix|atlantis|cross_task) ;;
     *) exit 1 ;;
   esac
   echo "[install_stack] legacy env selector '${POSITIONAL[1]}' accepted; installing all games"

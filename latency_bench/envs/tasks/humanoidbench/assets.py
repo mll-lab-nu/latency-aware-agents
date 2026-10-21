@@ -9,7 +9,7 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-from latency_bench.utils.paths import REPO_ROOT
+from importlib.resources import files
 
 SONIC_ASSETS_REPO_ID = "MLL-Lab/LAGEN-datasets"
 SONIC_ASSETS_REVISION = "8678de04e6b59692d85c8e6e690c5ca482626857"
@@ -28,10 +28,7 @@ def prepare_g1_sonic_assets(cache_dir: Path) -> Path:
         )
     )
     asset_root = snapshot / "assets/humanoidbench/g1-sonic/sonic_g1"
-    truck_source = (
-        REPO_ROOT
-        / "third_party/humanoid-bench/humanoid_bench/assets/tasks/truck.xml"
-    )
+    truck_source = files("humanoid_bench") / "assets/tasks/truck.xml"
     truck_target = asset_root / "tasks/truck.xml"
     truck_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(truck_source, truck_target)

@@ -678,7 +678,7 @@ def test_sample_factory_latency_params_support_temporal_profile_and_capacity(tmp
     assert params.simulated_worker_capacity == 1
 
 
-@pytest.mark.parametrize("env_name", ("doom_deadly_corridor", "doom_defend_the_line"))
+@pytest.mark.parametrize("env_name", ["doom_deadly_corridor"])
 def test_vizdoom_scalar_integrations_forward_worker_capacity(monkeypatch, env_name):
     from sf_examples.vizdoom.doom import doom_utils
     from training.deadly_corridor_sf import integration

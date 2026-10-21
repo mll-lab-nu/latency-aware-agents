@@ -199,8 +199,6 @@ def _env_action_dim_from_cfg(cfg: dict[str, Any]) -> int | None:
         return 6
     if task == "air_raid":
         return 6
-    if task == "defend_the_line":
-        return 6
     if task == "asterix":
         layout = str(_get(cfg, "rl_games.env_eval.asterix.action_layout", "discrete_9")).strip().lower()
         aliases = {

@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional Gymnasium make_kwargs overrides for rollout reset/runtime settings.",
     )
-    parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "defend_the_line", "demon_attack", "flappy"])
+    parser.add_argument("--env-name", default="", choices=["", "deadly_corridor", "demon_attack", "flappy"])
     parser.add_argument("--max-episodes", type=int, required=True, help="Target number of accepted episodes.")
     parser.add_argument(
         "--max-attempts",

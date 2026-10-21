@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from typing import Any
+from importlib.util import find_spec
 
 import numpy as np
-import torch
+
+if find_spec("torch") is None:
+    torch = None
+else:
+    import torch
 
 
 def to_numpy(value: Any) -> np.ndarray:

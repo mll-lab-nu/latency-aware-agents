@@ -625,17 +625,6 @@ def test_latency_bench_env_backend_defaults_to_auto_for_parallel_cpu_bound_envs(
     assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
 
 
-def test_latency_bench_env_backend_defaults_to_auto_for_parallel_defend_the_line(tmp_path):
-    from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
-
-    config = _config(output_dir=str(tmp_path))
-    config["evaluation"]["eval_parallel_envs"] = 2
-    config["evaluation"].pop("latency_bench_env_backend", None)
-    config["env"]["name"] = "defend_the_line"
-
-    assert resolve_latency_bench_env_backend(config, eval_parallel_envs=2) == "subproc"
-
-
 @pytest.mark.parametrize(
     "backend",
     [

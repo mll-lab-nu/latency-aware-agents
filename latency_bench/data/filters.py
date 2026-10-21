@@ -75,7 +75,6 @@ def clean_v1_accepts_episode_summary(
             >= FLAPPY_MIN_LENGTH_FRACTION * max_steps_per_episode
         ),
         "deadly_corridor": lambda: summary["episode_raw_return"] >= 2200.0,
-        "defend_the_line": lambda: True,
         "demon_attack": lambda: summary["episode_raw_return"] >= demon_threshold,
     }[env_name]()
 
@@ -195,7 +194,7 @@ def filter_train_rows_clean_v1(env_name: str, rows: Sequence[Mapping[str, Any]],
     Returns:
         Filtered row copies. Validation rows should not use this function.
     """
-    if env_name in {"deadly_corridor", "defend_the_line"}:
+    if env_name == "deadly_corridor":
         return _copy_all_rows(rows)
     kept, keep_prob = _density_events(env_name, rows)
     kept |= _sample_background_rows(rows, kept, keep_prob=keep_prob, seed=seed)

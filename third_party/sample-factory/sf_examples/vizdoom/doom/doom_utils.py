@@ -129,7 +129,6 @@ DOOM_ENVS = [
     DoomSpec("doom_my_way_home", "my_way_home.cfg", doom_action_space_basic(), 1.0),
     DoomSpec("doom_deadly_corridor", "deadly_corridor.cfg", doom_action_space_extended(), 0.01),
     DoomSpec("doom_defend_the_center", "defend_the_center.cfg", doom_turn_and_attack_only(), 1.0),
-    DoomSpec("doom_defend_the_line", "defend_the_line.cfg", doom_turn_and_attack_only(), 1.0),
     DoomSpec(
         "doom_health_gathering",
         "health_gathering.cfg",

@@ -189,7 +189,7 @@ install_latency_env() {
     python -m pip install pip==25.3 setuptools==80.9.0 wheel==0.47.0
     ensure_uv
     PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
-    pip_install -e ".[dev,sonic]"
+    pip_install -e ".[runtime,data,training,analysis,dev,sonic]"
     pip_install imageio ale-py
     pip_install -e third_party/sample-factory
 
