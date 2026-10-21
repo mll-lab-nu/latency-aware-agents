@@ -4,6 +4,7 @@ from __future__ import annotations
 import gc
 import traceback
 from copy import deepcopy
+from importlib.util import find_spec
 from typing import Any
 
 from latency_bench.core.timing import StageProfiler, profiler_scope
@@ -21,15 +22,20 @@ from latency_bench.utils.seeding import seed_everything
 # --- inference worker ---------------------------------------------------------
 
 def _worker_runtime_metadata(worker_id: int, start_method: str) -> dict[str, Any]:
-    import torch
-
     metadata = {
         "worker_id": int(worker_id),
         "worker_start_method": start_method,
+    }
+    if find_spec("torch") is None:
+        return metadata
+
+    import torch
+
+    metadata.update({
         "worker_torch_version": torch.__version__,
         "worker_torch_cuda_version": torch.version.cuda,
         "worker_cuda_device_count": torch.cuda.device_count(),
-    }
+    })
     safe_set(metadata, "worker_cuda_current_device", lambda: int(torch.cuda.current_device()))
     safe_set(
         metadata,
