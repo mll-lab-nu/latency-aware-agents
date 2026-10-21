@@ -8,7 +8,7 @@ The default installation needs only NumPy and PyYAML. Latency clocks and
 samplers work without Gymnasium, Torch, or simulator resources:
 
 ```bash
-python -m pip install latency_sensitive_bench-0.1.1-py3-none-any.whl
+python -m pip install latency_sensitive_bench-0.1.2-py3-none-any.whl
 ```
 
 Choose extras for the features you use:
@@ -46,6 +46,9 @@ The build produces a wheel and a source distribution in `dist/`.
 Builds do not initialize third-party repositories or download their resources.
 Publish both files as GitHub Release attachments with a versioned tag.
 
-The `0.1.1` release uses benchmark revision `31c41252` for sooool.
+The `0.1.2` release uses benchmark revision `31c41252` for sooool.
 Its sampling implementation is unchanged. Later framework versions must be
 selected explicitly by downstream projects.
+
+Use the same framework version in each inference interpreter. Installed workers
+use their own dependencies. Source workers also receive the source checkout path.
