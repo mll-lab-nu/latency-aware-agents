@@ -6,7 +6,7 @@ Run these entries from the repository root with the selected simulator dependenc
 bash scripts/experiments/memory/rollout.sh flappy
 bash scripts/bash_scripts/rollout_data/flappy_fixed_l2.sh
 bash scripts/bash_scripts/rollout_data/flappy_fixed_l2_sharded.sh
-bash scripts/bash_scripts/rollout_data/rollout_latency024_three_games.sh all
+bash scripts/bash_scripts/rollout_data/rollout_latency024_atari.sh all
 bash scripts/experiments/memory/rollout_inverted_pendulum_latency024.sh all
 ```
 
@@ -31,10 +31,6 @@ Sharded collection starts independent probe processes.
 It merges accepted seeds in shard order and replays the merged plan once.
 The configured output contains canonical train/validation data and metadata.
 A sibling directory with the `_collection` suffix contains generated configurations and probe logs.
-
-Defend-the-Line L0 selects whole episodes from its pinned source dataset.
-It does not require a teacher checkpoint.
-The recipe records the source revision and train/validation budgets.
 
 ## Other collection paths
 

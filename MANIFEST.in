@@ -1,0 +1,6 @@
+prune third_party
+prune docs
+prune tests
+prune scripts
+prune configs
+global-exclude __pycache__ *.py[cod]

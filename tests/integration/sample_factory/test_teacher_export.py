@@ -1802,7 +1802,7 @@ def test_sample_factory_init_log_restores_logger_handlers_added_inside_context(t
 
 @pytest.mark.parametrize("env_name,sf_env,registration", [
     ("flappy", "latency_flappy", "register_flappy_envs"),
-    ("defend_the_line", "doom_defend_the_line", "register_deadly_corridor_components"),
+    ("deadly_corridor", "doom_deadly_corridor", "register_deadly_corridor_components"),
 ])
 def test_rollout_cfg_registers_integration_and_parses_evaluation_args(
     monkeypatch, tmp_path, env_name, sf_env, registration,

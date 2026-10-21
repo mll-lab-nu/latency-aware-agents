@@ -209,6 +209,7 @@ def test_worker_runtime_metadata_records_spawn_context(monkeypatch):
     assert metadata["worker_id"] == 2
     assert metadata["worker_start_method"] == "spawn"
     assert metadata["worker_torch_version"]
+    assert type(metadata["worker_torch_version"]) is str
     assert "worker_torch_cuda_version" in metadata
     assert isinstance(metadata["worker_cuda_device_count"], int)
     assert "worker_pid" not in metadata

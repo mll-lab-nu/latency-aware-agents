@@ -76,16 +76,6 @@ def _comp_demon(vec: Sequence[float]) -> Dict[str, int]:
     }
 
 
-def _comp_defend_the_line(vec: Sequence[float]) -> Dict[str, int]:
-    # labels: NOOP, ATTACK, TURN_LEFT, TURN_LEFT + ATTACK, TURN_RIGHT, TURN_RIGHT + ATTACK
-    aid = _argmax_id(vec, 6)
-    return {
-        "attack": int(aid in (1, 3, 5)),
-        "turn_left": int(aid in (2, 3)),
-        "turn_right": int(aid in (4, 5)),
-    }
-
-
 def _comp_deadly_factorized(vec: Sequence[float]) -> Dict[str, int]:
     turn, move, strafe, attack = _factorized_11(vec)
     return {
@@ -220,25 +210,10 @@ def get_spec(task: str, deadly_layout: str = DEADLY_FACTORIZED_11) -> CCF1Spec:
             cc_key="deadly_cc_f1",
             default_k=1,
         )
-    if task == "defend_the_line":
-        return CCF1Spec(
-            task="defend_the_line",
-            comp_fn=_comp_defend_the_line,
-            labels={
-                "attack": "defend_attack",
-                "turn_left": "defend_turn_left",
-                "turn_right": "defend_turn_right",
-            },
-            groups={"attack": ["attack"], "turn": ["turn_left", "turn_right"]},
-            group_labels={"attack": "defend_attack", "turn": "defend_turn"},
-            group_weights={"attack": 0.6, "turn": 0.4},
-            cc_key="defend_cc_f1",
-            default_k=1,
-        )
     raise ValueError(f"No CC-F1 spec for task {task!r}")
 
 
-SUPPORTED_TASKS = ("flappy", "demon_attack", "air_raid", "defend_the_line", "deadly_corridor")
+SUPPORTED_TASKS = ("flappy", "demon_attack", "air_raid", "deadly_corridor")
 
 
 # --------------------------------------------------------------------------- #

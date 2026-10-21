@@ -16,14 +16,6 @@ DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER = (
     "ATTACK",
 )
 
-DEFEND_THE_LINE_ACTIONS = (
-    (0, 0),
-    (0, 1),
-    (1, 0),
-    (1, 1),
-    (2, 0),
-    (2, 1),
-)
 
 _DEADLY_LEGACY_LAYOUT_BY_DIM = {
     7: "semantic_7",
@@ -134,7 +126,6 @@ def decode_rl_games_actions(
         "flappy": lambda: (_decode_discrete(raw_scores, 2), "rl_games_discrete_id"),
         "demon_attack": lambda: (_decode_discrete(raw_scores, 6), "rl_games_discrete_id"),
         "air_raid": lambda: (_decode_discrete(raw_scores, 6), "rl_games_discrete_id"),
-        "defend_the_line": lambda: (_decode_discrete(raw_scores, 6), "rl_games_defend_the_line_joint_6"),
         "asterix": lambda: decode_asterix_actions(raw_scores, action_layout=asterix_action_layout),
         "atlantis": lambda: (_decode_discrete(raw_scores, 4), "rl_games_discrete_id"),
         "gymnasium": lambda: (
@@ -232,16 +223,6 @@ def deadly_tuple_to_semantic_buttons(action_tuple: np.ndarray) -> np.ndarray:
 def decode_discrete_argmax(action_values: Iterable[float], n_actions: int) -> int:
     decoded = _decode_discrete(np.asarray(action_values, dtype=np.float32), n_actions)
     return int(decoded[0])
-
-
-def decode_defend_the_line_tuple(action_values: Iterable[float]) -> list[int]:
-    action_id = decode_discrete_argmax(action_values, len(DEFEND_THE_LINE_ACTIONS))
-    return list(DEFEND_THE_LINE_ACTIONS[action_id])
-
-
-def decode_defend_the_line_multibinary(action_values: Iterable[float]) -> list[int]:
-    turn, attack = decode_defend_the_line_tuple(action_values)
-    return [int(turn == 1), int(turn == 2), int(attack == 1)]
 
 
 def decode_deadly_multibinary_7(

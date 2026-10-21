@@ -30,10 +30,6 @@ _INTEGRATIONS = {
         "training.deadly_corridor_sf.integration",
         "register_deadly_corridor_components",
     ),
-    "defend_the_line": (
-        "training.deadly_corridor_sf.integration",
-        "register_deadly_corridor_components",
-    ),
     "gymnasium": (
         "training.gymnasium_sf.integration",
         "register_gymnasium_envs",

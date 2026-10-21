@@ -220,8 +220,6 @@ def test_simulated_mode_builds_simulated_executor(tmp_path):
         executor.close()
 
 
-
-
 @pytest.mark.parametrize("parallel", [False, True])
 @pytest.mark.parametrize("configured_devices", [None, ["cuda:1"]])
 def test_simulated_inference_pool_builds_pool_and_no_parent_policy(
@@ -622,18 +620,6 @@ def test_latency_bench_env_backend_defaults_to_auto_for_parallel_cpu_bound_envs(
     assert resolve_latency_bench_env_backend(config, parallel_envs=2) == "subproc"
 
 
-def test_latency_bench_env_backend_defaults_to_auto_for_parallel_defend_the_line(tmp_path):
-    from latency_bench.executors.backend_selection import resolve_latency_bench_env_backend
-
-    config = _config(output_dir=str(tmp_path))
-    config["executor"]["env_backend"] = "auto"
-    config["executor"]["parallel_envs"] = 2
-    config["evaluation"].pop("latency_bench_env_backend", None)
-    config["env"]["name"] = "defend_the_line"
-
-    assert resolve_latency_bench_env_backend(config, parallel_envs=2) == "subproc"
-
-
 @pytest.mark.parametrize(
     "backend",
     [
@@ -803,16 +789,6 @@ def test_realtime_factory_releases_environment_after_setup_failure(monkeypatch, 
     with pytest.raises(OSError, match="cannot create log"):
         build_executor(_config(mode="realtime", output_dir=str(tmp_path)), inference_devices=["cpu"])
     assert not environments[0].process.is_alive()
-
-
-
-
-
-
-
-
-
-
 
 
 def test_factory_rejects_unsupported_latency_method(tmp_path):

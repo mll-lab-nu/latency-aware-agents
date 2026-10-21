@@ -151,19 +151,14 @@ python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_atlantis_his
   --dataset-config-name DATASET_CONFIG --dataset-source-prefix DATASET_PREFIX \
   --dataset-revision DATASET_COMMIT --output-dir OUTPUT_DIR --image-sequence-length 5
 
-python examples/rl_games/bash_scripts/gr00t/data_conversion/convert_defend_the_line_history_to_starvla_lerobot.py \
-  --image-sequence-length 5
 ```
 
-Defend the Line uses its byte-identical retained canonical zero-latency data.
 Fixed-source launchers without retained identical datasets were retired.
 Deadly Corridor profile launchers use their unchanged nested experiment data.
 
 Asterix and Atlantis preserve the Atari timing used by their VLA datasets:
 15 FPS observations, 60 FPS environment frames, and raw-frame frameskip four.
-Defend the Line preserves the VizDoom timing used by its VLA dataset: 8.75 FPS
-observations, 35 FPS environment frames, and raw-frame frameskip four. Asterix
-defaults to the Bridge-compatible `factorized_6` action layout.
+Asterix defaults to the Bridge-compatible `factorized_6` action layout.
 
 Single-latency Deadly Corridor with bridge initialization:
 

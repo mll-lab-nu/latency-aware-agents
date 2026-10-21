@@ -22,7 +22,6 @@ from starVLA.training.rl_games.temporal_clip import resolve_modality_indices
 RL_GAMES_TASK_METADATA = {
     "rl_games_flappy": ("flappy", 2),
     "rl_games_demon_attack": ("demon_attack", 6),
-    "rl_games_defend_the_line": ("defend_the_line", 6),
     "rl_games_deadly_corridor": ("deadly_corridor", 7),
     "rl_games_asterix": ("asterix", 9),
     "rl_games_atlantis": ("atlantis", 4),
@@ -215,7 +214,6 @@ def get_vla_dataset(
         data_cfg=data_cfg,
         **kwargs,
     )
-
 
 
 if __name__ == "__main__":
