@@ -29,25 +29,6 @@ def test_deadly_corridor_noop_components_stay_in_vector_not_text():
     assert row["action_text"] == "MOVE_LEFT"
 
 
-def test_defend_the_line_default_action_layout_is_joint_six_id():
-    from latency_bench.data.action_layouts import (
-        ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6,
-        DEFEND_THE_LINE_JOINT_6_LABELS,
-        action_spec_for_env,
-        encode_action_for_env,
-    )
-
-    spec = action_spec_for_env("defend_the_line")
-    row = encode_action_for_env("defend_the_line", [2, 1])
-
-    assert spec.layout == ACTION_LAYOUT_DEFEND_THE_LINE_JOINT_6
-    assert spec.labels == DEFEND_THE_LINE_JOINT_6_LABELS
-    assert row == {
-        "action_id": 5,
-        "action_text": "TURN_RIGHT + ATTACK",
-    }
-
-
 def test_discrete_env_action_layout_keeps_action_id():
     from latency_bench.data.action_layouts import encode_action_for_env
 

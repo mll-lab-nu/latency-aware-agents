@@ -47,7 +47,7 @@ from latency_bench.envs.tasks.contracts import gymnasium_task_contract
 from latency_bench.policy._starvla_input import apply_starvla_model_input_config
 from latency_bench.policy.starvla import build_live_starvla_policy
 from latency_bench.utils.io import read_json
-from latency_bench.utils.paths import REPO_ROOT
+from latency_bench.utils.paths import BASE_CONFIG_ROOT
 
 # eval_core lives in the vendored starVLA directory (editable-installed).
 from starVLA.training.rl_games import RlGamesEvalRunner
@@ -55,12 +55,12 @@ from starVLA.training.rl_games.eval_core import EvalResult
 
 
 BASE_CONFIGS = {
-    "flappy": REPO_ROOT / "configs" / "base" / "flappy.yaml",
-    "demon_attack": REPO_ROOT / "configs" / "base" / "demon_attack.yaml",
-    "deadly_corridor": REPO_ROOT / "configs" / "base" / "deadly_corridor.yaml",
-    "asterix": REPO_ROOT / "configs" / "base" / "asterix.yaml",
-    "atlantis": REPO_ROOT / "configs" / "base" / "atlantis.yaml",
-    "air_raid": REPO_ROOT / "configs" / "base" / "air_raid.yaml",
+    "flappy": BASE_CONFIG_ROOT / "flappy.yaml",
+    "demon_attack": BASE_CONFIG_ROOT / "demon_attack.yaml",
+    "deadly_corridor": BASE_CONFIG_ROOT / "deadly_corridor.yaml",
+    "asterix": BASE_CONFIG_ROOT / "asterix.yaml",
+    "atlantis": BASE_CONFIG_ROOT / "atlantis.yaml",
+    "air_raid": BASE_CONFIG_ROOT / "air_raid.yaml",
 }
 
 

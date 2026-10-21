@@ -74,13 +74,6 @@ def test_action_carrier_bridge_is_sufficient_for_air_raid():
     assert cfg.framework.action_model.action_env_dim == 6
 
 
-def test_action_carrier_bridge_is_sufficient_for_defend_the_line():
-    cfg = _cfg("defend_the_line", init_mode="scratch", action_carrier="bridge", action_dim=7)
-
-    apply_action_spec(cfg)
-
-    assert cfg.framework.action_model.action_dim == 7
-    assert cfg.framework.action_model.action_env_dim == 6
 def test_openvla_native_gymnasium_uses_explicit_action_env_dim():
     cfg = _cfg("gymnasium", action_dim=2)
     cfg.framework.action_model.action_env_dim = 9

@@ -48,7 +48,6 @@ _GYMNASIUM_ATARI_GPU_ENVS = {
 
 REGISTRATION_METHOD_BY_INTEGRATION = {
     "deadly_corridor": "register_deadly_corridor_components",
-    "defend_the_line": "register_deadly_corridor_components",
     "demon_attack": "register_demon_attack_envs",
     "flappy": "register_flappy_envs",
     "gymnasium": "register_gymnasium_envs",

@@ -204,9 +204,9 @@ install_latency_env() {
     ensure_uv
     PYTHON_BIN=python bash third_party/starVLA/examples/rl_games/install/torch.sh
     if [[ "${INSTALL_TIER}" == dev ]]; then
-        pip_install -e ".[dev]"
+        pip_install -e ".[runtime,data,training,analysis,dev]"
     else
-        pip_install -e .
+        pip_install -e ".[runtime,data,training,analysis]"
     fi
     pip_install -e third_party/sample-factory
 
