@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-import torch
 from collections.abc import Callable
 from typing import Any
 
@@ -41,6 +40,8 @@ class RuntimeLatencyMeasurer:
     def synchronize_if_needed(self) -> None:
         if not self.sync_cuda or self.device is None or not self.device.startswith("cuda"):
             return
+
+        import torch  # Only CUDA timing requires the optional Torch runtime.
 
         if torch.cuda.is_available():
             torch.cuda.synchronize(self.device)
