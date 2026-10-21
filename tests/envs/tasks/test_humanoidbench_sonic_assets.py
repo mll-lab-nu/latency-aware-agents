@@ -8,11 +8,11 @@ def test_prepare_g1_sonic_assets_returns_pinned_scene_root(tmp_path, monkeypatch
     (snapshot / "assets/humanoidbench/g1-sonic/sonic_g1").mkdir(parents=True)
     monkeypatch.setattr(assets, "snapshot_download", lambda **_kwargs: snapshot)
 
-    repo_root = tmp_path / "repo"
-    truck = repo_root / "third_party/humanoid-bench/humanoid_bench/assets/tasks/truck.xml"
+    package_root = tmp_path / "humanoid_bench"
+    truck = package_root / "assets/tasks/truck.xml"
     truck.parent.mkdir(parents=True)
     truck.write_text("<mujoco/>")
-    monkeypatch.setattr(assets, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(assets, "files", lambda package: package_root)
 
     asset_root = assets.prepare_g1_sonic_assets(tmp_path / "cache")
 

@@ -7,7 +7,7 @@ status to the corresponding directory.
 
 Each subtree starts with a squashed upstream baseline. LAGEN adaptations are
 separate commits above that baseline, so upstream updates can preserve them.
-Original licenses and runtime assets remain in each directory.
+Original licenses and resources used by the benchmark remain in each directory.
 
 ## Source baselines
 
@@ -68,7 +68,9 @@ fork revisions identify the LAGEN adaptations imported during migration.
 - Upstream baseline: `da1f787f775ea6524d698c0b063157ded4c0fef9`
 - Filtered baseline: `124a21b44b8bab6d5f685e654b551a7462da00e6`
 - Table-tennis revision: `wallclock-15+duel-wallclock-12+low-inloop-1+core-0.2`
-- The imported source tree matches the frozen upstream tree. LAGEN's adapter lives outside it.
+- The four retained sports use the frozen upstream runtime. Generated task
+  snapshots, reports, other sports, and unused robot bodies are excluded.
+  LAGEN's adapter lives outside this subtree.
 
 ## Resource filters
 
@@ -77,9 +79,16 @@ The filter removes presentation media with `.gif`, `.mp4`, `.webm`, `.mov`,
 
 - Flappy: `flappy_bird_gymnasium/assets/model/`, containing upstream DQN example weights.
 - MIKASA: `.gitmodules` and the `utils/convert_npz_to_rlds/rlds_dataset_builder` gitlink. These upstream Git links are excluded from imported source trees.
+- HumanoidBench: example datasets and logs, unrelated robot models, MJX assets,
+  and unused scene XMLs. The SONIC alignment builder retains its 30 G1 torque
+  and H1 hand reference scenes, their mesh dependencies, and task resources.
+- Sample Factory: scenario files and example experiments outside Deadly Corridor.
+- RoboOlympics: generated `tasks/`, report `docs/`, sports outside tabletennis,
+  badminton, soccer, and soccer_ssl, and robot bodies outside their dependencies.
+- StarVLA: retired task-specific launchers, converters, and configurations.
 
 LAGEN removes the Flappy DQN entrypoint and documentation embeds after import.
-Flappy sprites/audio and HumanoidBench models, meshes, and textures remain.
+Flappy sprites/audio and the retained HumanoidBench scene dependencies remain.
 Media in the benchmark's own documentation and website are outside this filter.
 
 ## Update an upstream dependency
@@ -111,6 +120,30 @@ case "$SOURCE_PREFIX" in
   third_party/MIKASA-Robo)
     FILTER_ARGS+=(--path .gitmodules --path utils/convert_npz_to_rlds/rlds_dataset_builder)
     ;;
+  third_party/humanoid-bench)
+    FILTER_ARGS+=(--path data/ --path logs/
+      --path humanoid_bench/assets/digit/
+      --path humanoid_bench/assets/mjx/
+      --path humanoid_bench/assets/shadow_hand_submodel/
+      --path humanoid_bench/assets/robotiq_2f85/
+      --path humanoid_bench/assets/g1/g1.png
+      --path humanoid_bench/assets/kitchen/h1_kitchen.xml
+      --path-regex '^humanoid_bench/assets/h1/(?!assets/[^/]+\.stl$|LICENSE|NOTICE)'
+      --path-regex '^humanoid_bench/assets/robots/(?!g1_torque\.xml$|h1hand_pos\.xml$)'
+      --path-regex '^humanoid_bench/assets/envs/(?!(g1_torque|h1hand_pos)_(?!highbar_)[^/]+\.xml$)')
+    ;;
+  third_party/sample-factory)
+    FILTER_ARGS+=(--path sf_examples/vizdoom/experiments/
+      --path-regex '^sf_examples/vizdoom/doom/scenarios/(?!deadly_corridor\.(cfg|wad)$)')
+    ;;
+  third_party/roboolympics)
+    FILTER_ARGS+=(--path tasks/ --path docs/
+      --path-regex '^sports/(?!(tabletennis|badminton|soccer|soccer_ssl)/)'
+      --path-regex '^bodies/(?!(franka_panda|booster_t1|ssl_robot)/|[^/]+\.py$)')
+    ;;
+  third_party/starVLA)
+    FILTER_ARGS+=(--path-regex '(?i).*(defend[_-]?the[_-]?line|defend_024|rollout_defend).*')
+    ;;
 esac
 git -C "$SOURCE_TMP/upstream.git" filter-repo "${FILTER_ARGS[@]}"
 NEXT_FILTERED="$(git -C "$SOURCE_TMP/upstream.git" rev-parse "$UPSTREAM_BRANCH")"
@@ -121,7 +154,10 @@ printf 'Upstream baseline: %s\nFiltered baseline: %s\n' "$NEXT_SOURCE" "$NEXT_FI
 ```
 
 Resolve merge conflicts normally and keep the existing LAGEN behavior. Remove
-any new embeds or DQN entrypoints that the update introduces. Run the relevant
+any new embeds or retired task entrypoints that the update introduces. Keep
+the scenario registry, task mappings, and tests consistent with retained files.
+Check the alignment builder's XML and mesh dependency closure after robot updates.
+Run the relevant
 existing tests, update the two baseline values above, and commit the reviewed
 changes. Remove the temporary source clone with `rm -rf "$SOURCE_TMP"` after the
 merge and checks finish. Do not import unfiltered source trees: deleting media in

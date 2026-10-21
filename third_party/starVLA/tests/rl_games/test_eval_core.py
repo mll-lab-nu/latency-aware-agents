@@ -11,8 +11,6 @@ from starVLA.training.rl_games.eval_core import (
     _resize_rgb,
     decode_deadly_factorized_11,
     decode_deadly_multibinary_7,
-    decode_defend_the_line_multibinary,
-    decode_defend_the_line_tuple,
     decode_discrete_argmax,
 )
 from starVLA.dataloader.gr00t_lerobot.datasets import _apply_prompt_mode as apply_train_prompt_mode
@@ -75,22 +73,6 @@ def test_decode_deadly_factorized_11():
         0.4, 0.6,
     ], dtype=np.float32)
     assert decode_deadly_factorized_11(values) == [1, 2, 1, 1]
-
-
-def test_decode_defend_the_line_tuple():
-    values = np.array([0.1, 0.2, 0.3, 0.4, 0.8, 0.5, 99.0], dtype=np.float32)
-    assert decode_defend_the_line_tuple(values) == [2, 0]
-    assert decode_defend_the_line_multibinary(values) == [0, 1, 0]
-
-
-def test_task_evaluator_decodes_defend_the_line_joint_action():
-    evaluator = object.__new__(_TaskEvaluator)
-    evaluator.task = "defend_the_line"
-
-    action = evaluator._decode_action(np.asarray([0.1, 0.2, 0.3, 0.9, 0.8, 0.5], dtype=np.float32))
-
-    assert action == [1, 0, 1]
-    assert evaluator._queue_default_action() == [0, 0, 0]
 
 
 def test_task_evaluator_uses_shared_deadly_multibinary_decode():
@@ -208,44 +190,6 @@ def test_task_evaluator_latency_neutral_prompt_mode_strips_prompt_map_prompts(tm
 
     runner = RlGamesEvalRunner(cfg=cfg, output_dir=str(tmp_path))
     assert runner._resolve_prompt(latency=0, mapping={0: {"prompt": "zero Current action latency is 0 raw frames (0.00 ms)."}}, task="flappy") == "zero"
-
-
-def test_cross_task_prompt_resolution_uses_task_description_for_unmapped_latency(tmp_path):
-    prompt_map = tmp_path / "defend_prompt_map.json"
-    prompt_map.write_text(
-        '{"0": {"latency": 0, "latency_ms": 0.0, "prompt": "zero latency prompt"}}',
-        encoding="utf-8",
-    )
-    cfg = OmegaConf.create(
-        {
-            "rl_games": {
-                "task": "cross_task",
-                "env_eval": {
-                    "prompt_mode": "default",
-                    "latency": {
-                        "prompt_map_path": None,
-                    },
-                },
-                "cross_task": {
-                    "eval_tasks": {
-                        "defend_the_line": {
-                            "prompt_map_path": str(prompt_map),
-                            "task_description": "Defend the line fallback prompt.",
-                        },
-                    },
-                },
-            },
-            "framework": {
-                "action_model": {
-                    "state_dim": 1,
-                },
-            },
-        }
-    )
-
-    runner = RlGamesEvalRunner(cfg=cfg, output_dir=str(tmp_path))
-
-    assert runner._resolve_prompt(latency=2, mapping={0: {"prompt": "zero latency prompt"}}, task="defend_the_line") == "Defend the line fallback prompt."
 
 
 def test_task_evaluator_reuses_episode_seeds_across_tasks_and_latencies_by_default():
@@ -746,3 +690,41 @@ def test_eval_runner_passes_saved_seed_overrides_by_latency(monkeypatch, tmp_pat
     assert seen_seed_overrides == [{5: 9001, 7: 9002}]
     assert seen_episode_indices == [[5, 7]]
     assert result.per_latency["flappy/latency_0"]["episode_seeds"] == [9001, 9002]
+
+
+def test_cross_task_prompt_resolution_uses_task_description_for_unmapped_latency(tmp_path):
+    prompt_map = tmp_path / "deadly_prompt_map.json"
+    prompt_map.write_text(
+        '{"0": {"latency": 0, "latency_ms": 0.0, "prompt": "zero latency prompt"}}',
+        encoding="utf-8",
+    )
+    cfg = OmegaConf.create(
+        {
+            "rl_games": {
+                "task": "cross_task",
+                "env_eval": {
+                    "prompt_mode": "default",
+                    "latency": {
+                        "prompt_map_path": None,
+                    },
+                },
+                "cross_task": {
+                    "eval_tasks": {
+                        "deadly_corridor": {
+                            "prompt_map_path": str(prompt_map),
+                            "task_description": "Deadly corridor fallback prompt.",
+                        },
+                    },
+                },
+            },
+            "framework": {
+                "action_model": {
+                    "state_dim": 1,
+                },
+            },
+        }
+    )
+
+    runner = RlGamesEvalRunner(cfg=cfg, output_dir=str(tmp_path))
+
+    assert runner._resolve_prompt(latency=2, mapping={0: {"prompt": "zero latency prompt"}}, task="deadly_corridor") == "Deadly corridor fallback prompt."

@@ -19,6 +19,9 @@
 
 ## Overview
 
+For reuse in another project, install the [framework wheel](docs/python-package.md).
+The default package needs only NumPy and PyYAML.
+
 LAGEN measures how deployment latency affects vision-language agents.
 It provides evaluation, demonstration collection, latency measurement, and profile replay.
 Use these stages with your own environment, policy, and training framework.
@@ -64,7 +67,7 @@ Install the package in a Python 3.10 environment to run the CPU example:
 ```bash
 python3.10 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e ".[runtime]"
 export PYTHONPATH="$PWD/configs/examples/custom_env${PYTHONPATH:+:$PYTHONPATH}"
 python -m latency_bench eval --config configs/examples/custom_env/eval.yaml
 ```

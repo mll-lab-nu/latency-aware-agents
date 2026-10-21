@@ -1,8 +1,0 @@
-{"ev": "header", "ts": 1791328332.927, "wall": 0.0001, "cfg": {"sport": "golf", "format": "single", "seats": ["A"], "seed": 1, "first": "A", "slowdown": null, "level": null, "action_level": "low", "play": "program", "params": {}, "sides": null, "renderer": null}, "sport": "golf", "revision": "golf-2", "protocol": "turn", "source_sha": null, "versions": {"core": "0.2.2", "sport": "golf-2"}, "local": true}
-{"ev": "cmd", "ts": 1791328336.899, "wall": 3.9722, "k": 0, "seat": "A", "cmd": {"type": "putt", "aim_deg": -13.36, "speed": 2.7672, "clock_left_s": {"A": 3600.0}}}
-{"ev": "cmd", "ts": 1791328341.092, "wall": 8.1657, "k": 1, "seat": "A", "cmd": {"type": "putt", "aim_deg": 8.409, "speed": 2.6218, "clock_left_s": {"A": 3600.0}}}
-{"ev": "cmd", "ts": 1791328342.254, "wall": 9.3273, "k": 2, "seat": "A", "cmd": {"type": "putt", "aim_deg": -156.789, "speed": 1.384, "clock_left_s": {"A": 3600.0}}}
-{"ev": "cmd", "ts": 1791328346.465, "wall": 13.5384, "k": 3, "seat": "A", "cmd": {"type": "putt", "aim_deg": -19.606, "speed": 3.8547, "clock_left_s": {"A": 3600.0}}}
-{"ev": "cmd", "ts": 1791328347.766, "wall": 14.8395, "k": 4, "seat": "A", "cmd": {"type": "putt", "aim_deg": -7.363, "speed": 0.9026, "clock_left_s": {"A": 3600.0}}}
-{"ev": "cmd", "ts": 1791328351.792, "wall": 18.8649, "k": 5, "seat": "A", "cmd": {"type": "putt", "aim_deg": -32.238, "speed": 3.2964, "clock_left_s": {"A": 3600.0}}}
-{"ev": "end", "ts": 1791328351.803, "wall": 18.8762, "k": 6, "reason": "match_over"}
