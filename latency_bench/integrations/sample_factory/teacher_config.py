@@ -21,11 +21,9 @@ from latency_bench.data.prompts import BASE_PROMPTS
 
 SF_ENV_TO_BENCH_ENV = {
     "doom_deadly_corridor": "deadly_corridor",
-    "doom_defend_the_line": "defend_the_line",
     "latency_flappy": "flappy",
     "latency_demon_attack": "demon_attack",
     "deadly_corridor": "deadly_corridor",
-    "defend_the_line": "defend_the_line",
     "flappy": "flappy",
     "demon_attack": "demon_attack",
 }

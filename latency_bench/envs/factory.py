@@ -247,7 +247,6 @@ def _build_demon_attack_env(config: dict[str, Any], noop_action: Action) -> EnvA
 
 
 @register_env_adapter("deadly_corridor", integration_name="deadly_corridor")
-@register_env_adapter("defend_the_line", integration_name="defend_the_line")
 def _build_deadly_corridor_env(
     config: dict[str, Any], noop_action: Action
 ) -> EnvAdapter:

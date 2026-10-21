@@ -26,7 +26,7 @@ Install the Python package in a Python 3.10 environment:
 ```bash
 python3.10 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e ".[runtime]"
 ```
 
 For LeRobot conversion, install the converter separately:
@@ -35,7 +35,7 @@ For LeRobot conversion, install the converter separately:
 python -m pip install --no-deps 'lerobot==0.4.4'
 ```
 
-The package supplies the data dependencies used by this converter.
+Install `.[runtime,data]` for the data dependencies used by this converter.
 LeRobot's upstream dependency constraints conflict with the project's pinned Gymnasium and Torch versions.
 Therefore, `pip check` reports these conflicts.
 Use the installation validation results to assess the supported combination.

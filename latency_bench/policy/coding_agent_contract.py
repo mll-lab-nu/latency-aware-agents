@@ -134,7 +134,7 @@ def bind_coding_agent_action_space(config, env):
     noop = env.noop_action.value
     spec["noop"] = noop.tolist() if isinstance(noop, np.ndarray) else noop
     env_cfg = config["env"]
-    if env_cfg["name"] in ("deadly_corridor", "defend_the_line"):
+    if env_cfg["name"] == "deadly_corridor":
         if spec["type"] == "multibinary":
             from latency_bench.policy._starvla_actions import DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER
 

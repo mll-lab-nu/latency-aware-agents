@@ -47,20 +47,20 @@ class ProcessInferencePool:
         self.worker_sys_path = None
         if "policy" in config and "worker_python_executable" in config["policy"]:
             self.worker_python_executable = config["policy"]["worker_python_executable"]
-            self.worker_sys_path = [
-                str(REPO_ROOT),
-                *json.loads(
-                    subprocess.check_output(
-                        [
-                            self.worker_python_executable,
-                            "-I",
-                            "-c",
-                            "import json, sys; print(json.dumps(sys.path))",
-                        ],
-                        text=True,
-                    )
-                ),
-            ]
+            self.worker_sys_path = json.loads(
+                subprocess.check_output(
+                    [
+                        self.worker_python_executable,
+                        "-I",
+                        "-c",
+                        "import json, sys; print(json.dumps(sys.path))",
+                    ],
+                    text=True,
+                )
+            )
+            # A wheel's parent also contains this interpreter's binary dependencies.
+            if (REPO_ROOT / "pyproject.toml").is_file():
+                self.worker_sys_path.insert(0, str(REPO_ROOT))
         self._start_workers()
 
     @property

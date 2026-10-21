@@ -15,8 +15,6 @@ from tqdm import tqdm
 
 from starVLA.training.rl_games.action_decode import (
     DEADLY_CORRIDOR_SEMANTIC_BUTTON_ORDER,
-    decode_defend_the_line_multibinary,
-    decode_defend_the_line_tuple,
     deadly_tuple_to_semantic_buttons,
     decode_deadly_factorized_11,
     decode_deadly_multibinary_7,
@@ -30,7 +28,6 @@ TASK_SEED_INDEX = {
     "flappy": 0,
     "demon_attack": 1,
     "deadly_corridor": 2,
-    "defend_the_line": 3,
     "asterix": 4,
     "atlantis": 5,
     "air_raid": 6,
@@ -555,28 +552,6 @@ class _TaskEvaluator:
                     last_exc = exc
             raise RuntimeError(f"Failed to create Deadly Corridor env: {last_exc}")
 
-        if self.task == "defend_the_line":
-            import gymnasium as gym
-            import vizdoom.gymnasium_wrapper  # noqa: F401
-
-            attempts = [
-                ("VizdoomDefendLine-MultiBinary-v1", {}),
-                ("VizdoomDefendLine-MultiBinary-v0", {}),
-                ("VizdoomDefendLine-v1", {"max_buttons_pressed": 0}),
-                ("VizdoomDefendLine-v0", {"max_buttons_pressed": 0}),
-            ]
-            last_exc = None
-            for env_id, kwargs in attempts:
-                try:
-                    return gym.make(
-                        env_id,
-                        render_mode="rgb_array",
-                        frame_skip=self.frameskip,
-                        **kwargs,
-                    )
-                except Exception as exc:
-                    last_exc = exc
-            raise RuntimeError(f"Failed to create Defend the Line env: {last_exc}")
 
         if self.task == "asterix":
             return self._make_atari_env("ALE/Asterix-v5")
@@ -601,7 +576,7 @@ class _TaskEvaluator:
         # action repetition manually so all 4 raw frames are captured per decision.
         if self._is_demon_ghost_trail():
             return False
-        return self.task in {"demon_attack", "deadly_corridor", "defend_the_line", "asterix", "atlantis"}
+        return self.task in {"demon_attack", "deadly_corridor", "asterix", "atlantis"}
 
     def _model_observation(self, env, obs):
         if self.task == "flappy":
@@ -637,8 +612,6 @@ class _TaskEvaluator:
             return int(np.asarray(decoded["actions"]).reshape(-1)[0])
         if self.task == "atlantis":
             return decode_discrete_argmax(raw_action, 4)
-        if self.task == "defend_the_line":
-            return decode_defend_the_line_multibinary(raw_action)
         if self.task == "deadly_corridor":
             deadly_cfg = self.env_eval_cfg.deadly
             action_layout, multibinary_threshold = resolve_deadly_action_decode_spec(
@@ -696,8 +669,6 @@ class _TaskEvaluator:
         return max(1, _as_int(getattr(vectorized_cfg, "batch_size", 1), 1))
 
     def _queue_default_action(self):
-        if self.task == "defend_the_line":
-            return [0, 0, 0]
         return [0] * 7 if self.task == "deadly_corridor" else 0
 
     def _reset_model_memory(self, model, slot_id: int) -> None:

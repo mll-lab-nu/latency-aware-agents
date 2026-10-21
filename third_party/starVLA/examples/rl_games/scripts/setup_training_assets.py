@@ -731,7 +731,6 @@ def _single_task_robot_type(env_name: str) -> str:
     mapping = {
         "flappy": "rl_games_flappy",
         "demon_attack": "rl_games_demon_attack",
-        "defend_the_line": "rl_games_defend_the_line",
         "deadly_corridor": "rl_games_deadly_corridor",
         "asterix": "rl_games_asterix",
         "atlantis": "rl_games_atlantis",
@@ -1145,20 +1144,6 @@ def _ensure_demon_attack_dataset(args) -> dict[str, Any]:
     )
 
 
-def _ensure_defend_the_line_dataset(args) -> dict[str, Any]:
-    from examples.rl_games.bash_scripts.gr00t.data_conversion.convert_defend_the_line_to_starvla_lerobot import convert_dataset
-    from examples.rl_games.bash_scripts.gr00t.data_conversion.verify_defend_the_line_dataset import verify_dataset
-
-    return _ensure_rl_games_lerobot_dataset(
-        args,
-        convert_dataset=convert_dataset,
-        verify_dataset=verify_dataset,
-        env_name="defend_the_line",
-        env_fps=35.0,
-        obs_fps=8.75,
-    )
-
-
 def _ensure_asterix_dataset(args) -> dict[str, Any]:
     from examples.rl_games.bash_scripts.gr00t.data_conversion.convert_asterix_to_starvla_lerobot import convert_dataset
     from examples.rl_games.bash_scripts.gr00t.data_conversion.verify_asterix_dataset import verify_dataset
@@ -1215,10 +1200,6 @@ def _task_converter_and_verifier(task: str):
         from examples.rl_games.bash_scripts.gr00t.data_conversion.convert_demon_attack_to_starvla_lerobot import convert_dataset
         from examples.rl_games.bash_scripts.gr00t.data_conversion.verify_demon_attack_dataset import verify_dataset
         return convert_dataset, verify_dataset, "rl_games_demon_attack"
-    if task == "defend_the_line":
-        from examples.rl_games.bash_scripts.gr00t.data_conversion.convert_defend_the_line_to_starvla_lerobot import convert_dataset
-        from examples.rl_games.bash_scripts.gr00t.data_conversion.verify_defend_the_line_dataset import verify_dataset
-        return convert_dataset, verify_dataset, "rl_games_defend_the_line"
     if task == "deadly_corridor":
         from examples.rl_games.bash_scripts.gr00t.data_conversion.convert_deadly_corridor_to_starvla_lerobot import convert_dataset
         from examples.rl_games.bash_scripts.gr00t.data_conversion.verify_deadly_corridor_dataset import verify_dataset
@@ -1233,7 +1214,7 @@ def _task_converter_and_verifier(task: str):
         return convert_dataset, verify_dataset, "rl_games_atlantis"
     raise ValueError(
         "cross-task rl_games currently supports only flappy, demon_attack, "
-        f"defend_the_line, deadly_corridor, asterix, and atlantis, got {task!r}"
+        f"deadly_corridor, asterix, and atlantis, got {task!r}"
     )
 
 
@@ -1311,14 +1292,13 @@ def _ensure_cross_task_datasets(args) -> dict[str, Any]:
         task_timing = {
             "flappy": (30.0, 1),
             "demon_attack": (15.0, 4),
-            "defend_the_line": (8.75, 4),
             "deadly_corridor": (8.75, 4),
             "asterix": (15.0, 4),
             "atlantis": (15.0, 4),
         }[task_name]
         task_fps, task_obs_stride_raw_frames = task_timing
         task_target_latency_unit = (
-            "raw_frames" if task_name in {"asterix", "atlantis", "defend_the_line"} else "observation_steps"
+            "raw_frames" if task_name in {"asterix", "atlantis"} else "observation_steps"
         )
 
         base_converted_name = str(_get_task_value(task_cfg, "converted_name", default=f"{task_name}_cross_task_train"))
@@ -1554,8 +1534,6 @@ def setup_assets(args) -> dict[str, Any]:
         result.update(_ensure_flappy_dataset(args))
     elif args.model in supported_models and args.env == "demon_attack":
         result.update(_ensure_demon_attack_dataset(args))
-    elif args.model in supported_models and args.env == "defend_the_line":
-        result.update(_ensure_defend_the_line_dataset(args))
     elif args.model in supported_models and args.env == "asterix":
         result.update(_ensure_asterix_dataset(args))
     elif args.model in supported_models and args.env == "atlantis":

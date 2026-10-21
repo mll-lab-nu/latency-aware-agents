@@ -12,7 +12,6 @@ from training.common.utils import maybe_set_cli_override
 
 ENV_INTEGRATIONS = {
     "deadly_corridor": "training.deadly_corridor_sf.integration",
-    "defend_the_line": "training.deadly_corridor_sf.integration",
     "demon_attack": "training.demon_attack_sf.integration",
     "flappy": "training.flappy_sf.integration",
     "gymnasium": "training.gymnasium_sf.integration",

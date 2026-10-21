@@ -1,4 +1,0 @@
-results/*.npz
-results/frames_*/
-results/smoke_*.png
-__pycache__/
