@@ -124,6 +124,7 @@ def evaluation_config(
     backbone: Path, vla_python: Path, *, device: str, episodes: int,
     env_condition: str = "profile", parallel_envs: int = 32,
     inference_devices: list[str] | None = None, max_steps: int | None = None,
+    latency_method: str = "temporal",
 ) -> dict:
     devices = [device] if inference_devices is None else inference_devices
     config = load_config(ROOT / EVAL_CONFIGS[task])
@@ -142,7 +143,7 @@ def evaluation_config(
         "inference_devices": devices, "inference_batch_size": (parallel_envs + len(devices) - 1) // len(devices),
     })
     config["latency"] = {"method": "zero"} if env_condition == "zero" else {
-        "method": "temporal", "profile_path": str(profile),
+        "method": latency_method, "profile_path": str(profile),
         "profile_worker_slot": 0, "seed": 271828, "add_latency_info": False,
     }
     config["policy"].update({
@@ -205,6 +206,7 @@ def main() -> None:
     evaluate.add_argument("--device", default="cuda:0")
     evaluate.add_argument("--episodes", type=int, default=100)
     evaluate.add_argument("--env-condition", choices=("zero", "profile"), default="profile")
+    evaluate.add_argument("--latency-method", choices=("temporal", "hmm", "block"), default="temporal")
     evaluate.add_argument("--parallel-envs", type=int, default=32)
     evaluate.add_argument("--inference-devices", nargs="+")
     evaluate.add_argument("--max-steps", type=int)
@@ -227,6 +229,7 @@ def main() -> None:
         device=args.device, episodes=args.episodes,
         env_condition=args.env_condition, parallel_envs=args.parallel_envs,
         inference_devices=args.inference_devices, max_steps=args.max_steps,
+        latency_method=args.latency_method,
     )
     config_path = output_dir / "eval_config.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
@@ -236,6 +239,7 @@ def main() -> None:
         **provenance, "eval_protocol_version": EVAL_PROTOCOL,
         "history_encoding": "binary_0_1", "episodes": args.episodes,
         "env_condition": args.env_condition, "parallel_envs": args.parallel_envs,
+        "latency_method": args.latency_method if args.env_condition == "profile" else "zero",
         "max_episode_raw_frames": config["evaluation"]["max_env_steps"],
         "inference_devices": config["executor"]["inference_devices"],
         "episode_seeds": [1_000_000, 1_000_000 + args.episodes - 1],
@@ -260,7 +264,9 @@ def main() -> None:
             "wandb_project": args.wandb_project,
             "wandb_entity": args.wandb_entity,
         })
-        label = "0" if args.env_condition == "zero" else "profile_sample"
+        label = "0" if args.env_condition == "zero" else (
+            "profile_sample" if args.latency_method == "temporal" else args.latency_method
+        )
         summary = json.loads((output_dir / f"queue_eval_latency_{label}.json").read_text())
         summary["checkpoint_global_step"] = provenance["training_step"]
         _log_corrected_eval_summaries_to_wandb(config, [summary], prefix=args.metric_prefix)

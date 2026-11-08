@@ -67,11 +67,12 @@ def _export_command(
 ) -> list[str]:
     descriptor, _ = load_rollout_training_config(checkpoint)
     flat = descriptor["flat_cfg"]
-    method = {"zero": "zero", "fixed": "fixed", "profile_sample": "temporal"}[flat["latency_type"]]
+    method = {"zero": "zero", "fixed": "fixed", "profile_sample": "temporal",
+              "iid": "iid", "hmm": "hmm", "block": "block"}[flat["latency_type"]]
     latency = {"method": method}
     if method == "fixed":
         latency["fixed_latency_ms"] = flat["fixed_latency_ms"]
-    elif method == "temporal":
+    elif method in {"temporal", "iid", "hmm", "block"}:
         latency.update(profile_path=flat["latency_profile_path"],
                        profile_worker_slot=flat["latency_profile_worker_slot"], seed=flat["latency_seed"])
     config = {

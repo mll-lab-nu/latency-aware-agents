@@ -86,6 +86,7 @@ class CudaLatencyScheduler:
         self.fixed_latency_raw_frames = int(fixed_latency_raw_frames)
         self.latency_distribution_spec = latency_distribution_spec
         self.latency_samplers = None if latency_samplers is None else list(latency_samplers)
+        self.unbounded_profile = any(getattr(s, "unbounded_latency", False) for s in (self.latency_samplers or []))
         self.profile_worker_slot = profile_worker_slot
         self.profile_seed_by_reset = profile_seed_by_reset
         self.sample_distribution_per_episode = bool(sample_distribution_per_episode)
@@ -299,6 +300,8 @@ class CudaLatencyScheduler:
         issue_frames = self.env_step_idx.clone()
         admitted, worker_ids = self._prepare_admission(active)
         profile_service = self._sample_profile_latencies(admitted, worker_ids)
+        if self.unbounded_profile:
+            self._reserve_pending_actions(admitted)
         self.ext.flappy_latency_begin(
             action_t,
             admitted,
@@ -325,6 +328,28 @@ class CudaLatencyScheduler:
             int(self.queue_capacity),
         )
         self._record_admitted_service(admitted, worker_ids, issue_frames, profile_service)
+
+    def _reserve_pending_actions(self, admitted: torch.Tensor) -> None:
+        counts = self.pending_count[admitted]
+        if counts.numel() == 0:
+            return
+        required = int(counts.max().item()) + 1
+        if self.max_pending_actions is not None and required > self.max_pending_actions:
+            raise RuntimeError(f"pending action queue exceeded latency.max_pending_actions={self.max_pending_actions}")
+        if required <= self.queue_capacity:
+            return
+        old_capacity = self.queue_capacity
+        self.queue_capacity = max(required, 2 * old_capacity)
+        positions = (self.pending_head[:, None] + torch.arange(old_capacity, device=self.device)) % old_capacity
+        for name in ("pending_actions", "pending_ready_raw_frames", "pending_action_ids"):
+            old = getattr(self, name)
+            grown = torch.zeros((self.batch_size, self.queue_capacity), dtype=old.dtype, device=self.device)
+            grown[:, :old_capacity] = torch.gather(old, 1, positions)
+            setattr(self, name, grown)
+        self.pending_head.zero_()
+        self.scratch_actions = torch.zeros_like(self.pending_actions)
+        self.scratch_ready_raw_frames = torch.zeros_like(self.pending_actions)
+        self.scratch_action_ids = torch.zeros_like(self.pending_actions)
 
     def raw_actions(self, active_mask: torch.Tensor) -> torch.Tensor:
         active = active_mask.to(device=self.device, dtype=torch.bool).reshape(-1).contiguous()
@@ -368,6 +393,8 @@ class CudaLatencyScheduler:
         admitted, worker_ids = self._prepare_admission(active)
         profile_service = self._sample_profile_latencies(admitted, worker_ids)
         reset_pipes_in_kernel = self.clock.obs_stride_raw_frames > 1
+        if self.unbounded_profile:
+            self._reserve_pending_actions(admitted)
         if reset_pipes_in_kernel:
             reset_upper_pipe_xy, reset_lower_pipe_xy, reset_pipe_slot_capacity = core.prepare_pipe_resets_for_decision(
                 active,

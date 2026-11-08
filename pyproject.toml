@@ -45,6 +45,7 @@ starvla = [
     "safetensors>=0.4.3",
 ]
 analysis = ["matplotlib==3.10.9"]
+profiling = ["hmmlearn==0.3.3"]
 dev = ["pytest==9.0.3"]
 mujoco = ["mujoco==3.3.0"]
 atari = [

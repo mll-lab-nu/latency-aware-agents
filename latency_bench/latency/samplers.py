@@ -11,6 +11,7 @@ from latency_bench.core.clock import EnvClock, ms_to_raw_frames
 from latency_bench.core.latency_distribution import derive_seed
 from latency_bench.latency.config import (
     SEEDED_STOCHASTIC_METHODS,
+    STATEFUL_PROFILE_METHODS,
     latency_type_from_config,
 )
 from latency_bench.latency.inverse_cdf import sample_inverse_cdf
@@ -521,6 +522,15 @@ def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySam
         profile = read_json(profile_path)
         sampler = _build_temporal(profile, profile_path=profile_path, clock=clock, seed=seed)
         profile_metadata = _profile_metadata(profile)
+    elif method in {"hmm", "block"}:
+        from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler
+
+        profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
+        profile = read_json(profile_path)
+        model = _load_sequence_model(profile, profile_path=profile_path, method=method)
+        sampler_class = {"hmm": HmmSampler, "block": BlockResamplingSampler}[method]
+        sampler = sampler_class(model, clock=clock, seed=seed)
+        profile_metadata = _profile_metadata(profile)
     else:
         raise ValueError(f"Unsupported latency method: {method}")
 
@@ -562,10 +572,13 @@ def build_episode_sampler_factory(
 
         return build_iid_for_episode
 
-    if method == "temporal":
+    if method in STATEFUL_PROFILE_METHODS:
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
         profile = read_json(profile_path)
-        _load_temporal_model(profile, profile_path=profile_path)
+        if method == "temporal":
+            _load_temporal_model(profile, profile_path=profile_path)
+        else:
+            _load_sequence_model(profile, profile_path=profile_path, method=method)
         return None
     elif method not in SEEDED_STOCHASTIC_METHODS or "seed" not in latency_cfg:
         return None
@@ -657,6 +670,16 @@ def _load_temporal_model(
     return model
 
 
+def _load_sequence_model(profile: dict, *, profile_path: Path, method: str) -> dict:
+    model_path = _profile_relative_path(profile_path, profile["sequence_model_path"])
+    model = read_json(model_path)
+    if (model["schema_version"], model["model_type"], model["reset_scope"], model["worker_slots"]) != (
+        1, method, "session", [0]
+    ):
+        raise ValueError(f"Unsupported {method} sequence profile at {model_path}")
+    return model
+
+
 # ---------------------------------------------------------------------------
 # Profile paths
 # ---------------------------------------------------------------------------
@@ -697,9 +720,15 @@ def build_profile_sampler(
 
 
 def temporal_profile_sampler_for_reset(
-    sampler: HiddenRegimeSampler | JointBurstSampler, seed: int,
-) -> HiddenRegimeSampler | JointBurstSampler:
+    sampler: LatencySampler, seed: int,
+) -> LatencySampler:
     """Start an independent temporal stream for one explicitly seeded rollout."""
+    from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler
+
+    if isinstance(sampler, (HmmSampler, BlockResamplingSampler)):
+        clone = type(sampler)(sampler.model, clock=sampler.clock, seed=seed)
+        clone.profile_metadata = sampler.profile_metadata
+        return clone
     return type(sampler)(
         sampler.model,
         {"worker_slots": sampler.distributions},
@@ -709,7 +738,17 @@ def temporal_profile_sampler_for_reset(
 
 
 def profile_sampler_max_latency_raw_frames(sampler: Any, *, worker_slot: int, env_fps: float) -> int:
-    """Maximum ready delay over the sampler's generated support."""
+    """Queue sizing bound; HMM uses an initial estimate and growing queues.
+
+    Gaussian HMM emissions have unbounded support. Their observed maximum is
+    only an allocation hint, never a clip on generated delays.
+    """
+    from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler
+
+    if isinstance(sampler, (HmmSampler, BlockResamplingSampler)):
+        if worker_slot != 0:
+            raise ValueError("HMM/block profiles require worker slot 0 (capacity 1)")
+        return ms_to_raw_frames(sampler.model["observed_max_latency_ms"], env_fps)
     slot = str(worker_slot)
     distribution = sampler.distributions[slot]["steady" if isinstance(sampler, (HiddenRegimeSampler, JointBurstSampler)) else "all"]
     max_latency_ms = max(distribution["observation_to_action_latency_ms"]["latency_ms"])

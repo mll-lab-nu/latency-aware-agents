@@ -71,7 +71,10 @@ def run_profile(
     }
 
 
-def fit_profile(source_dir: str | Path) -> dict[str, str]:
+def fit_profile(source_dir: str | Path, *, method: str = "temporal",
+                session_ids: list[int] | None = None, output_dir: str | Path | None = None,
+                hmm_states: int = 2, hmm_max_iterations: int = 1000,
+                block_mean_length: float = 32) -> dict[str, str]:
     """Fit completed local sessions without loading the model or remeasuring hardware."""
     source_dir = Path(source_dir).expanduser().absolute()
     contract = read_json(source_dir / "run_contract.json")
@@ -79,10 +82,31 @@ def fit_profile(source_dir: str | Path) -> dict[str, str]:
     options = config["profiling"]
     calibration = read_json(source_dir / "calibration.json") if options["calibration"] is not None else None
     config = measure_config(config, contract["deployment"], source_dir, calibration)
-    session_ids = list(range(options["repeats"]))
+    all_session_ids = list(range(options["repeats"]))
+    session_ids = all_session_ids if session_ids is None else session_ids
+    if (not session_ids or len(set(session_ids)) != len(session_ids)
+            or not set(session_ids).issubset(all_session_ids)):
+        raise ValueError("Fit session IDs must be distinct completed sessions from this run")
+    if method not in {"temporal", "hmm", "block"}:
+        raise ValueError(f"Unsupported fitted profile method: {method}")
     for session_id in session_ids:
         (source_dir / "sessions" / str(session_id) / "DONE").read_bytes()
-    candidate = source_dir / "profile"
+    candidate = (Path(output_dir).expanduser().absolute() if output_dir is not None else
+                 source_dir / ("profile" if method == "temporal" else f"profile_{method}"))
+    if output_dir is not None and candidate.exists() and not (candidate / "DONE").exists():
+        raise FileExistsError(f"Explicit output directory already exists: {candidate}")
+    fit_options = {"method": method, "session_ids": session_ids}
+    if method == "hmm":
+        fit_options.update(hmm_states=hmm_states, hmm_max_iterations=hmm_max_iterations)
+    elif method == "block":
+        fit_options.update(block_mean_length=block_mean_length)
+    if (candidate / "DONE").exists():
+        saved = read_json(candidate / "profile.json")
+        previous = saved["provenance"].get("fit_options", {
+            "method": "temporal", "session_ids": saved["provenance"]["session_ids"],
+        })
+        if previous != fit_options:
+            raise ValueError("Existing profile uses different fitting settings; choose a new --output-dir")
     deployment = contract["deployment"]
     if not (candidate / "DONE").exists():
         if candidate.exists():
@@ -99,8 +123,10 @@ def fit_profile(source_dir: str | Path) -> dict[str, str]:
             output_dir=candidate, model_id=options["model_id"], gpu_class=deployment["gpu_class"],
             workload_id=options["workload_id"], instance_id=deployment["instance_id"],
             source_run_id=source_dir.name, env_fps=config["env"]["env_fps"],
+            method=method, hmm_states=hmm_states, hmm_max_iterations=hmm_max_iterations,
+            block_mean_length=block_mean_length,
             metadata={
-                **provenance, "session_ids": session_ids,
+                **provenance, "session_ids": session_ids, "fit_options": fit_options,
                 "measurement": {
                     "seed": _evaluation_seed(config), "evaluation": config["evaluation"],
                     "env_fps": config["env"]["env_fps"], "obs_fps": config["env"]["obs_fps"],
@@ -113,7 +139,8 @@ def fit_profile(source_dir: str | Path) -> dict[str, str]:
         hardware["instance_id"] = deployment["instance_id"]
         write_json(candidate / "hardware.json", hardware)
         (candidate / "DONE").touch()
-    (source_dir / "DONE").touch()
+    if method == "temporal" and session_ids == all_session_ids:
+        (source_dir / "DONE").touch()
     return {"PROFILE_PATH": str(candidate / "profile.json"), "RUN_DIR": str(source_dir), "FIT_STATUS": "complete"}
 
 

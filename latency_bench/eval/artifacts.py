@@ -96,7 +96,7 @@ def read_runtime_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
                     ),
                 }
             )
-    for method in ("iid", "temporal"):
+    for method in ("iid", "temporal", "hmm", "block"):
         for entry in old_suites.get(method, []) or []:
             suites.append(
                 {

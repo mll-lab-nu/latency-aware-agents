@@ -129,7 +129,7 @@ def main() -> None:
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--vlm-lr", type=float, required=True)
-    parser.add_argument("--training-condition", choices=("profile", "zero"), default="profile")
+    parser.add_argument("--training-condition", choices=("profile", "zero", "hmm", "block"), default="profile")
     parser.add_argument("--stop-after-steps", type=int)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--preflight", action="store_true")

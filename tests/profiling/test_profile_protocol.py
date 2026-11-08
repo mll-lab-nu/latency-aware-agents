@@ -162,3 +162,14 @@ def test_completed_sessions_resume_and_fit_without_remeasurement(
     refit = runner.fit_profile(source)
     assert json.loads(Path(refit["PROFILE_PATH"]).read_text()) == original_profile
     assert calls == ["0", "1", "1"]
+    # Alternative fits consume only the selected completed recordings and do
+    # not replace the Temporal baseline or remeasure the hardware.
+    block = runner.fit_profile(source, method="block", session_ids=[1], block_mean_length=8)
+    saved = json.loads(Path(block["PROFILE_PATH"]).read_text())
+    assert saved["provenance"]["session_ids"] == [1]
+    assert saved["n_admitted_observations"] == 34
+    assert json.loads(Path(refit["PROFILE_PATH"]).read_text()) == original_profile
+    assert calls == ["0", "1", "1"]
+    assert runner.fit_profile(source, method="block", session_ids=[1], block_mean_length=8) == block
+    with pytest.raises(ValueError, match="different fitting settings"):
+        runner.fit_profile(source, method="block", session_ids=[1], block_mean_length=16)

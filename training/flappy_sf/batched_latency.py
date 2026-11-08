@@ -209,6 +209,7 @@ class BatchedFlappyLatencyScheduler:
         self._decision_ready_raw_frames[admitted] = ready_raw_frames[admitted]
         self._decision_queued_actions[admitted] = action_arr[admitted]
 
+        self._reserve_pending_actions(admitted_indices)
         tail = (self.pending_head + self.pending_count) % self.pending_actions.shape[1]
         self.pending_actions[admitted_indices, tail[admitted_indices]] = action_arr[admitted_indices]
         self.pending_ready_raw_frames[admitted_indices, tail[admitted_indices]] = ready_raw_frames[admitted_indices]
@@ -221,11 +222,26 @@ class BatchedFlappyLatencyScheduler:
             self.worker_busy_until[admitted_indices, worker_ids[admitted_indices]] = (
                 self.env_step_idx[admitted] + worker_service_raw_frames[admitted]
             )
-        if self.max_pending_actions is not None and np.any(self.pending_count[admitted] > self.max_pending_actions):
-            raise RuntimeError(
-                "pending action queue exceeded latency.max_pending_actions="
-                f"{self.max_pending_actions}"
-            )
+
+    def _reserve_pending_actions(self, admitted_indices: np.ndarray) -> None:
+        if len(admitted_indices) == 0:
+            return
+        required = int(self.pending_count[admitted_indices].max()) + 1
+        if self.max_pending_actions is not None and required > self.max_pending_actions:
+            raise RuntimeError(f"pending action queue exceeded latency.max_pending_actions={self.max_pending_actions}")
+        capacity = self.pending_actions.shape[1]
+        if required <= capacity:
+            return
+        # HMM support is unbounded. Grow storage, keeping the order of each
+        # ring buffer, instead of clipping the delay or overwriting its head.
+        new_capacity = max(required, 2 * capacity)
+        positions = (self.pending_head[:, None] + np.arange(capacity)) % capacity
+        for name in ("pending_actions", "pending_ready_raw_frames", "pending_action_ids"):
+            old = getattr(self, name)
+            grown = np.zeros((self.batch_size, new_capacity), dtype=old.dtype)
+            grown[:, :capacity] = np.take_along_axis(old, positions, axis=1)
+            setattr(self, name, grown)
+        self.pending_head.fill(0)
 
     def raw_actions(self, active_mask: Sequence[bool] | np.ndarray) -> np.ndarray:
         active = np.asarray(active_mask, dtype=np.bool_).reshape(-1)

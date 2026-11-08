@@ -26,7 +26,9 @@ Run your prepared evaluation configuration:
 python -m latency_bench eval --config my_eval.yaml
 ```
 
-Batched simulation supports zero, fixed, normal, uniform, IID, and temporal delay.
+Batched simulation supports zero, fixed, normal, uniform, IID, temporal, HMM,
+and block-resampled delay. HMM and block profiles currently model one inference
+worker per simulated replica; their timing state persists across episodes.
 IID and parametric samplers derive per-episode streams.
 Temporal replay retains one machine-state timeline per replica across episode boundaries.
 Each replica owns its virtual worker capacity.

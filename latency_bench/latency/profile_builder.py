@@ -26,6 +26,10 @@ def build_profile_from_traces(
     env_fps: float,
     metadata: dict[str, Any],
     temporal_model_version: int = 13,
+    method: str = "temporal",
+    hmm_states: int = 2,
+    hmm_max_iterations: int = 1000,
+    block_mean_length: float = 32,
 ) -> dict[str, Any]:
     """Build one profile from independent measurement sessions.
 
@@ -35,6 +39,8 @@ def build_profile_from_traces(
     Marginal samples are pooled, while temporal fitting preserves every
     session boundary.
     """
+    if method not in {"temporal", "hmm", "block"}:
+        raise ValueError(f"Unsupported fitted profile method: {method}")
     sessions = [
         {
             **session,
@@ -46,10 +52,13 @@ def build_profile_from_traces(
     output_path = Path(output_dir)
     paths = {
         "profile": output_path / "profile.json",
-        "distribution": output_path / "latency_distribution.json",
-        "burst_model": output_path / "latency_burst_model.json",
         "visualization": output_path / "latency_profile.png",
     }
+    if method == "temporal":
+        paths.update(distribution=output_path / "latency_distribution.json",
+                     burst_model=output_path / "latency_burst_model.json")
+    else:
+        paths["sequence_model"] = output_path / f"latency_{method}_model.json"
     existing_artifacts = [path for path in paths.values() if path.exists()]
     if existing_artifacts:
         existing = ", ".join(str(path) for path in existing_artifacts)
@@ -64,17 +73,26 @@ def build_profile_from_traces(
         for session in sessions
     ]
     burst_samples = [sample for samples in session_burst_samples for sample in samples]
-    burst_model = build_hidden_regime_burst_model_from_sessions(
-        session_burst_samples, model_version=temporal_model_version,
-    )
-    distribution = build_worker_slot_distributions_from_sessions(
-        session_burst_samples,
-        spike_threshold_ms_by_worker_slot=burst_model[
-            "spike_threshold_ms_by_worker_slot"
-        ],
-    )
+    if method == "temporal":
+        model = build_hidden_regime_burst_model_from_sessions(
+            session_burst_samples, model_version=temporal_model_version,
+        )
+        distribution = build_worker_slot_distributions_from_sessions(
+            session_burst_samples,
+            spike_threshold_ms_by_worker_slot=model["spike_threshold_ms_by_worker_slot"],
+        )
+        write_json(paths["distribution"], distribution)
+        write_json(paths["burst_model"], model)
+        companion_paths = {"distribution_path": paths["distribution"].name,
+                           "burst_model_path": paths["burst_model"].name}
+    else:
+        from latency_bench.latency.sequence_profiles import build_sequence_model
 
-    write_json(paths["distribution"], distribution)
+        model = build_sequence_model(session_burst_samples, method=method,
+                                     hmm_states=hmm_states, hmm_max_iterations=hmm_max_iterations,
+                                     block_mean_length=block_mean_length)
+        write_json(paths["sequence_model"], model)
+        companion_paths = {"sequence_model_path": paths["sequence_model"].name}
     write_latency_distribution_plot(
         [sample["observation_to_action_latency_ms"] for sample in burst_samples],
         paths["visualization"],
@@ -97,10 +115,9 @@ def build_profile_from_traces(
             for record in session["attempt_records"]
         ),
         "latency_kind": "observation_to_action_latency",
-        "latency_method": "temporal",
-        "sample_model_type": burst_model["model_type"],
-        "distribution_path": paths["distribution"].name,
-        "burst_model_path": paths["burst_model"].name,
+        "latency_method": method,
+        "sample_model_type": model["model_type"],
+        **companion_paths,
         "visualization_path": paths["visualization"].name,
         "summary": compute_latency_profile_summary(
             [
@@ -114,7 +131,6 @@ def build_profile_from_traces(
         ),
         "provenance": metadata,
     }
-    write_json(paths["burst_model"], burst_model)
     write_json(paths["profile"], manifest)
     return manifest
 

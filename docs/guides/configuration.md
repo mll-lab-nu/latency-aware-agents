@@ -24,8 +24,10 @@ Saving those records depends on `logging`.
 delay. It does not read `latency`.
 
 `executor.mode: simulated` reads `latency`. Supported methods are `zero`, `fixed`,
-`normal`, `uniform`, `iid` and `temporal`. Durations use milliseconds. `iid` and
-`temporal` consume a measured profile.
+`normal`, `uniform`, `iid`, `temporal`, `hmm` and `block`. Durations use milliseconds.
+The latter four consume fitted profiles. HMM and block currently support worker
+slot 0 only; see the [Flappy comparison protocol](../experiments/flappy_temporal_alternatives.md)
+for fitting, training and collection settings.
 
 `inference_devices` lists actual model workers. Repeated device names create
 separate workers on one device. Realtime and pooled inference require an

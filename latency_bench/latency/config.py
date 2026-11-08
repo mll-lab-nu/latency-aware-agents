@@ -10,9 +10,13 @@ _LOGGED_LATENCY_TYPES_BY_METHOD = {
     "uniform": "uniform_distribution",
     "iid": "profile_sample",
     "temporal": "profile_sample",
+    "hmm": "hmm",
+    "block": "block",
 }
 
-SEEDED_STOCHASTIC_METHODS = frozenset({"normal", "uniform", "iid", "temporal"})
+STATEFUL_PROFILE_METHODS = frozenset({"temporal", "hmm", "block"})
+PROFILE_METHODS = frozenset({"iid"}) | STATEFUL_PROFILE_METHODS
+SEEDED_STOCHASTIC_METHODS = frozenset({"normal", "uniform"}) | PROFILE_METHODS
 BATCHED_SIMULATED_METHODS = frozenset({"zero", "fixed"}) | SEEDED_STOCHASTIC_METHODS
 
 

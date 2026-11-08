@@ -72,6 +72,8 @@ Select one simulated sampling method:
 | `uniform` | `min_latency_ms`, `max_latency_ms` |
 | `iid` | Independent draws from `profile_path` |
 | `temporal` | Fitted temporal structure from `profile_path` |
+| `hmm` | Gaussian hidden-state timing model from `profile_path` (one worker) |
+| `block` | Stationary block resampling from recorded timing pairs (one worker) |
 
 For a fixed condition:
 
