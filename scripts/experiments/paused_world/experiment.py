@@ -18,19 +18,32 @@ import sys
 import numpy as np
 
 from latency_bench.core.config import load_config
+from latency_bench.data.prompts import BASE_PROMPTS
 from latency_bench.utils.io import read_json, write_csv, write_json, write_yaml
 from latency_bench.utils.paths import REPO_ROOT
 
 
 MODEL_REVISION = "b17aad08bc4549fdbab5af96e698b3c637a2095a"
 TASKS = ("flappy", "demon_attack")
+ZERO_LATENCY_PROMPT = "Current action latency is 0 raw frames (0.00 ms)."
 
 
 def paused_config(base, output, *, episodes, parallel_envs, inference_devices, batch_size):
-    """Keep the checkpoint's task/input contract and remove inference delay."""
+    """Prepare zero-delay evaluation and its explicit timing prompt."""
     config = deepcopy(base)
-    config["experiment"]["name"] += "-paused"
+    config["experiment"]["name"] += "-paused-explicit-zero-prompt"
     config["latency"] = {"method": "zero"}
+    base_prompt = config["env"].get("base_prompt", BASE_PROMPTS[config["env"]["name"]])
+    prompt_map_path = output / "latency_prompt_map.json"
+    write_json(prompt_map_path, {"0": {
+        "latency_raw_frames": 0, "latency_ms": 0.0,
+        "prompt": f"{base_prompt} {ZERO_LATENCY_PROMPT}",
+    }})
+    # The map takes precedence over the automatic timing/FPS suffix. Raw mode
+    # preserves the sentence that the archived latency_neutral mode would strip.
+    config["policy"].update(
+        latency_prompt_map_path=str(prompt_map_path), latency_prompt_key=0, prompt_mode="raw",
+    )
     config["executor"].update(
         mode="simulated", simulated_worker_capacity=1, inference_pool=True,
         parallel_envs=parallel_envs, inference_devices=inference_devices,
@@ -58,7 +71,8 @@ def prepare(args):
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True,
         ).strip(),
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
-        "condition": "paused_zero_delay",
+        "condition": "paused_zero_delay_explicit_prompt",
+        "prompt_suffix": ZERO_LATENCY_PROMPT,
         "comparison_condition": "archived_temporal_profile_simulation",
         "cases": [],
     }
@@ -119,6 +133,7 @@ def summarize(output):
         archived = read_json(case_dir / "archived_profile_summary.json")
         rows.append({
             "task": case["task"], "model": case["model"], "episodes": len(records),
+            "condition": manifest["condition"],
             "paused_mean": float(returns.mean()), "paused_std": float(returns.std()),
             "paused_ci95_low": float(low), "paused_ci95_high": float(high),
             "archived_profile_mean": archived["mean_return"],

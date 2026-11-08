@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # Evaluate the six profile-trained hist8 checkpoints with zero inference delay.
+# Append "Current action latency is 0 raw frames (0.00 ms)." to each game prompt.
 # Run on Linux/CUDA from any directory. Defaults reproduce the published
 # episode cohort and batching: 100 episodes, 32 environments, two GPUs.
 #
@@ -24,6 +25,7 @@ Usage: bash scripts/experiments/paused_world/run.sh
 
 Install -> activate -> download -> six paused evaluations -> results table.
 Targets Linux/CUDA; Flappy cap 3600 raw frames, Demon Attack cap 7200.
+Every game prompt includes: Current action latency is 0 raw frames (0.00 ms).
 
 Environment variables:
   WORKSPACE_DIR         Workspace directory (default: parent of this checkout)
@@ -83,7 +85,7 @@ for index in "${!GPU_IDS[@]}"; do
     INFERENCE_DEVICES+=("cuda:${index}")
 done
 
-# 3. Download pinned checkpoints/backbone and prepare all six zero-delay configs.
+# 3. Download pinned checkpoints/backbone and prepare zero-delay configs/prompt maps.
 python -m scripts.experiments.paused_world.experiment prepare \
     --output-dir "${OUTPUT_DIR}" \
     --episodes "${EPISODES}" \

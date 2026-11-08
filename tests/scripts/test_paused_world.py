@@ -5,6 +5,8 @@ import json
 import pytest
 
 from latency_bench.core.config import load_config
+from latency_bench.data.prompts import BASE_PROMPTS
+from latency_bench.policy.starvla_prompts import resolve_starvla_prompt
 from latency_bench.utils.io import read_json, write_json, write_jsonl, write_yaml
 from latency_bench.utils.paths import REPO_ROOT
 from scripts.experiments.paused_world.experiment import paused_config, summarize
@@ -28,6 +30,19 @@ def test_paused_config_preserves_published_game_and_history_protocol(tmp_path, t
     assert config["env"]["action_history_decisions"] == 8
     assert config["policy"]["state_source"] == "transport"
     assert config["policy"]["checkpoint"] == "checkpoints/model.pt"
+    # Exercise the runtime prompt resolver: the cue must survive neutral-mode
+    # stripping and must not be duplicated by the automatic timing/FPS suffix.
+    prompt_map = read_json(config["policy"]["latency_prompt_map_path"])
+    for metadata in ({}, {"latency_raw_frames": 0, "latency_ms": 0.0,
+                           "env_fps": config["env"]["env_fps"],
+                           "obs_fps": config["env"]["obs_fps"]}):
+        prompt = resolve_starvla_prompt(
+            env_name=task, observation_metadata=metadata, latency_prompt_map=prompt_map,
+            latency_prompt_key=config["policy"]["latency_prompt_key"],
+            prompt_mode=config["policy"]["prompt_mode"],
+        )
+        assert prompt == BASE_PROMPTS[task] + " Current action latency is 0 raw frames (0.00 ms)."
+    assert base["policy"]["prompt_mode"] == "latency_neutral"
 
 
 @pytest.fixture
@@ -52,7 +67,9 @@ def completed_run(tmp_path):
             })
             cases.append({"task": task, "model": model, "bundle": f"fixture/{task}/{model}",
                           "config": f"{task}/{model}/eval_config.yaml"})
-    write_json(tmp_path / "experiment.json", {"cases": cases})
+    write_json(tmp_path / "experiment.json", {
+        "condition": "paused_zero_delay_explicit_prompt", "cases": cases,
+    })
     return tmp_path
 
 
@@ -66,6 +83,7 @@ def test_report_uses_new_episode_scores_and_labels_archived_comparison(completed
     assert rows[0]["archived_profile_mean"] == 20
     assert rows[0]["paused_rank"] == 3
     assert rows[0]["archived_profile_rank"] == 1
+    assert rows[0]["condition"] == "paused_zero_delay_explicit_prompt"
     assert read_json(completed_run / "results.json")["status"] == "complete"
     assert (completed_run / "results.csv").is_file()
 
