@@ -128,6 +128,12 @@ The default dataset output root is
 `OUTPUT_DIR` overrides it; the commands above set the dataset destination
 explicitly without changing the terminal's training output variable.
 
+For long episodes, reduce the images retained in RAM with `PARALLEL_ENVS=16`
+(default: 256). This sets the same environment count for both probe and replay;
+the total episode target, frame cap, FPS and filtering settings remain unchanged.
+Use a fresh `OUTPUT_DIR` when changing this count, including after an interrupted
+replay. The chosen count is recorded in `collect.yaml` and `protocol.json`.
+
 ### Optional episode-return filter
 
 Set `EPISODE_RETURN_GT` to keep only complete episodes whose **total raw return

@@ -146,20 +146,28 @@ def write_replay(raw, specs, image):
     cleanup_rollout_intermediates(raw)
 
 
-@pytest.mark.parametrize(("profile_set", "method"), [
-    ("original", "block"), ("irregular_20min", "temporal"),
-    ("irregular_20min", "ar1"), ("irregular_20min", "arma"),
+@pytest.mark.parametrize(("profile_set", "method", "parallel_envs"), [
+    ("original", "block", 256), ("irregular_20min", "temporal", 16),
+    ("irregular_20min", "ar1", 16), ("irregular_20min", "arma", 16),
 ])
-def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local_bundle, monkeypatch, profile_set, method):
+def test_quota_probe_replay_and_vla_conversion_then_upload_retry(
+        tmp_path, local_bundle, monkeypatch, profile_set, method, parallel_envs):
     bundle = local_bundle(method, profile_set)
     output = tmp_path / "rollout"
-    rollout.prepare(output, bundle, method, episodes=10, min_train_rows=50, profile_set=profile_set)
+    settings = dict(episodes=10, min_train_rows=50, profile_set=profile_set, parallel_envs=parallel_envs)
+    rollout.prepare(output, bundle, method, **settings)
+    rollout.prepare(output, bundle, method, **settings)
+    saved = read_json(output / "protocol.json")["settings"]
+    assert saved["parallel_envs"] == saved["replay_num_envs"] == parallel_envs
+    with pytest.raises(ValueError, match="settings changed"):
+        rollout.prepare(output, bundle, method, **{**settings, "parallel_envs": parallel_envs + 1})
     image = tmp_path / "frame.png"
     save_test_image(image, 12)
     calls = []
 
     def fake_collection(config):
         calls.append(deepcopy(config))
+        assert config["executor"]["parallel_envs"] == config["collection"]["replay_num_envs"] == parallel_envs
         raw = Path(config["logging"]["output_dir"])
         episodes = config["evaluation"]["episodes"]
         if config["collection"]["probe_only"]:
@@ -188,6 +196,7 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local
     rollout.export(output)
     source = teacher.PROFILE_SETS[profile_set]
     readme = (output / "README.md").read_text()
+    assert f"{parallel_envs} environments" in readme
     assert source["repo_id"] in readme and source["revision"] in readme
     launcher = Path(teacher.__file__).parent.parent / source["launcher_dir"] / f"collect_{method}.sh"
     assert (output / "code" / launcher.name).read_bytes() == launcher.read_bytes()
@@ -363,8 +372,9 @@ def test_return_filtered_probe_topups_and_attempt_exhaustion(tmp_path, local_bun
 
 @pytest.mark.parametrize("options", [
     {"episode_return_gt": float("nan")}, {"episode_return_gt": float("inf")}, {"max_attempts": 9},
+    {"parallel_envs": 0}, {"parallel_envs": -1},
 ])
-def test_invalid_filter_settings_fail_before_collection(tmp_path, options):
+def test_invalid_collection_settings_fail_before_collection(tmp_path, options):
     with pytest.raises(ValueError):
         rollout.prepare(tmp_path / "out", tmp_path / "unused_bundle", "temporal", episodes=10, **options)
     assert not (tmp_path / "out").exists()

@@ -8,11 +8,12 @@ from latency_bench.integrations.sample_factory.teacher_config import load_rollou
 from latency_bench.utils.io import write_yaml
 
 
-def prepare(checkpoint: Path, profile: Path, output: Path, *, episodes=200, max_steps=7200):
+def prepare(checkpoint: Path, profile: Path, output: Path, *, episodes=200, max_steps=7200,
+            parallel_envs=256):
     if not checkpoint.is_file():
         raise ValueError("--checkpoint must identify the selected teacher checkpoint file")
-    if episodes < 1 or max_steps < 1:
-        raise ValueError("Episode count and raw-frame cap must be positive")
+    if episodes < 1 or max_steps < 1 or parallel_envs < 1:
+        raise ValueError("Episode count, raw-frame cap and parallel environment count must be positive")
     descriptor, _ = load_rollout_training_config(checkpoint.absolute())
     flat = descriptor["flat_cfg"]
     method = {"profile_sample": "temporal", "hmm": "hmm", "block": "block",
@@ -30,7 +31,7 @@ def prepare(checkpoint: Path, profile: Path, output: Path, *, episodes=200, max_
     config = {
         "experiment": {"name": f"flappy_{method}_collection_{max_steps}", "seed": 42},
         "env": {"name": "flappy", "env_fps": 10, "obs_fps": 10, "simulator": "gpu"},
-        "executor": {"mode": "simulated", "parallel_envs": 256, "inference_devices": ["gpu"],
+        "executor": {"mode": "simulated", "parallel_envs": parallel_envs, "inference_devices": ["gpu"],
                      "simulated_worker_capacity": 1},
         "policy": {"type": "sample_factory", "source": "local", "root": str(checkpoint_root),
                    "checkpoint": str(checkpoint_file.relative_to(checkpoint_root))},
@@ -39,7 +40,7 @@ def prepare(checkpoint: Path, profile: Path, output: Path, *, episodes=200, max_
                     "seed": 42, "add_latency_info": False},
         "evaluation": {"episodes": episodes, "max_env_steps": max_steps},
         "logging": {"output_dir": str(output / "raw")},
-        "collection": {"two_pass": True, "max_attempts": episodes, "replay_num_envs": 256,
+        "collection": {"two_pass": True, "max_attempts": episodes, "replay_num_envs": parallel_envs,
                        "val_fraction": .1, "split_seed": 0, "filter_preset": "none", "context_window": 1,
                        "row_buffer_size": 8192, "image_writer_workers": 32},
     }
@@ -62,8 +63,11 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--episodes", type=int, default=200)
     parser.add_argument("--max-steps", type=int, default=7200)
+    parser.add_argument("--parallel-envs", type=int, default=256,
+                        help="Environment count shared by probe and image replay")
     args = parser.parse_args()
-    prepare(args.checkpoint, args.profile_path, args.output_dir, episodes=args.episodes, max_steps=args.max_steps)
+    prepare(args.checkpoint, args.profile_path, args.output_dir, episodes=args.episodes,
+            max_steps=args.max_steps, parallel_envs=args.parallel_envs)
     print(f"Collection and conversion configs: {args.output_dir.resolve()}")
 
 

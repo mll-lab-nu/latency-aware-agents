@@ -25,6 +25,7 @@ Environment variables:
   WORKSPACE_DIR       Parent workspace (default: parent of this checkout)
   OUTPUT_DIR          Shared dataset root; each method gets METHOD/seed_42
   GPU                 One physical CUDA device, default 0
+  PARALLEL_ENVS       Concurrent environments in BOTH probe and replay, default 256
   EPISODES            Initial accepted episodes, default 200 (add 50 for row target)
   MAX_ENV_STEPS       Raw-frame cap per episode, default 7200
   MIN_TRAIN_ROWS      Minimum training labels, default 320000
@@ -35,7 +36,7 @@ Environment variables:
   SKIP_UPLOAD=1      Keep the completed dataset locally
 
 Timing is simulated at 10/10 Hz with the teacher's own profile, capacity 1,
-256 parallel environments, eight-decision history, 90/10 episode split, seed 42,
+PARALLEL_ENVS parallel environments, eight-decision history, 90/10 episode split, seed 42,
 split seed 0, deterministic actions, one current student RGB image.
 Filtering is off unless EPISODE_RETURN_GT is set. Accepted episodes keep every
 row; use the same cutoff for all methods. A new cutoff requires a fresh OUTPUT_DIR.
@@ -48,6 +49,8 @@ Authenticate using HF_TOKEN or hf auth login. A new dataset repo is private;
 existing visibility is preserved. No checkpoint weights are uploaded.
 Rerunning a completed collection reuses its data. Partial GPU image replay
 retains the existing collector's restart restriction; use a fresh OUTPUT_DIR.
+To reduce image memory, use PARALLEL_ENVS=16 with a fresh OUTPUT_DIR. Both phases
+use this count; EPISODES still controls the total number of accepted episodes.
 After an upload failure, retry WITHOUT GPU collection or TEACHER_BUNDLE:
   OUTPUT_DIR=/same/root bash .../collect_METHOD.sh --upload-only
 The shared output root must be the same as in the original invocation.
@@ -116,6 +119,7 @@ if [[ "${UPLOAD_ONLY}" != 1 ]]; then
         --profile-set "${TEACHER_PROFILE_SET:-original}" \
         --teacher-bundle "${TEACHER_BUNDLE}" --episodes "${EPISODES:-200}" \
         --max-steps "${MAX_ENV_STEPS:-7200}" --min-train-rows "${MIN_TRAIN_ROWS:-320000}" \
+        --parallel-envs "${PARALLEL_ENVS:-256}" \
         "${COLLECTION_ARGS[@]}" \
         2>&1 | tee -a "${RUN_DIR}/prepare.log"
     if [[ ! -f "${RUN_DIR}/DONE" ]]; then

@@ -20,11 +20,13 @@ DATASET_REPO = "latency-sensitive-bench/temporal-profile-rollouts"
 
 def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=7200,
             min_train_rows=320_000, profile_set="original", episode_return_gt=None,
-            max_attempts=None) -> None:
+            max_attempts=None, parallel_envs=256) -> None:
     """Select the recorded best checkpoint and keep its profile beside the export."""
     output, bundle = output.resolve(), bundle.resolve()
     if episodes < 10 or max_steps < 1 or min_train_rows < 1:
         raise ValueError("Require at least 10 episodes and positive frame/row budgets")
+    if parallel_envs < 1:
+        raise ValueError("Parallel environment count must be positive")
     if episode_return_gt is not None:
         if not math.isfinite(episode_return_gt):
             raise ValueError("Episode return threshold must be finite")
@@ -57,7 +59,7 @@ def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=
         "method": method, "teacher_bundle": str(bundle), "selected_checkpoint": completed["selected_checkpoint"],
         "initial_episodes": episodes, "episode_increment": 50, "min_train_rows": min_train_rows,
         "max_episode_raw_frames": max_steps, "seed": 42, "profile_seed": 42,
-        "env_fps": 10, "obs_fps": 10, "parallel_envs": 256, "replay_num_envs": 256,
+        "env_fps": 10, "obs_fps": 10, "parallel_envs": parallel_envs, "replay_num_envs": parallel_envs,
         "val_fraction": .1, "split_seed": 0, "filter_preset": "none", "deterministic": True,
     }
     # Omit unset options so completed, unfiltered collections remain resumable.
@@ -80,7 +82,7 @@ def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=
         output.mkdir(parents=True, exist_ok=True)
         shutil.copytree(bundle / "profile", output / "profile", dirs_exist_ok=True)
         prepare_collection.prepare(checkpoint, output / "profile/profile.json", output,
-                                   episodes=episodes, max_steps=max_steps)
+                                   episodes=episodes, max_steps=max_steps, parallel_envs=parallel_envs)
         config = read_yaml(output / "collect.yaml")
         config["policy"]["deterministic"] = True
         for key in ("episode_return_gt", "max_attempts"):
@@ -245,7 +247,7 @@ def export(output: Path) -> None:
         "Collection uses the local teacher's bundled fit without refitting or downloading replacements.\n\n"
         f"10/10 Hz simulated collection, capacity 1, deterministic teacher, seed 42, "
         f"{settings['max_episode_raw_frames']:,}-raw-frame episode cap, two-pass probe/replay, "
-        "256 environments, 90/10 episode split (seed 0). "
+        f"{settings['parallel_envs']} environments, 90/10 episode split (seed 0). "
         f"{filtering}Start at {settings['initial_episodes']} accepted episodes and add 50 until at least "
         f"{settings['min_train_rows']:,} training rows. The 7,200-frame default is an explicit "
         "comparison setting, not a claim that every archived dataset used that cap.\n\n"
@@ -319,6 +321,8 @@ def main(argv=None):
             sub.add_argument("--episodes", type=int, default=200)
             sub.add_argument("--max-steps", type=int, default=7200)
             sub.add_argument("--min-train-rows", type=int, default=320_000)
+            sub.add_argument("--parallel-envs", type=int, default=256,
+                             help="Environment count shared by probe and image replay")
             sub.add_argument("--episode-return-gt", type=float,
                              help="Keep whole episodes with raw return strictly above this value")
             sub.add_argument("--max-attempts", type=int,
@@ -330,7 +334,8 @@ def main(argv=None):
     if args.command == "prepare":
         prepare(output, args.teacher_bundle.expanduser(), args.method, episodes=args.episodes,
                 max_steps=args.max_steps, min_train_rows=args.min_train_rows, profile_set=args.profile_set,
-                episode_return_gt=args.episode_return_gt, max_attempts=args.max_attempts)
+                episode_return_gt=args.episode_return_gt, max_attempts=args.max_attempts,
+                parallel_envs=args.parallel_envs)
     elif args.command == "collect":
         collect(output)
     elif args.command == "export":
