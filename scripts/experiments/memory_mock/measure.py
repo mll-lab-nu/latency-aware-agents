@@ -42,7 +42,8 @@ def prepare(args):
     config["evaluation"].pop("calibration_samples", None)
     config["experiment"]["seed"] = args.episode_seed
     config["executor"]["parallel_envs"] = 1
-    config["logging"].update(output_dir=str(args.output / "evaluation"),
+    evaluation_output = getattr(args, "evaluation_output", None) or args.output / "evaluation"
+    config["logging"].update(output_dir=str(evaluation_output),
                              save_action_records=True, save_latency_records=True, save_step_records=True)
     config["logging"]["video"] = {"enabled": False}
     args.output.mkdir(parents=True, exist_ok=False)
@@ -55,6 +56,7 @@ def prepare(args):
         "env_fps": config["env"]["env_fps"], "obs_fps": config["env"]["obs_fps"],
         "max_env_steps": config["evaluation"]["max_env_steps"],
         "input_config": str(args.config.resolve()),
+        "evaluation_output": str(evaluation_output),
         "repository_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "repository_status": subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).splitlines(),
         "startup_timeout_seconds": args.startup_timeout_seconds,
@@ -70,6 +72,29 @@ def prepare(args):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / relative, target)
     return protocol
+
+
+def profile_command(config, generated, session, session_id):
+    """Run the profiling recipe's ordinary session under the shared load supervisor."""
+    from latency_bench.eval.config import _evaluation_seed
+
+    if "eval_entrypoint" in config["profiling"] or config["profiling"]["calibration"] is not None:
+        raise ValueError("Memory contention profiling requires the standard evaluator and explicit fixed FPS")
+    options = config["profiling"]["memory_mock"]
+    command = [sys.executable, "-m", "scripts.experiments.memory_mock.measure",
+               "--config", str(generated), "--output", str(session / "contention"),
+               "--evaluation-output", str(session), "--episodes", str(config["evaluation"]["episodes"]),
+               "--episode-seed", str(_evaluation_seed(config)),
+               "--load-seed", str(options["seed_base"] + session_id)]
+    for name in ("condition", "buffer_mib", "coverage_seconds", "off_seconds", "short_on_seconds",
+                 "long_on_seconds", "long_probability", "startup_timeout_seconds", "run_timeout_seconds"):
+        value = options[name]
+        command.append("--" + name.replace("_", "-"))
+        if isinstance(value, list):
+            command.extend(str(v) for v in value)
+        else:
+            command.append(str(value))
+    return command
 
 
 def worker(output):
@@ -181,6 +206,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True, help="An existing realtime config for logical cuda:0")
     parser.add_argument("--output", type=Path, required=True, help="New output directory; existing runs are never overwritten")
+    parser.add_argument("--evaluation-output", type=Path, help="Profiling session's existing output directory")
     parser.add_argument("--condition", choices=("idle", "periodic", "irregular"), default="irregular")
     parser.add_argument("--episodes", type=int, default=300)
     parser.add_argument("--episode-seed", type=int, default=42)
@@ -191,6 +217,8 @@ def main():
     add_irregular_arguments(parser)
     args = parser.parse_args()
     args.output = args.output.expanduser().resolve()
+    if args.evaluation_output is not None:
+        args.evaluation_output = args.evaluation_output.expanduser().resolve()
     measure(args)
 
 

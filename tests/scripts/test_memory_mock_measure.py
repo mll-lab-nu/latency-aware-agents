@@ -108,3 +108,31 @@ def test_idle_report_marks_missing_on_evidence(tmp_path):
     result = report(tmp_path)
     assert result['groups']['ON']['worker']['mean_ms'] is None
     assert result['on_fraction_of_observed_span'] == 0
+
+
+def test_live_profile_session_runs_coordinated_load_with_distinct_session_seeds(tmp_path, monkeypatch):
+    from latency_bench.core.config import load_config
+    from latency_bench.profiling import runner
+
+    config = load_config(measure.ROOT / 'configs/examples/flappy/profile_openvla.yaml')
+    config['profiling']['memory_mock'] = dict(condition='irregular', seed_base=42, buffer_mib=512,
+        coverage_seconds=10800, off_seconds=[5, 15], short_on_seconds=[.2, .8],
+        long_on_seconds=[2, 5], long_probability=.2, startup_timeout_seconds=1800, run_timeout_seconds=7200)
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        assert kwargs['check'] is True
+        if len(calls) == 2:
+            raise RuntimeError('load failed')
+    monkeypatch.setattr(runner.subprocess, 'run', run)
+    deployment = {'gpu_class': '1x-gpu', 'instance_id': 'test'}
+    runner._measure_session(config, deployment, None, tmp_path, 0, resume=False)
+    with pytest.raises(RuntimeError, match='load failed'):
+        runner._measure_session(config, deployment, None, tmp_path, 1, resume=False)
+    for index, command in enumerate(calls):
+        assert command[2] == 'scripts.experiments.memory_mock.measure'
+        assert command[command.index('--load-seed') + 1] == str(42 + index)
+        assert command[command.index('--episodes') + 1] == '10'
+        assert command[command.index('--evaluation-output') + 1] == str(tmp_path / 'sessions' / str(index))
+    assert (tmp_path / 'sessions/0/DONE').exists()
+    assert not (tmp_path / 'sessions/1/DONE').exists()

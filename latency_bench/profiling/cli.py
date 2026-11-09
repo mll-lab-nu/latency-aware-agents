@@ -14,7 +14,7 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--resume", metavar="RUN_ID", type=path_segment)
     fit = commands.add_parser("fit", help="fit completed local measurement sessions")
     fit.add_argument("--run-dir", type=Path, required=True)
-    fit.add_argument("--method", choices=("temporal", "hmm", "block"), default="temporal")
+    fit.add_argument("--method", choices=("temporal", "hmm", "block", "ar1", "arma"), default="temporal")
     fit.add_argument("--session-ids", type=int, nargs="+", help="Only these completed fitting sessions; exclude held-out runs")
     fit.add_argument("--output-dir", type=Path, help="Separate output for a selected fit or tuning candidate")
     fit.add_argument("--hmm-states", type=int, default=2)

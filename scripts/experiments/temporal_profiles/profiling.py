@@ -19,6 +19,7 @@ from latency_bench.profiling.runtime_configs import measure_config
 from latency_bench.profiling.spec import resolve_profile_config
 from latency_bench.utils.io import read_json, write_json_atomic, write_yaml
 from latency_bench.utils.paths import REPO_ROOT
+from scripts.experiments.memory_mock.load import add_irregular_arguments, schedule_from_args
 
 
 RECIPE = REPO_ROOT / "configs/examples/flappy/profile_openvla.yaml"
@@ -35,7 +36,7 @@ def code_provenance() -> dict:
         "starvla_revision": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT / "third_party/starVLA", text=True).strip(),
         "fitting_packages": {name: version(name) for name in
-                             ("numpy", "scipy", "scikit-learn", "hmmlearn", "matplotlib")},
+                             ("numpy", "scipy", "scikit-learn", "hmmlearn", "statsmodels", "matplotlib")},
     }
 
 
@@ -92,11 +93,28 @@ def prepare(args) -> None:
         config["evaluation"].update(episodes=args.episodes, max_env_steps=args.max_env_steps)
         config["profiling"]["repeats"] = args.repeats
         config["logging"]["output_dir"] = str(output / "raw")
+    if args.memory_condition != "none":
+        # Validate the distribution before model download or GPU startup.
+        schedule_from_args(args, args.load_seed)
+        memory = {"condition": args.memory_condition, "seed_base": args.load_seed,
+                  "buffer_mib": args.buffer_mib, "coverage_seconds": args.coverage_seconds,
+                  "off_seconds": list(args.off_seconds), "short_on_seconds": list(args.short_on_seconds),
+                  "long_on_seconds": list(args.long_on_seconds), "long_probability": args.long_probability,
+                  "startup_timeout_seconds": args.startup_timeout_seconds,
+                  "run_timeout_seconds": args.run_timeout_seconds}
+        if min(args.buffer_mib, args.startup_timeout_seconds, args.run_timeout_seconds) <= 0:
+            raise ValueError("Memory buffers and timeout budgets must be positive")
+        if source is not None and config["profiling"].get("memory_mock") != memory:
+            raise ValueError("Reused sessions were not collected under the requested memory workload")
+        config["profiling"]["memory_mock"] = memory
     config = resolve_profile_config(config)
     if (config["env"]["name"] != "flappy" or config["policy"]["type"] != "starvla"
             or config["executor"]["mode"] != "realtime"
             or len(config["executor"]["inference_devices"]) != 1):
         raise ValueError("This recipe requires Flappy/StarVLA, realtime, one inference worker")
+    if "memory_mock" in config["profiling"] and (config["executor"]["inference_devices"] != ["cuda:0"]
+            or config["profiling"]["calibration"] is not None or "eval_entrypoint" in config["profiling"]):
+        raise ValueError("Memory profiling requires logical cuda:0, fixed FPS and the standard evaluator")
     repeats = config["profiling"]["repeats"]
     fit_ids = args.fit_session_ids
     if (repeats < 2 or not fit_ids or len(set(fit_ids)) != len(fit_ids)
@@ -117,6 +135,11 @@ def prepare(args) -> None:
         "block_mean_length": args.block_mean_length,
         "selection": "Explicit settings; this recipe does not tune or evaluate profiles",
     }
+    if args.compare:
+        protocol["comparison"] = {"generation_repeats": 10, "seed": 20261109,
+                                  "slow_quantiles": [.95, .99], "arma_order": [1, 0, 1],
+                                  "selection": "Fixed model orders, no held-out tuning; thresholds from fitting sessions only"}
+        protocol["selection"] = "Explicit settings; held-out fidelity comparison after all fits are frozen"
     output.mkdir(parents=True, exist_ok=True)
     plan = output / "protocol.json"
     if plan.exists():
@@ -149,7 +172,8 @@ def measure(output: Path) -> None:
         if len(contracts) > 1:
             raise ValueError("Multiple measurement runs in OUTPUT_DIR; select EXISTING_RUN_DIR explicitly")
         resume_id = contracts[0].parent.name if contracts else None
-        result = run_profile(load_config(output / "measurement.yaml"), resume_run_id=resume_id)
+        result = run_profile(load_config(output / "measurement.yaml"), resume_run_id=resume_id,
+                             fit_session_ids=protocol["fit_session_ids"])
         source = Path(result["RUN_DIR"])
     check_sessions(source, protocol["measurement_config"]["profiling"]["repeats"])
     write_json_atomic(receipt, result)
@@ -170,8 +194,7 @@ def export_profiles(output: Path) -> None:
                        hmm_states=protocol["hmm_states"],
                        hmm_max_iterations=protocol["hmm_max_iterations"],
                        block_mean_length=protocol["block_mean_length"])
-        # The runner's automatic Temporal fit uses ALL sessions. Refit it here
-        # just like the alternatives; only these explicit-split fits are exported.
+        # Export every method with the same explicit fitting split.
         if target.exists():
             fit_profile(source, output_dir=target, **options)
         else:
@@ -180,6 +203,10 @@ def export_profiles(output: Path) -> None:
                 fit_profile(source, output_dir=fitted, **options)
                 fitted.rename(target)
         print(f"{method}: {target / 'profile.json'}")
+    if "comparison" in protocol:
+        from scripts.experiments.memory_mock.comparison import compare_profiles
+
+        compare_profiles(output)
     bundle = output / "bundle"
     if bundle.exists():
         if read_json(bundle / "protocol.json") != protocol:
@@ -202,12 +229,14 @@ def export_profiles(output: Path) -> None:
                 shutil.copyfile(source / name, raw / name)
         # Copy recorded evidence only, never model weights or downloaded caches.
         for path in (source / "sessions").rglob("*"):
-            if path.is_file() and (path.suffix in {".json", ".jsonl", ".yaml", ".png", ".log"}
+            if path.is_file() and (path.suffix in {".json", ".jsonl", ".yaml", ".png", ".log", ".csv"}
                                    or path.name == "DONE"):
                 dest = raw / path.relative_to(source)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, dest)
         shutil.copytree(profiles, staged / "profiles")
+        if "comparison" in protocol:
+            shutil.copytree(output / "comparison", staged / "comparison")
         cfg = protocol["measurement_config"]
         (staged / "README.md").write_text(
             "# Flappy/QwenOFT timing profiles\n\n"
@@ -218,11 +247,13 @@ def export_profiles(output: Path) -> None:
             f"{cfg['evaluation']['max_env_steps']} raw-frame episode cap.\n\n"
             f"All exported methods fit sessions {protocol['fit_session_ids']}. "
             f"Reserved sessions: {protocol['held_out_session_ids']}. "
-            "The runner's automatic all-session Temporal fit is excluded.\n\n"
+            "No exported profile uses held-out sessions for fitting.\n\n"
             f"HMM states: {protocol['hmm_states']}; iteration limit: {protocol['hmm_max_iterations']}; "
             f"block mean length: {protocol['block_mean_length']} admitted requests. "
             "These are explicit settings, not automatically selected winners. "
-            "No timing-fidelity evaluation, teacher training, or VLA evaluation is performed here.\n\n"
+            + ("Held-out timing fidelity results are in comparison/. " if "comparison" in protocol else
+               "No timing-fidelity evaluation is performed. ")
+            + "No teacher training or comparative VLA evaluation is performed here.\n\n"
             "Keep each profiles/<method>/ directory intact: profile.json references its companion files. "
             "measurement/ contains raw timing records (including reserved sessions), configuration, "
             "warmup records and hardware evidence. run_contract.json and profile provenance identify "
@@ -282,12 +313,19 @@ def main(argv=None) -> None:
             sub.add_argument("--repeats", type=int, default=5)
             sub.add_argument("--episodes", type=int, default=10)
             sub.add_argument("--max-env-steps", type=int, default=3600)
-            sub.add_argument("--methods", nargs="+", choices=("temporal", "hmm", "block"),
+            sub.add_argument("--methods", nargs="+", choices=("temporal", "hmm", "block", "ar1", "arma"),
                              default=["temporal", "hmm", "block"])
             sub.add_argument("--fit-session-ids", nargs="+", type=int, default=[0, 1, 2])
             sub.add_argument("--hmm-states", type=int, default=2)
             sub.add_argument("--hmm-max-iterations", type=int, default=1000)
             sub.add_argument("--block-mean-length", type=float, default=32)
+            sub.add_argument("--memory-condition", choices=("none", "idle", "irregular"), default="none")
+            sub.add_argument("--load-seed", type=int, default=42)
+            sub.add_argument("--buffer-mib", type=int, default=512)
+            sub.add_argument("--startup-timeout-seconds", type=int, default=1800)
+            sub.add_argument("--run-timeout-seconds", type=int, default=7200)
+            sub.add_argument("--compare", action="store_true")
+            add_irregular_arguments(sub)
         elif command == "upload":
             sub.add_argument("--repo-id", default="MLL-Lab/LAGEN-profiles")
             sub.add_argument("--path-prefix", default="experiments/temporal-alternatives")

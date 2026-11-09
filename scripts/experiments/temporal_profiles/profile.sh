@@ -24,6 +24,8 @@ Environment variables:
   MAX_ENV_STEPS          Raw-frame cap per profiling episode (default: 3600)
   FIT_SESSION_IDS        Comma-separated fitting IDs (default: 0,1,2)
   METHODS                Comma-separated methods (default: temporal,hmm,block)
+  MEMORY_MOCK_CONDITION   none (default), idle, or irregular; active during live profiling
+  COMPARE_PROFILES=1      Compare fitted profiles on reserved sessions after fitting
   HMM_STATES             Default: 2; explicit setting, not automatically tuned
   HMM_MAX_ITERATIONS     Default: 1000 (three fitting restarts)
   BLOCK_MEAN_LENGTH      Default: 32 admitted requests; not automatically tuned
@@ -34,7 +36,8 @@ Environment variables:
   SKIP_UPLOAD=1          Export locally without uploading
 
 Sessions outside FIT_SESSION_IDS are reserved and never used by these fits.
-This script does not tune hyperparameters or evaluate timing fidelity/game scores.
+This script does not tune hyperparameters or compare game scores.
+COMPARE_PROFILES=1 adds held-out timing-fidelity diagnostics.
 Authenticate with HF_TOKEN or `hf auth login` before running with upload enabled.
 Rerun with the SAME OUTPUT_DIR and settings to resume. To change a split or fit
 setting, use a NEW OUTPUT_DIR and EXISTING_RUN_DIR from measurement.json.
@@ -85,6 +88,19 @@ SOURCE_ARGS=()
 if [[ -n "${EXISTING_RUN_DIR:-}" ]]; then
     SOURCE_ARGS+=(--existing-run-dir "${EXISTING_RUN_DIR}")
 fi
+if [[ "${MEMORY_MOCK_CONDITION:-none}" != none ]]; then
+    SOURCE_ARGS+=(--memory-condition "${MEMORY_MOCK_CONDITION}" --load-seed "${LOAD_SEED:-42}"
+        --buffer-mib "${BUFFER_MIB:-512}" --coverage-seconds "${LOAD_COVERAGE_SECONDS:-10800}"
+        --off-seconds "${OFF_MIN_SECONDS:-5}" "${OFF_MAX_SECONDS:-15}"
+        --short-on-seconds "${SHORT_ON_MIN_SECONDS:-0.2}" "${SHORT_ON_MAX_SECONDS:-0.8}"
+        --long-on-seconds "${LONG_ON_MIN_SECONDS:-2}" "${LONG_ON_MAX_SECONDS:-5}"
+        --long-probability "${LONG_PROBABILITY:-0.2}"
+        --startup-timeout-seconds "${STARTUP_TIMEOUT_SECONDS:-1800}"
+        --run-timeout-seconds "${RUN_TIMEOUT_SECONDS:-7200}")
+fi
+if [[ "${COMPARE_PROFILES:-0}" == 1 ]]; then
+    SOURCE_ARGS+=(--compare)
+fi
 mkdir -p "${OUTPUT_DIR}"
 MODULE=scripts.experiments.temporal_profiles.profiling
 
@@ -101,7 +117,7 @@ python -m "${MODULE}" prepare --output-dir "${OUTPUT_DIR}" \
 python -m "${MODULE}" measure --output-dir "${OUTPUT_DIR}" \
     2>&1 | tee -a "${OUTPUT_DIR}/measurement.log"
 
-# 4. Fit each selected generator on the SAME sessions and export the bundle.
+# 4. Fit each selected generator on the SAME sessions; optionally compare and export.
 python -m "${MODULE}" export --output-dir "${OUTPUT_DIR}" \
     2>&1 | tee -a "${OUTPUT_DIR}/fit.log"
 

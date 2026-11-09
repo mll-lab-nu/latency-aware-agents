@@ -136,12 +136,14 @@ def test_interrupted_measurement_resumes_existing_run_without_new_collection(tmp
     output = tmp_path / "experiment"
     config = resolve_profile_config(load_config(recipe.RECIPE))
     config["logging"]["output_dir"] = str(output / "raw")
-    write_json(output / "protocol.json", {"measurement_config": config, "existing_run_dir": None})
+    write_json(output / "protocol.json", {"measurement_config": config, "existing_run_dir": None,
+                                          "fit_session_ids": [0, 1, 2]})
     write_yaml(output / "measurement.yaml", config)
     source = output / "raw/runs/openvla/gpu/flappy/instance/run_1"
     calls = []
 
-    def run(config, *, resume_run_id):
+    def run(config, *, resume_run_id, fit_session_ids):
+        assert fit_session_ids == [0, 1, 2]
         calls.append(resume_run_id)
         if resume_run_id is None:
             write_json(source / "run_contract.json", {"config": config})
@@ -156,6 +158,50 @@ def test_interrupted_measurement_resumes_existing_run_without_new_collection(tmp
     recipe.measure(output)
     assert calls == [None, "run_1"]
     assert read_json(output / "measurement.json")["RUN_DIR"] == str(source)
+
+
+def test_irregular_profiling_freezes_live_load_and_refuses_uncontended_reuse(raw_run, tmp_path, monkeypatch):
+    monkeypatch.setattr(recipe, "download_model", lambda config, output: config)
+    output = tmp_path / "irregular"
+    recipe.main(["prepare", "--output-dir", str(output), "--memory-condition", "irregular",
+                 "--methods", "temporal", "ar1", "arma", "--compare"])
+    protocol = read_json(output / "protocol.json")
+    assert protocol["measurement_config"]["profiling"]["memory_mock"]["condition"] == "irregular"
+    assert protocol["measurement_config"]["evaluation"]["episodes"] == 10
+    assert protocol["comparison"]["arma_order"] == [1, 0, 1]
+    assert protocol["fit_session_ids"] == [0, 1, 2]
+    with pytest.raises(ValueError, match="not collected under"):
+        recipe.main(["prepare", "--output-dir", str(tmp_path / "bad-reuse"),
+                     "--existing-run-dir", str(raw_run), "--memory-condition", "irregular"])
+
+
+def test_ar_profiles_and_comparison_use_only_the_shared_fitting_partition(raw_run, tmp_path):
+    from latency_bench.core.clock import EnvClock
+    from latency_bench.latency.samplers import build_sampler, temporal_profile_sampler_for_reset
+
+    output = tmp_path / "ar-comparison"
+    recipe.main(["prepare", "--output-dir", str(output), "--existing-run-dir", str(raw_run),
+                 "--methods", "temporal", "ar1", "arma", "--compare"])
+    recipe.measure(output)
+    recipe.export_profiles(output)
+    summary = read_json(output / "comparison/summary.json")
+    assert summary["held_out_session_ids"] == [3, 4]
+    assert summary["cutoffs_from_fit_sessions_ms"]["0.95"][0] < 200
+    for method in ("ar1", "arma"):
+        path = output / "profiles" / method / "profile.json"
+        profile = read_json(path)
+        assert profile["provenance"]["fit_options"]["session_ids"] == [0, 1, 2]
+        assert profile["n_admitted_observations"] == 300
+        model = read_json(path.parent / profile["sequence_model_path"])
+        assert model["observed_max_latency_ms"] < 200
+        sampler = build_sampler({"method": method, "profile_path": str(path), "seed": 42},
+                                clock=EnvClock(env_fps=30, obs_fps=30))
+        reset = temporal_profile_sampler_for_reset(sampler, 42)
+        assert reset.latency_type == sampler.latency_type == method
+        assert sampler.sample({"worker_slot": 0, "episode_id": 0}) == reset.sample({"worker_slot": 0, "episode_id": 0})
+    assert (output / "bundle/comparison/report.html").is_file()
+    assert (output / "bundle/comparison/sequences.npz").is_file()
+    recipe.export_profiles(output)  # Complete fits and comparison are reused.
 
 
 def test_reusing_calibrated_sessions_records_the_actual_clocks(raw_run, tmp_path):

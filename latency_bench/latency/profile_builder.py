@@ -39,7 +39,7 @@ def build_profile_from_traces(
     Marginal samples are pooled, while temporal fitting preserves every
     session boundary.
     """
-    if method not in {"temporal", "hmm", "block"}:
+    if method not in {"temporal", "hmm", "block", "ar1", "arma"}:
         raise ValueError(f"Unsupported fitted profile method: {method}")
     sessions = [
         {

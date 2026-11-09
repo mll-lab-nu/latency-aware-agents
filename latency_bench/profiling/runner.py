@@ -32,6 +32,7 @@ from latency_bench.utils.io import read_json, write_json, write_yaml
 
 def run_profile(
     config: dict[str, Any], *, resume_run_id: str | None = None,
+    fit_session_ids: list[int] | None = None,
 ) -> dict[str, str]:
     """Measure and fit one deployment using the ordinary realtime evaluation path."""
     set_thread_env_defaults()
@@ -59,10 +60,11 @@ def run_profile(
     for session_id in range(options["repeats"]):
         _measure_session(config, deployment, calibration, source_dir, session_id,
                          resume=resume_run_id is not None)
-    fit_profile(source_dir)
+    fit_profile(source_dir, session_ids=fit_session_ids)
     current_dir = Path(config["logging"]["output_dir"]) / "profiles" / ref
     with _profile_lock(current_dir):
         _replace_current(source_dir / "profile", current_dir)
+    (source_dir / "DONE").touch()
     return {
         "PROFILE_REF": ref.as_posix(), "PROFILE_PATH": str(current_dir / "profile.json"),
         "RUN_DIR": str(source_dir), "RUN_ID": run_id,
@@ -87,7 +89,7 @@ def fit_profile(source_dir: str | Path, *, method: str = "temporal",
     if (not session_ids or len(set(session_ids)) != len(session_ids)
             or not set(session_ids).issubset(all_session_ids)):
         raise ValueError("Fit session IDs must be distinct completed sessions from this run")
-    if method not in {"temporal", "hmm", "block"}:
+    if method not in {"temporal", "hmm", "block", "ar1", "arma"}:
         raise ValueError(f"Unsupported fitted profile method: {method}")
     for session_id in session_ids:
         (source_dir / "sessions" / str(session_id) / "DONE").read_bytes()
@@ -132,6 +134,7 @@ def fit_profile(source_dir: str | Path, *, method: str = "temporal",
                     "env_fps": config["env"]["env_fps"], "obs_fps": config["env"]["obs_fps"],
                     "inference_devices": config["executor"]["inference_devices"],
                     "policy_type": config["policy"]["type"],
+                    "memory_mock": options.get("memory_mock"),
                 },
             },
         )
@@ -194,7 +197,13 @@ def _measure_session(
         shutil.rmtree(session)
     generated = session / "generated.yaml"
     write_yaml(generated, measure_config(config, deployment, session, calibration))
-    _run_evaluation(config, generated, session)
+    if "memory_mock" in config["profiling"]:
+        from scripts.experiments.memory_mock.measure import profile_command
+
+        subprocess.run(profile_command(config, generated, session, session_id),
+                       env=evaluation_environment(), check=True)
+    else:
+        _run_evaluation(config, generated, session)
     done.touch()
 
 

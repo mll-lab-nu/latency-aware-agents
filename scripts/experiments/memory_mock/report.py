@@ -55,7 +55,8 @@ def report(output):
     drops = {'OFF': 0, 'ON': 0}
     series = []
     first_ms = last_ms = None
-    for row in records(output / 'evaluation/observation_attempts.jsonl'):
+    evaluation = Path(protocol.get('evaluation_output', output / 'evaluation'))
+    for row in records(evaluation / 'observation_attempts.jsonl'):
         observed = row['observation_start_time_ms']
         if first_ms is None:
             first_ms = observed

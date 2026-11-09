@@ -522,13 +522,14 @@ def build_sampler(latency_cfg: dict[str, Any], *, clock: EnvClock) -> LatencySam
         profile = read_json(profile_path)
         sampler = _build_temporal(profile, profile_path=profile_path, clock=clock, seed=seed)
         profile_metadata = _profile_metadata(profile)
-    elif method in {"hmm", "block"}:
-        from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler
+    elif method in {"hmm", "block", "ar1", "arma"}:
+        from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler, AutoregressiveSampler
 
         profile_path = _resolve_profile_manifest_path(latency_cfg["profile_path"])
         profile = read_json(profile_path)
         model = _load_sequence_model(profile, profile_path=profile_path, method=method)
-        sampler_class = {"hmm": HmmSampler, "block": BlockResamplingSampler}[method]
+        sampler_class = {"hmm": HmmSampler, "block": BlockResamplingSampler,
+                         "ar1": AutoregressiveSampler, "arma": AutoregressiveSampler}[method]
         sampler = sampler_class(model, clock=clock, seed=seed)
         profile_metadata = _profile_metadata(profile)
     else:
@@ -723,9 +724,9 @@ def temporal_profile_sampler_for_reset(
     sampler: LatencySampler, seed: int,
 ) -> LatencySampler:
     """Start an independent temporal stream for one explicitly seeded rollout."""
-    from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler
+    from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler, AutoregressiveSampler
 
-    if isinstance(sampler, (HmmSampler, BlockResamplingSampler)):
+    if isinstance(sampler, (HmmSampler, BlockResamplingSampler, AutoregressiveSampler)):
         clone = type(sampler)(sampler.model, clock=sampler.clock, seed=seed)
         clone.profile_metadata = sampler.profile_metadata
         return clone
@@ -743,9 +744,9 @@ def profile_sampler_max_latency_raw_frames(sampler: Any, *, worker_slot: int, en
     Gaussian HMM emissions have unbounded support. Their observed maximum is
     only an allocation hint, never a clip on generated delays.
     """
-    from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler
+    from latency_bench.latency.sequence_samplers import HmmSampler, BlockResamplingSampler, AutoregressiveSampler
 
-    if isinstance(sampler, (HmmSampler, BlockResamplingSampler)):
+    if isinstance(sampler, (HmmSampler, BlockResamplingSampler, AutoregressiveSampler)):
         if worker_slot != 0:
             raise ValueError("HMM/block profiles require worker slot 0 (capacity 1)")
         return ms_to_raw_frames(sampler.model["observed_max_latency_ms"], env_fps)

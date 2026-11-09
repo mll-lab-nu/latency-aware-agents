@@ -1,6 +1,6 @@
 """Fit alternative timing generators from independent, ordered sessions.
 
-Both alternatives currently model one inference worker (slot 0). Fitting never
+Sequence alternatives model one inference worker (slot 0). Fitting never
 joins measurement sessions or treats rejected observations as timing samples.
 """
 from __future__ import annotations
@@ -60,7 +60,7 @@ def build_sequence_model(session_samples, *, method, hmm_states=2, hmm_max_itera
         if not samples:
             continue
         if {sample["worker_id"] for sample in samples} != {0}:
-            raise ValueError("HMM/block profiles currently require one inference worker, slot 0")
+            raise ValueError("Sequence profiles currently require one inference worker, slot 0")
         pairs = np.array([[s["observation_to_action_latency_ms"], s["worker_service_time_ms"]]
                           for s in samples], dtype=float)
         if (not np.isfinite(pairs).all() or np.any(pairs < 0)
@@ -76,6 +76,10 @@ def build_sequence_model(session_samples, *, method, hmm_states=2, hmm_max_itera
     if method == "hmm":
         _, _, _, parameters = fit_hmm(sessions, hmm_states, hmm_max_iterations)
         return {**common, **parameters, "emission_support": "unbounded_positive"}
+    if method in {"ar1", "arma"}:
+        from latency_bench.latency.autoregressive import fit_autoregressive
+
+        return {**common, **fit_autoregressive(sessions, method=method)}
     if method == "block":
         if not np.isfinite(block_mean_length) or block_mean_length < 1:
             raise ValueError("Block mean length must be finite and >= 1")

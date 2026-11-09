@@ -10,6 +10,98 @@ Set `MEMORY_MOCK_PY` to its Python executable if needed. The tool uses logical
 `cuda:0`; bind the same physical GPU for inference and the load process with
 `CUDA_VISIBLE_DEVICES`. It does not change GPU clocks, drivers or other processes.
 
+## Full live profiling and comparison
+
+For the Temporal/AR(1)/ARMA experiment, use **`profile.sh`**, which extends the
+same live profiling recipe previously used for Temporal/HMM/block:
+
+```bash
+GPU=0 OUTPUT_DIR=/workspace/outputs/irregular_profiles_run1 \
+  bash scripts/experiments/memory_mock/profile.sh
+```
+
+One terminal is sufficient. The script installs/activates the existing StarVLA
+environment, downloads the same pinned zero-latency-trained Flappy QwenOFT
+checkpoint, and profiles inference at **30/30 FPS with one worker**. The GPU
+copy process runs on that same physical GPU during each measured session.
+Model warmup finishes before workload allocation; measured observations start
+only after the workload reports ready. Both processes are supervised together.
+The irregular timeline continues through episode resets and restarts with a
+different load seed for each independent profiling session.
+
+The default protocol preserves the earlier profiling budget: five independent
+processes, ten measured episodes each, a 3,600-frame episode cap, fitting sessions
+0/1/2, and held-out sessions 3/4. The load seeds are 42–46; episode seeds follow
+the original recipe. Ten episodes may observe only a few irregular events if
+the policy fails quickly. Increase `EPISODES` for better event coverage and
+inspect the actual ON counts before interpreting burst fidelity. The comparison
+warns when a session has fewer than ten observed ON events; this is a collection
+diagnostic, not a statistical acceptance threshold.
+
+After recording, it fits **Temporal, log-AR(1), and log-ARMA(1,1)** using the same
+training sessions and exports normal reusable `profile.json` bundles. It then
+compares ten independent generated sequences per method and held-out session.
+The GPU workload runs during the live measurements; CPU fitting follows them.
+No synthetic delay is injected into the measured inference timings.
+
+For the allocation-matched idle control, use a separate output:
+
+```bash
+GPU=0 MEMORY_MOCK_CONDITION=idle \
+  OUTPUT_DIR=/workspace/outputs/idle_profiles_run1 \
+  bash scripts/experiments/memory_mock/profile.sh
+```
+
+Other controls follow the original recipe: `REPEATS`, `EPISODES`,
+`MAX_ENV_STEPS`, `FIT_SESSION_IDS`, `EXISTING_RUN_DIR` and `SKIP_INSTALL`.
+`METHODS=temporal,ar1,arma,hmm,block` includes the previous alternatives too.
+Rerun with the same output and settings to resume completed sessions. A failed
+session is restarted; incomplete sessions are never marked complete. Reusing an
+uncontended recording as an irregular recording is rejected.
+
+The load controls are `LOAD_SEED`, `BUFFER_MIB`, `OFF_MIN_SECONDS`,
+`OFF_MAX_SECONDS`, `SHORT_ON_MIN_SECONDS`, `SHORT_ON_MAX_SECONDS`,
+`LONG_ON_MIN_SECONDS`, `LONG_ON_MAX_SECONDS`, and `LONG_PROBABILITY`.
+Defaults are two 512 MiB buffers, OFF 5–15 s, short ON 0.2–0.8 s, long ON 2–5 s,
+and 20% long events. `LOAD_COVERAGE_SECONDS=10800` exceeds the default
+`RUN_TIMEOUT_SECONDS=7200`; `STARTUP_TIMEOUT_SECONDS=1800` covers startup.
+Keep coverage above the run timeout. These are declared synthetic workload
+parameters; hardware slowdown must be measured.
+
+Uploads are disabled by default for this entrypoint. `SKIP_UPLOAD=0` enables the
+existing HF uploader with `HF_REPO` and `HF_PATH_PREFIX`. On the first run after
+upgrading, allow installation, or install `.[profiling,analysis]` in the model
+environment before using `SKIP_INSTALL=1`; fitting now requires statsmodels 0.14.6.
+
+Outputs include:
+
+- `profiles/{temporal,ar1,arma}/`: portable fitted models, using only sessions 0–2.
+- `comparison/report.html`, `traces.png`: held-out timing diagnostics and sample traces.
+- `comparison/metrics.csv`, `summary.json`, `sequences.npz`: per-session metrics,
+  training-derived thresholds, generation variability and generated sequences.
+- The raw run named in `measurement.json`: ordinary profiling sessions plus each
+  session's `contention/` schedule, logs and ON/OFF report.
+- `bundle/`: profiles, raw measurement evidence, protocol and comparison for transfer.
+
+The comparison reports action and worker-service distributions, p95/p99 errors,
+autocorrelation, slow-request frequency/persistence, and burst lengths in admitted
+requests. Thresholds come exclusively from fitting data. ON/OFF labels enter only
+the workload diagnostics, never a timing model. No automatic winner or policy
+return comparison is produced. Generation SD describes repeated synthetic draws,
+not uncertainty across new hardware deployments. Two held-out sessions support
+an exploratory comparison only.
+
+AR fitting uses standardized log busy time and log overhead (action latency minus
+busy time). Each component has AR(1) or ARMA(1,1) coefficients shared across sessions.
+The objective sums independent-session stationary Gaussian log-likelihoods with
+three starts per component; failed optimizations are reported. Correlated Gaussian
+innovations use paired filtering residuals to retain contemporaneous dependence.
+Generated state begins in its joint stationary distribution and persists across
+ordinary episodes. This avoids negative delays without clipping high latencies.
+These are fixed-order baselines, not a search over all ARMA orders or a claim that
+ARMA cannot represent bursts. The likelihood implementation uses
+[statsmodels SARIMAX](https://www.statsmodels.org/v0.14.6/generated/statsmodels.tsa.statespace.sarimax.SARIMAX.html).
+
 ## Run a load
 
 ```bash
@@ -134,11 +226,9 @@ these diagnostics are exploratory. No ON requests is expected for the idle
 control. For irregular runs, it means the current run cannot establish an ON
 effect. A copy event is not itself evidence of a latency burst.
 
-This experiment collects and checks the hardware trace; it does not fit temporal,
-AR or ARMA profiles. For that comparison, fit every model on the same training
-sessions and evaluate burst statistics and downstream behavior on separate held-out
-sessions. The comparison should determine which model works better, rather than
-assuming AR/ARMA cannot capture bursts.
+The single-session `measure.sh` command collects and checks the hardware trace.
+Use `profile.sh` above for the complete live profiling, fitting and held-out
+comparison workflow.
 
 To regenerate a report from an existing run:
 
