@@ -91,6 +91,7 @@ def collect(output: Path) -> None:
 
     settings = read_json(output / "protocol.json")["settings"]
     raw = output / "raw"
+    summaries_path = output / "episode_summaries.json"
     if not (raw / "metadata.json").exists():
         config = read_yaml(output / "collect.yaml")
         episodes = settings["initial_episodes"]
@@ -113,6 +114,9 @@ def collect(output: Path) -> None:
                 break
             episodes += settings["episode_increment"]
         write_probe_state(raw, merged)
+        # Finalizing canonical Parquet removes raw/probe_state.json. Retain the
+        # reporting evidence outside that temporary replay directory.
+        write_json_atomic(summaries_path, {"source": "probe", "episodes": merged["accepted_specs"]})
         config["collection"]["probe_only"] = False
         write_yaml(output / "collect.yaml", config)
         collect_rollouts(deepcopy(config))
@@ -121,15 +125,59 @@ def collect(output: Path) -> None:
         raise ValueError("Replay produced fewer training rows than the collection budget")
     if metadata.get("action_history_decisions") != 8 or metadata["env_fps"] != 10 or metadata["obs_fps"] != 10:
         raise ValueError("Collected data does not match the Flappy 10/10 Hz H8 recipe")
-    specs = read_json(raw / "probe_state.json")["accepted_specs"]
+    if not summaries_path.exists():
+        # Recover runs finalized before summaries were retained. Canonical rows
+        # contain the lengths and rewards; no teacher or GPU replay is needed.
+        write_json_atomic(summaries_path, {
+            "source": "canonical_parquet", "episodes": _episode_summaries_from_parquet(raw, metadata),
+            "note": "Recovered from saved rows after probe cleanup; original termination reasons are unavailable.",
+        })
+    summaries = read_json(summaries_path)
+    specs = summaries["episodes"]
     write_json_atomic(output / "history_audit.json", audit_atari_history(raw, "flappy"))
     report = _quality_report(raw, specs, metadata)
+    report["episode_summary_source"] = summaries["source"]
+    if "note" in summaries:
+        report["episode_summary_note"] = summaries["note"]
     write_json_atomic(output / "quality_report.json", report)
     write_json_atomic(output / "collection_complete.json", {
         "status": "collection_complete", "episodes": len(specs),
         "train_rows": metadata["train_rows"], "val_rows": metadata["val_rows"],
     })
     print(f"Collected {len(specs)} episodes: {metadata['train_rows']:,} train / {metadata['val_rows']:,} validation rows")
+
+
+def _episode_summaries_from_parquet(raw: Path, metadata: dict) -> list[dict]:
+    """Recover reporting evidence from completed, unfiltered canonical splits."""
+    import pyarrow.parquet as pq
+
+    episodes = {}
+    reward_field = metadata["reward_field"]
+    stride = metadata["obs_stride_raw_frames"]
+    for split in ("train", "val"):
+        rows = 0
+        split_episodes = set()
+        for batch in pq.ParquetFile(raw / f"{split}.parquet").iter_batches(
+            columns=["episode_idx", "seed", "decision_step", reward_field], batch_size=8192,
+        ):
+            for row in batch.to_pylist():
+                episode_id = row["episode_idx"]
+                spec = episodes.setdefault(episode_id, {
+                    "episode_idx": episode_id, "seed": row["seed"], "split": split,
+                    "episode_length": 0, "episode_raw_frames": 0, "episode_raw_return": 0.,
+                    "termination_reason": "not_recorded",
+                })
+                if (spec["split"] != split or spec["seed"] != row["seed"]
+                        or row["decision_step"] != spec["episode_length"]):
+                    raise ValueError(f"Cannot recover episode {episode_id}: inconsistent or missing decision rows")
+                spec["episode_length"] += 1
+                spec["episode_raw_frames"] += stride
+                spec["episode_raw_return"] += row[reward_field]
+                rows += 1
+                split_episodes.add(episode_id)
+        if rows != metadata[f"{split}_rows"] or len(split_episodes) != metadata[f"{split}_episodes"]:
+            raise ValueError(f"Saved {split} Parquet counts do not match collection metadata")
+    return [episodes[key] for key in sorted(episodes)]
 
 
 def export(output: Path) -> None:
@@ -180,6 +228,8 @@ def export(output: Path) -> None:
         "Validation uses lerobot__val. Paths in the source manifests/configs record the "
         "collection machine; set local paths after download. No checkpoint weights are uploaded here.\n\n"
         "`raw/` retains canonical embedded-image Parquet and collection metadata. "
+        "`episode_summaries.json` preserves probe statistics, or identifies summaries recovered "
+        "from existing Parquet with unavailable termination reasons marked not_recorded. "
         "`quality_report.json` records returns, lengths and action counts; "
         "`history_audit.json` checks binary history, reset, shifting and admitted commands. "
         "These are demonstration statistics, not held-out VLA evaluation scores.\n",

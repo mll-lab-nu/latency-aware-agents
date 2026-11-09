@@ -115,6 +115,8 @@ def test_new_temporal_requires_new_run_and_resume_preserves_bundled_profile(tmp_
 
 
 def write_replay(raw, specs, image):
+    from latency_bench.data.hf_parquet import cleanup_rollout_intermediates
+
     action_spec = action_spec_for_env("flappy")
     splits = {"train": [], "val": []}
     for spec in specs:
@@ -139,6 +141,9 @@ def write_replay(raw, specs, image):
         "train_episodes": sum(s["split"] == "train" for s in specs),
         "val_episodes": sum(s["split"] == "val" for s in specs),
     })
+    # Exercise the real finalizer's cleanup contract, including removal of the
+    # probe file. Keeping it in this fixture previously hid a production failure.
+    cleanup_rollout_intermediates(raw)
 
 
 @pytest.mark.parametrize(("profile_set", "method"), [
@@ -177,6 +182,9 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local
         (10, True), (60, True), (60, False)]
     assert read_json(output / "history_audit.json")["checked_rows"] == 180
     assert read_json(output / "quality_report.json")["train_episodes"] == 54
+    assert not (output / "raw/probe_state.json").exists()
+    assert read_json(output / "episode_summaries.json")["source"] == "probe"
+    assert read_json(output / "quality_report.json")["termination_reasons"] == {"terminated": 60}
     rollout.export(output)
     source = teacher.PROFILE_SETS[profile_set]
     readme = (output / "README.md").read_text()
@@ -225,6 +233,45 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local
     assert "lerobot/**" in uploads[-1]["allow_patterns"]
     assert not any("checkpoint" in pattern for pattern in uploads[-1]["allow_patterns"])
     assert rollout.upload(output, rollout.DATASET_REPO) == receipt and len(uploads) == 2
+
+
+def test_completed_parquet_recovers_without_probe_file_or_gpu_rollout(tmp_path, local_bundle, monkeypatch):
+    bundle = local_bundle("arma", "irregular_20min")
+    output = tmp_path / "rollout"
+    rollout.prepare(output, bundle, "arma", episodes=10, min_train_rows=20, profile_set="irregular_20min")
+    image = tmp_path / "frame.png"
+    save_test_image(image, 12)
+    specs = [{"episode_idx": i, "seed": 42 + i, "split": "train" if i < 9 else "val"}
+             for i in range(10)]
+    raw = output / "raw"
+    write_replay(raw, specs, image)
+    assert not (raw / "probe_state.json").exists()
+    assert not (output / "episode_summaries.json").exists()
+    saved = {p.name: p.read_bytes() for p in raw.glob("*.parquet")}
+
+    def no_gpu(*args, **kwargs):
+        pytest.fail("Completed Parquet must be finalized without another GPU rollout")
+    monkeypatch.setattr("latency_bench.data.rollout.collect_rollouts", no_gpu)
+    rollout.collect(output)
+    summaries = read_json(output / "episode_summaries.json")
+    assert summaries["source"] == "canonical_parquet"
+    assert len(summaries["episodes"]) == 10
+    assert summaries["episodes"][0] == {
+        "episode_idx": 0, "seed": 42, "split": "train", "episode_length": 3,
+        "episode_raw_frames": 3, "episode_raw_return": pytest.approx(.3),
+        "termination_reason": "not_recorded",
+    }
+    report = read_json(output / "quality_report.json")
+    assert report["return_quantiles"] == pytest.approx([.3] * 5)
+    assert report["termination_reasons"] == {"not_recorded": 10}
+    assert report["episode_summary_source"] == "canonical_parquet"
+    assert read_json(output / "collection_complete.json")["episodes"] == 10
+    rollout.export(output)
+    rollout.collect(output)
+    rollout.export(output)
+    assert (output / "DONE").exists()
+    assert read_json(output / "lerobot/manifest.json")["frames"] == 27
+    assert {p.name: p.read_bytes() for p in raw.glob("*.parquet")} == saved
 
 
 def test_incomplete_bundle_or_dataset_cannot_be_published(tmp_path, local_bundle):

@@ -151,6 +151,17 @@ OUTPUT_DIR="$COLLECTION_ROOT" \
   bash scripts/experiments/memory_mock/collect_temporal.sh --upload-only
 ```
 
+If a previous run wrote `raw/metadata.json`, `raw/train.parquet` and
+`raw/val.parquet`, then failed because `raw/probe_state.json` was missing, pull
+the updated code and rerun the same collection launcher with the same teacher
+bundle and output root. Canonical finalization intentionally removes temporary
+probe state. The wrapper now saves `episode_summaries.json` outside that cleanup
+directory before replay, and recovers older completed runs from their saved
+Parquet without repeating GPU rollout. Recovered reports mark termination
+reasons as `not_recorded`; episode lengths and returns come from the saved rows.
+The existing Parquet files are preserved, then history checks, LeRobot conversion
+and upload continue normally. Do not choose a fresh output root for this case.
+
 Use the corresponding AR(1)/ARMA script for their retries. These are training
 demonstrations under each teacher's own fitted profile; they do not replace
 evaluation on common held-out deployment traces.
