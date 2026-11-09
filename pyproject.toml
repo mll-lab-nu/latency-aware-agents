@@ -26,6 +26,8 @@ runtime = [
     "wandb==0.26.1",
 ]
 data = [
+    # LeRobot's dataset utilities import Accelerator during base validation.
+    "accelerate==1.5.2",
     "av==15.1.0",
     "datasets==4.8.5",
     "jsonlines==4.0.0",
