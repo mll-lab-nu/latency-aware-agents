@@ -266,7 +266,7 @@ def export_profiles(output: Path) -> None:
     print(f"Exported: {bundle}")
 
 
-def upload(output: Path, repo_id: str, path_prefix: str) -> dict:
+def upload(output: Path, repo_id: str, path_prefix: str, *, create_repo: bool = False) -> dict:
     from huggingface_hub import HfApi
 
     prefix = PurePosixPath(path_prefix)
@@ -285,7 +285,10 @@ def upload(output: Path, repo_id: str, path_prefix: str) -> dict:
             raise ValueError("This output already has an upload receipt for a different destination")
     else:
         api = HfApi()
-        # Use an existing dataset repo and a new folder, never replace a published profile.
+        if create_repo:
+            api.create_repo(repo_id, repo_type="dataset", private=True, exist_ok=True)
+        # Use a new folder, never replace a published profile. Existing repository
+        # visibility is preserved by create_repo(exist_ok=True).
         head = api.repo_info(repo_id, repo_type="dataset").sha
         if api.get_paths_info(repo_id, [destination], repo_type="dataset", revision=head):
             raise FileExistsError(f"HF destination already exists: {repo_id}/{destination}")
@@ -329,6 +332,8 @@ def main(argv=None) -> None:
         elif command == "upload":
             sub.add_argument("--repo-id", default="MLL-Lab/LAGEN-profiles")
             sub.add_argument("--path-prefix", default="experiments/temporal-alternatives")
+            sub.add_argument("--create-repo", action="store_true",
+                             help="Create the destination as a private dataset if absent; preserve existing visibility")
     args = parser.parse_args(argv)
     args.output_dir = args.output_dir.expanduser().absolute()
     if args.command == "prepare":
@@ -338,7 +343,7 @@ def main(argv=None) -> None:
     elif args.command == "export":
         export_profiles(args.output_dir)
     else:
-        upload(args.output_dir, args.repo_id, args.path_prefix)
+        upload(args.output_dir, args.repo_id, args.path_prefix, create_repo=args.create_repo)
 
 
 if __name__ == "__main__":

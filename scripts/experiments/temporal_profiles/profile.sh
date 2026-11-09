@@ -31,6 +31,7 @@ Environment variables:
   BLOCK_MEAN_LENGTH      Default: 32 admitted requests; not automatically tuned
   EXISTING_RUN_DIR       Reuse completed raw sessions; skip download/measurement
   HF_REPO                Existing dataset repo (default: MLL-Lab/LAGEN-profiles)
+  HF_CREATE_REPO=1       Create a private dataset repo if absent; preserve existing visibility
   HF_PATH_PREFIX         Default: experiments/temporal-alternatives
   SKIP_INSTALL=1         Reuse the installed Conda environment and dependencies
   SKIP_UPLOAD=1          Export locally without uploading
@@ -123,9 +124,13 @@ python -m "${MODULE}" export --output-dir "${OUTPUT_DIR}" \
 
 # 5. Publish a new experiment folder; preserve the HF commit in a local receipt.
 if [[ "${SKIP_UPLOAD:-0}" != 1 ]]; then
+    UPLOAD_ARGS=()
+    if [[ "${HF_CREATE_REPO:-0}" == 1 ]]; then
+        UPLOAD_ARGS+=(--create-repo)
+    fi
     python -m "${MODULE}" upload --output-dir "${OUTPUT_DIR}" \
         --repo-id "${HF_REPO:-MLL-Lab/LAGEN-profiles}" \
-        --path-prefix "${HF_PATH_PREFIX:-experiments/temporal-alternatives}" \
+        --path-prefix "${HF_PATH_PREFIX:-experiments/temporal-alternatives}" "${UPLOAD_ARGS[@]}" \
         2>&1 | tee -a "${OUTPUT_DIR}/upload.log"
 fi
 echo "Profiles: ${OUTPUT_DIR}/profiles/<method>/profile.json"

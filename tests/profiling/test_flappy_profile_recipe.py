@@ -216,7 +216,8 @@ def test_reusing_calibrated_sessions_records_the_actual_clocks(raw_run, tmp_path
     assert read_json(raw_run / "run_contract.json")["config"]["env"]["env_fps"] == 30
 
 
-def test_upload_publishes_bundle_once_and_saves_exact_revision(tmp_path, monkeypatch):
+@pytest.mark.parametrize("create_repo", [False, True])
+def test_upload_publishes_bundle_once_and_saves_exact_revision(tmp_path, monkeypatch, create_repo):
     import huggingface_hub
 
     output = tmp_path / "experiment"
@@ -225,13 +226,17 @@ def test_upload_publishes_bundle_once_and_saves_exact_revision(tmp_path, monkeyp
     write_json(bundle / "profiles/hmm/profile.json", {"gpu_class": "1x-gpu", "source_run_id": "run_1"})
     (bundle / "DONE").touch()
     calls = []
+    creations = []
     api = SimpleNamespace(
+        create_repo=lambda *a, **kw: creations.append((a, kw)),
         repo_info=lambda *a, **kw: SimpleNamespace(sha="parent-revision"),
         get_paths_info=lambda *a, **kw: [],
         upload_folder=lambda **kw: calls.append(kw) or SimpleNamespace(oid="uploaded-revision", commit_url="commit-url"),
     )
     monkeypatch.setattr(huggingface_hub, "HfApi", lambda: api)
-    receipt = recipe.upload(output, "test/profiles", "experiments/timing")
+    receipt = recipe.upload(output, "test/profiles", "experiments/timing", create_repo=create_repo)
+    assert creations == ([(('test/profiles',), {'repo_type': 'dataset', 'private': True, 'exist_ok': True})]
+                         if create_repo else [])
     assert len(calls) == 1
     assert calls[0]["folder_path"] == str(bundle)
     assert calls[0]["repo_type"] == "dataset"
@@ -239,7 +244,8 @@ def test_upload_publishes_bundle_once_and_saves_exact_revision(tmp_path, monkeyp
     assert calls[0]["path_in_repo"] == "experiments/timing/flappy/openvla/1x-gpu/run_1/experiment"
     assert receipt["revision"] == "uploaded-revision"
     assert read_json(output / "upload_receipt.json") == receipt
-    assert recipe.upload(output, "test/profiles", "experiments/timing") == receipt
+    assert recipe.upload(output, "test/profiles", "experiments/timing", create_repo=create_repo) == receipt
+    assert len(creations) == int(create_repo)
     assert len(calls) == 1
     with pytest.raises(ValueError, match="different destination"):
         recipe.upload(output, "test/another-repo", "experiments/timing")

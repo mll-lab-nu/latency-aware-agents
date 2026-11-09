@@ -68,9 +68,22 @@ and 20% long events. `LOAD_COVERAGE_SECONDS=10800` exceeds the default
 Keep coverage above the run timeout. These are declared synthetic workload
 parameters; hardware slowdown must be measured.
 
-Uploads are disabled by default for this entrypoint. `SKIP_UPLOAD=0` enables the
-existing HF uploader with `HF_REPO` and `HF_PATH_PREFIX`. On the first run after
-upgrading, allow installation, or install `.[profiling,analysis]` in the model
+After successful profiling, fitting and comparison, this entrypoint uploads the
+complete bundle to the **dataset** repo
+`latency-sensitive-bench/irregular-temporal-profiles`, under
+`experiments/irregular-memory/`. It creates the repo as private if absent and
+preserves an existing repo's visibility. Each run uses its own folder; existing
+experiment folders are never overwritten. `upload_receipt.json` records the exact
+HF commit and folder URL. The upload contains all fitted profiles, measurement
+traces, workload schedules/logs, protocols and comparison results, without model
+weights. Authenticate with a token that can create/write in the chosen namespace.
+
+Set `HF_REPO` and `HF_PATH_PREFIX` to change the destination, `HF_CREATE_REPO=0`
+to require an existing repo, or `SKIP_UPLOAD=1` to retain results locally. Rerun
+with the same settings to retry an upload without repeating completed profiling.
+No repository creation or upload happens before the local bundle is complete.
+On the first run after upgrading, allow installation, or install
+`.[profiling,analysis]` in the model
 environment before using `SKIP_INSTALL=1`; fitting now requires statsmodels 0.14.6.
 
 Outputs include:

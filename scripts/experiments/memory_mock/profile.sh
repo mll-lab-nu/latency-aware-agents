@@ -17,7 +17,10 @@ Episode count is not a minimum measurement duration; inspect observed ON events.
 Set OUTPUT_DIR to a persistent fresh directory. Rerun the same settings to
 resume completed sessions. SKIP_INSTALL=1 reuses the installed model environment.
 MEMORY_MOCK_CONDITION=idle selects the allocation-matched control.
-Uploads are OFF by default; SKIP_UPLOAD=0 enables the existing HF export uploader.
+Uploads are ON after successful profiling, fitting and comparison.
+HF_REPO defaults to latency-sensitive-bench/irregular-temporal-profiles.
+Create a private dataset repo if absent; preserve existing visibility.
+HF_TOKEN or hf auth login must allow writes. SKIP_UPLOAD=1 keeps results local.
 See scripts/experiments/memory_mock/README.md for settings and interpretation.
 EOF
     exit 0
@@ -25,6 +28,9 @@ fi
 export MEMORY_MOCK_CONDITION="${MEMORY_MOCK_CONDITION:-irregular}"
 export METHODS="${METHODS:-temporal,ar1,arma}"
 export COMPARE_PROFILES=1
-export SKIP_UPLOAD="${SKIP_UPLOAD:-1}"
+export SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
+export HF_REPO="${HF_REPO:-latency-sensitive-bench/irregular-temporal-profiles}"
+export HF_CREATE_REPO="${HF_CREATE_REPO:-1}"
+export HF_PATH_PREFIX="${HF_PATH_PREFIX:-experiments/irregular-memory}"
 export OUTPUT_DIR="${OUTPUT_DIR:-$(dirname "$REPO_ROOT")/outputs/memory_mock/profiling/$(date -u +%Y%m%dT%H%M%SZ)}"
 exec bash "$REPO_ROOT/scripts/experiments/temporal_profiles/profile.sh" "$@"
