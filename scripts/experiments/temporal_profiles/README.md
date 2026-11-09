@@ -54,6 +54,75 @@ Factory on a fresh start; corrupt checkpoints still fail explicitly. If upgradin
 an output prepared before W&B was enabled, choose a new `OUTPUT_DIR` because the
 old protocol froze different logging settings. Stop the old process first.
 
+## Collect VLA demonstrations from local teachers
+
+[`collect_temporal.sh`](collect_temporal.sh), [`collect_hmm.sh`](collect_hmm.sh),
+and [`collect_block.sh`](collect_block.sh) use the local `bundle/` produced by
+the teacher training scripts. They read `training_complete.json` to select the
+recorded best checkpoint and use that bundle's own fitted profile. No model or
+profile download is performed.
+
+From the repository root on the Linux/CUDA machine:
+
+```bash
+export WORKSPACE_DIR=/workspace
+export OUTPUT_DIR="$WORKSPACE_DIR/outputs/temporal_profiles/flappy_3090_rollouts"
+export HF_DATASET_REPO=latency-sensitive-bench/temporal-profile-rollouts
+export GPU=0
+# Authenticate with HF_TOKEN or hf auth login, with dataset write permission.
+
+export TEACHER_BUNDLE=/absolute/path/to/temporal/seed_42/bundle
+bash scripts/experiments/temporal_profiles/collect_temporal.sh
+
+export TEACHER_BUNDLE=/absolute/path/to/hmm/seed_42/bundle
+bash scripts/experiments/temporal_profiles/collect_hmm.sh
+
+export TEACHER_BUNDLE=/absolute/path/to/block/seed_42/bundle
+bash scripts/experiments/temporal_profiles/collect_block.sh
+```
+
+Each script activates `latency`, installing it with the existing installer if
+absent, then collects, audits, converts and uploads. New HF dataset repositories
+are private; existing visibility is preserved. `--help` lists the controls.
+
+The recipe reuses `scripts/tasks/decision_history/collect_vla_hist8.py`: simulated
+10/10 Hz, the teacher's fitted timing generator, capacity 1, deterministic teacher
+actions, 256 probe/replay environments, two-pass collection, no filtering, 90/10
+episode split with split seed 0, and collection seed 42. Start at 200 episodes and
+add 50 until there are at least 320,000 training labels. The default cap is the
+explicitly chosen **7,200 raw frames**, rather than the current reference source's
+3,600-frame Flappy default. `EPISODES`, `MAX_ENV_STEPS` and `MIN_TRAIN_ROWS` expose
+those budgets; changes require a new output directory. The game clock is simulated,
+so collection does not wait for wall-clock 10 FPS.
+
+Outputs are under `$OUTPUT_DIR/METHOD/seed_42`:
+
+- `raw/`: canonical embedded-image Parquet, episode seeds and collection metadata.
+- `lerobot/` and `lerobot__val/`: StarVLA training and validation datasets. Each
+  decision has one current RGB image, 24 binary values for eight prior decisions,
+  and the teacher-issued action. The teacher still consumes four stacked frames.
+- `_generated_mixtures/lerobot.json`: existing StarVLA dataset-mixture handoff.
+- `quality_report.json`, `history_audit.json`, configs, profile and teacher
+  metadata: source identity, history checks, returns, lengths and row counts.
+- `upload_receipt.json`: exact published dataset revision and folder URL.
+
+The H8 route preserves its existing task prompt without adding latency text.
+VLA training must use the matching H8 recipe: one image, 24 state values, identity
+state normalization and action horizon 1. Set local dataset paths after download;
+archived manifests retain original collection-machine paths as provenance.
+
+Completed data is reused on rerun. If upload fails, retry only publication:
+
+```bash
+# Keep the same OUTPUT_DIR and HF_DATASET_REPO as above. No teacher/GPU needed.
+bash scripts/experiments/temporal_profiles/collect_temporal.sh --upload-only
+```
+
+`SKIP_UPLOAD=1` retains a local dataset. Interrupted partial GPU image replay has
+the existing collector's restriction against resuming a subset of slots; preserve
+the failed output and use a new `OUTPUT_DIR`. No rollout or dataset upload is
+performed by merely installing these scripts.
+
 ## Complete 30-case cohort
 
 The full-cohort entrypoint downloads the pinned calibration traces, audits all
