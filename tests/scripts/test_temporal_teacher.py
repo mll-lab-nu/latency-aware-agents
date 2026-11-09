@@ -36,6 +36,8 @@ def snapshot(tmp_path_factory):
             env_fps=30, metadata={"session_ids": [0, 1, 2], "fit_options": {"method": method}},
             method=method, hmm_max_iterations=20, block_mean_length=32,
         )
+        write_json(destination / "hardware.json", {"gpu_class": "1x-rtx3090"})
+        (destination / "DONE").touch()
         # Match the HF cache layout: companions are symlinks outside this folder.
         blobs = root / "blobs" / method
         blobs.mkdir(parents=True)
@@ -51,12 +53,18 @@ def test_prepare_downloads_only_own_profile_and_preserves_teacher_recipe(tmp_pat
     calls = []
     def download(**kwargs):
         calls.append(kwargs)
-        return str(snapshot)
-    monkeypatch.setattr("huggingface_hub.snapshot_download", download)
+        return str(snapshot / kwargs["filename"])
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", download)
     teacher.prepare(tmp_path, method, 42, wandb_entity="test-team")
     assert calls[0] == {"repo_id": teacher.PROFILE_REPO, "repo_type": "dataset",
                         "revision": teacher.PROFILE_REVISION,
-                        "allow_patterns": [f"{teacher.PROFILE_ROOT}/profiles/{method}/*"]}
+                        "filename": f"{teacher.PROFILE_ROOT}/profiles/{method}/profile.json"}
+    expected_files = {"profile.json", "hardware.json", "latency_profile.png", "DONE"}
+    expected_files.update({"latency_burst_model.json", "latency_distribution.json"}
+                          if method == "temporal" else {f"latency_{method}_model.json"})
+    assert {call["filename"] for call in calls} == {
+        f"{teacher.PROFILE_ROOT}/profiles/{method}/{name}" for name in expected_files}
+    assert {path.name for path in (tmp_path / "profile").iterdir()} == expected_files
     cfg = load_config(tmp_path / "train.yaml")
     assert cfg["env"]["env_fps"] == cfg["env"]["obs_fps"] == 10
     assert cfg["env"]["frame_stack"] == 4 and cfg["env"]["action_history_decisions"] == 8
@@ -83,7 +91,7 @@ def test_prepare_downloads_only_own_profile_and_preserves_teacher_recipe(tmp_pat
 
 
 def test_rejects_held_out_sessions_and_edited_cached_profile(tmp_path, snapshot, monkeypatch):
-    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **kwargs: str(snapshot))
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **kwargs: str(snapshot / kwargs["filename"]))
     teacher.prepare(tmp_path, "block", 42, wandb_entity="test-team")
     profile = tmp_path / "profile/profile.json"
     data = read_json(profile)
@@ -95,13 +103,32 @@ def test_rejects_held_out_sessions_and_edited_cached_profile(tmp_path, snapshot,
         teacher.prepare(tmp_path, "block", 42, wandb_entity="test-team")
 
 
+@pytest.mark.parametrize("missing", ["profile.json", "latency_block_model.json"])
+def test_partial_cache_surfaces_download_failure_and_can_retry(tmp_path, snapshot, monkeypatch, missing):
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    def unavailable_file(**kwargs):
+        if Path(kwargs["filename"]).name == missing:
+            raise LocalEntryNotFoundError(f"Not cached and Hub unavailable: {missing}")
+        return str(snapshot / kwargs["filename"])
+
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", unavailable_file)
+    with pytest.raises(LocalEntryNotFoundError, match="Hub unavailable"):
+        teacher.prepare(tmp_path, "block", 42, wandb_entity="test-team")
+    assert not (tmp_path / "profile").exists()
+    assert not (tmp_path / "protocol.json").exists()
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **kwargs: str(snapshot / kwargs["filename"]))
+    teacher.prepare(tmp_path, "block", 42, wandb_entity="test-team")
+    assert (tmp_path / "profile/latency_block_model.json").is_file()
+
+
 def test_startup_and_resume_reach_sample_factory_with_wandb(tmp_path, snapshot, monkeypatch):
     from training.common.checkpoints import patch_sample_factory_checkpoint_loader
     from training.common.config_adapter import apply_runtime_logging_config
     from training.flappy_sf.integration import SAMPLE_FACTORY_CONFIG_PARSER, build_cli_args_from_config
     from sample_factory.algo.learning.learner import Learner
 
-    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **kwargs: str(snapshot))
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **kwargs: str(snapshot / kwargs["filename"]))
     kwargs = {"wandb_entity": "test-team", "wandb_project": "teacher-check"}
     teacher.prepare(tmp_path, "hmm", 42, **kwargs)
     config = load_config(tmp_path / "train.yaml")
@@ -150,7 +177,7 @@ def test_startup_and_resume_reach_sample_factory_with_wandb(tmp_path, snapshot, 
 
 
 def test_export_rejects_short_training_then_packages_selected_best(tmp_path, snapshot, monkeypatch):
-    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **kwargs: str(snapshot))
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda **kwargs: str(snapshot / kwargs["filename"]))
     teacher.prepare(tmp_path, "block", 42, wandb_entity="test-team")
     cfg = load_config(tmp_path / "train.yaml")
     job = read_json(tmp_path / "job.json")

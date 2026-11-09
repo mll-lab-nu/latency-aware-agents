@@ -47,27 +47,35 @@ def validate_profile(profile: Path, method: str) -> dict:
 
 
 def download_profile(output: Path, method: str) -> Path:
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import hf_hub_download
 
     remote = f"{PROFILE_ROOT}/profiles/{method}"
-    snapshot = Path(snapshot_download(
+    filenames = ["profile.json", "hardware.json", "latency_profile.png", "DONE"]
+    if method == "temporal":
+        filenames.extend(["latency_burst_model.json", "latency_distribution.json"])
+    else:
+        filenames.append(f"latency_{method}_model.json")
+    # snapshot_download can return a partial cache folder after a Hub failure.
+    # Fetch each file at the pinned revision so missing files raise the actual
+    # download/authentication error instead of being treated as a complete bundle.
+    sources = {name: Path(hf_hub_download(
         repo_id=PROFILE_REPO, repo_type="dataset", revision=PROFILE_REVISION,
-        allow_patterns=[f"{remote}/*"],
-    ))
-    source = snapshot / remote
+        filename=f"{remote}/{name}",
+    )) for name in filenames}
     destination = output / "profile"
     if not destination.exists():
         with tempfile.TemporaryDirectory(prefix="profile-", dir=output) as temporary:
             staged = Path(temporary) / "profile"
-            # HF cache entries are symlinks into blobs/. Materialize the bundle
-            # before the sampler checks that companions stay inside its folder.
-            shutil.copytree(source, staged)
+            staged.mkdir()
+            # Materialize HF cache symlinks before validating the bundle.
+            for name, source in sources.items():
+                shutil.copy2(source, staged / name)
             validate_profile(staged / "profile.json", method)
             staged.rename(destination)
     else:
         # Resume must not silently accept edited profile parameters.
-        for path in source.glob("*.json"):
-            if read_json(path) != read_json(destination / path.name):
+        for name, source in sources.items():
+            if name.endswith(".json") and read_json(source) != read_json(destination / name):
                 raise ValueError("Local profile changed; use a new output directory")
     return destination / "profile.json"
 
