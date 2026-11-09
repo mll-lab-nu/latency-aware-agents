@@ -146,7 +146,7 @@ def test_rollout_config_reads_checkpoint_config_without_rebuilding_nested_traini
     assert metadata["checkpoint_config"]["simulator"] == "gpu"
 
 
-@pytest.mark.parametrize("method", ["iid", "temporal", "hmm", "block"])
+@pytest.mark.parametrize("method", ["iid", "temporal", "hmm", "block", "ar1", "arma"])
 def test_profile_latency_override_preserves_sampler_method(method):
     from latency_bench.integrations.sample_factory.teacher_runtime import _apply_latency_to_flat_cfg
     from training.common.latency_config import sample_factory_latency_params_from_flat_config

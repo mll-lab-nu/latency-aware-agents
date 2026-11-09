@@ -26,7 +26,7 @@ def _read_manifest(path: Path) -> list[dict[str, str]]:
     return [dict(zip(header, line.split("\t"))) for line in lines[1:]]
 
 
-@pytest.mark.parametrize("method", ["iid", "hmm", "block"])
+@pytest.mark.parametrize("method", ["iid", "hmm", "block", "ar1", "arma"])
 def test_iid_latency_setting_preserves_profile_training_config(method):
     config = load_config("configs/base/deadly_corridor.yaml")
     _apply_latency_setting(

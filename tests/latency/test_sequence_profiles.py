@@ -36,7 +36,7 @@ def fitted_profiles(tmp_path_factory):
         sessions.append({"measure_session_id": session, "observation_attempts": path})
         pairs.append(values)
     profiles = {}
-    for method in ("hmm", "block"):
+    for method in ("hmm", "block", "ar1", "arma"):
         folder = root / method
         manifest = build_profile_from_traces(
             sessions=sessions, output_dir=folder, model_id="qwenoft", gpu_class="1x-rtx3090",
@@ -55,7 +55,7 @@ def _draw(sampler, n, episode=0):
     return [sampler.sample({"worker_slot": 0, "episode_id": episode}) for _ in range(n)]
 
 
-@pytest.mark.parametrize("method", ["hmm", "block"])
+@pytest.mark.parametrize("method", ["hmm", "block", "ar1", "arma"])
 def test_clock_state_and_seeded_collection_contract(fitted_profiles, method):
     paths, _ = fitted_profiles
     cfg = {"method": method, "profile_path": str(paths[method]), "seed": 42}
@@ -100,7 +100,7 @@ def test_hmm_stream_matches_fitted_gaussian_hmm_without_clipping(fitted_profiles
     np.testing.assert_allclose(actual, expected)
 
 
-@pytest.mark.parametrize("method", ["hmm", "block"])
+@pytest.mark.parametrize("method", ["hmm", "block", "ar1", "arma"])
 def test_training_adapter_retains_method_and_replay_capability(fitted_profiles, method):
     paths, _ = fitted_profiles
     cfg = SimpleNamespace(latency_type=method, simulated_worker_capacity=1,

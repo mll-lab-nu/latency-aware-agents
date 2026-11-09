@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Common implementation keeps the three teacher recipes identical.
+# Common implementation keeps both experiments on the same teacher recipe.
 set -euo pipefail
-METHOD="${1:?Use train_temporal.sh, train_hmm.sh or train_block.sh}"
+METHOD="${1:?Use a train_METHOD.sh launcher}"
 shift
-case "${METHOD}" in temporal|hmm|block) ;; *) echo "Unknown method: ${METHOD}" >&2; exit 2 ;; esac
+case "${METHOD}" in temporal|hmm|block|ar1|arma) ;; *) echo "Unknown method: ${METHOD}" >&2; exit 2 ;; esac
 case "${1:-}" in
     -h|--help)
         cat <<'EOF'
 Usage: bash scripts/experiments/temporal_profiles/train_{temporal,hmm,block}.sh
+   or: bash scripts/experiments/memory_mock/train_{temporal,ar1,arma}.sh
 
 Check/create Conda latency env -> activate -> download this method's exact
-uploaded Flappy/3090 profile -> train 25M APPO steps -> save -> upload model.
+uploaded Flappy/3090 profile -> train 25M APPO steps at 10/10 FPS -> save -> upload model.
 Requires Linux, a CUDA GPU and HF read/write access. No VLA weights are needed.
 
 Environment variables:
@@ -27,8 +28,12 @@ Environment variables:
 Authenticate using HF_TOKEN or hf auth login. The model repo is created private
 if absent; existing visibility is preserved. Run one script at a time per GPU.
 W&B is enabled in the YAML. Authenticate with WANDB_API_KEY or wandb login.
-Profiles are pinned to the uploaded flappy_3090_run1 revision: Temporal v13,
-HMM 2 states (original fit), block mean 32. No offline-selected refit is substituted.
+The temporal_profiles launchers use the original flappy_3090_run1 revision:
+Temporal v13, HMM 2 states (original fit), block mean 32.
+The memory_mock launchers use the frozen irregular_profiles_20min_run1 revision:
+Temporal, log-AR(1), log-ARMA(1,1). All profiles fit sessions 0/1/2 only.
+No offline-selected refit is substituted. Do not run the memory load for training;
+these profiles supply simulated delay. Latencies stay in ms, sampled at 10 FPS.
 Rerun with the same OUTPUT_DIR/SEED to resume, including retrying failed uploads.
 No code is committed or pushed. Demonstration collection is a later stage.
 EOF
@@ -106,6 +111,7 @@ bash scripts/bash_scripts/build_cuda_extensions.sh --env flappy
 MODULE=scripts.experiments.temporal_profiles.teacher
 # 2. Download only this method's bundle and generate the existing training recipe.
 PREPARE_ARGS=(--method "${METHOD}" --seed "${SEED}" --output-dir "${RUN_DIR}"
+              --profile-set "${TEACHER_PROFILE_SET:-original}"
               --wandb-entity "${WANDB_ENTITY}")
 if [[ -n "${WANDB_PROJECT:-}" ]]; then
     PREPARE_ARGS+=(--wandb-project "${WANDB_PROJECT}")

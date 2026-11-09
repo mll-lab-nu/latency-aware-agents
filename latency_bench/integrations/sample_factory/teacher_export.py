@@ -96,7 +96,7 @@ def collect(config):
         source["action_history_decisions"] = flat["action_history_decisions"]
     if "export_zero_action_history" in descriptor:
         source["action_history_decisions"] = descriptor["export_zero_action_history"]
-    if flat.get("latency_type") in {"profile_sample", "hmm", "block"} and source.get("action_history_decisions") == 8:
+    if flat.get("latency_type") in {"profile_sample", "hmm", "block", "ar1", "arma"} and source.get("action_history_decisions") == 8:
         source["profile_seed_by_reset"] = "env_reset_seed"
     if action_spec.layout != ACTION_LAYOUT_G1_SONIC_ABSOLUTE_JOINT_TARGET_V1 and "action_history_decisions" not in source:
         source["prompt_timing_suffix"] = TIMING_SUFFIX

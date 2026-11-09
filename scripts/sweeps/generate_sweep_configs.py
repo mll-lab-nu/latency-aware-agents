@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from latency_bench.core.config import load_config, merge_dicts
 from latency_bench.envs.factory import environment_integration
+from latency_bench.latency.config import PROFILE_METHODS, SEEDED_STOCHASTIC_METHODS
 from latency_bench.utils.io import read_yaml, write_yaml
 from latency_bench.core.latency_distribution import (
     LatencyDistributionSpec,
@@ -212,7 +213,7 @@ def _apply_latency_setting(config: dict[str, Any], setting: dict[str, Any], seed
     if kind == "fixed":
         latency_cfg["method"] = "fixed"
         latency_cfg["fixed_latency_ms"] = float(setting["frames"]) * (1000.0 / float(config["env"]["env_fps"]))
-    elif kind in {"iid", "temporal", "hmm", "block"}:
+    elif kind in PROFILE_METHODS:
         latency_cfg.update(
             method=kind,
             profile_path=str(setting["profile_path"]),
@@ -247,7 +248,7 @@ def _latency_manifest_fields(setting: dict[str, Any]) -> dict[str, str]:
     if row["latency_kind"] == "fixed":
         row["latency_fixed_frames"] = format_number_label(setting["frames"])
         return row
-    if row["latency_kind"] in {"iid", "temporal", "hmm", "block"}:
+    if row["latency_kind"] in PROFILE_METHODS:
         return row
     if row["latency_kind"] in {"normal", "mixed_normal"}:
         row["latency_mean_frames"] = format_number_label(setting["mean"])
@@ -280,11 +281,11 @@ def _matched_eval_suites(setting, *, latency_label, seed, env_fps):
         suites = deepcopy(setting["suites"])
         for suite in suites:
             latency = suite["latency"]
-            if latency["method"] in {"normal", "uniform", "iid", "temporal", "hmm", "block"} and "seed" not in latency:
+            if latency["method"] in SEEDED_STOCHASTIC_METHODS and "seed" not in latency:
                 latency["seed"] = seed
         return suites
     kind = setting["kind"]
-    if kind in {"iid", "temporal", "hmm", "block"}:
+    if kind in PROFILE_METHODS:
         latency = {"method": kind, "profile_path": setting["profile_path"], "seed": seed}
     elif kind == "fixed":
         frames = setting["frames"]

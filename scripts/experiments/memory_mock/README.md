@@ -10,6 +10,77 @@ Set `MEMORY_MOCK_PY` to its Python executable if needed. The tool uses logical
 `cuda:0`; bind the same physical GPU for inference and the load process with
 `CUDA_VISIBLE_DEVICES`. It does not change GPU clocks, drivers or other processes.
 
+## Train small Flappy teachers from the saved 20-minute profiles
+
+The three launchers reuse the **same** training implementation and
+`configs/experiments/flappy/temporal_alternatives_25m.yaml` recipe as the earlier
+Temporal/HMM/block teachers. They select the new Temporal, log-AR(1), or
+log-ARMA(1,1) profile. Each trains a separate Sample Factory APPO teacher from
+scratch for **25M decision transitions**, at **10/10 environment/observation
+FPS**, seed **42**, capacity **1**, four 84x84 RGB frames and eight action-history
+entries (24 values). The optimizer, two actors x 128 environments, checkpoint
+schedule, W&B logging, resume behavior, export and HF upload follow the earlier
+launchers. `WANDB_PROJECT` defaults to `flappy-teachers`.
+
+From the repository root on the GPU machine:
+
+```bash
+git fetch origin
+git switch codex/irregular-memory-mock
+git pull --ff-only
+
+export GPU=0
+export WANDB_ENTITY=your_wandb_username_or_team
+export OUTPUT_DIR=/workspace/outputs/irregular_teachers_20min_run1
+
+bash scripts/experiments/memory_mock/train_temporal.sh
+bash scripts/experiments/memory_mock/train_ar1.sh
+bash scripts/experiments/memory_mock/train_arma.sh
+```
+
+Run these sequentially on one GPU. Authenticate with HF/W&B as for the previous
+teacher scripts. The shared launcher checks/creates the `latency` Conda
+environment and builds the Flappy CUDA extensions. Rerun the same command with
+the same `OUTPUT_DIR` and `SEED` to resume. Keep this output separate from the
+earlier teachers. The default output root is
+`$WORKSPACE_DIR/outputs/memory_mock/flappy_3090_teachers_20min`.
+
+Profiles are downloaded from the dataset
+`latency-sensitive-bench/irregular-temporal-profiles`, pinned to revision
+`566afab1689473af206231d94bc38eac453c85f7`, under:
+
+```text
+experiments/irregular-memory/flappy/openvla/1x-rtx3090/20261109T134159436023Z/irregular_profiles_20min_run1/profiles/{temporal,ar1,arma}
+```
+
+These are the original uploaded fits from measurement sessions **0/1/2**;
+sessions **3/4** remain held out. No refitting or new profiling is performed.
+The measurement ran at 30 FPS, but its latencies remain in **milliseconds**:
+the teacher simulator converts them to raw frames at **10 FPS** using its
+existing rounding rule. Do not rescale the milliseconds or run the memory-copy
+workload during teacher training. The fitted profiles simulate that deployment
+condition. Each environment has its own seeded sampler, including AR/ARMA
+state, through the same training path used for Temporal/HMM/block.
+
+Completed bundles automatically upload to the existing model repository
+`latency-sensitive-bench/temporal-profile-teachers`, in distinct folders:
+
+```text
+flappy/{temporal,ar1,arma}/20261109T134159436023Z/seed_42/<training_run_id>
+```
+
+Set `HF_MODEL_REPO` to choose a different destination, or `SKIP_UPLOAD=1` to
+keep the bundle locally. Each bundle includes the exact profile, frozen
+training config, source revision, checkpoints, logs and completion evidence.
+Completion requires a latest checkpoint reaching 25M transitions; the exported
+selected checkpoint uses the same best rolling training reward rule as before.
+
+As before, the automatic final evaluation uses **100 episodes**, a **3,600-frame
+cap**, the **latest** checkpoint and that teacher's **own fitted profile**.
+It does not evaluate the selected best checkpoint on common held-out traces.
+That common deployment comparison is a separate next experiment; the training
+scores alone do not establish which profile method is better.
+
 ## Full live profiling and comparison
 
 For the Temporal/AR(1)/ARMA experiment, use **`profile.sh`**, which extends the

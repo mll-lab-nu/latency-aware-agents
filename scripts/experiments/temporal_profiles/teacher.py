@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 from latency_bench.core.config import load_config
+from latency_bench.latency.config import latency_type_from_config
 from latency_bench.utils.io import read_json, read_yaml, write_json_atomic, write_yaml
 from latency_bench.utils.paths import REPO_ROOT
 
@@ -19,6 +20,21 @@ PROFILE_REVISION = "1a4bd7bbc14815e0478810457ff204d4cf70636b"
 SOURCE_RUN = "20261109T002620386065Z"
 PROFILE_ROOT = ("experiments/temporal-alternatives/flappy/openvla/1x-rtx3090/"
                 f"{SOURCE_RUN}/flappy_3090_run1")
+PROFILE_SETS = {
+    "original": {
+        "methods": METHODS, "repo_id": PROFILE_REPO, "revision": PROFILE_REVISION,
+        "source_run": SOURCE_RUN, "root": PROFILE_ROOT, "launcher_dir": "temporal_profiles",
+    },
+    "irregular_20min": {
+        "methods": ("temporal", "ar1", "arma"),
+        "repo_id": "latency-sensitive-bench/irregular-temporal-profiles",
+        "revision": "566afab1689473af206231d94bc38eac453c85f7",
+        "source_run": "20261109T134159436023Z",
+        "root": ("experiments/irregular-memory/flappy/openvla/1x-rtx3090/"
+                 "20261109T134159436023Z/irregular_profiles_20min_run1"),
+        "launcher_dir": "memory_mock",
+    },
+}
 TEACHER_REPO = "latency-sensitive-bench/temporal-profile-teachers"
 SPEC = REPO_ROOT / "configs/experiments/flappy/temporal_alternatives_25m.yaml"
 REFERENCE = {
@@ -28,14 +44,17 @@ REFERENCE = {
 }
 
 
-def validate_profile(profile: Path, method: str) -> dict:
+def validate_profile(profile: Path, method: str, *, profile_set: str = "original") -> dict:
     """Reject the wrong run/partition; sample using the actual downstream clock."""
     from latency_bench.core.clock import EnvClock
     from latency_bench.latency.samplers import build_sampler
 
+    source = PROFILE_SETS[profile_set]
+    if method not in source["methods"]:
+        raise ValueError(f"{method} is not available in profile set {profile_set}")
     manifest = read_json(profile)
     expected = {"workload_id": "flappy", "model_id": "openvla", "env_fps": 30,
-                "source_run_id": SOURCE_RUN, "latency_method": method}
+                "source_run_id": source["source_run"], "latency_method": method}
     if any(manifest.get(k) != v for k, v in expected.items()):
         raise ValueError(f"Wrong source profile for {method}: {profile}")
     if manifest["provenance"]["session_ids"] != [0, 1, 2]:
@@ -46,10 +65,13 @@ def validate_profile(profile: Path, method: str) -> dict:
     return manifest
 
 
-def download_profile(output: Path, method: str) -> Path:
+def download_profile(output: Path, method: str, *, profile_set: str = "original") -> Path:
     from huggingface_hub import hf_hub_download
 
-    remote = f"{PROFILE_ROOT}/profiles/{method}"
+    source_set = PROFILE_SETS[profile_set]
+    if method not in source_set["methods"]:
+        raise ValueError(f"{method} is not available in profile set {profile_set}")
+    remote = f"{source_set['root']}/profiles/{method}"
     filenames = ["profile.json", "hardware.json", "latency_profile.png", "DONE"]
     if method == "temporal":
         filenames.extend(["latency_burst_model.json", "latency_distribution.json"])
@@ -59,7 +81,7 @@ def download_profile(output: Path, method: str) -> Path:
     # Fetch each file at the pinned revision so missing files raise the actual
     # download/authentication error instead of being treated as a complete bundle.
     sources = {name: Path(hf_hub_download(
-        repo_id=PROFILE_REPO, repo_type="dataset", revision=PROFILE_REVISION,
+        repo_id=source_set["repo_id"], repo_type="dataset", revision=source_set["revision"],
         filename=f"{remote}/{name}",
     )) for name in filenames}
     destination = output / "profile"
@@ -70,7 +92,7 @@ def download_profile(output: Path, method: str) -> Path:
             # Materialize HF cache symlinks before validating the bundle.
             for name, source in sources.items():
                 shutil.copy2(source, staged / name)
-            validate_profile(staged / "profile.json", method)
+            validate_profile(staged / "profile.json", method, profile_set=profile_set)
             staged.rename(destination)
     else:
         # Resume must not silently accept edited profile parameters.
@@ -104,7 +126,7 @@ def teacher_spec(output: Path, profile: Path, method: str, seed: int,
 
 
 def prepare(output: Path, method: str, seed: int, *, wandb_entity: str,
-            wandb_project: str | None = None) -> None:
+            wandb_project: str | None = None, profile_set: str = "original") -> None:
     from scripts.experiment_runner.job_manifest import load_manifest, write_manifest
     from scripts.sweeps.generate_sweep_configs import main as generate_configs
 
@@ -116,14 +138,15 @@ def prepare(output: Path, method: str, seed: int, *, wandb_entity: str,
         if not wandb_project:
             raise ValueError("wandb_project must be nonempty")
     output.mkdir(parents=True, exist_ok=True)
-    profile = download_profile(output, method)
-    manifest = validate_profile(profile, method)
+    source = PROFILE_SETS[profile_set]
+    profile = download_profile(output, method, profile_set=profile_set)
+    manifest = validate_profile(profile, method, profile_set=profile_set)
     spec = teacher_spec(output, profile, method, seed, wandb_entity, wandb_project)
     settings = {"method": method, "seed": seed, "spec": spec,
                 "base_config": load_config(spec["__base__"]),
-                "profile_source": {"repo_id": PROFILE_REPO, "repo_type": "dataset",
-                                   "revision": PROFILE_REVISION,
-                                   "path": f"{PROFILE_ROOT}/profiles/{method}"}}
+                "profile_source": {"repo_id": source["repo_id"], "repo_type": "dataset",
+                                   "revision": source["revision"],
+                                   "path": f"{source['root']}/profiles/{method}"}}
     protocol_path = output / "protocol.json"
     if protocol_path.exists():
         protocol = read_json(protocol_path)
@@ -132,6 +155,7 @@ def prepare(output: Path, method: str, seed: int, *, wandb_entity: str,
     else:
         protocol = {
             "settings": settings, "run_id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
+            "profile_set": profile_set,
             "reference_teacher": REFERENCE,
             "profile_fit_options": manifest["provenance"]["fit_options"],
             "profile_policy": "Exact uploaded fit, no refitting or offline-selected replacements",
@@ -198,7 +222,7 @@ def completion_evidence(output: Path) -> tuple[dict, Path]:
         "frame_stack": 4, "action_history_decisions": 8, "simulated_worker_capacity": 1,
         "train_for_env_steps": target, "use_rnn": False, "add_latency_info": False,
         "save_best_metric": "reward", "max_episode_steps": 0,
-        "latency_type": {"temporal": "profile_sample", "hmm": "hmm", "block": "block"}[config["latency"]["method"]],
+        "latency_type": latency_type_from_config(config["latency"]),
         "latency_profile_path": config["latency"]["profile_path"],
     }
     if any(flat.get(k) != value for k, value in expected.items()):
@@ -223,6 +247,8 @@ def export(output: Path) -> None:
     evidence, root = completion_evidence(output)
     protocol = read_json(output / "protocol.json")
     method = protocol["settings"]["method"]
+    profile_source = protocol["settings"]["profile_source"]
+    launcher_dir = PROFILE_SETS[protocol.get("profile_set", "original")]["launcher_dir"]
     with tempfile.TemporaryDirectory(prefix="export-", dir=output) as temporary:
         staged = Path(temporary) / "bundle"
         staged.mkdir()
@@ -242,8 +268,10 @@ def export(output: Path) -> None:
             shutil.copytree(output / "teacher_runs", staged / "teacher_runs")
         code = staged / "code"
         code.mkdir()
-        for name in ("teacher.py", "_train_teacher.sh", f"train_{method}.sh"):
+        for name in ("teacher.py", "_train_teacher.sh"):
             shutil.copy2(Path(__file__).parent / name, code / name)
+        shutil.copy2(Path(__file__).parent.parent / launcher_dir / f"train_{method}.sh",
+                     code / f"train_{method}.sh")
         write_json_atomic(staged / "training_complete.json", evidence)
         (staged / "README.md").write_text(
             f"# Flappy Bird teacher: {method}\n\n"
@@ -255,10 +283,10 @@ def export(output: Path) -> None:
             f"{evidence['best_decision_transitions']:,} transitions. "
             f"Latest checkpoint reached {evidence['latest_decision_transitions']:,} transitions. "
             "Selection uses rolling training reward, not held-out game scores.\n\n"
-            f"Profile: `{PROFILE_REPO}` (dataset), revision `{PROFILE_REVISION}`, "
-            f"`{PROFILE_ROOT}/profiles/{method}`. Exact uploaded settings: "
+            f"Profile: `{profile_source['repo_id']}` (dataset), revision `{profile_source['revision']}`, "
+            f"`{profile_source['path']}`. Exact uploaded settings: "
             f"`{protocol['profile_fit_options']}`. No timing refit is performed. "
-            "These original uploads differ from the later offline-selected HMM/block profiles.\n\n"
+            "Profile latencies remain in milliseconds and are sampled at 10 FPS.\n\n"
             "Training completion is verified from the latest checkpoint's env_steps. "
             "The selected best checkpoint has not been independently evaluated by this launcher. "
             "Any automatic end-of-training evaluation under teacher_runs refers to the latest "
@@ -283,7 +311,8 @@ def upload(output: Path, repo_id: str) -> dict:
     (bundle / "DONE").read_bytes()
     protocol = read_json(bundle / "protocol.json")
     settings = protocol["settings"]
-    destination = f"flappy/{settings['method']}/{SOURCE_RUN}/seed_{settings['seed']}/{protocol['run_id']}"
+    source_run = read_json(bundle / "profile/profile.json")["source_run_id"]
+    destination = f"flappy/{settings['method']}/{source_run}/seed_{settings['seed']}/{protocol['run_id']}"
     receipt_path = output / "upload_receipt.json"
     if receipt_path.exists():
         receipt = read_json(receipt_path)
@@ -315,7 +344,8 @@ def main(argv=None):
         sub = commands.add_parser(name)
         sub.add_argument("--output-dir", type=Path, required=True)
         if name == "prepare":
-            sub.add_argument("--method", choices=METHODS, required=True)
+            sub.add_argument("--method", choices=(*METHODS, "ar1", "arma"), required=True)
+            sub.add_argument("--profile-set", choices=PROFILE_SETS, default="original")
             sub.add_argument("--seed", type=int, default=42)
             sub.add_argument("--wandb-entity", required=True)
             sub.add_argument("--wandb-project", help="Override the YAML W&B project")
@@ -325,7 +355,7 @@ def main(argv=None):
     output = args.output_dir.expanduser().resolve()
     if args.command == "prepare":
         prepare(output, args.method, args.seed, wandb_entity=args.wandb_entity,
-                wandb_project=args.wandb_project)
+                wandb_project=args.wandb_project, profile_set=args.profile_set)
     elif args.command == "export":
         export(output)
     else:

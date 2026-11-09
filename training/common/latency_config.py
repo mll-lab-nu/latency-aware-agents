@@ -88,7 +88,7 @@ def sample_factory_latency_params_from_flat_config(cfg: Any, *, env_fps: float) 
             profile_method="iid",
             simulated_worker_capacity=simulated_worker_capacity,
         )
-    if latency_type in {"profile_sample", "hmm", "block"}:
+    if latency_type in {"profile_sample", "hmm", "block", "ar1", "arma"}:
         return SampleFactoryLatencyParams(
             fixed_latency_raw_frames=0,
             latency_distribution_spec=None,

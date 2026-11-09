@@ -398,7 +398,7 @@ def build_rollout_driver_runtime(
         if ((integration_name in {"flappy", "demon_attack", "deadly_corridor"}
              or env_name in _GYMNASIUM_ATARI_GPU_ENVS)
                 and getattr(cfg, "action_history_decisions", None) == 8
-                and cfg.latency_type in {"profile_sample", "hmm", "block"}):
+                and cfg.latency_type in {"profile_sample", "hmm", "block", "ar1", "arma"}):
             setattr(cfg, "rollout_profile_seed_by_reset", True)
         setattr(cfg, "export_env_raw_rgb_frames", bool(export_env_raw_rgb_frames))
         if integration_name == "flappy" and cfg.use_gpu_render:
