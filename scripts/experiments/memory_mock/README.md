@@ -223,6 +223,88 @@ Use the corresponding AR(1)/ARMA script for their retries. These are training
 demonstrations under each teacher's own fitted profile; they do not replace
 evaluation on common held-out deployment traces.
 
+## Train QwenOFT on the three collected datasets
+
+Use `train_vla_temporal.sh`, `train_vla_ar1.sh`, and `train_vla_arma.sh` for
+three separate **QwenOFT** students. They call the same
+`scripts/tasks/decision_history/train_vla_hist8.py` entrypoint used for the
+main-paper profile-trained Flappy model. The reference is
+[`MLL-Lab/LAGEN-models` at `96d17ee`](https://huggingface.co/MLL-Lab/LAGEN-models/tree/96d17ee124b503967bf44dd696579664c8eedd61/latency-aware/flappy/vla/starvla-qwenoft-h1/flappy-qwenoft-hist8-scratch-s42-v2).
+Its `config.full.yaml`, `run_metadata.json`, and `provenance.json` record the
+recipe and global batch. The earlier `final_profile_training` Bridge recipes
+are not the H8 recipe used for this checkpoint.
+
+Across these three launchers, only the dataset and run identity change:
+
+| Setting | Shared main-paper recipe |
+| --- | --- |
+| Backbone | Qwen3-VL-4B-Instruct, revision `ebb281ec70b05090aa6165b016eac8ec08e71b17` |
+| Initialization | Pretrained Qwen backbone; new QwenOFT action head; seed 42 |
+| Inputs/output | One RGB image, 24 binary H8 values with identity normalization, action horizon 1 |
+| Loss | Discrete cross-entropy; continuous state projector |
+| Budget | 5,000 optimizer updates; 100 warmup steps |
+| Batch | **Two GPUs**, 64 samples per GPU, accumulation 1; global batch **128** |
+| Learning rates | Base `3e-5`, Qwen interface `3e-6`, action model `1e-4` |
+| Optimizer | AdamW, betas `(0.9, 0.95)`, epsilon `1e-8`, optimizer weight decay `1e-8` |
+| Schedule/precision | Cosine with minimum LR ratio `1/30`; BF16, DeepSpeed ZeRO-2, gradient checkpointing |
+| Data loading | Shuffle; 16 train/eval workers per GPU; prefetch 4; all training rows |
+| Checkpoints/validation | Every 500 updates; 50 held-out dataset batches; final checkpoint at 5,000 |
+| Environment rollouts | Disabled during and immediately after training |
+
+This preserves the training recipe; updated software/hardware and different
+datasets do not imply bit-identical weights. The collected profiles are simulated
+deployment conditions in the demonstrations. Student training reads saved rows;
+do not run the background memory workload alongside training. Each method uses
+its own held-out demonstration split, so validation losses are not a common
+deployment comparison. Realtime evaluation under shared held-out conditions is
+a separate stage.
+
+On the GPU machine, use the root of the **new 18,000-frame** collections:
+
+```bash
+cd /mnt/disk1/talha/latency-aware-agents
+git pull --ff-only origin codex/irregular-memory-mock
+
+export DATASET_ROOT=/mnt/disk1/talha/outputs/irregular_rollouts_20min_18k_public_run1
+export VLA_OUTPUT_ROOT=/mnt/disk1/talha/outputs/irregular_vlas_20min_18k_run1
+export VLA_GPUS=0,1
+export WANDB_ENTITY=talha1503
+export WANDB_PROJECT=flappy-irregular-vlas
+
+bash scripts/experiments/memory_mock/train_vla_temporal.sh
+bash scripts/experiments/memory_mock/train_vla_ar1.sh
+bash scripts/experiments/memory_mock/train_vla_arma.sh
+```
+
+Run them **one at a time**, with both selected GPUs free. Set `WANDB_ENTITY` to
+your actual W&B account/team (independent of the HF username), or omit it to use
+W&B's account default. `WANDB_MODE=disabled` turns logging off. The launchers
+install/activate `starvla_rl_games_openvla` using `install.sh --env flappy --model
+openvla --tier dev` and download the pinned backbone through the HF cache.
+After that environment has been installed, `export SKIP_INSTALL=1` skips the
+installation step. The `latency` teacher environment alone is insufficient.
+Inherited `GPU`, `OUTPUT_DIR`, and `TEACHER_BUNDLE` do not select VLA devices,
+outputs or inputs. Use `VLA_GPUS`, `VLA_OUTPUT_ROOT`, and `DATASET_ROOT` instead.
+
+Each dataset must contain `METHOD/seed_42/DONE`, `lerobot/`, `lerobot__val/`,
+the mixture file and collection/profile metadata. The scripts reject incomplete,
+filtered, wrong-method or older 7,200-frame collections. HF upload need not have
+succeeded: these launchers consume the local converted Parquet files.
+
+The run directory is
+`$VLA_OUTPUT_ROOT/flappy-qwenoft-METHOD-irregular20m-hist8-s42/`.
+It contains `training_data.json`, `train.yaml`, training metadata, W&B logs and
+`checkpoints/`. At completion use `checkpoints/steps_5000_pytorch_model.pt`.
+The existing retention policy keeps the last two checkpoints and saves training
+state. These launchers do not upload VLA checkpoints or run realtime evaluation.
+
+To inspect configs without training, activate a Python environment with the
+benchmark and Hydra installed, then append `--prepare-only` to a launcher. This
+validates the collection and writes `train.yaml` without installing dependencies,
+downloading weights or loading a GPU model. A normal launch can use that prepared
+directory. To resume an interrupted training run, keep the same paths and append
+`--resume`; the original driver restores the latest complete training state.
+
 ## Full live profiling and comparison
 
 For the Temporal/AR(1)/ARMA experiment, use **`profile.sh`**, which extends the

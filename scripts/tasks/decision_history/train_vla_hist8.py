@@ -137,6 +137,11 @@ def main() -> None:
     parser.add_argument("--wandb-project", help="Enable W&B in this project")
     parser.add_argument("--wandb-entity", help="Optional W&B account or team")
     args = parser.parse_args()
+    run(args)
+
+
+def run(args: argparse.Namespace, *, prepare_only: bool = False) -> None:
+    """Run the paper recipe, also used by matched profile-data experiments."""
     args.dataset_dir = args.dataset_dir.resolve()
     args.base_model_dir = args.base_model_dir.resolve()
     args.output_root = args.output_root.resolve()
@@ -145,6 +150,9 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "train.yaml"
     OmegaConf.save(cfg, config_path)
+    if prepare_only:
+        print(f"Prepared training config: {config_path}")
+        return
     metadata_path = run_dir / "run_metadata.json"
     wandb_run_id = json.loads(metadata_path.read_text())["wandb_run_id"] if args.resume else cfg.run_id
     if not args.resume:
