@@ -124,6 +124,9 @@ The installer also accepts `pi0`, `pi05`, `gr00t`, `wan_oft`, and `--model all` 
 `--skip-flash-attn` skips the pinned Flash Attention wheel and its check.
 
 Reference environments include LeRobot 0.4.4 installed with `--no-deps`.
+Both model installation tiers include the benchmark's `runtime`, `data` and
+`analysis` extras. LeRobot's dataset loader is imported during model validation,
+so its dataset dependencies are required even for `--tier use`.
 MIKASA H8 conversion can use the `latency` interpreter as `--lerobot-python`.
 
 ## Check the installation
