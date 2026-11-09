@@ -81,6 +81,80 @@ It does not evaluate the selected best checkpoint on common held-out traces.
 That common deployment comparison is a separate next experiment; the training
 scores alone do not establish which profile method is better.
 
+## Collect VLA datasets from the completed teachers
+
+The new collection launchers reuse the earlier Temporal/HMM/block collector,
+including its two-pass probe/replay, history audit, LeRobot conversion and HF
+upload. Each requires the completed **local** `bundle/` from its matching new
+teacher. It selects the best checkpoint recorded in `training_complete.json`
+and copies that teacher's exact bundled profile. No weights or profiles are
+downloaded, and no latency refit is performed. The new launchers reject teachers
+from the older profiling run, including the older Temporal teacher.
+
+The recipe remains **10/10 FPS**, capacity **1**, **256** parallel environments,
+deterministic actions, seed **42**, eight-decision history (**24 values**),
+**7,200 raw frames** maximum per episode, no filtering and a **90/10 split by
+episode** with split seed **0**. Start with **200 episodes** and add **50** until
+the training split has at least **320,000 rows**. Actual episode and row counts
+can differ between methods. Teacher observations retain four stacked frames;
+VLA rows contain one current RGB image, history and the issued action (horizon 1).
+The task prompt follows the existing H8 collector, without added latency text.
+
+From the repository root, set `TEACHER_ROOT` to the output folder used for the
+new training runs. Use a **separate** collection root and run one method at a
+time on a free GPU:
+
+```bash
+TEACHER_ROOT=/absolute/path/to/your/existing/teacher_training_output
+COLLECTION_ROOT=/mnt/disk1/talha/outputs/irregular_rollouts_20min_run1
+export GPU=0
+
+TEACHER_BUNDLE="$TEACHER_ROOT/temporal/seed_42/bundle" OUTPUT_DIR="$COLLECTION_ROOT" \
+  bash scripts/experiments/memory_mock/collect_temporal.sh
+
+TEACHER_BUNDLE="$TEACHER_ROOT/ar1/seed_42/bundle" OUTPUT_DIR="$COLLECTION_ROOT" \
+  bash scripts/experiments/memory_mock/collect_ar1.sh
+
+TEACHER_BUNDLE="$TEACHER_ROOT/arma/seed_42/bundle" OUTPUT_DIR="$COLLECTION_ROOT" \
+  bash scripts/experiments/memory_mock/collect_arma.sh
+```
+
+Each method can be collected as soon as its completed bundle exists. The shared
+launcher locates/activates or installs Conda `latency`; `WANDB_ENTITY` is not
+required. Do not run the memory-copy workload during collection: the saved
+profile supplies simulated delay, with its milliseconds converted at 10 FPS.
+The default dataset output root is
+`$WORKSPACE_DIR/outputs/memory_mock/flappy_3090_rollouts_20min`, but an inherited
+`OUTPUT_DIR` overrides it; the commands above set the dataset destination
+explicitly without changing the terminal's training output variable.
+
+For each method, datasets are saved under
+`$COLLECTION_ROOT/METHOD/seed_42/lerobot` and `lerobot__val`, with raw Parquet,
+teacher metadata, the copied profile, source revision and quality/history reports
+alongside them. They automatically upload to dataset repository
+`latency-sensitive-bench/temporal-profile-rollouts`, under:
+
+```text
+flappy/{temporal,ar1,arma}/20261109T134159436023Z/seed_42/<collection_run_id>
+```
+
+Authenticate with HF write access. Set `HF_DATASET_REPO` for a different
+destination or `SKIP_UPLOAD=1` to keep data locally. The existing overrides
+`EPISODES`, `MAX_ENV_STEPS`, `MIN_TRAIN_ROWS` and `FORCE_INSTALL` still apply.
+Rerunning a completed collection reuses its data. The existing collector cannot
+resume a partially written GPU image replay; preserve it and use a fresh
+collection output if that stage is interrupted. After an upload failure, retry
+only the upload, without a GPU or teacher bundle:
+
+```bash
+OUTPUT_DIR="$COLLECTION_ROOT" \
+  bash scripts/experiments/memory_mock/collect_temporal.sh --upload-only
+```
+
+Use the corresponding AR(1)/ARMA script for their retries. These are training
+demonstrations under each teacher's own fitted profile; they do not replace
+evaluation on common held-out deployment traces.
+
 ## Full live profiling and comparison
 
 For the Temporal/AR(1)/ARMA experiment, use **`profile.sh`**, which extends the

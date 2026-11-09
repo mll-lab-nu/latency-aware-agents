@@ -161,7 +161,7 @@ def test_sequence_fit_rejects_unsupported_worker_and_invalid_block_length():
         build_sequence_model([[sample]], method="block", block_mean_length=0)
 
 
-@pytest.mark.parametrize("method", ["hmm", "block"])
+@pytest.mark.parametrize("method", ["hmm", "block", "ar1", "arma"])
 def test_collection_config_uses_selected_checkpoint_method_and_7200_cap(tmp_path, fitted_profiles, method):
     from scripts.experiments.temporal_profiles.prepare_collection import prepare
     from latency_bench.core.config import load_config

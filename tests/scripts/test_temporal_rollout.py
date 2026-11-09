@@ -14,15 +14,16 @@ from latency_bench.data.prompts import BASE_PROMPTS
 from latency_bench.data.rollout_probe import new_probe_state, write_probe_state
 from latency_bench.utils.io import read_json, read_yaml, write_json_atomic
 from scripts.experiments.temporal_profiles import rollout, teacher
-from test_temporal_teacher import snapshot
+from test_temporal_teacher import PROFILE_CASES, snapshot
 
 
 @pytest.fixture
 def local_bundle(tmp_path, snapshot):
-    def build(method):
-        bundle = tmp_path / "teachers" / method / "bundle"
+    def build(method, profile_set="original"):
+        source = teacher.PROFILE_SETS[profile_set]
+        bundle = tmp_path / "teachers" / profile_set / method / "bundle"
         bundle.mkdir(parents=True)
-        shutil.copytree(snapshot / teacher.PROFILE_ROOT / "profiles" / method, bundle / "profile")
+        shutil.copytree(snapshot / source["root"] / "profiles" / method, bundle / "profile")
         checkpoints = bundle / "checkpoint_p0"
         checkpoints.mkdir()
         (checkpoints / "best_000000010_24000000_reward_100.pth").touch()
@@ -39,24 +40,30 @@ def local_bundle(tmp_path, snapshot):
             "simulated_worker_capacity": 1, "latency_profile_worker_slot": 0,
             "hold_policy": "one_frame_then_noop", "ordering_policy": "latest_ready",
             "add_latency_info": False, "use_gpu_render": True,
-            "latency_type": {"temporal": "profile_sample", "hmm": "hmm", "block": "block"}[method],
+            "latency_type": "profile_sample" if method == "temporal" else method,
             "latency_profile_path": "/old/training/machine/profile.json",
         })
-        write_json_atomic(bundle / "protocol.json", {"settings": {"method": method}})
+        protocol = {"settings": {"method": method, "profile_source": {
+            "repo_id": source["repo_id"], "repo_type": "dataset", "revision": source["revision"],
+            "path": f"{source['root']}/profiles/{method}",
+        }}}
+        if profile_set != "original":
+            protocol["profile_set"] = profile_set
+        write_json_atomic(bundle / "protocol.json", protocol)
         (bundle / "DONE").touch()
         return bundle
     return build
 
 
-@pytest.mark.parametrize("method", teacher.METHODS)
-def test_local_best_and_own_profile_preserve_recipe(tmp_path, local_bundle, monkeypatch, method):
+@pytest.mark.parametrize(("profile_set", "method"), PROFILE_CASES)
+def test_local_best_and_own_profile_preserve_recipe(tmp_path, local_bundle, monkeypatch, profile_set, method):
     def no_download(*args, **kwargs):
         pytest.fail("Local collection must not download checkpoints or profiles")
     monkeypatch.setattr("huggingface_hub.hf_hub_download", no_download)
     monkeypatch.setattr("huggingface_hub.snapshot_download", no_download)
-    bundle = local_bundle(method)
+    bundle = local_bundle(method, profile_set)
     output = tmp_path / "rollout"
-    rollout.prepare(output, bundle, method)
+    rollout.prepare(output, bundle, method, profile_set=profile_set)
     cfg = read_yaml(output / "collect.yaml")
     assert cfg["policy"]["checkpoint"] == read_json(bundle / "training_complete.json")["selected_checkpoint"]
     assert cfg["policy"]["root"] == str(bundle)
@@ -68,14 +75,43 @@ def test_local_best_and_own_profile_preserve_recipe(tmp_path, local_bundle, monk
     assert cfg["evaluation"] == {"episodes": 200, "max_env_steps": 7200}
     assert cfg["env"]["env_fps"] == cfg["env"]["obs_fps"] == 10
     assert cfg["collection"]["filter_preset"] == "none"
+    assert cfg["collection"]["two_pass"] is True and cfg["collection"]["context_window"] == 1
+    assert cfg["collection"]["val_fraction"] == .1 and cfg["collection"]["split_seed"] == 0
+    assert cfg["latency"]["seed"] == cfg["experiment"]["seed"] == 42
+    assert read_json(output / "profile/profile.json") == read_json(bundle / "profile/profile.json")
     before = read_json(output / "protocol.json")
-    rollout.prepare(output, bundle, method)
+    assert before["settings"]["initial_episodes"] == 200
+    assert before["settings"]["episode_increment"] == 50
+    assert before["settings"]["min_train_rows"] == 320_000
+    if profile_set == "original":
+        # Earlier completed collections predate the profile-set selector.
+        before.pop("profile_set")
+        write_json_atomic(output / "protocol.json", before)
+    rollout.prepare(output, bundle, method, profile_set=profile_set)
     assert read_json(output / "protocol.json") == before
     with pytest.raises(ValueError, match="settings changed"):
-        rollout.prepare(output, bundle, method, max_steps=3600)
+        rollout.prepare(output, bundle, method, max_steps=3600, profile_set=profile_set)
     other = "hmm" if method != "hmm" else "block"
     with pytest.raises(ValueError, match="does not match"):
-        rollout.prepare(tmp_path / "wrong_method", bundle, other)
+        rollout.prepare(tmp_path / "wrong_method", bundle, other, profile_set=profile_set)
+
+
+def test_new_temporal_requires_new_run_and_resume_preserves_bundled_profile(tmp_path, local_bundle):
+    old = local_bundle("temporal")
+    new = local_bundle("temporal", "irregular_20min")
+    output = tmp_path / "rollout"
+    with pytest.raises(ValueError, match="Wrong source profile"):
+        rollout.prepare(output, old, "temporal", profile_set="irregular_20min")
+    assert not output.exists()
+    with pytest.raises(ValueError, match="Wrong source profile"):
+        rollout.prepare(output, new, "temporal")
+    rollout.prepare(output, new, "temporal", profile_set="irregular_20min")
+    profile = output / "profile/profile.json"
+    edited = read_json(profile)
+    edited["source_run_id"] = teacher.SOURCE_RUN
+    write_json_atomic(profile, edited)
+    with pytest.raises(ValueError, match="Local profile changed"):
+        rollout.prepare(output, new, "temporal", profile_set="irregular_20min")
 
 
 def write_replay(raw, specs, image):
@@ -105,10 +141,14 @@ def write_replay(raw, specs, image):
     })
 
 
-def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local_bundle, monkeypatch):
-    bundle = local_bundle("block")
+@pytest.mark.parametrize(("profile_set", "method"), [
+    ("original", "block"), ("irregular_20min", "temporal"),
+    ("irregular_20min", "ar1"), ("irregular_20min", "arma"),
+])
+def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local_bundle, monkeypatch, profile_set, method):
+    bundle = local_bundle(method, profile_set)
     output = tmp_path / "rollout"
-    rollout.prepare(output, bundle, "block", episodes=10, min_train_rows=50)
+    rollout.prepare(output, bundle, method, episodes=10, min_train_rows=50, profile_set=profile_set)
     image = tmp_path / "frame.png"
     save_test_image(image, 12)
     calls = []
@@ -138,6 +178,11 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local
     assert read_json(output / "history_audit.json")["checked_rows"] == 180
     assert read_json(output / "quality_report.json")["train_episodes"] == 54
     rollout.export(output)
+    source = teacher.PROFILE_SETS[profile_set]
+    readme = (output / "README.md").read_text()
+    assert source["repo_id"] in readme and source["revision"] in readme
+    launcher = Path(teacher.__file__).parent.parent / source["launcher_dir"] / f"collect_{method}.sh"
+    assert (output / "code" / launcher.name).read_bytes() == launcher.read_bytes()
     manifest = read_json(output / "lerobot/manifest.json")
     assert manifest["frames"] == 162 and manifest["validation_frames"] == 18
     assert manifest["state_normalization"] == {"min": [0.] * 24, "max": [1.] * 24}
@@ -153,6 +198,8 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local
     rollout.collect(output)
     rollout.export(output)
     assert len(calls) == 3
+    # Upload/retry uses the saved dataset provenance, without the teacher bundle.
+    shutil.rmtree(bundle)
 
     uploads = []
     class Api:
@@ -173,6 +220,7 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(tmp_path, local
     assert (output / "DONE").exists() and not (output / "upload_receipt.json").exists()
     receipt = rollout.upload(output, rollout.DATASET_REPO)
     assert receipt["revision"] == "after" and receipt["repo_type"] == "dataset"
+    assert receipt["path_in_repo"].startswith(f"flappy/{method}/{source['source_run']}/seed_42/")
     assert uploads[-1]["parent_commit"] == "before"
     assert "lerobot/**" in uploads[-1]["allow_patterns"]
     assert not any("checkpoint" in pattern for pattern in uploads[-1]["allow_patterns"])

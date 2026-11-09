@@ -15,7 +15,8 @@ def prepare(checkpoint: Path, profile: Path, output: Path, *, episodes=200, max_
         raise ValueError("Episode count and raw-frame cap must be positive")
     descriptor, _ = load_rollout_training_config(checkpoint.absolute())
     flat = descriptor["flat_cfg"]
-    method = {"profile_sample": "temporal", "hmm": "hmm", "block": "block"}[flat["latency_type"]]
+    method = {"profile_sample": "temporal", "hmm": "hmm", "block": "block",
+              "ar1": "ar1", "arma": "arma"}[flat["latency_type"]]
     if (descriptor["env_name"], flat["env_fps"], flat["obs_fps"], flat["action_history_decisions"],
             flat["simulated_worker_capacity"], flat["latency_profile_worker_slot"]) != ("flappy", 10, 10, 8, 1, 0):
         raise ValueError("This comparison requires a Flappy 10/10 Hz H8 teacher with worker capacity 1, slot 0")

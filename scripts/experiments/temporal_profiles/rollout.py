@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from latency_bench.latency.config import latency_type_from_config
 from latency_bench.utils.io import read_json, read_yaml, write_json_atomic, write_yaml
 from latency_bench.utils.paths import REPO_ROOT
 from scripts.experiments.temporal_profiles import prepare_collection, teacher
@@ -17,7 +18,7 @@ DATASET_REPO = "latency-sensitive-bench/temporal-profile-rollouts"
 
 
 def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=7200,
-            min_train_rows=320_000) -> None:
+            min_train_rows=320_000, profile_set="original") -> None:
     """Select the recorded best checkpoint and keep its profile beside the export."""
     output, bundle = output.resolve(), bundle.resolve()
     if episodes < 10 or max_steps < 1 or min_train_rows < 1:
@@ -30,7 +31,7 @@ def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=
             or completed["latest_decision_transitions"] < completed["target_decision_transitions"]):
         raise ValueError("The local teacher bundle does not record completed training")
     expected = {
-        "latency_type": {"temporal": "profile_sample", "hmm": "hmm", "block": "block"}[method],
+        "latency_type": latency_type_from_config({"method": method}),
         "seed": 42, "latency_seed": 42, "env_fps": 10, "obs_fps": 10,
         "frame_stack": 4, "action_history_decisions": 8, "use_gpu_render": True,
         "simulated_worker_capacity": 1, "latency_profile_worker_slot": 0,
@@ -42,7 +43,7 @@ def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=
     checkpoint = bundle / completed["selected_checkpoint"]
     if not checkpoint.is_file():
         raise FileNotFoundError(checkpoint)
-    teacher.validate_profile(bundle / "profile/profile.json", method)
+    teacher.validate_profile(bundle / "profile/profile.json", method, profile_set=profile_set)
     settings = {
         "method": method, "teacher_bundle": str(bundle), "selected_checkpoint": completed["selected_checkpoint"],
         "initial_episodes": episodes, "episode_increment": 50, "min_train_rows": min_train_rows,
@@ -74,6 +75,7 @@ def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=
         write_json_atomic(output / "teacher_protocol.json", training_protocol)
         write_json_atomic(protocol_path, {
             "settings": settings, "run_id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
+            "profile_set": profile_set,
             "reference_collector": "scripts/tasks/decision_history/collect_vla_hist8.py",
             "budget_note": "7200 raw frames is the explicitly chosen comparison cap; current reference source defaults to 3600 for Flappy.",
             "repository_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip(),
@@ -145,15 +147,22 @@ def export(output: Path) -> None:
         raise ValueError("LeRobot conversion changed the history shape or row counts")
     protocol = read_json(output / "protocol.json")
     settings = protocol["settings"]
+    profile_source = read_json(output / "teacher_protocol.json")["settings"]["profile_source"]
+    launcher_dir = teacher.PROFILE_SETS[protocol.get("profile_set", "original")]["launcher_dir"]
     code = output / "code"
     code.mkdir(exist_ok=True)
-    for name in ("rollout.py", "prepare_collection.py", "_collect_teacher.sh", f"collect_{settings['method']}.sh"):
+    for name in ("rollout.py", "prepare_collection.py", "_collect_teacher.sh"):
         shutil.copy2(Path(__file__).parent / name, code / name)
+    launcher = f"collect_{settings['method']}.sh"
+    shutil.copy2(Path(__file__).parent.parent / launcher_dir / launcher, code / launcher)
     (output / "README.md").write_text(
         f"# Flappy {settings['method']} teacher demonstrations\n\n"
         f"{completed['episodes']} episodes, {completed['train_rows']:,} training rows and "
         f"{completed['val_rows']:,} validation rows. Selected local checkpoint: "
         f"`{settings['selected_checkpoint']}`. Teacher metadata and the exact fitted profile are included.\n\n"
+        f"Profile source: `{profile_source['repo_id']}` (dataset), revision "
+        f"`{profile_source['revision']}`, `{profile_source['path']}`. "
+        "Collection uses the local teacher's bundled fit without refitting or downloading replacements.\n\n"
         f"10/10 Hz simulated collection, capacity 1, deterministic teacher, seed 42, "
         f"{settings['max_episode_raw_frames']:,}-raw-frame episode cap, two-pass probe/replay, "
         "256 environments, 90/10 episode split (seed 0), no filtering. Start at "
@@ -186,7 +195,8 @@ def upload(output: Path, repo_id: str) -> dict:
     (output / "DONE").read_bytes()
     protocol = read_json(output / "protocol.json")
     settings = protocol["settings"]
-    destination = f"flappy/{settings['method']}/{teacher.SOURCE_RUN}/seed_42/{protocol['run_id']}"
+    source_run = read_json(output / "profile/profile.json")["source_run_id"]
+    destination = f"flappy/{settings['method']}/{source_run}/seed_42/{protocol['run_id']}"
     receipt_path = output / "upload_receipt.json"
     if receipt_path.exists():
         receipt = read_json(receipt_path)
@@ -221,7 +231,8 @@ def main(argv=None):
         sub.add_argument("--output-dir", type=Path, required=True)
         if command == "prepare":
             sub.add_argument("--teacher-bundle", type=Path, required=True)
-            sub.add_argument("--method", choices=teacher.METHODS, required=True)
+            sub.add_argument("--method", choices=(*teacher.METHODS, "ar1", "arma"), required=True)
+            sub.add_argument("--profile-set", choices=teacher.PROFILE_SETS, default="original")
             sub.add_argument("--episodes", type=int, default=200)
             sub.add_argument("--max-steps", type=int, default=7200)
             sub.add_argument("--min-train-rows", type=int, default=320_000)
@@ -231,7 +242,7 @@ def main(argv=None):
     output = args.output_dir.expanduser().resolve()
     if args.command == "prepare":
         prepare(output, args.teacher_bundle.expanduser(), args.method, episodes=args.episodes,
-                max_steps=args.max_steps, min_train_rows=args.min_train_rows)
+                max_steps=args.max_steps, min_train_rows=args.min_train_rows, profile_set=args.profile_set)
     elif args.command == "collect":
         collect(output)
     elif args.command == "export":

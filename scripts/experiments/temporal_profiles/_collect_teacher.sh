@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-# Identical collection stages for the three local profile-trained teachers.
+# Shared collection stages for both sets of local profile-trained teachers.
 set -euo pipefail
-METHOD="${1:?Use collect_temporal.sh, collect_hmm.sh or collect_block.sh}"
+METHOD="${1:?Use a collect_METHOD.sh launcher}"
 shift
-case "${METHOD}" in temporal|hmm|block) ;; *) echo "Unknown method: ${METHOD}" >&2; exit 2 ;; esac
+case "${METHOD}" in temporal|hmm|block|ar1|arma) ;; *) echo "Unknown method: ${METHOD}" >&2; exit 2 ;; esac
 UPLOAD_ONLY=0
 case "${1:-}" in
     -h|--help)
         cat <<'EOF'
 Usage: TEACHER_BUNDLE=/absolute/path/to/METHOD/seed_42/bundle \
        bash scripts/experiments/temporal_profiles/collect_{temporal,hmm,block}.sh
+   or: TEACHER_BUNDLE=/absolute/path/to/METHOD/seed_42/bundle \
+       bash scripts/experiments/memory_mock/collect_{temporal,ar1,arma}.sh
 
 Activate/create Conda latency -> selected LOCAL teacher + its bundled profile ->
 H8 two-pass demonstrations -> LeRobot conversion/audit -> HF dataset upload.
 No teacher weights or profiles are downloaded. Run collection on Linux/CUDA.
+The memory_mock launchers require teachers from irregular_profiles_20min_run1;
+the temporal_profiles launchers retain the original flappy_3090_run1 teachers.
 
 Environment variables:
   TEACHER_BUNDLE      Required local bundle from train_METHOD.sh (contains DONE,
@@ -32,6 +36,8 @@ Timing is simulated at 10/10 Hz with the teacher's own profile, capacity 1,
 256 parallel environments, eight-decision history, 90/10 episode split, seed 42,
 split seed 0, deterministic actions, no filtering, one current student RGB image.
 7200 is the agreed comparison cap; current historical collector defaults to 3600.
+Use a dataset OUTPUT_DIR separate from training outputs. No W&B entity is needed.
+The saved profiles supply delay; do not run the background memory-copy workload.
 
 Authenticate using HF_TOKEN or hf auth login. A new dataset repo is private;
 existing visibility is preserved. No checkpoint weights are uploaded.
@@ -99,6 +105,7 @@ MODULE=scripts.experiments.temporal_profiles.rollout
 
 if [[ "${UPLOAD_ONLY}" != 1 ]]; then
     python -m "${MODULE}" prepare --output-dir "${RUN_DIR}" --method "${METHOD}" \
+        --profile-set "${TEACHER_PROFILE_SET:-original}" \
         --teacher-bundle "${TEACHER_BUNDLE}" --episodes "${EPISODES:-200}" \
         --max-steps "${MAX_ENV_STEPS:-7200}" --min-train-rows "${MIN_TRAIN_ROWS:-320000}" \
         2>&1 | tee -a "${RUN_DIR}/prepare.log"
