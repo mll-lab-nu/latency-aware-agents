@@ -160,19 +160,37 @@ def test_interrupted_measurement_resumes_existing_run_without_new_collection(tmp
     assert read_json(output / "measurement.json")["RUN_DIR"] == str(source)
 
 
-def test_irregular_profiling_freezes_live_load_and_refuses_uncontended_reuse(raw_run, tmp_path, monkeypatch):
+@pytest.mark.parametrize('minimum_seconds', [0, 1200])
+def test_irregular_profiling_freezes_live_load_and_refuses_uncontended_reuse(raw_run, tmp_path, monkeypatch, minimum_seconds):
     monkeypatch.setattr(recipe, "download_model", lambda config, output: config)
     output = tmp_path / "irregular"
     recipe.main(["prepare", "--output-dir", str(output), "--memory-condition", "irregular",
-                 "--methods", "temporal", "ar1", "arma", "--compare"])
+                 "--methods", "temporal", "ar1", "arma", "--compare",
+                 "--min-measurement-seconds", str(minimum_seconds)])
     protocol = read_json(output / "protocol.json")
     assert protocol["measurement_config"]["profiling"]["memory_mock"]["condition"] == "irregular"
     assert protocol["measurement_config"]["evaluation"]["episodes"] == 10
+    memory = protocol["measurement_config"]["profiling"]["memory_mock"]
+    assert memory.get('min_measurement_seconds', 0) == minimum_seconds
     assert protocol["comparison"]["arma_order"] == [1, 0, 1]
     assert protocol["fit_session_ids"] == [0, 1, 2]
     with pytest.raises(ValueError, match="not collected under"):
         recipe.main(["prepare", "--output-dir", str(tmp_path / "bad-reuse"),
                      "--existing-run-dir", str(raw_run), "--memory-condition", "irregular"])
+
+
+@pytest.mark.parametrize('arguments,message', [
+    (['--min-measurement-seconds', '-1'], 'Minimum measurement seconds'),
+    (['--min-measurement-seconds', 'nan'], 'Minimum measurement seconds'),
+    (['--min-measurement-seconds', '7200', '--memory-condition', 'irregular'], 'run timeout'),
+    (['--min-measurement-seconds', '1200'], 'requires --memory-condition'),
+    (['--min-measurement-seconds', '1200', '--memory-condition', 'irregular',
+      '--coverage-seconds', '100'], 'schedule coverage'),
+])
+def test_invalid_duration_budget_fails_before_model_download(tmp_path, monkeypatch, arguments, message):
+    monkeypatch.setattr(recipe, 'download_model', lambda *args: pytest.fail('invalid budget must not download'))
+    with pytest.raises(ValueError, match=message):
+        recipe.main(['prepare', '--output-dir', str(tmp_path / 'invalid'), *arguments])
 
 
 def test_ar_profiles_and_comparison_use_only_the_shared_fitting_partition(raw_run, tmp_path):

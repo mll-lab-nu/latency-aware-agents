@@ -13,6 +13,7 @@ def test_preparation_freezes_matching_seed_and_preserves_realtime_protocol(tmp_p
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '2')
     args = SimpleNamespace(config=measure.ROOT / 'configs/examples/flappy/profile_openvla.yaml',
         output=tmp_path / 'run', condition='irregular', episodes=300, episode_seed=11,
+        min_measurement_seconds=1200,
         load_seed=42, buffer_mib=512, startup_timeout_seconds=1800, run_timeout_seconds=7200,
         coverage_seconds=7200., off_seconds=(5., 15.), short_on_seconds=(.2, .8),
         long_on_seconds=(2., 5.), long_probability=.2)
@@ -25,6 +26,7 @@ def test_preparation_freezes_matching_seed_and_preserves_realtime_protocol(tmp_p
     assert config['experiment']['seed'] == 11
     assert config['evaluation']['episodes'] == 300
     assert protocol['cuda_visible_devices'] == '2'
+    assert protocol['min_measurement_seconds'] == 1200
     assert json.loads((args.output / 'schedule.json').read_text())['load_seed'] == 42
     assert (args.output / 'code/latency_bench/eval/driver.py').is_file()
     with pytest.raises(FileExistsError):
@@ -117,7 +119,8 @@ def test_live_profile_session_runs_coordinated_load_with_distinct_session_seeds(
     config = load_config(measure.ROOT / 'configs/examples/flappy/profile_openvla.yaml')
     config['profiling']['memory_mock'] = dict(condition='irregular', seed_base=42, buffer_mib=512,
         coverage_seconds=10800, off_seconds=[5, 15], short_on_seconds=[.2, .8],
-        long_on_seconds=[2, 5], long_probability=.2, startup_timeout_seconds=1800, run_timeout_seconds=7200)
+        long_on_seconds=[2, 5], long_probability=.2, startup_timeout_seconds=1800, run_timeout_seconds=7200,
+        min_measurement_seconds=1200)
     calls = []
     def run(command, **kwargs):
         calls.append(command)
@@ -133,6 +136,28 @@ def test_live_profile_session_runs_coordinated_load_with_distinct_session_seeds(
         assert command[2] == 'scripts.experiments.memory_mock.measure'
         assert command[command.index('--load-seed') + 1] == str(42 + index)
         assert command[command.index('--episodes') + 1] == '10'
+        assert command[command.index('--min-measurement-seconds') + 1] == '1200'
         assert command[command.index('--evaluation-output') + 1] == str(tmp_path / 'sessions' / str(index))
     assert (tmp_path / 'sessions/0/DONE').exists()
     assert not (tmp_path / 'sessions/1/DONE').exists()
+
+
+def test_measurement_worker_passes_frozen_duration_to_evaluator(tmp_path, monkeypatch):
+    from latency_bench.eval import driver
+    from latency_bench.latency import hardware_info
+
+    (tmp_path / 'protocol.json').write_text(json.dumps({'min_measurement_seconds': 1200}))
+    (tmp_path / 'evaluation.yaml').write_text('{}')
+    (tmp_path / 'load').mkdir()
+    (tmp_path / 'load/load.ready').touch()
+    monkeypatch.setattr(hardware_info, 'collect_hardware_fingerprint', lambda: {})
+    calls = []
+
+    def evaluate(config, **kwargs):
+        calls.append(kwargs['min_measurement_seconds'])
+        kwargs['on_warmup_complete']({'warmup_status': 'stable'})
+
+    monkeypatch.setattr(driver, 'run_from_config', evaluate)
+    measure.worker(tmp_path)
+    assert calls == [1200]
+    assert (tmp_path / 'measurement_started.json').exists()

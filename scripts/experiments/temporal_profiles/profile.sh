@@ -21,6 +21,7 @@ Environment variables:
   GPU                    One physical CUDA device (default: 0)
   REPEATS                Independent measurement processes (default: 5)
   EPISODES               Measured episodes per process (default: 10)
+  MIN_MEASUREMENT_SECONDS Minimum session seconds after warmup, with memory load only (default: 0)
   MAX_ENV_STEPS          Raw-frame cap per profiling episode (default: 3600)
   FIT_SESSION_IDS        Comma-separated fitting IDs (default: 0,1,2)
   METHODS                Comma-separated methods (default: temporal,hmm,block)
@@ -108,6 +109,7 @@ MODULE=scripts.experiments.temporal_profiles.profiling
 # 2. Freeze the protocol before measurement and download only required assets.
 python -m "${MODULE}" prepare --output-dir "${OUTPUT_DIR}" \
     --repeats "${REPEATS:-5}" --episodes "${EPISODES:-10}" \
+    --min-measurement-seconds "${MIN_MEASUREMENT_SECONDS:-0}" \
     --max-env-steps "${MAX_ENV_STEPS:-3600}" \
     --methods "${METHODS_ARRAY[@]}" --fit-session-ids "${FIT_IDS_ARRAY[@]}" \
     --hmm-states "${HMM_STATES:-2}" --hmm-max-iterations "${HMM_MAX_ITERATIONS:-1000}" \

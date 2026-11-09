@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from contextlib import ExitStack
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -35,6 +36,10 @@ def prepare(args):
         raise ValueError("CUDA_VISIBLE_DEVICES must select exactly one physical GPU")
     if min(args.episodes, args.buffer_mib, args.startup_timeout_seconds, args.run_timeout_seconds) <= 0:
         raise ValueError("Episode, buffer and timeout budgets must be positive")
+    if not math.isfinite(args.min_measurement_seconds) or not 0 <= args.min_measurement_seconds < args.run_timeout_seconds:
+        raise ValueError("Minimum measurement seconds must be finite, nonnegative and below the run timeout")
+    if args.min_measurement_seconds > 0 and args.coverage_seconds < args.run_timeout_seconds:
+        raise ValueError("Timed measurement requires schedule coverage at least as long as the run timeout")
     # Validate and freeze the schedule even for the idle control, allowing exact
     # reuse of its intended workload schedule when comparing conditions.
     schedule = schedule_from_args(args, args.load_seed)
@@ -52,6 +57,7 @@ def prepare(args):
     protocol = {
         "condition": args.condition, "load_seed": args.load_seed,
         "episode_seed": args.episode_seed, "episodes": args.episodes,
+        "min_measurement_seconds": args.min_measurement_seconds,
         "buffer_mib_each": args.buffer_mib, "cuda_visible_devices": visible,
         "env_fps": config["env"]["env_fps"], "obs_fps": config["env"]["obs_fps"],
         "max_env_steps": config["evaluation"]["max_env_steps"],
@@ -84,6 +90,7 @@ def profile_command(config, generated, session, session_id):
     command = [sys.executable, "-m", "scripts.experiments.memory_mock.measure",
                "--config", str(generated), "--output", str(session / "contention"),
                "--evaluation-output", str(session), "--episodes", str(config["evaluation"]["episodes"]),
+               "--min-measurement-seconds", str(options.get("min_measurement_seconds", 0)),
                "--episode-seed", str(_evaluation_seed(config)),
                "--load-seed", str(options["seed_base"] + session_id)]
     for name in ("condition", "buffer_mib", "coverage_seconds", "off_seconds", "short_on_seconds",
@@ -114,12 +121,15 @@ def worker(output):
             time.sleep(.05)
         write_json(output / "measurement_started.json", {"time_ms": monotonic_ms()})
 
-    run_from_config(load_config(output / "evaluation.yaml"), on_warmup_complete=after_warmup)
+    protocol = json.loads((output / "protocol.json").read_text())
+    run_from_config(load_config(output / "evaluation.yaml"), on_warmup_complete=after_warmup,
+                    min_measurement_seconds=protocol["min_measurement_seconds"])
 
 
-def supervise(evaluation, load, output, *, startup_timeout, run_timeout):
+def supervise(evaluation, load, output, *, startup_timeout, run_timeout, min_measurement_seconds=0):
     deadline = time.monotonic() + startup_timeout
     measuring = False
+    next_progress = time.monotonic() + 60
     while True:
         if load.poll() is not None:
             raise RuntimeError(f"Memory workload exited unexpectedly ({load.returncode}); inspect load_process.log")
@@ -132,9 +142,18 @@ def supervise(evaluation, load, output, *, startup_timeout, run_timeout):
             return
         if not measuring and (output / "measurement_started.json").exists():
             measuring = True
-            deadline = time.monotonic() + run_timeout
-        if time.monotonic() >= deadline:
+            measurement_started = time.monotonic()
+            deadline = measurement_started + run_timeout
+            next_progress = measurement_started
+        now = time.monotonic()
+        if now >= deadline:
             raise TimeoutError("Measurement timeout" if measuring else "Model warmup / load startup timeout")
+        if now >= next_progress:
+            status = (f"measurement running: {now - measurement_started:.0f}s elapsed; "
+                      f"minimum {min_measurement_seconds:g}s, finishing whole episodes" if measuring
+                      else "waiting for model warmup and memory workload readiness")
+            print(f"[memory_mock] {output}: {status}", flush=True)
+            next_progress = now + 60
         time.sleep(.1)
 
 
@@ -184,7 +203,8 @@ def measure(args):
                                                        stderr=subprocess.STDOUT, start_new_session=True))
                 print(f"Run directory: {args.output}\nLogs: evaluation_process.log and load_process.log", flush=True)
                 supervise(processes[1], processes[0], args.output,
-                          startup_timeout=args.startup_timeout_seconds, run_timeout=args.run_timeout_seconds)
+                          startup_timeout=args.startup_timeout_seconds, run_timeout=args.run_timeout_seconds,
+                          min_measurement_seconds=args.min_measurement_seconds)
             finally:
                 for process in reversed(processes):
                     stop_process_group(process)
@@ -209,6 +229,8 @@ def main():
     parser.add_argument("--evaluation-output", type=Path, help="Profiling session's existing output directory")
     parser.add_argument("--condition", choices=("idle", "periodic", "irregular"), default="irregular")
     parser.add_argument("--episodes", type=int, default=300)
+    parser.add_argument("--min-measurement-seconds", type=float, default=0,
+                        help="Continue complete episodes until both this duration and --episodes are met; excludes warmup")
     parser.add_argument("--episode-seed", type=int, default=42)
     parser.add_argument("--load-seed", type=int, default=42)
     parser.add_argument("--buffer-mib", type=int, default=512)

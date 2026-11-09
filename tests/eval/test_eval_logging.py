@@ -119,6 +119,54 @@ def test_calibration_stops_after_complete_episodes_with_enough_admitted_samples(
     assert [episode.episode_id for episode in result] == [0, 1]
 
 
+@pytest.mark.parametrize('minimum_seconds,minimum_episodes,expected_episodes', [
+    (10, 1, 4), (1, 6, 6), (0, 2, 2),
+])
+def test_timed_measurement_excludes_startup_and_finishes_both_budgets(
+    tmp_path, monkeypatch, minimum_seconds, minimum_episodes, expected_episodes,
+):
+    config = _config(tmp_path)
+    config['executor']['mode'] = 'realtime'
+    config['evaluation']['episodes'] = minimum_episodes
+    config['logging']['save_latency_records'] = False
+    now, calls = [0.0], []
+
+    class ProbeExecutor:
+        logger = None
+
+        def run_warmup(self):
+            now[0] += 1800
+            return {}
+
+        def run_episode(self, episode_id, seed, max_env_steps):
+            calls.append((episode_id, seed, max_env_steps))
+            now[0] += 3
+            return EpisodeMetrics(episode_id=episode_id, episode_return=1, survival_steps=3,
+                                  episode_return_env=1, metadata={})
+
+        def close(self):
+            calls.append('closed')
+
+    def ready(metadata):
+        now[0] += 600
+
+    monkeypatch.setattr(driver.time, 'monotonic', lambda: now[0])
+    monkeypatch.setattr(driver, 'build_executor', lambda *a, **kw: ProbeExecutor())
+    result = run_from_config(config, write_summary=False, on_warmup_complete=ready,
+                             min_measurement_seconds=minimum_seconds)
+    assert [episode.episode_id for episode in result] == list(range(expected_episodes))
+    assert calls[-1] == 'closed'
+    assert all(call[2] == 3 for call in calls[:-1])
+    duration_path = tmp_path / 'measurement_duration.json'
+    if minimum_seconds:
+        duration = json.loads(duration_path.read_text())
+        assert duration['elapsed_seconds'] == expected_episodes * 3
+        assert duration['completed_episodes'] == expected_episodes
+        assert duration['minimum_episodes'] == minimum_episodes
+    else:
+        assert not duration_path.exists()
+
+
 @pytest.mark.parametrize('fail_hook', [False, True])
 def test_warmup_callback_precedes_episodes_and_failure_closes_executor(tmp_path, monkeypatch, fail_hook):
     events = []

@@ -9,12 +9,16 @@ from __future__ import annotations
 from latency_bench.core.config import resolve_runtime_config
 
 from collections.abc import Callable, Sequence
+from itertools import count
+import math
 from pathlib import Path
+import time
 from typing import Any
 
 import yaml
 
 from latency_bench.utils.seeding import seed_everything
+from latency_bench.utils.io import write_json
 from latency_bench.core.types import EpisodeMetrics, ExecutorMode
 from latency_bench.eval.config import (
     _episode_seed,
@@ -39,12 +43,20 @@ def run_from_config(
     write_summary: bool = True,
     on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
     on_warmup_complete: Callable[[dict[str, Any]], None] | None = None,
+    min_measurement_seconds: float = 0.0,
     episode_ids: Sequence[int] | None = None,
     policy: Any | None = None,
     env: EnvAdapter | None = None,
     env_backend: Any | None = None,
     inference_devices: list[str] | None = None,
 ) -> list[EpisodeMetrics]:
+    if not math.isfinite(min_measurement_seconds) or min_measurement_seconds < 0:
+        raise ValueError("Minimum measurement seconds must be finite and nonnegative")
+    if min_measurement_seconds > 0 and (
+        config["executor"]["mode"] != "realtime" or episode_ids is not None
+        or "calibration_samples" in config["evaluation"]
+    ):
+        raise ValueError("Timed measurement requires realtime evaluation without selected episodes or calibration")
     config = resolve_model_source(config) if policy is None else config
     max_env_steps = int(config["evaluation"]["max_env_steps"])
     resolve_runtime_config(config)
@@ -80,6 +92,8 @@ def run_from_config(
     metrics = []
     warmup_metadata_by_episode: dict[int, dict[str, Any]] = {}
     try:
+        if min_measurement_seconds > 0 and isinstance(executor, BatchedExecutor):
+            raise ValueError("Timed measurement requires a sequential episode executor")
         output_dir = Path(logging_cfg["output_dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "resolved_config.yaml").write_text(
@@ -88,6 +102,7 @@ def run_from_config(
         warmup_metadata = executor.run_warmup()
         if on_warmup_complete is not None:
             on_warmup_complete(warmup_metadata)
+        measurement_started = time.monotonic()
         if isinstance(executor, BatchedExecutor):
             run_episodes_kwargs: dict[str, Any] = {
                 "episode_ids": selected_episode_ids,
@@ -106,7 +121,8 @@ def run_from_config(
                 if "calibration_samples" in config["evaluation"] else None
             )
             submitted_observations = 0
-            for episode_id in selected_episode_ids:
+            measured_episode_ids = count() if min_measurement_seconds > 0 else selected_episode_ids
+            for episode_id in measured_episode_ids:
                 warmup_metadata_by_episode[episode_id] = warmup_metadata
                 episode_metrics = executor.run_episode(
                     episode_id=episode_id,
@@ -116,12 +132,24 @@ def run_from_config(
                 metrics.append(episode_metrics)
                 if on_episode_complete is not None:
                     on_episode_complete(episode_metrics)
+                if (min_measurement_seconds > 0 and len(metrics) >= configured_num_episodes
+                        and time.monotonic() - measurement_started >= min_measurement_seconds):
+                    break
                 if calibration_samples is not None:
                     # Finish and drain the episode before ending a calibration
                     # probe; its first N admitted records define the sample.
                     submitted_observations += episode_metrics.metadata["submitted_observation_frames"]
                     if submitted_observations >= calibration_samples:
                         break
+        if min_measurement_seconds > 0:
+            write_json(output_dir / "measurement_duration.json", {
+                "minimum_seconds": min_measurement_seconds,
+                "elapsed_seconds": time.monotonic() - measurement_started,
+                "minimum_episodes": configured_num_episodes,
+                "completed_episodes": len(metrics),
+                "timing_scope": "After warmup and readiness callback; includes episode resets, excludes final reporting",
+                "stop_boundary": "completed_episode",
+            })
         metrics.sort(key=lambda item: int(item.episode_id))
         for episode_metrics in metrics:
             for key, value in _evaluation_raw_fact_metadata(config, int(episode_metrics.episode_id)).items():

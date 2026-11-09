@@ -9,10 +9,14 @@ Run the established Flappy/QwenOFT live profiling workflow while irregular
 memory copying runs on the SAME GPU. Fit Temporal, AR(1), ARMA(1,1) on shared
 training sessions, compare on reserved sessions, and export a reusable bundle.
 
-Defaults: GPU=0, REPEATS=5, EPISODES=10, FIT_SESSION_IDS=0,1,2,
+Defaults: GPU=0, REPEATS=5, EPISODES=10, MIN_MEASUREMENT_SECONDS=1200,
+FIT_SESSION_IDS=0,1,2,
 MAX_ENV_STEPS=3600, METHODS=temporal,ar1,arma, LOAD_SEED=42, BUFFER_MIB=512.
 OFF: 5-15s; ON: 80% 0.2-0.8s, 20% 2-5s. Every session gets its own load seed.
-Episode count is not a minimum measurement duration; inspect observed ON events.
+Each session completes at least EPISODES episodes AND MIN_MEASUREMENT_SECONDS
+of measurement after warmup/load readiness, stopping at an episode boundary.
+Five sessions take at least 100 minutes plus startup and fitting.
+Set MIN_MEASUREMENT_SECONDS=0 for the previous fixed-episode protocol.
 
 Set OUTPUT_DIR to a persistent fresh directory. Rerun the same settings to
 resume completed sessions. SKIP_INSTALL=1 reuses the installed model environment.
@@ -26,6 +30,7 @@ EOF
     exit 0
 fi
 export MEMORY_MOCK_CONDITION="${MEMORY_MOCK_CONDITION:-irregular}"
+export MIN_MEASUREMENT_SECONDS="${MIN_MEASUREMENT_SECONDS:-1200}"
 export METHODS="${METHODS:-temporal,ar1,arma}"
 export COMPARE_PROFILES=1
 export SKIP_UPLOAD="${SKIP_UPLOAD:-0}"

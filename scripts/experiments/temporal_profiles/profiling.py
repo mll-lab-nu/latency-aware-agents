@@ -78,6 +78,12 @@ def download_model(config: dict, output: Path) -> dict:
 
 def prepare(args) -> None:
     output = args.output_dir
+    if not math.isfinite(args.min_measurement_seconds) or not 0 <= args.min_measurement_seconds < args.run_timeout_seconds:
+        raise ValueError("Minimum measurement seconds must be finite, nonnegative and below the run timeout")
+    if args.min_measurement_seconds > 0 and args.memory_condition == "none":
+        raise ValueError("Timed profiling requires --memory-condition idle or irregular")
+    if args.min_measurement_seconds > 0 and args.coverage_seconds < args.run_timeout_seconds:
+        raise ValueError("Timed measurement requires schedule coverage at least as long as the run timeout")
     if args.existing_run_dir:
         source = args.existing_run_dir.expanduser().absolute()
         contract = read_json(source / "run_contract.json")
@@ -102,6 +108,8 @@ def prepare(args) -> None:
                   "long_on_seconds": list(args.long_on_seconds), "long_probability": args.long_probability,
                   "startup_timeout_seconds": args.startup_timeout_seconds,
                   "run_timeout_seconds": args.run_timeout_seconds}
+        if args.min_measurement_seconds > 0:
+            memory["min_measurement_seconds"] = args.min_measurement_seconds
         if min(args.buffer_mib, args.startup_timeout_seconds, args.run_timeout_seconds) <= 0:
             raise ValueError("Memory buffers and timeout budgets must be positive")
         if source is not None and config["profiling"].get("memory_mock") != memory:
@@ -238,12 +246,17 @@ def export_profiles(output: Path) -> None:
         if "comparison" in protocol:
             shutil.copytree(output / "comparison", staged / "comparison")
         cfg = protocol["measurement_config"]
+        minimum_seconds = cfg["profiling"].get("memory_mock", {}).get("min_measurement_seconds", 0)
+        episode_budget = (f"at least {cfg['evaluation']['episodes']} complete episodes and {minimum_seconds:g} s "
+                          "per session after warmup/load readiness (including episode resets); actual durations "
+                          "and episode counts are in measurement/sessions/<id>/measurement_duration.json, "
+                          if minimum_seconds else f"{cfg['evaluation']['episodes']} measured episodes per session, ")
         (staged / "README.md").write_text(
             "# Flappy/QwenOFT timing profiles\n\n"
             f"Measurement run: `{source.name}`. Measured clocks: "
             f"{cfg['env']['env_fps']}/{cfg['env']['obs_fps']} Hz; "
             f"{cfg['profiling']['repeats']} independent sessions, "
-            f"{cfg['evaluation']['episodes']} measured episodes per session, "
+            f"{episode_budget}"
             f"{cfg['evaluation']['max_env_steps']} raw-frame episode cap.\n\n"
             f"All exported methods fit sessions {protocol['fit_session_ids']}. "
             f"Reserved sessions: {protocol['held_out_session_ids']}. "
@@ -315,6 +328,7 @@ def main(argv=None) -> None:
             sub.add_argument("--existing-run-dir", type=Path)
             sub.add_argument("--repeats", type=int, default=5)
             sub.add_argument("--episodes", type=int, default=10)
+            sub.add_argument("--min-measurement-seconds", type=float, default=0)
             sub.add_argument("--max-env-steps", type=int, default=3600)
             sub.add_argument("--methods", nargs="+", choices=("temporal", "hmm", "block", "ar1", "arma"),
                              default=["temporal", "hmm", "block"])

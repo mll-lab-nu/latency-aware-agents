@@ -16,7 +16,7 @@ For the Temporal/AR(1)/ARMA experiment, use **`profile.sh`**, which extends the
 same live profiling recipe previously used for Temporal/HMM/block:
 
 ```bash
-GPU=0 OUTPUT_DIR=/workspace/outputs/irregular_profiles_run1 \
+GPU=0 MIN_MEASUREMENT_SECONDS=1200 OUTPUT_DIR=/workspace/outputs/irregular_profiles_20min_run1 \
   bash scripts/experiments/memory_mock/profile.sh
 ```
 
@@ -29,12 +29,21 @@ only after the workload reports ready. Both processes are supervised together.
 The irregular timeline continues through episode resets and restarts with a
 different load seed for each independent profiling session.
 
-The default protocol preserves the earlier profiling budget: five independent
-processes, ten measured episodes each, a 3,600-frame episode cap, fitting sessions
-0/1/2, and held-out sessions 3/4. The load seeds are 42–46; episode seeds follow
-the original recipe. Ten episodes may observe only a few irregular events if
-the policy fails quickly. Increase `EPISODES` for better event coverage and
-inspect the actual ON counts before interpreting burst fidelity. The comparison
+The default contention protocol runs five independent processes for **at least
+20 minutes each** (`MIN_MEASUREMENT_SECONDS=1200`). Every session completes both
+the time budget and at least `EPISODES=10` episodes, then stops at an episode
+boundary. The clock starts after model warmup and workload readiness; it includes
+episode resets and excludes final reporting. Short episodes therefore do not
+end collection early. Expect at least 100 minutes of measurement across five
+sessions, plus startup and fitting. The supervisor prints status every minute.
+
+The 3,600-frame episode cap, fitting sessions 0/1/2, held-out sessions 3/4, load
+seeds 42–46, checkpoint, FPS and episode-seed rule follow the original recipe.
+Actual episode counts can differ across sessions. Set `MIN_MEASUREMENT_SECONDS=0`
+to reproduce or resume the previous fixed-episode protocol. Use a **new output
+directory** when switching from the short pilot to the longer protocol; changing
+the budget cannot extend an already completed recording. Inspect actual ON
+counts and short/long event coverage before interpreting burst fidelity. The comparison
 warns when a session has fewer than ten observed ON events; this is a collection
 diagnostic, not a statistical acceptance threshold.
 
@@ -94,6 +103,8 @@ Outputs include:
   training-derived thresholds, generation variability and generated sequences.
 - The raw run named in `measurement.json`: ordinary profiling sessions plus each
   session's `contention/` schedule, logs and ON/OFF report.
+- `measurement_duration.json` in each timed session: requested duration, actual
+  elapsed measurement seconds and number of completed episodes.
 - `bundle/`: profiles, raw measurement evidence, protocol and comparison for transfer.
 
 The comparison reports action and worker-service distributions, p95/p99 errors,
@@ -207,8 +218,11 @@ The default startup timeout is 1,800 s and measurement timeout is 7,200 s.
 a longer `--run-timeout-seconds`, also increase schedule coverage beyond it.
 An exhausted schedule fails the run. The load starts just before measured
 episodes and continues through episode resets and final evaluator reporting;
-allow some coverage beyond the expected total runtime. Episode count is not a
-minimum measurement duration: short episodes may observe too few ON events.
+allow some coverage beyond the expected total runtime. The standalone
+`measure.sh` remains episode-count based by default. Add
+`--min-measurement-seconds 1200 --coverage-seconds 10800` to require at least
+20 minutes as well as the configured episode count. The minimum duration must
+be below the run timeout, and schedule coverage must cover that timeout.
 
 ### Outputs and interpretation
 
