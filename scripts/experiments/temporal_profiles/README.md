@@ -3,9 +3,41 @@
 For **new Flappy/QwenOFT hardware measurements**, use [`profile.sh`](profile.sh).
 It installs/activates the model environment, downloads the pinned zero-latency
 checkpoint, records timings once, fits Temporal/HMM/block on common sessions,
-and exports/uploads the bundle. See the
-[profiling recipe](../../../docs/experiments/flappy_temporal_alternatives.md#download-measure-fit-and-publish)
+and exports/uploads the bundle. Run `bash scripts/experiments/temporal_profiles/profile.sh --help`
 for settings, resume and reuse. The offline studies below use archived traces.
+
+## Train the Flappy teachers
+
+[`train_temporal.sh`](train_temporal.sh), [`train_hmm.sh`](train_hmm.sh), and
+[`train_block.sh`](train_block.sh) each check/create and activate the `latency`
+Conda environment, download their own profile, train an APPO teacher, save its
+checkpoints, and upload to `latency-sensitive-bench/temporal-profile-teachers`.
+Run on Linux/CUDA with an HF login or `HF_TOKEN` that can read the source dataset
+and write/create the destination model repository. A new model repository is
+private; existing visibility is preserved.
+
+```bash
+export WORKSPACE_DIR=/workspace
+export OUTPUT_DIR="$WORKSPACE_DIR/outputs/temporal_profiles/flappy_3090_teachers"
+export GPU=0
+bash scripts/experiments/temporal_profiles/train_temporal.sh
+bash scripts/experiments/temporal_profiles/train_hmm.sh
+bash scripts/experiments/temporal_profiles/train_block.sh
+```
+
+Run sequentially from the repository root. All methods use 10/10 FPS, four
+image frames, eight decisions of action history, 25M training transitions and
+seed 42. The source is `latency-sensitive-bench/temporal-profiles` at revision
+`1a4bd7bbc14815e0478810457ff204d4cf70636b`, run `20261109T002620386065Z`:
+the original Temporal, two-state HMM and block-32 fits. No refitting occurs.
+
+Outputs are separate under `$OUTPUT_DIR/METHOD/seed_42`. Rerun to resume training
+or retry an upload after export. `--help` lists controls including `SEED`,
+`HF_MODEL_REPO`, `FORCE_INSTALL=1` and `SKIP_UPLOAD=1`. Bundles retain best/latest
+checkpoints, the exact profile, configs and logs. Selection uses training
+reward; the automatic final evaluation uses the latest checkpoint with 100
+episodes and a 3,600-frame cap. Demonstration collection, including its
+7,200-frame cap, is a later stage.
 
 ## Complete 30-case cohort
 

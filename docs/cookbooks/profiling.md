@@ -6,7 +6,7 @@ The `profiling` section adds repetition counts and artifact labels.
 Install the selected runtime through the [installation guide](../installation.md).
 
 For the Flappy/QwenOFT experiment, the
-[Temporal/HMM/block recipe](../experiments/flappy_temporal_alternatives.md#download-measure-fit-and-publish)
+[Temporal/HMM/block entrypoint](../../scripts/experiments/temporal_profiles/profile.sh)
 wires installation, pinned downloads, shared measurements, explicit fitting
 splits, export and HF upload through one Bash entrypoint.
 

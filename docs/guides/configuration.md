@@ -26,8 +26,8 @@ delay. It does not read `latency`.
 `executor.mode: simulated` reads `latency`. Supported methods are `zero`, `fixed`,
 `normal`, `uniform`, `iid`, `temporal`, `hmm` and `block`. Durations use milliseconds.
 The latter four consume fitted profiles. HMM and block currently support worker
-slot 0 only; see the [Flappy comparison protocol](../experiments/flappy_temporal_alternatives.md)
-for fitting, training and collection settings.
+slot 0 only; see the [Flappy experiment entrypoints](../../scripts/experiments/temporal_profiles/README.md)
+for profiling and teacher-training commands.
 
 `inference_devices` lists actual model workers. Repeated device names create
 separate workers on one device. Realtime and pooled inference require an
