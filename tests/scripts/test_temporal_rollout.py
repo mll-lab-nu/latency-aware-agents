@@ -274,6 +274,102 @@ def test_completed_parquet_recovers_without_probe_file_or_gpu_rollout(tmp_path, 
     assert {p.name: p.read_bytes() for p in raw.glob("*.parquet")} == saved
 
 
+@pytest.mark.parametrize("cutoff", [.2, .3])
+def test_return_filtered_probe_topups_and_attempt_exhaustion(tmp_path, local_bundle, monkeypatch, cutoff):
+    from latency_bench.data.rollout import collect_dataset
+    from latency_bench.data.rollout_export import filter_report_from_probe_state
+
+    bundle = local_bundle("arma", "irregular_20min")
+    output = tmp_path / "filtered"
+    kwargs = dict(episodes=10, min_train_rows=50, profile_set="irregular_20min", episode_return_gt=cutoff)
+    rollout.prepare(output, bundle, "arma", **kwargs)
+    settings = read_json(output / "protocol.json")["settings"]
+    assert settings["episode_return_gt"] == cutoff and settings["max_attempts"] == 100
+    rollout.prepare(output, bundle, "arma", **kwargs)
+    with pytest.raises(ValueError, match="settings changed"):
+        rollout.prepare(output, bundle, "arma", **{**kwargs, "episode_return_gt": cutoff + 1})
+    with pytest.raises(ValueError, match="settings changed"):
+        rollout.prepare(output, bundle, "arma", **{**kwargs, "episode_return_gt": None})
+
+    image = tmp_path / "frame.png"
+    save_test_image(image, 12)
+    calls = []
+
+    class ProbeExecution:
+        metadata = {"env_fps": 10, "obs_fps": 10}
+
+        def run(self, session):
+            while (spec := session.next_episode()) is not None:
+                session.complete_episode(spec["episode_idx"], {
+                    "episode_length": 3, "episode_raw_frames": 3,
+                    "episode_raw_return": .2 if spec["attempt_idx"] % 3 == 0 else .3,
+                    "termination_reason": "terminated",
+                })
+
+        def close(self):
+            pass
+
+    def collection_with_cpu_probe(config):
+        calls.append(deepcopy(config))
+        raw = Path(config["logging"]["output_dir"])
+        options = config["collection"]
+        assert options["episode_return_gt"] == cutoff
+        assert options["max_attempts"] == 100
+        assert options["filter_preset"] == "none"
+        if options["probe_only"]:
+            # Exercise actual acceptance, rejection and probe-resume logic;
+            # only environment execution is replaced on this CPU-only host.
+            collect_dataset(
+                execution_factory=lambda **kw: ProbeExecution(),
+                task={"integration_name": "flappy", "action_spec": action_spec_for_env("flappy")},
+                output_dir=raw, max_episodes=config["evaluation"]["episodes"],
+                max_steps_per_episode=7200, val_fraction=.1, split_seed=0, num_envs=256,
+                base_seed=42, two_pass=True, probe_only=True,
+                episode_return_gt=options["episode_return_gt"], max_attempts=options["max_attempts"],
+            )
+        else:
+            state = read_json(raw / "probe_state.json")
+            write_replay(raw, state["accepted_specs"], image)
+            report = filter_report_from_probe_state(
+                read_json(raw / "metadata.json"), state, env_name="flappy",
+                episode_return_field="episode_raw_return", filter_preset=options["filter_preset"],
+                episode_return_gt=options["episode_return_gt"],
+            )
+            write_json_atomic(raw / "filter_report.json", report)
+
+    monkeypatch.setattr("latency_bench.data.rollout.collect_rollouts", collection_with_cpu_probe)
+    if cutoff == .3:
+        with pytest.raises(RuntimeError, match=r"accepted 0/10.*MAX_ATTEMPTS=100.*100 rejected"):
+            rollout.collect(output)
+        assert len(calls) == 1 and calls[0]["collection"]["probe_only"]
+        assert not (output / "raw/metadata.json").exists()
+        assert not (output / "collection_complete.json").exists()
+        return
+    rollout.collect(output)
+    assert [(c["evaluation"]["episodes"], c["collection"]["probe_only"]) for c in calls] == [
+        (10, True), (60, True), (60, False)]
+    summaries = read_json(output / "episode_summaries.json")["episodes"]
+    assert len(summaries) == 60 and all(s["episode_raw_return"] > cutoff for s in summaries)
+    report = read_json(output / "raw/filter_report.json")
+    assert report["episode_return_gate"] == {"field": "episode_raw_return", "operator": ">", "threshold": cutoff}
+    assert report["attempted_episodes"] == 90 and report["rejected_episodes"] == 30
+    assert report["train_rows_before_row_filter"] == report["train_rows_after_row_filter"] == 162
+    assert report["val_rows_before_row_filter"] == report["val_rows_after_row_filter"] == 18
+    assert read_json(output / "history_audit.json")["checked_rows"] == 180
+    rollout.export(output)
+    assert "strictly > 0.2" in (output / "README.md").read_text()
+    assert read_json(output / "lerobot/manifest.json")["frames"] == 162
+
+
+@pytest.mark.parametrize("options", [
+    {"episode_return_gt": float("nan")}, {"episode_return_gt": float("inf")}, {"max_attempts": 9},
+])
+def test_invalid_filter_settings_fail_before_collection(tmp_path, options):
+    with pytest.raises(ValueError):
+        rollout.prepare(tmp_path / "out", tmp_path / "unused_bundle", "temporal", episodes=10, **options)
+    assert not (tmp_path / "out").exists()
+
+
 def test_incomplete_bundle_or_dataset_cannot_be_published(tmp_path, local_bundle):
     bundle = local_bundle("temporal")
     completed = read_json(bundle / "training_complete.json")

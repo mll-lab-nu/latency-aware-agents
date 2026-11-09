@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,11 +19,19 @@ DATASET_REPO = "latency-sensitive-bench/temporal-profile-rollouts"
 
 
 def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=7200,
-            min_train_rows=320_000, profile_set="original") -> None:
+            min_train_rows=320_000, profile_set="original", episode_return_gt=None,
+            max_attempts=None) -> None:
     """Select the recorded best checkpoint and keep its profile beside the export."""
     output, bundle = output.resolve(), bundle.resolve()
     if episodes < 10 or max_steps < 1 or min_train_rows < 1:
         raise ValueError("Require at least 10 episodes and positive frame/row budgets")
+    if episode_return_gt is not None:
+        if not math.isfinite(episode_return_gt):
+            raise ValueError("Episode return threshold must be finite")
+        if max_attempts is None:
+            max_attempts = 10 * episodes
+    if max_attempts is not None and max_attempts < episodes:
+        raise ValueError("MAX_ATTEMPTS must be at least the initial accepted episode target")
     (bundle / "DONE").read_bytes()
     completed = read_json(bundle / "training_complete.json")
     flat = read_json(bundle / "config.json")
@@ -51,6 +60,11 @@ def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=
         "env_fps": 10, "obs_fps": 10, "parallel_envs": 256, "replay_num_envs": 256,
         "val_fraction": .1, "split_seed": 0, "filter_preset": "none", "deterministic": True,
     }
+    # Omit unset options so completed, unfiltered collections remain resumable.
+    if episode_return_gt is not None:
+        settings["episode_return_gt"] = episode_return_gt
+    if max_attempts is not None:
+        settings["max_attempts"] = max_attempts
     protocol_path = output / "protocol.json"
     if protocol_path.exists():
         if read_json(protocol_path)["settings"] != settings:
@@ -69,6 +83,9 @@ def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=
                                    episodes=episodes, max_steps=max_steps)
         config = read_yaml(output / "collect.yaml")
         config["policy"]["deterministic"] = True
+        for key in ("episode_return_gt", "max_attempts"):
+            if key in settings:
+                config["collection"][key] = settings[key]
         write_yaml(output / "collect.yaml", config)
         write_json_atomic(output / "teacher_config.json", flat)
         write_json_atomic(output / "teacher_training_complete.json", completed)
@@ -98,18 +115,27 @@ def collect(output: Path) -> None:
         if (raw / "probe_state.json").exists():
             episodes = max(episodes, len(read_json(raw / "probe_state.json")["accepted_specs"]))
         while True:
+            attempt_budget = settings.get("max_attempts", episodes)
             config["evaluation"]["episodes"] = episodes
-            config["collection"].update(max_attempts=episodes, probe_only=True)
+            config["collection"].update(max_attempts=attempt_budget, probe_only=True)
             write_yaml(output / "probe.yaml", config)
             collect_rollouts(deepcopy(config))
             state = read_json(raw / "probe_state.json")
             if len(state["accepted_specs"]) < episodes:
-                raise RuntimeError("Probe did not complete its episode budget; preserve this run and use a new OUTPUT_DIR")
+                raise RuntimeError(
+                    f"Probe accepted {len(state['accepted_specs'])}/{episodes} episodes "
+                    f"within MAX_ATTEMPTS={attempt_budget} "
+                    f"({state['rejected_episodes']} rejected; "
+                    f"episode_return_gt={settings.get('episode_return_gt')}). "
+                    "Replay was not started. Use a fresh OUTPUT_DIR with a larger "
+                    "MAX_ATTEMPTS budget or a revised cutoff."
+                )
             # Same ordering and whole-episode split as the H8 VLA collector.
             state["accepted_specs"].sort(key=lambda item: item["seed"])
             merged = merge_probe_states([state], max_episodes=episodes, val_fraction=.1, split_seed=0)
             rows = sum(item["episode_length"] for item in merged["accepted_specs"] if item["split"] == "train")
-            print(f"Probe: {episodes} episodes, {rows:,} training rows (target {settings['min_train_rows']:,})", flush=True)
+            print(f"Probe: {episodes} accepted episodes, {state['rejected_episodes']} rejected, "
+                  f"{rows:,} training rows (target {settings['min_train_rows']:,})", flush=True)
             if rows >= settings["min_train_rows"]:
                 break
             episodes += settings["episode_increment"]
@@ -148,7 +174,7 @@ def collect(output: Path) -> None:
 
 
 def _episode_summaries_from_parquet(raw: Path, metadata: dict) -> list[dict]:
-    """Recover reporting evidence from completed, unfiltered canonical splits."""
+    """Recover reporting evidence from canonical splits retaining every episode row."""
     import pyarrow.parquet as pq
 
     episodes = {}
@@ -203,6 +229,12 @@ def export(output: Path) -> None:
         shutil.copy2(Path(__file__).parent / name, code / name)
     launcher = f"collect_{settings['method']}.sh"
     shutil.copy2(Path(__file__).parent.parent / launcher_dir / launcher, code / launcher)
+    filtering = (
+        f"Keep whole episodes with total raw return strictly > {settings['episode_return_gt']:g}; "
+        f"retain all rows from accepted episodes. The total probe attempt cap is {settings['max_attempts']:,}. "
+        "Both demonstration splits contain qualifying episodes. "
+        if "episode_return_gt" in settings else "No episode or row filtering. "
+    )
     (output / "README.md").write_text(
         f"# Flappy {settings['method']} teacher demonstrations\n\n"
         f"{completed['episodes']} episodes, {completed['train_rows']:,} training rows and "
@@ -213,8 +245,8 @@ def export(output: Path) -> None:
         "Collection uses the local teacher's bundled fit without refitting or downloading replacements.\n\n"
         f"10/10 Hz simulated collection, capacity 1, deterministic teacher, seed 42, "
         f"{settings['max_episode_raw_frames']:,}-raw-frame episode cap, two-pass probe/replay, "
-        "256 environments, 90/10 episode split (seed 0), no filtering. Start at "
-        f"{settings['initial_episodes']} episodes and add 50 until at least "
+        "256 environments, 90/10 episode split (seed 0). "
+        f"{filtering}Start at {settings['initial_episodes']} accepted episodes and add 50 until at least "
         f"{settings['min_train_rows']:,} training rows. The 7,200-frame default is an explicit "
         "comparison setting, not a claim that every archived dataset used that cap.\n\n"
         "`lerobot/` and `lerobot__val/` are the StarVLA training/validation datasets. "
@@ -231,6 +263,7 @@ def export(output: Path) -> None:
         "`episode_summaries.json` preserves probe statistics, or identifies summaries recovered "
         "from existing Parquet with unavailable termination reasons marked not_recorded. "
         "`quality_report.json` records returns, lengths and action counts; "
+        "`raw/filter_report.json` records the acceptance gate and attempted/accepted/rejected counts. "
         "`history_audit.json` checks binary history, reset, shifting and admitted commands. "
         "These are demonstration statistics, not held-out VLA evaluation scores.\n",
         encoding="utf-8",
@@ -286,13 +319,18 @@ def main(argv=None):
             sub.add_argument("--episodes", type=int, default=200)
             sub.add_argument("--max-steps", type=int, default=7200)
             sub.add_argument("--min-train-rows", type=int, default=320_000)
+            sub.add_argument("--episode-return-gt", type=float,
+                             help="Keep whole episodes with raw return strictly above this value")
+            sub.add_argument("--max-attempts", type=int,
+                             help="Total probe attempt cap; default 10x initial episodes when filtering")
         elif command == "upload":
             sub.add_argument("--repo-id", default=DATASET_REPO)
     args = parser.parse_args(argv)
     output = args.output_dir.expanduser().resolve()
     if args.command == "prepare":
         prepare(output, args.teacher_bundle.expanduser(), args.method, episodes=args.episodes,
-                max_steps=args.max_steps, min_train_rows=args.min_train_rows, profile_set=args.profile_set)
+                max_steps=args.max_steps, min_train_rows=args.min_train_rows, profile_set=args.profile_set,
+                episode_return_gt=args.episode_return_gt, max_attempts=args.max_attempts)
     elif args.command == "collect":
         collect(output)
     elif args.command == "export":

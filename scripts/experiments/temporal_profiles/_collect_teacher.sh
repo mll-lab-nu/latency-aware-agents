@@ -25,16 +25,21 @@ Environment variables:
   WORKSPACE_DIR       Parent workspace (default: parent of this checkout)
   OUTPUT_DIR          Shared dataset root; each method gets METHOD/seed_42
   GPU                 One physical CUDA device, default 0
-  EPISODES            Initial episodes, default 200 (add 50 to reach row target)
+  EPISODES            Initial accepted episodes, default 200 (add 50 for row target)
   MAX_ENV_STEPS       Raw-frame cap per episode, default 7200
   MIN_TRAIN_ROWS      Minimum training labels, default 320000
+  EPISODE_RETURN_GT   Optional strict minimum total episode return; keep whole episodes
+  MAX_ATTEMPTS       Total probe attempt cap (with filtering: default 10 * EPISODES)
   HF_DATASET_REPO     Default latency-sensitive-bench/temporal-profile-rollouts
   FORCE_INSTALL=1    Repair/create latency env using the existing installer
   SKIP_UPLOAD=1      Keep the completed dataset locally
 
 Timing is simulated at 10/10 Hz with the teacher's own profile, capacity 1,
 256 parallel environments, eight-decision history, 90/10 episode split, seed 42,
-split seed 0, deterministic actions, no filtering, one current student RGB image.
+split seed 0, deterministic actions, one current student RGB image.
+Filtering is off unless EPISODE_RETURN_GT is set. Accepted episodes keep every
+row; use the same cutoff for all methods. A new cutoff requires a fresh OUTPUT_DIR.
+MAX_ATTEMPTS includes rejected attempts and stays fixed through row-quota top-ups.
 7200 is the agreed comparison cap; current historical collector defaults to 3600.
 Use a dataset OUTPUT_DIR separate from training outputs. No W&B entity is needed.
 The saved profiles supply delay; do not run the background memory-copy workload.
@@ -104,10 +109,14 @@ export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/third_party/sample-factory:${REPO_R
 MODULE=scripts.experiments.temporal_profiles.rollout
 
 if [[ "${UPLOAD_ONLY}" != 1 ]]; then
+    COLLECTION_ARGS=()
+    if [[ -n "${EPISODE_RETURN_GT:-}" ]]; then COLLECTION_ARGS+=(--episode-return-gt "${EPISODE_RETURN_GT}"); fi
+    if [[ -n "${MAX_ATTEMPTS:-}" ]]; then COLLECTION_ARGS+=(--max-attempts "${MAX_ATTEMPTS}"); fi
     python -m "${MODULE}" prepare --output-dir "${RUN_DIR}" --method "${METHOD}" \
         --profile-set "${TEACHER_PROFILE_SET:-original}" \
         --teacher-bundle "${TEACHER_BUNDLE}" --episodes "${EPISODES:-200}" \
         --max-steps "${MAX_ENV_STEPS:-7200}" --min-train-rows "${MIN_TRAIN_ROWS:-320000}" \
+        "${COLLECTION_ARGS[@]}" \
         2>&1 | tee -a "${RUN_DIR}/prepare.log"
     if [[ ! -f "${RUN_DIR}/DONE" ]]; then
         if [[ ! -f "${RUN_DIR}/collection_complete.json" ]]; then

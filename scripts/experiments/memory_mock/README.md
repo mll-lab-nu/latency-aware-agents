@@ -93,8 +93,8 @@ from the older profiling run, including the older Temporal teacher.
 
 The recipe remains **10/10 FPS**, capacity **1**, **256** parallel environments,
 deterministic actions, seed **42**, eight-decision history (**24 values**),
-**7,200 raw frames** maximum per episode, no filtering and a **90/10 split by
-episode** with split seed **0**. Start with **200 episodes** and add **50** until
+**7,200 raw frames** maximum per episode, no filtering by default and a **90/10 split by
+episode** with split seed **0**. Start with **200 accepted episodes** and add **50** until
 the training split has at least **320,000 rows**. Actual episode and row counts
 can differ between methods. Teacher observations retain four stacked frames;
 VLA rows contain one current RGB image, history and the issued action (horizon 1).
@@ -127,6 +127,43 @@ The default dataset output root is
 `$WORKSPACE_DIR/outputs/memory_mock/flappy_3090_rollouts_20min`, but an inherited
 `OUTPUT_DIR` overrides it; the commands above set the dataset destination
 explicitly without changing the terminal's training output variable.
+
+### Optional episode-return filter
+
+Set `EPISODE_RETURN_GT` to keep only complete episodes whose **total raw return
+is strictly greater** than that cutoff. This is cumulative environment reward,
+not the number of pipes passed or the checkpoint's average training reward.
+Every row from an accepted episode is retained, including the eight-decision
+history; there is no row thinning. The default remains unfiltered when the
+variable is unset.
+
+Choose one cutoff from the teachers' measured episode-return distributions and
+apply it to all three methods. For example, the following enables **return >
+500** (an illustrative cutoff, not a measured recommendation):
+
+```bash
+export EPISODE_RETURN_GT=500
+export MAX_ATTEMPTS=2000
+COLLECTION_ROOT=/mnt/disk1/talha/outputs/irregular_rollouts_20min_filtered_run1
+# Run the three collection commands above using this COLLECTION_ROOT.
+```
+
+`EPISODES=200` now means 200 **qualifying** episodes. Rejected episodes do not
+count toward that target or the 320,000 training-row target. With a filter,
+`MAX_ATTEMPTS` defaults to ten times the initial episode target (2,000 by
+default); it is a total probe-attempt cap, including rejected episodes and
+row-quota top-ups. If the cap is exhausted before enough episodes qualify,
+collection stops before image replay rather than admitting low-return episodes.
+Use a fresh output root when changing the cutoff or attempt budget. A completed
+unfiltered dataset is not silently re-filtered by rerunning its launcher.
+
+The cutoff is saved in `protocol.json` and `collect.yaml`.
+`raw/filter_report.json` records it with attempted, accepted and rejected counts;
+`quality_report.json` summarizes accepted returns. Both demonstration splits are
+drawn from qualifying episodes. Evaluate the eventual policies on unfiltered
+held-out deployment episodes, and report collection acceptance rates alongside
+training-data sizes. Filtering selects successful demonstrations; it does not
+guarantee better downstream policies and may exclude difficult burst episodes.
 
 For each method, datasets are saved under
 `$COLLECTION_ROOT/METHOD/seed_42/lerobot` and `lerobot__val`, with raw Parquet,
