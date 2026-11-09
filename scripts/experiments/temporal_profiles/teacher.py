@@ -72,12 +72,16 @@ def download_profile(output: Path, method: str) -> Path:
     return destination / "profile.json"
 
 
-def teacher_spec(output: Path, profile: Path, method: str, seed: int) -> dict:
+def teacher_spec(output: Path, profile: Path, method: str, seed: int,
+                 wandb_entity: str, wandb_project: str | None) -> dict:
     spec = read_yaml(SPEC)
     spec["__base__"] = str((SPEC.parent / spec["__base__"]).resolve())
     spec.update(generated_root=str(output / "configs"), train_dir=str(output / "checkpoints"),
                 output_root=str(output / "teacher_runs"), seeds=[seed])
     spec["env"]["max_episode_steps"] = 0
+    spec["logging"]["wandb_entity"] = wandb_entity
+    if wandb_project is not None:
+        spec["logging"]["wandb_project"] = wandb_project
     # Pin defaults present in the released teacher, alongside the inherited
     # optimizer/rollout settings. The training input includes 24 history bits.
     spec["training"].update(
@@ -91,14 +95,22 @@ def teacher_spec(output: Path, profile: Path, method: str, seed: int) -> dict:
     return spec
 
 
-def prepare(output: Path, method: str, seed: int) -> None:
-    from scripts.experiment_runner.job_manifest import load_manifest
+def prepare(output: Path, method: str, seed: int, *, wandb_entity: str,
+            wandb_project: str | None = None) -> None:
+    from scripts.experiment_runner.job_manifest import load_manifest, write_manifest
     from scripts.sweeps.generate_sweep_configs import main as generate_configs
 
+    wandb_entity = wandb_entity.strip()
+    if not wandb_entity:
+        raise ValueError("wandb_entity must be your W&B username or team")
+    if wandb_project is not None:
+        wandb_project = wandb_project.strip()
+        if not wandb_project:
+            raise ValueError("wandb_project must be nonempty")
     output.mkdir(parents=True, exist_ok=True)
     profile = download_profile(output, method)
     manifest = validate_profile(profile, method)
-    spec = teacher_spec(output, profile, method, seed)
+    spec = teacher_spec(output, profile, method, seed, wandb_entity, wandb_project)
     settings = {"method": method, "seed": seed, "spec": spec,
                 "base_config": load_config(spec["__base__"]),
                 "profile_source": {"repo_id": PROFILE_REPO, "repo_type": "dataset",
@@ -126,9 +138,30 @@ def prepare(output: Path, method: str, seed: int) -> None:
     write_yaml(output / "sweep.yaml", spec)
     generate_configs(["--spec", str(output / "sweep.yaml"), "--eval-checkpoint-kind", "best"])
     job, = load_manifest(output / "configs/manifest.tsv")
-    shutil.copy2(job["train_config"], output / "train.yaml")
+    config = read_yaml(job["train_config"])
+    checkpoint_dir = Path(job["checkpoint_dir"])
+    if any(checkpoint_dir.glob("checkpoint_*.pth")):
+        restart_behavior = "resume"
+    elif any(checkpoint_dir.glob("*.pth")):
+        raise FileNotFoundError(
+            f"Saved weights exist in {checkpoint_dir}, but no latest training checkpoint; "
+            "refusing to start fresh over existing weights"
+        )
+    else:
+        # The shared loader intentionally requires a checkpoint for resume.
+        # restart preserves any failed startup directory by archiving it.
+        restart_behavior = "restart"
+    config["backend"]["restart_behavior"] = restart_behavior
+    # Distinct output directories get distinct W&B runs; resumes retain the ID.
+    job["wandb_name"] = f"{job['wandb_name']}-{protocol['run_id']}"
+    config["logging"]["wandb_name"] = job["wandb_name"]
+    write_yaml(Path(job["train_config"]), config)
+    write_yaml(output / "train.yaml", config)
+    write_manifest(output / "configs/manifest.tsv", [job])
     write_json_atomic(output / "job.json", job)
     print(f"Prepared {method}: {manifest['provenance']['fit_options']}")
+    print(f"Training startup: {restart_behavior}")
+    print(f"W&B: {wandb_entity}/{config['logging']['wandb_project']}, run {job['wandb_name']}")
     print(f"Training config: {output / 'train.yaml'}")
     print(f"Checkpoint directory: {job['checkpoint_dir']}")
 
@@ -276,12 +309,15 @@ def main(argv=None):
         if name == "prepare":
             sub.add_argument("--method", choices=METHODS, required=True)
             sub.add_argument("--seed", type=int, default=42)
+            sub.add_argument("--wandb-entity", required=True)
+            sub.add_argument("--wandb-project", help="Override the YAML W&B project")
         elif name == "upload":
             sub.add_argument("--repo-id", default=TEACHER_REPO)
     args = parser.parse_args(argv)
     output = args.output_dir.expanduser().resolve()
     if args.command == "prepare":
-        prepare(output, args.method, args.seed)
+        prepare(output, args.method, args.seed, wandb_entity=args.wandb_entity,
+                wandb_project=args.wandb_project)
     elif args.command == "export":
         export(output)
     else:

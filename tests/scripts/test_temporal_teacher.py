@@ -53,7 +53,7 @@ def test_prepare_downloads_only_own_profile_and_preserves_teacher_recipe(tmp_pat
         calls.append(kwargs)
         return str(snapshot)
     monkeypatch.setattr("huggingface_hub.snapshot_download", download)
-    teacher.prepare(tmp_path, method, 42)
+    teacher.prepare(tmp_path, method, 42, wandb_entity="test-team")
     assert calls[0] == {"repo_id": teacher.PROFILE_REPO, "repo_type": "dataset",
                         "revision": teacher.PROFILE_REVISION,
                         "allow_patterns": [f"{teacher.PROFILE_ROOT}/profiles/{method}/*"]}
@@ -68,19 +68,23 @@ def test_prepare_downloads_only_own_profile_and_preserves_teacher_recipe(tmp_pat
     assert cfg["training"]["encoder_mlp_layers"] == [512, 512]
     assert cfg["latency"]["method"] == method and not cfg["latency"]["add_latency_info"]
     assert cfg["latency"]["seed"] == 42
+    assert cfg["backend"]["restart_behavior"] == "restart"
+    assert cfg["logging"]["wandb_project"] == "flappy-teachers"
+    assert cfg["logging"]["wandb_entity"] == "test-team"
     assert not (tmp_path / "profile/profile.json").is_symlink()
     if method == "block":
         assert read_json(tmp_path / "profile/latency_block_model.json")["mean_block_length"] == 32
     first = read_json(tmp_path / "protocol.json")
-    teacher.prepare(tmp_path, method, 42)
+    teacher.prepare(tmp_path, method, 42, wandb_entity="test-team")
     assert read_json(tmp_path / "protocol.json") == first
+    assert load_config(tmp_path / "train.yaml")["logging"]["wandb_name"] == cfg["logging"]["wandb_name"]
     with pytest.raises(ValueError, match="settings changed"):
-        teacher.prepare(tmp_path, method, 43)
+        teacher.prepare(tmp_path, method, 43, wandb_entity="test-team")
 
 
 def test_rejects_held_out_sessions_and_edited_cached_profile(tmp_path, snapshot, monkeypatch):
     monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **kwargs: str(snapshot))
-    teacher.prepare(tmp_path, "block", 42)
+    teacher.prepare(tmp_path, "block", 42, wandb_entity="test-team")
     profile = tmp_path / "profile/profile.json"
     data = read_json(profile)
     data["provenance"]["session_ids"] = [0, 1, 2, 3, 4]
@@ -88,12 +92,66 @@ def test_rejects_held_out_sessions_and_edited_cached_profile(tmp_path, snapshot,
     with pytest.raises(ValueError, match="fitting sessions"):
         teacher.validate_profile(profile, "block")
     with pytest.raises(ValueError, match="Local profile changed"):
-        teacher.prepare(tmp_path, "block", 42)
+        teacher.prepare(tmp_path, "block", 42, wandb_entity="test-team")
+
+
+def test_startup_and_resume_reach_sample_factory_with_wandb(tmp_path, snapshot, monkeypatch):
+    from training.common.checkpoints import patch_sample_factory_checkpoint_loader
+    from training.common.config_adapter import apply_runtime_logging_config
+    from training.flappy_sf.integration import SAMPLE_FACTORY_CONFIG_PARSER, build_cli_args_from_config
+    from sample_factory.algo.learning.learner import Learner
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **kwargs: str(snapshot))
+    kwargs = {"wandb_entity": "test-team", "wandb_project": "teacher-check"}
+    teacher.prepare(tmp_path, "hmm", 42, **kwargs)
+    config = load_config(tmp_path / "train.yaml")
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
+    apply_runtime_logging_config(cfg, config["logging"])
+    assert cfg.with_wandb is True
+    assert cfg.wandb_user == "test-team" and cfg.wandb_project == "teacher-check"
+    assert cfg.wandb_unique_id == read_json(tmp_path / "job.json")["wandb_name"]
+    run_id = cfg.wandb_unique_id
+    assert cfg.restart_behavior == "restart"
+    # Exercise the real patched loader at exactly the point shown in the crash.
+    patch_sample_factory_checkpoint_loader()
+    learner = Learner.__new__(Learner)
+    learner.is_initialized = False
+    learner.cfg = cfg
+    learner.device = "cpu"
+    restored = []
+    learner._load_state = lambda state, load_progress: restored.append((state, load_progress))
+    learner.load_from_checkpoint(0)
+    assert restored == []
+
+    checkpoint_dir = Path(read_json(tmp_path / "job.json")["checkpoint_dir"])
+    checkpoint_dir.mkdir(parents=True)
+    checkpoint = checkpoint_dir / "checkpoint_000000001_4096.pth"
+    state = {"train_step": 1, "env_steps": 4096}
+    torch.save(state, checkpoint)
+    teacher.prepare(tmp_path, "hmm", 42, **kwargs)
+    config = load_config(tmp_path / "train.yaml")
+    cfg = SAMPLE_FACTORY_CONFIG_PARSER.parse_train(build_cli_args_from_config(config))
+    apply_runtime_logging_config(cfg, config["logging"])
+    assert cfg.restart_behavior == "resume" and cfg.wandb_unique_id == run_id
+    learner.cfg = cfg
+    learner.load_from_checkpoint(0)
+    assert restored == [(state, True)]
+    # An unreadable selected checkpoint must still fail, not start over.
+    checkpoint.write_bytes(b"invalid checkpoint")
+    with pytest.raises(Exception):
+        learner.load_from_checkpoint(0)
+    checkpoint.rename(checkpoint_dir / "best_000000001_4096_reward_1.pth")
+    with pytest.raises(FileNotFoundError, match="refusing to start fresh"):
+        teacher.prepare(tmp_path, "hmm", 42, **kwargs)
+
+    other = tmp_path / "new_run"
+    teacher.prepare(other, "hmm", 42, **kwargs)
+    assert load_config(other / "train.yaml")["logging"]["wandb_name"] != run_id
 
 
 def test_export_rejects_short_training_then_packages_selected_best(tmp_path, snapshot, monkeypatch):
     monkeypatch.setattr("huggingface_hub.snapshot_download", lambda **kwargs: str(snapshot))
-    teacher.prepare(tmp_path, "block", 42)
+    teacher.prepare(tmp_path, "block", 42, wandb_entity="test-team")
     cfg = load_config(tmp_path / "train.yaml")
     job = read_json(tmp_path / "job.json")
     root = Path(job["train_artifact_dir"])

@@ -18,12 +18,15 @@ Environment variables:
   OUTPUT_DIR          Shared root for all methods (each gets METHOD/seed_SEED)
   GPU                 One physical CUDA device, default 0
   SEED                Matched training/profile seed, default 42
+  WANDB_ENTITY        Required W&B username or team
+  WANDB_PROJECT       Optional override of YAML project flappy-teachers
   HF_MODEL_REPO       Default latency-sensitive-bench/temporal-profile-teachers
   FORCE_INSTALL=1     Repair/update the existing latency env with install.sh
   SKIP_UPLOAD=1       Keep completed checkpoints locally
 
 Authenticate using HF_TOKEN or hf auth login. The model repo is created private
 if absent; existing visibility is preserved. Run one script at a time per GPU.
+W&B is enabled in the YAML. Authenticate with WANDB_API_KEY or wandb login.
 Profiles are pinned to the uploaded flappy_3090_run1 revision: Temporal v13,
 HMM 2 states (original fit), block mean 32. No offline-selected refit is substituted.
 Rerun with the same OUTPUT_DIR/SEED to resume, including retrying failed uploads.
@@ -42,6 +45,7 @@ if [[ "$(uname -s)" != Linux ]]; then
 fi
 GPU="${GPU:-0}"
 SEED="${SEED:-42}"
+: "${WANDB_ENTITY:?Set WANDB_ENTITY to your W&B username or team}"
 if [[ -z "${GPU}" || "${GPU}" == *,* ]]; then
     echo "GPU must select exactly one CUDA device." >&2
     exit 2
@@ -101,7 +105,12 @@ bash scripts/bash_scripts/build_cuda_extensions.sh --env flappy
 
 MODULE=scripts.experiments.temporal_profiles.teacher
 # 2. Download only this method's bundle and generate the existing training recipe.
-python -m "${MODULE}" prepare --method "${METHOD}" --seed "${SEED}" --output-dir "${RUN_DIR}" \
+PREPARE_ARGS=(--method "${METHOD}" --seed "${SEED}" --output-dir "${RUN_DIR}"
+              --wandb-entity "${WANDB_ENTITY}")
+if [[ -n "${WANDB_PROJECT:-}" ]]; then
+    PREPARE_ARGS+=(--wandb-project "${WANDB_PROJECT}")
+fi
+python -m "${MODULE}" prepare "${PREPARE_ARGS[@]}" \
     2>&1 | tee -a "${RUN_DIR}/prepare.log"
 
 # 3. Resume interrupted training; skip it when a completed export already exists.

@@ -23,7 +23,8 @@ evaluation:
   max_env_steps: 3600
   suites: []
 logging:
-  wandb_project: null
+  wandb_project: flappy-teachers
+  wandb_entity: null  # Supplied by the launcher's WANDB_ENTITY.
   wandb_job_type: flappy_temporal_alternatives
   wandb_tags: [decision_v1, temporal_alternatives]
   video:

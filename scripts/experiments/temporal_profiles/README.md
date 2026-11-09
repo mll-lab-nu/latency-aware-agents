@@ -20,6 +20,8 @@ private; existing visibility is preserved.
 export WORKSPACE_DIR=/workspace
 export OUTPUT_DIR="$WORKSPACE_DIR/outputs/temporal_profiles/flappy_3090_teachers"
 export GPU=0
+export WANDB_ENTITY="your-wandb-username-or-team"
+# Authenticate beforehand with WANDB_API_KEY or wandb login.
 bash scripts/experiments/temporal_profiles/train_temporal.sh
 bash scripts/experiments/temporal_profiles/train_hmm.sh
 bash scripts/experiments/temporal_profiles/train_block.sh
@@ -31,6 +33,13 @@ seed 42. The source is `latency-sensitive-bench/temporal-profiles` at revision
 `1a4bd7bbc14815e0478810457ff204d4cf70636b`, run `20261109T002620386065Z`:
 the original Temporal, two-state HMM and block-32 fits. No refitting occurs.
 
+W&B is enabled in the experiment YAML under project `flappy-teachers`.
+`WANDB_ENTITY` is required; `WANDB_PROJECT` optionally overrides the YAML project.
+The scripts pass both settings into the training configuration. Credentials stay
+in `WANDB_API_KEY` or your W&B login. Each output directory gets a distinct run ID,
+reused on resume. Follow `episode_train/rolling_mean_return`,
+`episode_train/rolling_mean_length` and `episode_train/completed_decision_steps`.
+
 Outputs are separate under `$OUTPUT_DIR/METHOD/seed_42`. Rerun to resume training
 or retry an upload after export. `--help` lists controls including `SEED`,
 `HF_MODEL_REPO`, `FORCE_INSTALL=1` and `SKIP_UPLOAD=1`. Bundles retain best/latest
@@ -38,6 +47,12 @@ checkpoints, the exact profile, configs and logs. Selection uses training
 reward; the automatic final evaluation uses the latest checkpoint with 100
 episodes and a 3,600-frame cap. Demonstration collection, including its
 7,200-frame cap, is a later stage.
+
+Preparation selects a fresh start when no saved weights exist, and resumes when
+a latest checkpoint exists. Failed startup directories are archived by Sample
+Factory on a fresh start; corrupt checkpoints still fail explicitly. If upgrading
+an output prepared before W&B was enabled, choose a new `OUTPUT_DIR` because the
+old protocol froze different logging settings. Stop the old process first.
 
 ## Complete 30-case cohort
 
