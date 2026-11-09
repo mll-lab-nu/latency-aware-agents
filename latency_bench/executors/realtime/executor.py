@@ -745,6 +745,7 @@ class RealtimeLatencyExecutor(EpisodeExecutor):
             "episode_id": episode_id,
             "obs_id": task.obs_id,
             "obs_env_step": task.submit_env_step,
+            "observation_start_time_ms": task.observation_start_time_ms,
             "submitted": submitted,
         }
 

@@ -119,6 +119,41 @@ def test_calibration_stops_after_complete_episodes_with_enough_admitted_samples(
     assert [episode.episode_id for episode in result] == [0, 1]
 
 
+@pytest.mark.parametrize('fail_hook', [False, True])
+def test_warmup_callback_precedes_episodes_and_failure_closes_executor(tmp_path, monkeypatch, fail_hook):
+    events = []
+
+    class ProbeExecutor:
+        logger = None
+
+        def run_warmup(self):
+            events.append('warmup')
+            return {'warmup_status': 'stable'}
+
+        def run_episode(self, episode_id, seed, max_env_steps):
+            events.append('episode')
+            return EpisodeMetrics(episode_id=episode_id, episode_return=1, survival_steps=3,
+                                  episode_return_env=1, metadata={})
+
+        def close(self):
+            events.append('close')
+
+    def hook(metadata):
+        assert metadata == {'warmup_status': 'stable'}
+        events.append('load_ready')
+        if fail_hook:
+            raise RuntimeError('load failed')
+
+    monkeypatch.setattr(driver, 'build_executor', lambda *a, **kw: ProbeExecutor())
+    if fail_hook:
+        with pytest.raises(RuntimeError, match='load failed'):
+            run_from_config(_config(tmp_path), write_summary=False, on_warmup_complete=hook)
+        assert events == ['warmup', 'load_ready', 'close']
+    else:
+        run_from_config(_config(tmp_path), write_summary=False, on_warmup_complete=hook)
+        assert events == ['warmup', 'load_ready', 'episode', 'close']
+
+
 def _write_profile(tmp_path: Path) -> Path:
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()

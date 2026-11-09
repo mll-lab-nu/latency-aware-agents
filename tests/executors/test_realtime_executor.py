@@ -909,6 +909,7 @@ def test_env_process_records_tail_attempt_and_releases_observation_before_episod
             "obs_env_step": 0,
             "obs_id": 0,
             "observation_to_action_latency_ms": 1.0,
+            "observation_start_time_ms": 0.0,
             "submitted": True,
             "worker_id": 0,
             "worker_service_time_ms": 1.0,
@@ -1349,7 +1350,9 @@ def test_realtime_drops_observation_when_all_workers_are_busy():
     assert executor.logger is None
 
 
-def test_realtime_logs_capacity_drops_and_tail_completion_in_attempt_order(tmp_path):
+def test_realtime_logs_capacity_drops_and_tail_completion_in_attempt_order(tmp_path, monkeypatch):
+    capture_times = iter([100.0, 200.0, 300.0])
+    monkeypatch.setattr(realtime_executor, "monotonic_ms", lambda: next(capture_times))
     pool = ScriptedInferencePool(
         [CompletionScript(Action("slow"), ready_time_ms=1000.0, worker_id=0, device="cpu")],
         num_workers=1,
@@ -1374,6 +1377,7 @@ def test_realtime_logs_capacity_drops_and_tail_completion_in_attempt_order(tmp_p
             "obs_env_step": 0,
             "obs_id": 0,
             "observation_to_action_latency_ms": 1000.0,
+            "observation_start_time_ms": 100.0,
             "submitted": True,
             "worker_id": 0,
             "worker_service_time_ms": 1000.0,
@@ -1382,12 +1386,14 @@ def test_realtime_logs_capacity_drops_and_tail_completion_in_attempt_order(tmp_p
             "episode_id": 4,
             "obs_env_step": 1,
             "obs_id": 1,
+            "observation_start_time_ms": 200.0,
             "submitted": False,
         },
         {
             "episode_id": 4,
             "obs_env_step": 2,
             "obs_id": 2,
+            "observation_start_time_ms": 300.0,
             "submitted": False,
         },
     ]

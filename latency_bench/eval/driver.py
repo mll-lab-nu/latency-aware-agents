@@ -38,6 +38,7 @@ def run_from_config(
     *,
     write_summary: bool = True,
     on_episode_complete: Callable[[EpisodeMetrics], None] | None = None,
+    on_warmup_complete: Callable[[dict[str, Any]], None] | None = None,
     episode_ids: Sequence[int] | None = None,
     policy: Any | None = None,
     env: EnvAdapter | None = None,
@@ -84,8 +85,10 @@ def run_from_config(
         (output_dir / "resolved_config.yaml").write_text(
             yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
         )
+        warmup_metadata = executor.run_warmup()
+        if on_warmup_complete is not None:
+            on_warmup_complete(warmup_metadata)
         if isinstance(executor, BatchedExecutor):
-            warmup_metadata = executor.run_warmup()
             run_episodes_kwargs: dict[str, Any] = {
                 "episode_ids": selected_episode_ids,
                 "seeds": [_episode_seed(config, episode_id) for episode_id in selected_episode_ids],
@@ -98,7 +101,6 @@ def run_from_config(
                 (episode_id, warmup_metadata) for episode_id in selected_episode_ids
             )
         else:
-            warmup_metadata = executor.run_warmup()
             calibration_samples = (
                 config["evaluation"]["calibration_samples"]
                 if "calibration_samples" in config["evaluation"] else None
