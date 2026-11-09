@@ -83,7 +83,9 @@ bash scripts/experiments/temporal_profiles/collect_block.sh
 
 Each script activates `latency`, installing it with the existing installer if
 absent, then collects, audits, converts and uploads. New HF dataset repositories
-are private; existing visibility is preserved. `--help` lists the controls.
+are private; existing visibility is preserved. Set `HF_DATASET_PUBLIC=1` to make
+the entire destination dataset repository public, including existing runs. This
+also applies with `--upload-only` after a successful upload. `--help` lists the controls.
 
 The recipe reuses `scripts/tasks/decision_history/collect_vla_hist8.py`: simulated
 10/10 Hz, the teacher's fitted timing generator, capacity 1, deterministic teacher

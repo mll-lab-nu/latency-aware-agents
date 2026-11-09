@@ -277,7 +277,7 @@ def export(output: Path) -> None:
     print(f"VLA-ready datasets: {output / 'lerobot'} and {output / 'lerobot__val'}")
 
 
-def upload(output: Path, repo_id: str) -> dict:
+def upload(output: Path, repo_id: str, *, public: bool = False) -> dict:
     from huggingface_hub import HfApi
 
     (output / "DONE").read_bytes()
@@ -286,13 +286,20 @@ def upload(output: Path, repo_id: str) -> dict:
     source_run = read_json(output / "profile/profile.json")["source_run_id"]
     destination = f"flappy/{settings['method']}/{source_run}/seed_42/{protocol['run_id']}"
     receipt_path = output / "upload_receipt.json"
+    api = HfApi()
+    receipt = None
     if receipt_path.exists():
         receipt = read_json(receipt_path)
         if receipt["repo_id"] != repo_id or receipt["path_in_repo"] != destination:
             raise ValueError("This dataset was already uploaded to a different destination")
     else:
-        api = HfApi()
-        api.create_repo(repo_id, repo_type="dataset", private=True, exist_ok=True)
+        api.create_repo(repo_id, repo_type="dataset", private=not public, exist_ok=True)
+    if public:
+        # create_repo(exist_ok=True) preserves an existing repo's visibility.
+        # Apply the explicit request even when the files were already uploaded.
+        api.update_repo_settings(repo_id, repo_type="dataset", private=False)
+        print(f"Dataset repository is public: https://huggingface.co/datasets/{repo_id}")
+    if receipt is None:
         head = api.repo_info(repo_id, repo_type="dataset").sha
         if api.get_paths_info(repo_id, [destination], repo_type="dataset", revision=head):
             raise FileExistsError(f"HF output exists; refusing to overwrite {repo_id}/{destination}")
@@ -332,6 +339,8 @@ def main(argv=None):
                              help="Total probe attempt cap; default 10x initial episodes when filtering")
         elif command == "upload":
             sub.add_argument("--repo-id", default=DATASET_REPO)
+            sub.add_argument("--public", action="store_true",
+                             help="Make the destination dataset repository public, including existing runs")
     args = parser.parse_args(argv)
     output = args.output_dir.expanduser().resolve()
     if args.command == "prepare":
@@ -344,7 +353,7 @@ def main(argv=None):
     elif args.command == "export":
         export(output)
     else:
-        upload(output, args.repo_id)
+        upload(output, args.repo_id, public=args.public)
 
 
 if __name__ == "__main__":

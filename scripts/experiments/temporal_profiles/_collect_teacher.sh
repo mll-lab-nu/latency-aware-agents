@@ -32,6 +32,7 @@ Environment variables:
   EPISODE_RETURN_GT   Optional strict minimum total episode return; keep whole episodes
   MAX_ATTEMPTS       Total probe attempt cap (with filtering: default 10 * EPISODES)
   HF_DATASET_REPO     Default latency-sensitive-bench/temporal-profile-rollouts
+  HF_DATASET_PUBLIC=1 Make the destination dataset repository public on upload
   FORCE_INSTALL=1    Repair/create latency env using the existing installer
   SKIP_UPLOAD=1      Keep the completed dataset locally
 
@@ -48,7 +49,9 @@ Use a dataset OUTPUT_DIR separate from training outputs. No W&B entity is needed
 The saved profiles supply delay; do not run the background memory-copy workload.
 
 Authenticate using HF_TOKEN or hf auth login. A new dataset repo is private;
-existing visibility is preserved. No checkpoint weights are uploaded.
+existing visibility is preserved unless HF_DATASET_PUBLIC=1 is set. That option
+makes the entire destination repo public, including previously uploaded runs.
+It also applies with --upload-only. No checkpoint weights are uploaded.
 Rerunning a completed collection reuses its data. Partial GPU image replay
 retains the existing collector's restart restriction; use a fresh OUTPUT_DIR.
 To reduce image memory, use PARALLEL_ENVS=8 with a fresh OUTPUT_DIR. Both phases
@@ -144,8 +147,11 @@ if [[ "${UPLOAD_ONLY}" != 1 ]]; then
     fi
 fi
 if [[ "${UPLOAD_ONLY}" == 1 || "${SKIP_UPLOAD:-0}" != 1 ]]; then
+    UPLOAD_ARGS=()
+    if [[ "${HF_DATASET_PUBLIC:-0}" == 1 ]]; then UPLOAD_ARGS+=(--public); fi
     python -m "${MODULE}" upload --output-dir "${RUN_DIR}" \
         --repo-id "${HF_DATASET_REPO:-latency-sensitive-bench/temporal-profile-rollouts}" \
+        "${UPLOAD_ARGS[@]}" \
         2>&1 | tee -a "${RUN_DIR}/upload.log"
 fi
 echo "VLA training dataset: ${RUN_DIR}/lerobot"

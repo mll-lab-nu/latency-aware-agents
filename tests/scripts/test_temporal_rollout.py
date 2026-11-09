@@ -224,9 +224,15 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(
     shutil.rmtree(bundle)
 
     uploads = []
+    visibility_updates = []
+    public = method == "temporal"
     class Api:
         def create_repo(self, repo, **kwargs):
-            assert kwargs == {"repo_type": "dataset", "private": True, "exist_ok": True}
+            assert kwargs == {"repo_type": "dataset", "private": not public, "exist_ok": True}
+        def update_repo_settings(self, repo, **kwargs):
+            assert repo == rollout.DATASET_REPO
+            assert kwargs == {"repo_type": "dataset", "private": False}
+            visibility_updates.append(repo)
         def repo_info(self, *args, **kwargs):
             return SimpleNamespace(sha="before")
         def get_paths_info(self, *args, **kwargs):
@@ -238,15 +244,20 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(
             return SimpleNamespace(oid="after", commit_url="https://example.test/commit/after")
     monkeypatch.setattr("huggingface_hub.HfApi", Api)
     with pytest.raises(PermissionError):
-        rollout.upload(output, rollout.DATASET_REPO)
+        rollout.upload(output, rollout.DATASET_REPO, public=public)
     assert (output / "DONE").exists() and not (output / "upload_receipt.json").exists()
-    receipt = rollout.upload(output, rollout.DATASET_REPO)
+    receipt = rollout.upload(output, rollout.DATASET_REPO, public=public)
+    assert len(visibility_updates) == (2 if public else 0)
     assert receipt["revision"] == "after" and receipt["repo_type"] == "dataset"
     assert receipt["path_in_repo"].startswith(f"flappy/{method}/{source['source_run']}/seed_42/")
     assert uploads[-1]["parent_commit"] == "before"
     assert "lerobot/**" in uploads[-1]["allow_patterns"]
     assert not any("checkpoint" in pattern for pattern in uploads[-1]["allow_patterns"])
     assert rollout.upload(output, rollout.DATASET_REPO) == receipt and len(uploads) == 2
+    # An explicit public request must also work with an existing upload receipt.
+    prior_updates = len(visibility_updates)
+    assert rollout.upload(output, rollout.DATASET_REPO, public=True) == receipt
+    assert len(visibility_updates) == prior_updates + 1 and len(uploads) == 2
 
 
 def test_completed_parquet_recovers_without_probe_file_or_gpu_rollout(tmp_path, local_bundle, monkeypatch):

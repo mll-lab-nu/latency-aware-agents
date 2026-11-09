@@ -114,6 +114,7 @@ COLLECTION_ROOT=/mnt/disk1/talha/outputs/irregular_rollouts_20min_18k_run1
 export GPU=0
 export MAX_ENV_STEPS=18000
 export PARALLEL_ENVS=8
+export HF_DATASET_PUBLIC=1
 
 TEACHER_BUNDLE="$TEACHER_ROOT/temporal/seed_42/bundle" OUTPUT_DIR="$COLLECTION_ROOT" \
   bash scripts/experiments/memory_mock/collect_temporal.sh
@@ -133,6 +134,11 @@ The default dataset output root is
 `$WORKSPACE_DIR/outputs/memory_mock/flappy_3090_rollouts_20min`, but an inherited
 `OUTPUT_DIR` overrides it; the commands above set the dataset destination
 explicitly without changing the terminal's training output variable.
+
+`HF_DATASET_PUBLIC=1` makes the entire destination dataset repository public on
+upload, including existing runs. It also works with `--upload-only` for an already
+uploaded dataset, without recollecting or reuploading its files. Without this
+option, new repositories are private and existing visibility is preserved.
 
 For long episodes, reduce the images retained in RAM with `PARALLEL_ENVS=8`
 (default: 256). This sets the same environment count for both probe and replay;
