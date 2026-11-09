@@ -93,12 +93,16 @@ from the older profiling run, including the older Temporal teacher.
 
 The recipe remains **10/10 FPS**, capacity **1**, **256** parallel environments,
 deterministic actions, seed **42**, eight-decision history (**24 values**),
-**7,200 raw frames** maximum per episode, no filtering by default and a **90/10 split by
+**18,000 raw frames** maximum per episode, no filtering by default and a **90/10 split by
 episode** with split seed **0**. Start with **200 accepted episodes** and add **50** until
 the training split has at least **320,000 rows**. Actual episode and row counts
 can differ between methods. Teacher observations retain four stacked frames;
 VLA rows contain one current RGB image, history and the issued action (horizon 1).
 The task prompt follows the existing H8 collector, without added latency text.
+The frame cap matches the archived main-paper Flappy profile collections at
+10 FPS. Earlier 7,200-frame datasets need a fresh collection to use this cap;
+use a new output root and set `MAX_ENV_STEPS=18000` explicitly if your shell
+still has the earlier value exported.
 
 From the repository root, set `TEACHER_ROOT` to the output folder used for the
 new training runs. Use a **separate** collection root and run one method at a
@@ -106,8 +110,10 @@ time on a free GPU:
 
 ```bash
 TEACHER_ROOT=/absolute/path/to/your/existing/teacher_training_output
-COLLECTION_ROOT=/mnt/disk1/talha/outputs/irregular_rollouts_20min_run1
+COLLECTION_ROOT=/mnt/disk1/talha/outputs/irregular_rollouts_20min_18k_run1
 export GPU=0
+export MAX_ENV_STEPS=18000
+export PARALLEL_ENVS=8
 
 TEACHER_BUNDLE="$TEACHER_ROOT/temporal/seed_42/bundle" OUTPUT_DIR="$COLLECTION_ROOT" \
   bash scripts/experiments/memory_mock/collect_temporal.sh
@@ -128,9 +134,11 @@ The default dataset output root is
 `OUTPUT_DIR` overrides it; the commands above set the dataset destination
 explicitly without changing the terminal's training output variable.
 
-For long episodes, reduce the images retained in RAM with `PARALLEL_ENVS=16`
+For long episodes, reduce the images retained in RAM with `PARALLEL_ENVS=8`
 (default: 256). This sets the same environment count for both probe and replay;
 the total episode target, frame cap, FPS and filtering settings remain unchanged.
+The example above uses 8 because the 18,000-frame cap permits 2.5 times as many
+retained images per active episode as the earlier 7,200-frame cap.
 Use a fresh `OUTPUT_DIR` when changing this count, including after an interrupted
 replay. The chosen count is recorded in `collect.yaml` and `protocol.json`.
 

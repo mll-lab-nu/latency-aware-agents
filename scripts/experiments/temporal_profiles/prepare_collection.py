@@ -8,7 +8,7 @@ from latency_bench.integrations.sample_factory.teacher_config import load_rollou
 from latency_bench.utils.io import write_yaml
 
 
-def prepare(checkpoint: Path, profile: Path, output: Path, *, episodes=200, max_steps=7200,
+def prepare(checkpoint: Path, profile: Path, output: Path, *, episodes=200, max_steps=18000,
             parallel_envs=256):
     if not checkpoint.is_file():
         raise ValueError("--checkpoint must identify the selected teacher checkpoint file")
@@ -62,7 +62,7 @@ def main():
     parser.add_argument("--profile-path", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--episodes", type=int, default=200)
-    parser.add_argument("--max-steps", type=int, default=7200)
+    parser.add_argument("--max-steps", type=int, default=18000)
     parser.add_argument("--parallel-envs", type=int, default=256,
                         help="Environment count shared by probe and image replay")
     args = parser.parse_args()

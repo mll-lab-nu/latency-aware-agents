@@ -72,7 +72,7 @@ def test_local_best_and_own_profile_preserve_recipe(tmp_path, local_bundle, monk
     assert cfg["latency"]["profile_path"] == str(output / "profile/profile.json")
     assert cfg["executor"]["mode"] == "simulated"
     assert cfg["executor"]["parallel_envs"] == cfg["collection"]["replay_num_envs"] == 256
-    assert cfg["evaluation"] == {"episodes": 200, "max_env_steps": 7200}
+    assert cfg["evaluation"] == {"episodes": 200, "max_env_steps": 18000}
     assert cfg["env"]["env_fps"] == cfg["env"]["obs_fps"] == 10
     assert cfg["collection"]["filter_preset"] == "none"
     assert cfg["collection"]["two_pass"] is True and cfg["collection"]["context_window"] == 1
@@ -154,11 +154,14 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(
         tmp_path, local_bundle, monkeypatch, profile_set, method, parallel_envs):
     bundle = local_bundle(method, profile_set)
     output = tmp_path / "rollout"
-    settings = dict(episodes=10, min_train_rows=50, profile_set=profile_set, parallel_envs=parallel_envs)
+    max_steps = 7200 if profile_set == "original" else 18000
+    settings = dict(episodes=10, min_train_rows=50, profile_set=profile_set,
+                    parallel_envs=parallel_envs, max_steps=max_steps)
     rollout.prepare(output, bundle, method, **settings)
     rollout.prepare(output, bundle, method, **settings)
     saved = read_json(output / "protocol.json")["settings"]
     assert saved["parallel_envs"] == saved["replay_num_envs"] == parallel_envs
+    assert saved["max_episode_raw_frames"] == max_steps
     with pytest.raises(ValueError, match="settings changed"):
         rollout.prepare(output, bundle, method, **{**settings, "parallel_envs": parallel_envs + 1})
     image = tmp_path / "frame.png"
@@ -168,6 +171,7 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(
     def fake_collection(config):
         calls.append(deepcopy(config))
         assert config["executor"]["parallel_envs"] == config["collection"]["replay_num_envs"] == parallel_envs
+        assert config["evaluation"]["max_env_steps"] == max_steps
         raw = Path(config["logging"]["output_dir"])
         episodes = config["evaluation"]["episodes"]
         if config["collection"]["probe_only"]:
@@ -197,6 +201,7 @@ def test_quota_probe_replay_and_vla_conversion_then_upload_retry(
     source = teacher.PROFILE_SETS[profile_set]
     readme = (output / "README.md").read_text()
     assert f"{parallel_envs} environments" in readme
+    assert f"{max_steps:,}-raw-frame episode cap" in readme
     assert source["repo_id"] in readme and source["revision"] in readme
     launcher = Path(teacher.__file__).parent.parent / source["launcher_dir"] / f"collect_{method}.sh"
     assert (output / "code" / launcher.name).read_bytes() == launcher.read_bytes()
@@ -332,7 +337,8 @@ def test_return_filtered_probe_topups_and_attempt_exhaustion(tmp_path, local_bun
                 execution_factory=lambda **kw: ProbeExecution(),
                 task={"integration_name": "flappy", "action_spec": action_spec_for_env("flappy")},
                 output_dir=raw, max_episodes=config["evaluation"]["episodes"],
-                max_steps_per_episode=7200, val_fraction=.1, split_seed=0, num_envs=256,
+                max_steps_per_episode=config["evaluation"]["max_env_steps"],
+                val_fraction=.1, split_seed=0, num_envs=256,
                 base_seed=42, two_pass=True, probe_only=True,
                 episode_return_gt=options["episode_return_gt"], max_attempts=options["max_attempts"],
             )

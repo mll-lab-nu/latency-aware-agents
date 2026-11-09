@@ -27,7 +27,7 @@ Environment variables:
   GPU                 One physical CUDA device, default 0
   PARALLEL_ENVS       Concurrent environments in BOTH probe and replay, default 256
   EPISODES            Initial accepted episodes, default 200 (add 50 for row target)
-  MAX_ENV_STEPS       Raw-frame cap per episode, default 7200
+  MAX_ENV_STEPS       Raw-frame cap per episode, default 18000
   MIN_TRAIN_ROWS      Minimum training labels, default 320000
   EPISODE_RETURN_GT   Optional strict minimum total episode return; keep whole episodes
   MAX_ATTEMPTS       Total probe attempt cap (with filtering: default 10 * EPISODES)
@@ -41,7 +41,9 @@ split seed 0, deterministic actions, one current student RGB image.
 Filtering is off unless EPISODE_RETURN_GT is set. Accepted episodes keep every
 row; use the same cutoff for all methods. A new cutoff requires a fresh OUTPUT_DIR.
 MAX_ATTEMPTS includes rejected attempts and stays fixed through row-quota top-ups.
-7200 is the agreed comparison cap; current historical collector defaults to 3600.
+18000 matches the archived main-paper Flappy profile collection cap at 10 FPS.
+Earlier 7200-frame runs require a fresh OUTPUT_DIR for the longer collection;
+set MAX_ENV_STEPS=7200 explicitly to reuse an earlier run with its original cap.
 Use a dataset OUTPUT_DIR separate from training outputs. No W&B entity is needed.
 The saved profiles supply delay; do not run the background memory-copy workload.
 
@@ -49,7 +51,7 @@ Authenticate using HF_TOKEN or hf auth login. A new dataset repo is private;
 existing visibility is preserved. No checkpoint weights are uploaded.
 Rerunning a completed collection reuses its data. Partial GPU image replay
 retains the existing collector's restart restriction; use a fresh OUTPUT_DIR.
-To reduce image memory, use PARALLEL_ENVS=16 with a fresh OUTPUT_DIR. Both phases
+To reduce image memory, use PARALLEL_ENVS=8 with a fresh OUTPUT_DIR. Both phases
 use this count; EPISODES still controls the total number of accepted episodes.
 After an upload failure, retry WITHOUT GPU collection or TEACHER_BUNDLE:
   OUTPUT_DIR=/same/root bash .../collect_METHOD.sh --upload-only
@@ -118,7 +120,7 @@ if [[ "${UPLOAD_ONLY}" != 1 ]]; then
     python -m "${MODULE}" prepare --output-dir "${RUN_DIR}" --method "${METHOD}" \
         --profile-set "${TEACHER_PROFILE_SET:-original}" \
         --teacher-bundle "${TEACHER_BUNDLE}" --episodes "${EPISODES:-200}" \
-        --max-steps "${MAX_ENV_STEPS:-7200}" --min-train-rows "${MIN_TRAIN_ROWS:-320000}" \
+        --max-steps "${MAX_ENV_STEPS:-18000}" --min-train-rows "${MIN_TRAIN_ROWS:-320000}" \
         --parallel-envs "${PARALLEL_ENVS:-256}" \
         "${COLLECTION_ARGS[@]}" \
         2>&1 | tee -a "${RUN_DIR}/prepare.log"

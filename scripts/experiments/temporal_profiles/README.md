@@ -46,7 +46,7 @@ or retry an upload after export. `--help` lists controls including `SEED`,
 checkpoints, the exact profile, configs and logs. Selection uses training
 reward; the automatic final evaluation uses the latest checkpoint with 100
 episodes and a 3,600-frame cap. Demonstration collection, including its
-7,200-frame cap, is a later stage.
+18,000-frame cap, is a later stage.
 
 Preparation selects a fresh start when no saved weights exist, and resumes when
 a latest checkpoint exists. Failed startup directories are archived by Sample
@@ -89,10 +89,11 @@ The recipe reuses `scripts/tasks/decision_history/collect_vla_hist8.py`: simulat
 10/10 Hz, the teacher's fitted timing generator, capacity 1, deterministic teacher
 actions, 256 probe/replay environments, two-pass collection, no filtering, 90/10
 episode split with split seed 0, and collection seed 42. Start at 200 episodes and
-add 50 until there are at least 320,000 training labels. The default cap is the
-explicitly chosen **7,200 raw frames**, rather than the current reference source's
-3,600-frame Flappy default. `EPISODES`, `MAX_ENV_STEPS` and `MIN_TRAIN_ROWS` expose
-those budgets; changes require a new output directory. The game clock is simulated,
+add 50 until there are at least 320,000 training labels. The default cap is
+**18,000 raw frames**, matching the archived main-paper Flappy profile collections
+at 10 FPS. `EPISODES`, `MAX_ENV_STEPS` and `MIN_TRAIN_ROWS` expose those budgets;
+changes require a new output directory. Set `MAX_ENV_STEPS=18000` explicitly if
+your shell still exports 7200 from earlier runs. The game clock is simulated,
 so collection does not wait for wall-clock 10 FPS.
 
 Outputs are under `$OUTPUT_DIR/METHOD/seed_42`:

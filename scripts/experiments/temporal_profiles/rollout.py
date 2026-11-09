@@ -18,7 +18,7 @@ from scripts.experiments.temporal_profiles import prepare_collection, teacher
 DATASET_REPO = "latency-sensitive-bench/temporal-profile-rollouts"
 
 
-def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=7200,
+def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=18000,
             min_train_rows=320_000, profile_set="original", episode_return_gt=None,
             max_attempts=None, parallel_envs=256) -> None:
     """Select the recorded best checkpoint and keep its profile beside the export."""
@@ -96,7 +96,10 @@ def prepare(output: Path, bundle: Path, method: str, *, episodes=200, max_steps=
             "settings": settings, "run_id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"),
             "profile_set": profile_set,
             "reference_collector": "scripts/tasks/decision_history/collect_vla_hist8.py",
-            "budget_note": "7200 raw frames is the explicitly chosen comparison cap; current reference source defaults to 3600 for Flappy.",
+            "budget_note": (
+                f"Episode cap: {max_steps} raw frames. Archived main-paper Flappy profile "
+                "collections used 18000 raw frames at 10 FPS."
+            ),
             "repository_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip(),
             "working_tree": subprocess.check_output(["git", "status", "--short"], cwd=REPO_ROOT, text=True).splitlines(),
         })
@@ -249,8 +252,8 @@ def export(output: Path) -> None:
         f"{settings['max_episode_raw_frames']:,}-raw-frame episode cap, two-pass probe/replay, "
         f"{settings['parallel_envs']} environments, 90/10 episode split (seed 0). "
         f"{filtering}Start at {settings['initial_episodes']} accepted episodes and add 50 until at least "
-        f"{settings['min_train_rows']:,} training rows. The 7,200-frame default is an explicit "
-        "comparison setting, not a claim that every archived dataset used that cap.\n\n"
+        f"{settings['min_train_rows']:,} training rows. The archived main-paper Flappy "
+        "profile collection cap is 18,000 raw frames at 10 FPS.\n\n"
         "`lerobot/` and `lerobot__val/` are the StarVLA training/validation datasets. "
         "Images are embedded in Parquet. Each row preserves the current RGB image, "
         "24 binary values for eight completed decisions, and the teacher-issued action. "
@@ -319,7 +322,7 @@ def main(argv=None):
             sub.add_argument("--method", choices=(*teacher.METHODS, "ar1", "arma"), required=True)
             sub.add_argument("--profile-set", choices=teacher.PROFILE_SETS, default="original")
             sub.add_argument("--episodes", type=int, default=200)
-            sub.add_argument("--max-steps", type=int, default=7200)
+            sub.add_argument("--max-steps", type=int, default=18000)
             sub.add_argument("--min-train-rows", type=int, default=320_000)
             sub.add_argument("--parallel-envs", type=int, default=256,
                              help="Environment count shared by probe and image replay")
