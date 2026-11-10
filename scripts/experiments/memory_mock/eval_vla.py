@@ -54,6 +54,9 @@ def prepare(args):
         "backbone_path": str(backbone), "worker_python_executable": sys.executable,
         "device": "cuda:0", "unnorm_key": "new_embodiment",
         "prompt_mode": "latency_neutral", "state_source": "transport",
+        # Training's generated `lerobot` mixture maps to this DataConfig. Its
+        # dataset path/registration is unavailable on the profiling server.
+        "normalization_robot_type": "rl_games_flappy",
         "deterministic": True, "actions": ["noop", "flap"],
     }
     config["evaluation"] = {

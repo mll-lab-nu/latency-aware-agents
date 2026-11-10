@@ -234,6 +234,21 @@ def test_starvla_passes_latest_raw_frame_and_base_prompt_by_default(monkeypatch,
     assert output.action.value == 1
 
 
+def test_starvla_passes_explicit_training_normalization_config(monkeypatch, tmp_path):
+    received = {}
+
+    class Wrapper(FakePolicyServerWrapper):
+        def __init__(self, *, normalization_robot_type, **kwargs):
+            received["robot_type"] = normalization_robot_type
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(starvla_runtime, "load_policy_wrapper_class", lambda: Wrapper)
+    config = _config(tmp_path)
+    config["policy"]["normalization_robot_type"] = "rl_games_flappy"
+    build_policy(config, ActionResolver(config["env"]))
+    assert received == {"robot_type": "rl_games_flappy"}
+
+
 def test_starvla_uses_explicit_multiview_deployment_actions(monkeypatch, tmp_path: Path):
     from latency_bench.policy import starvla
 

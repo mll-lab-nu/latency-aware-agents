@@ -452,6 +452,9 @@ weights. Real inference completion determines action availability. There is no
 sampled latency profile and no background memory-copy process. The training
 dataset and optimizer-state directories are not downloaded. The explicit local
 backbone path replaces the training server path embedded in the model config.
+The launchers explicitly select the training DataConfig, `rl_games_flappy`, for
+normalization. This avoids looking up the training-only `lerobot` mixture on the
+profiling server while retaining the checkpoint's saved normalization statistics.
 
 ```bash
 # On the profiling GPU server, from the repository root. Run sequentially.

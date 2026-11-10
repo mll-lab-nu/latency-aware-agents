@@ -699,6 +699,8 @@ def build_starvla_policy(
     )
     if "backbone_path" in policy_cfg:
         wrapper_kwargs["backbone_path"] = policy_cfg["backbone_path"]
+    if "normalization_robot_type" in policy_cfg:
+        wrapper_kwargs["normalization_robot_type"] = policy_cfg["normalization_robot_type"]
     if integration_env_name == "gymnasium":
         action_space = gymnasium_action_space_contract(env_cfg)
         wrapper_kwargs["rl_games_action_env_dim"] = int(

@@ -46,6 +46,7 @@ class PolicyServerWrapper:
 
     _rl_games_gymnasium_action_space_type = "discrete"
     _rl_games_gymnasium_robot_type = None
+    _normalization_robot_type = None
 
     def __init__(
         self,
@@ -61,6 +62,7 @@ class PolicyServerWrapper:
         rl_games_gymnasium_action_space_type: str = "discrete",
         rl_games_gymnasium_robot_type: Optional[str] = None,
         backbone_path: Optional[str] = None,
+        normalization_robot_type: Optional[str] = None,
     ) -> None:
         self._ckpt_path = str(ckpt_path)
         self._action_output_mode = action_output_mode
@@ -68,6 +70,7 @@ class PolicyServerWrapper:
         self._rl_games_action_env_dim = rl_games_action_env_dim
         self._rl_games_gymnasium_action_space_type = rl_games_gymnasium_action_space_type
         self._rl_games_gymnasium_robot_type = rl_games_gymnasium_robot_type
+        self._normalization_robot_type = normalization_robot_type
         self._rl_games_action_layout = rl_games_action_layout
         self._rl_games_multibinary_threshold = rl_games_multibinary_threshold
 
@@ -144,7 +147,15 @@ class PolicyServerWrapper:
     def _get_processor(self, unnorm_key: Optional[str]) -> PolicyNormProcessor:
         cache_key = unnorm_key if unnorm_key is not None else "__default__"
         if cache_key not in self._norm_processors:
-            if self._rl_games_env_name == "gymnasium":
+            if self._normalization_robot_type is not None:
+                # Explicit training DataConfig for checkpoints whose custom
+                # dataset mixture is not registered on the inference host.
+                processor = PolicyNormProcessor(
+                    self._ckpt_path,
+                    unnorm_key=unnorm_key,
+                    robot_type=self._normalization_robot_type,
+                )
+            elif self._rl_games_env_name == "gymnasium":
                 processor = PolicyNormProcessor(
                     self._ckpt_path,
                     unnorm_key=unnorm_key,

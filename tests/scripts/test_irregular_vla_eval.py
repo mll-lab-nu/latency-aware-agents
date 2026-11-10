@@ -44,6 +44,7 @@ def test_download_then_realtime_config_preserves_history_and_records_revisions(t
     assert config["policy"]["root"] == str(snapshot / method)
     assert config["policy"]["state_source"] == "transport"
     assert config["policy"]["prompt_mode"] == "latency_neutral"
+    assert config["policy"]["normalization_robot_type"] == "rl_games_flappy"
     assert config["env"]["action_history_decisions"] == 8
     assert config["env"]["frame_stack"] == 1
     assert config["env"]["env_fps"] == config["env"]["obs_fps"] == 10

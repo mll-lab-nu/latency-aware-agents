@@ -381,6 +381,30 @@ def test_policy_wrapper_gymnasium_stateless_example_skips_state_normalization():
     assert prediction["actions"].tolist() == [[[1]]]
 
 
+def test_policy_wrapper_initializes_with_explicit_training_data_config():
+    module = _load_policy_wrapper_module()
+    calls = []
+
+    class Processor(FakeProcessor):
+        def __init__(self, checkpoint, *, unnorm_key, robot_type):
+            super().__init__()
+            calls.append((checkpoint, unnorm_key, robot_type))
+
+    module.PolicyNormProcessor = Processor
+    module.baseframework.from_pretrained = lambda *args, **kwargs: FakeFramework([[[0, 1]]])
+    module.read_mode_config = lambda path: (
+        {"framework": {"action_model": {"action_horizon": 1}},
+         "datasets": {"vla_data": {"data_mix": "lerobot"}}},
+        {"new_embodiment": {}},
+    )
+    wrapper = module.PolicyServerWrapper(
+        "checkpoint.pt", device="cpu", unnorm_key="new_embodiment",
+        rl_games_env_name="flappy", normalization_robot_type="rl_games_flappy",
+    )
+    wrapper._get_processor("new_embodiment")
+    assert calls == [("checkpoint.pt", "new_embodiment", "rl_games_flappy")]
+
+
 def test_policy_wrapper_gymnasium_resolves_training_data_config():
     policy_wrapper_module = _load_policy_wrapper_module()
     calls = []
