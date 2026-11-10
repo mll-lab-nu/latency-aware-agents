@@ -235,8 +235,8 @@ recipe and global batch. The earlier `final_profile_training` Bridge recipes
 are not the H8 recipe used for this checkpoint.
 
 Across these three launchers, only the dataset and run identity change:
-all use the requested **5,000-update checkpoint interval** instead of the
-paper's 500-update interval. Optimization and validation settings stay the same.
+all use the requested **5,000-update checkpoint and validation intervals**
+instead of the paper's 500-update intervals. Optimization settings stay the same.
 
 | Setting | Shared training settings |
 | --- | --- |
@@ -251,7 +251,7 @@ paper's 500-update interval. Optimization and validation settings stay the same.
 | Schedule/precision | Cosine with minimum LR ratio `1/30`; BF16, DeepSpeed ZeRO-2, gradient checkpointing |
 | Data loading | Shuffle; 16 train/eval workers per GPU; prefetch 4; all training rows |
 | Checkpoints | Save at update **5,000**, at the end; `save_best_model=false`, `save_final_model=true` |
-| Validation | Every **500** updates; 50 held-out dataset batches |
+| Validation | At update **5,000**, at the end; 50 held-out dataset batches |
 | Environment rollouts | Disabled during and immediately after training |
 
 This preserves the training recipe; updated software/hardware and different

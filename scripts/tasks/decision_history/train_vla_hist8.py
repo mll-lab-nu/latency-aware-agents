@@ -140,7 +140,8 @@ def main() -> None:
     run(args)
 
 
-def run(args: argparse.Namespace, *, prepare_only: bool = False, save_interval: int | None = None) -> None:
+def run(args: argparse.Namespace, *, prepare_only: bool = False,
+        save_interval: int | None = None, eval_interval: int | None = None) -> None:
     """Run the paper recipe, also used by matched profile-data experiments."""
     args.dataset_dir = args.dataset_dir.resolve()
     args.base_model_dir = args.base_model_dir.resolve()
@@ -148,6 +149,8 @@ def run(args: argparse.Namespace, *, prepare_only: bool = False, save_interval: 
     cfg = training_config(args)
     if save_interval is not None:
         cfg.trainer.save_interval = save_interval
+    if eval_interval is not None:
+        cfg.trainer.eval_interval = eval_interval
     run_dir = args.output_root / cfg.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     config_path = run_dir / "train.yaml"
@@ -169,6 +172,7 @@ def run(args: argparse.Namespace, *, prepare_only: bool = False, save_interval: 
         "initialization_seed": 42, "vlm_lr": args.vlm_lr,
         "max_train_steps": cfg.trainer.max_train_steps,
         "save_interval": cfg.trainer.save_interval,
+        "eval_interval": cfg.trainer.eval_interval,
         "stop_after_steps": args.stop_after_steps,
         "num_workers_per_rank": cfg.datasets.vla_data.num_workers,
         "eval_num_workers_per_rank": cfg.datasets.vla_data.eval_num_workers,

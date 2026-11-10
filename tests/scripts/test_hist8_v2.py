@@ -210,7 +210,8 @@ def test_history_training_uses_named_run_and_resumes_recorded_wandb_id(tmp_path,
     from scripts.tasks.decision_history import train_vla_hist8 as module
 
     revision = ["training-source"]
-    config = OmegaConf.create({"run_id": "named-run", "trainer": {"max_train_steps": 5000, "save_interval": 500},
+    config = OmegaConf.create({"run_id": "named-run", "trainer": {
+        "max_train_steps": 5000, "save_interval": 500, "eval_interval": 500},
         "datasets": {"vla_data": {"num_workers": 16, "eval_num_workers": 16, "prefetch_factor": 2}}})
     calls = []
     monkeypatch.setattr(module, "ROOT", tmp_path)

@@ -107,7 +107,7 @@ def main() -> None:
     write_json_atomic(record_path, record)
     print(f"Training {args.method}: {record['collection_counts']['train_rows']:,} rows; "
           "QwenOFT H8, 5,000 updates, global batch 128 (2 GPUs x 64), seed 42", flush=True)
-    train_vla_hist8.run(training, prepare_only=args.prepare_only, save_interval=5000)
+    train_vla_hist8.run(training, prepare_only=args.prepare_only, save_interval=5000, eval_interval=5000)
 
 
 if __name__ == "__main__":
