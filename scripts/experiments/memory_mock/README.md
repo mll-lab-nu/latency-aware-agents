@@ -235,8 +235,10 @@ recipe and global batch. The earlier `final_profile_training` Bridge recipes
 are not the H8 recipe used for this checkpoint.
 
 Across these three launchers, only the dataset and run identity change:
+all use the requested **5,000-update checkpoint interval** instead of the
+paper's 500-update interval. Optimization and validation settings stay the same.
 
-| Setting | Shared main-paper recipe |
+| Setting | Shared training settings |
 | --- | --- |
 | Backbone | Qwen3-VL-4B-Instruct, revision `ebb281ec70b05090aa6165b016eac8ec08e71b17` |
 | Initialization | Pretrained Qwen backbone; new QwenOFT action head; seed 42 |
@@ -248,7 +250,8 @@ Across these three launchers, only the dataset and run identity change:
 | Optimizer | AdamW, betas `(0.9, 0.95)`, epsilon `1e-8`, optimizer weight decay `1e-8` |
 | Schedule/precision | Cosine with minimum LR ratio `1/30`; BF16, DeepSpeed ZeRO-2, gradient checkpointing |
 | Data loading | Shuffle; 16 train/eval workers per GPU; prefetch 4; all training rows |
-| Checkpoints/validation | Every 500 updates; 50 held-out dataset batches; final checkpoint at 5,000 |
+| Checkpoints | Save at update **5,000**, at the end; `save_best_model=false`, `save_final_model=true` |
+| Validation | Every **500** updates; 50 held-out dataset batches |
 | Environment rollouts | Disabled during and immediately after training |
 
 This preserves the training recipe; updated software/hardware and different
@@ -295,8 +298,9 @@ The run directory is
 `$VLA_OUTPUT_ROOT/flappy-qwenoft-METHOD-irregular20m-hist8-s42/`.
 It contains `training_data.json`, `train.yaml`, training metadata, W&B logs and
 `checkpoints/`. At completion use `checkpoints/steps_5000_pytorch_model.pt`.
-The existing retention policy keeps the last two checkpoints and saves training
-state. These launchers do not upload VLA checkpoints or run realtime evaluation.
+The final checkpoint includes training state. The trainer can also save on a
+graceful interruption for resume; there are no scheduled saves before update
+5,000. These launchers do not upload VLA checkpoints or run realtime evaluation.
 
 To inspect configs without training, activate a Python environment with the
 benchmark and Hydra installed, then append `--prepare-only` to a launcher. This

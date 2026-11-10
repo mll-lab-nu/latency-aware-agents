@@ -87,7 +87,13 @@ def test_all_launchers_prepare_the_same_paper_recipe(collections, tmp_path):
         reference_args.run_id = cfg.run_id
         reference_args.wandb_entity = "test-team"
         reference_args.wandb_project = "test-project"
-        assert cfg == training_config(reference_args)
+        reference = training_config(reference_args)
+        assert reference.trainer.save_interval == 500
+        reference.trainer.save_interval = 5000
+        assert cfg == reference
+        assert cfg.trainer.eval_interval == 500
+        assert not cfg.checkpoint.save_best_model
+        assert cfg.checkpoint.save_final_model
         cfg.run_id = cfg.wandb_name = "matched-run"
         cfg.datasets.vla_data.data_root_dir = "/matched/data"
         cfg.datasets.vla_data.custom_mixtures_path = "/matched/data/_generated_mixtures/lerobot.json"
@@ -134,6 +140,7 @@ def test_launch_and_resume_keep_original_two_gpu_schedule(collections, tmp_path,
     run = tmp_path / "students/flappy-qwenoft-temporal-irregular20m-hist8-s42"
     cfg = OmegaConf.load(run / "train.yaml")
     assert cfg.trainer.max_train_steps == 5000
+    assert cfg.trainer.save_interval == 5000
     assert cfg.datasets.vla_data.per_device_batch_size == 64
     assert cfg.trainer.gradient_accumulation_steps == 1
     assert cfg.wandb_project is None
@@ -147,3 +154,4 @@ def test_launch_and_resume_keep_original_two_gpu_schedule(collections, tmp_path,
     resumed = OmegaConf.load(run / "train.yaml")
     assert resumed.trainer.is_resume and resumed.trainer.resume_step == 500
     assert resumed.trainer.max_train_steps == 5000
+    assert resumed.trainer.save_interval == 5000

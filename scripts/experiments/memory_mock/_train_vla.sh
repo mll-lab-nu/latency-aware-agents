@@ -17,6 +17,7 @@ Usage: bash scripts/experiments/memory_mock/train_vla_{temporal,ar1,arma}.sh [--
 
 Train QwenOFT using the original main-paper hist8-v2 recipe: 5,000 updates,
 2 GPUs x batch 64, seed 42, H8 state, one image, action horizon 1. No live env.
+Scheduled checkpoint saving at update 5,000 only; validation every 500 updates.
 Only the matching dataset and run identity differ between the three launchers.
 
 Required:
