@@ -236,7 +236,10 @@ are not the H8 recipe used for this checkpoint.
 
 Across these three launchers, only the dataset and run identity change:
 all use the requested **5,000-update checkpoint and validation intervals**
-instead of the paper's 500-update intervals. Optimization settings stay the same.
+instead of the paper's 500-update intervals. Each now uses **one GPU**, backend
+`none`, batch size **32**, and gradient accumulation **4**. This preserves the
+paper's effective batch of **128**. The optimizer, learning rates and update
+budget stay the same; execution is no longer the paper's two-GPU DeepSpeed setup.
 
 | Setting | Shared training settings |
 | --- | --- |
@@ -245,10 +248,10 @@ instead of the paper's 500-update intervals. Optimization settings stay the same
 | Inputs/output | One RGB image, 24 binary H8 values with identity normalization, action horizon 1 |
 | Loss | Discrete cross-entropy; continuous state projector |
 | Budget | 5,000 optimizer updates; 100 warmup steps |
-| Batch | **Two GPUs**, 64 samples per GPU, accumulation 1; global batch **128** |
+| Batch | **One GPU**, 32 samples per batch, accumulation **4**; effective batch **128** |
 | Learning rates | Base `3e-5`, Qwen interface `3e-6`, action model `1e-4` |
 | Optimizer | AdamW, betas `(0.9, 0.95)`, epsilon `1e-8`, optimizer weight decay `1e-8` |
-| Schedule/precision | Cosine with minimum LR ratio `1/30`; BF16, DeepSpeed ZeRO-2, gradient checkpointing |
+| Schedule/precision | Cosine with minimum LR ratio `1/30`; BF16, backend `none`, gradient checkpointing |
 | Data loading | Shuffle; 16 train/eval workers per GPU; prefetch 4; all training rows |
 | Checkpoints | Save at update **5,000**, at the end; `save_best_model=false`, `save_final_model=true` |
 | Validation | At update **5,000**, at the end; 50 held-out dataset batches |
@@ -269,8 +272,8 @@ cd /mnt/disk1/talha/latency-aware-agents
 git pull --ff-only origin codex/irregular-memory-mock
 
 export DATASET_ROOT=/mnt/disk1/talha/outputs/irregular_rollouts_20min_18k_public_run1
-export VLA_OUTPUT_ROOT=/mnt/disk1/talha/outputs/irregular_vlas_20min_18k_run1
-export VLA_GPUS=0,1
+export VLA_OUTPUT_ROOT=/mnt/disk1/talha/outputs/irregular_vlas_20min_18k_single_gpu_run1
+export VLA_GPUS=0
 export WANDB_ENTITY=talha1503
 export WANDB_PROJECT=flappy-irregular-vlas
 
@@ -279,7 +282,10 @@ bash scripts/experiments/memory_mock/train_vla_ar1.sh
 bash scripts/experiments/memory_mock/train_vla_arma.sh
 ```
 
-Run them **one at a time**, with both selected GPUs free. Set `WANDB_ENTITY` to
+Run them **one at a time**, with the selected GPU free. Each launcher starts one
+Python training process, without a DeepSpeed launch configuration. Use a fresh
+`VLA_OUTPUT_ROOT` when switching from the earlier two-GPU recipe; its DeepSpeed
+training states are not used by this single-GPU launcher. Set `WANDB_ENTITY` to
 your actual W&B account/team (independent of the HF username), or omit it to use
 W&B's account default. `WANDB_MODE=disabled` turns logging off. The launchers
 install/activate `starvla_rl_games_openvla` using `install.sh --env flappy --model

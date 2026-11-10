@@ -141,12 +141,17 @@ def main() -> None:
 
 
 def run(args: argparse.Namespace, *, prepare_only: bool = False,
-        save_interval: int | None = None, eval_interval: int | None = None) -> None:
+        save_interval: int | None = None, eval_interval: int | None = None,
+        single_gpu: bool = False) -> None:
     """Run the paper recipe, also used by matched profile-data experiments."""
     args.dataset_dir = args.dataset_dir.resolve()
     args.base_model_dir = args.base_model_dir.resolve()
     args.output_root = args.output_root.resolve()
     cfg = training_config(args)
+    if single_gpu:
+        cfg.trainer.distributed_backend = "none"
+        cfg.trainer.gradient_accumulation_steps = 4
+        cfg.datasets.vla_data.per_device_batch_size = 32
     if save_interval is not None:
         cfg.trainer.save_interval = save_interval
     if eval_interval is not None:
@@ -191,13 +196,22 @@ def run(args: argparse.Namespace, *, prepare_only: bool = False,
     env["CUDA_HOME"] = str(cuda_home)
     env["CXX"] = str(cuda_home / "bin/x86_64-conda-linux-gnu-g++")
     env["NVCC_PREPEND_FLAGS"] = f"-ccbin={env['CXX']}"
-    subprocess.run([
-        sys.executable, "-m", "accelerate.commands.launch",
-        "--config_file", str(STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml"),
-        "--num_processes", "2", "--main_process_port", str(args.port),
+    trainer_command = [
         str(STARVLA / "starVLA/training/train_starvla.py"),
         "--config_yaml", str(config_path),
-    ], cwd=STARVLA, env=env, check=True)
+    ]
+    if single_gpu:
+        env["ACCELERATE_USE_DEEPSPEED"] = "false"
+        env["ACCELERATE_USE_FSDP"] = "false"
+        env["ACCELERATE_MIXED_PRECISION"] = "bf16"
+        command = [sys.executable, *trainer_command]
+    else:
+        command = [
+            sys.executable, "-m", "accelerate.commands.launch",
+            "--config_file", str(STARVLA / "starVLA/config/deepseeds/deepspeed_zero2.yaml"),
+            "--num_processes", "2", "--main_process_port", str(args.port), *trainer_command,
+        ]
+    subprocess.run(command, cwd=STARVLA, env=env, check=True)
 
 
 if __name__ == "__main__":

@@ -64,6 +64,7 @@ def test_all_launchers_prepare_the_same_paper_recipe(collections, tmp_path):
             ["bash", f"scripts/experiments/memory_mock/train_vla_{method}.sh", "--prepare-only"],
             cwd=ROOT, env={**os.environ, "DATASET_ROOT": str(collections),
                           "VLA_OUTPUT_ROOT": str(output), "OUTPUT_DIR": str(collections),
+                          "VLA_GPUS": "0",
                           "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"],
                           "WANDB_ENTITY": "test-team", "WANDB_PROJECT": "test-project",
                           "WANDB_MODE": "online"},
@@ -77,7 +78,7 @@ def test_all_launchers_prepare_the_same_paper_recipe(collections, tmp_path):
         assert not (run / "run_metadata.json").exists()  # preparation is not training
         record = read_json(run / "training_data.json")
         assert record["collection_run_id"] == method + "-collection"
-        assert record["num_processes"] == 2 and record["global_batch"] == 128
+        assert record["num_processes"] == 1 and record["global_batch"] == 128
         # Compare the entire config to the actual main-paper entrypoint, not a
         # second hand-maintained implementation of its optimizer/model settings.
         reference_args = arguments(tmp_path, task="flappy")
@@ -92,10 +93,14 @@ def test_all_launchers_prepare_the_same_paper_recipe(collections, tmp_path):
         assert reference.trainer.eval_interval == 500
         reference.trainer.save_interval = 5000
         reference.trainer.eval_interval = 5000
+        reference.trainer.distributed_backend = "none"
+        reference.trainer.gradient_accumulation_steps = 4
+        reference.datasets.vla_data.per_device_batch_size = 32
         assert cfg == reference
         assert cfg.trainer.eval_interval == 5000
         assert not cfg.checkpoint.save_best_model
         assert cfg.checkpoint.save_final_model
+        assert not cfg.rl_games.env_eval.mid_train.enabled
         cfg.run_id = cfg.wandb_name = "matched-run"
         cfg.datasets.vla_data.data_root_dir = "/matched/data"
         cfg.datasets.vla_data.custom_mixtures_path = "/matched/data/_generated_mixtures/lerobot.json"
@@ -128,24 +133,30 @@ def test_refuse_wrong_or_partial_collection(collections, change):
         train_vla.collection_record(collection, "temporal")
 
 
-def test_launch_and_resume_keep_original_two_gpu_schedule(collections, tmp_path, monkeypatch):
+def test_launch_and_resume_use_one_gpu_without_deepspeed(collections, tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr("torch.cuda.device_count", lambda: 2)
-    monkeypatch.setattr(train_vla.train_vla_hist8.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    monkeypatch.setattr("torch.cuda.device_count", lambda: 1)
+    monkeypatch.setattr(train_vla.train_vla_hist8.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)))
     monkeypatch.setattr(train_vla.train_vla_hist8.subprocess, "check_output", lambda *a, **k: "test-source")
     monkeypatch.setenv("WANDB_MODE", "disabled")
+    monkeypatch.setenv("ACCELERATE_USE_DEEPSPEED", "true")
     argv = ["train_vla", "--method", "temporal", "--collection-dir", str(collections / "temporal/seed_42"),
             "--base-model-dir", str(tmp_path / "backbone"), "--output-root", str(tmp_path / "students")]
     monkeypatch.setattr(sys, "argv", argv)
     train_vla.main()
-    assert calls[0][calls[0].index("--num_processes") + 1] == "2"
+    command, options = calls[0]
+    assert command[:2] == [sys.executable, str(train_vla.train_vla_hist8.STARVLA / "starVLA/training/train_starvla.py")]
+    assert "accelerate.commands.launch" not in command
+    assert options["env"]["ACCELERATE_USE_DEEPSPEED"] == "false"
+    assert options["env"]["ACCELERATE_MIXED_PRECISION"] == "bf16"
     run = tmp_path / "students/flappy-qwenoft-temporal-irregular20m-hist8-s42"
     cfg = OmegaConf.load(run / "train.yaml")
     assert cfg.trainer.max_train_steps == 5000
     assert cfg.trainer.save_interval == 5000
     assert cfg.trainer.eval_interval == 5000
-    assert cfg.datasets.vla_data.per_device_batch_size == 64
-    assert cfg.trainer.gradient_accumulation_steps == 1
+    assert cfg.datasets.vla_data.per_device_batch_size == 32
+    assert cfg.trainer.gradient_accumulation_steps == 4
+    assert cfg.trainer.distributed_backend == "none"
     assert cfg.wandb_project is None
     with pytest.raises(ValueError, match="already exists"):
         train_vla.main()
@@ -159,3 +170,5 @@ def test_launch_and_resume_keep_original_two_gpu_schedule(collections, tmp_path,
     assert resumed.trainer.max_train_steps == 5000
     assert resumed.trainer.save_interval == 5000
     assert resumed.trainer.eval_interval == 5000
+    assert resumed.trainer.gradient_accumulation_steps == 4
+    assert resumed.trainer.distributed_backend == "none"

@@ -15,8 +15,9 @@ for arg in "$@"; do
             cat <<'EOF'
 Usage: bash scripts/experiments/memory_mock/train_vla_{temporal,ar1,arma}.sh [--prepare-only | --resume]
 
-Train QwenOFT using the original main-paper hist8-v2 recipe: 5,000 updates,
-2 GPUs x batch 64, seed 42, H8 state, one image, action horizon 1. No live env.
+Train QwenOFT using the main-paper hist8-v2 learning recipe: 5,000 updates,
+1 GPU x batch 32 x accumulation 4, backend none, seed 42, H8, action horizon 1.
+Mid-training environment evaluation is disabled. No live environment is run.
 Scheduled checkpoint saving and held-out validation at update 5,000 only.
 Only the matching dataset and run identity differ between the three launchers.
 
@@ -24,8 +25,8 @@ Required:
   DATASET_ROOT     Parent containing {temporal,ar1,arma}/seed_42/lerobot.
                    Must be the completed, unfiltered 18,000-frame collections.
 Optional:
-  VLA_GPUS         Two CUDA device IDs (default: 0,1); independent of teacher GPU.
-  VLA_OUTPUT_ROOT  Default: <workspace>/outputs/memory_mock/flappy_3090_vlas_20min
+  VLA_GPUS         One CUDA device ID (default: 0); independent of teacher GPU.
+  VLA_OUTPUT_ROOT  Default: <workspace>/outputs/memory_mock/flappy_3090_vlas_20min_single_gpu
                    Independent of the collection's OUTPUT_DIR.
   WANDB_ENTITY     Your W&B account/team (otherwise W&B account default).
   WANDB_PROJECT    Default: flappy-irregular-vlas. WANDB_MODE=disabled disables it.
@@ -45,8 +46,12 @@ done
 
 : "${DATASET_ROOT:?Set DATASET_ROOT to the parent of temporal/ar1/arma collection folders}"
 export WORKSPACE_DIR="${WORKSPACE_DIR:-$(dirname "${REPO_ROOT}")}"
-VLA_OUTPUT_ROOT="${VLA_OUTPUT_ROOT:-${WORKSPACE_DIR}/outputs/memory_mock/flappy_3090_vlas_20min}"
-export CUDA_VISIBLE_DEVICES="${VLA_GPUS:-0,1}"
+VLA_OUTPUT_ROOT="${VLA_OUTPUT_ROOT:-${WORKSPACE_DIR}/outputs/memory_mock/flappy_3090_vlas_20min_single_gpu}"
+export CUDA_VISIBLE_DEVICES="${VLA_GPUS:-0}"
+if [[ "${CUDA_VISIBLE_DEVICES}" == *,* ]]; then
+    echo "Select one GPU for this launcher, for example: export VLA_GPUS=0" >&2
+    exit 2
+fi
 export PYTHONPATH="${REPO_ROOT}:${REPO_ROOT}/third_party/starVLA${PYTHONPATH:+:${PYTHONPATH}}"
 export PYTHONUNBUFFERED=1
 cd "${REPO_ROOT}"

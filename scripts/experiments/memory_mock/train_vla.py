@@ -60,7 +60,9 @@ def collection_record(collection: Path, method: str) -> dict:
         "collection_settings": settings, "collection_counts": completed,
         "profile_source_run_id": profile["source_run_id"],
         "reference_training": REFERENCE, "model": "qwenoft", "global_batch": 128,
-        "num_processes": 2, "base_model_repo": BASE_MODEL_REPO, "base_model_revision": BASE_MODEL_REVISION,
+        "num_processes": 1, "distributed_backend": "none", "per_device_batch_size": 32,
+        "gradient_accumulation_steps": 4,
+        "base_model_repo": BASE_MODEL_REPO, "base_model_revision": BASE_MODEL_REVISION,
     }
 
 
@@ -102,12 +104,13 @@ def main() -> None:
         raise ValueError("No saved training state to resume")
     if not args.prepare_only:
         import torch
-        if torch.cuda.device_count() != 2:
-            raise ValueError("The paper recipe requires exactly two visible GPUs; set VLA_GPUS=0,1")
+        if torch.cuda.device_count() != 1:
+            raise ValueError("Each run requires exactly one visible GPU; set VLA_GPUS=0")
     write_json_atomic(record_path, record)
     print(f"Training {args.method}: {record['collection_counts']['train_rows']:,} rows; "
-          "QwenOFT H8, 5,000 updates, global batch 128 (2 GPUs x 64), seed 42", flush=True)
-    train_vla_hist8.run(training, prepare_only=args.prepare_only, save_interval=5000, eval_interval=5000)
+          "QwenOFT H8, 5,000 updates, global batch 128 (1 GPU x 32 x accumulation 4), seed 42", flush=True)
+    train_vla_hist8.run(training, prepare_only=args.prepare_only, save_interval=5000,
+                       eval_interval=5000, single_gpu=True)
 
 
 if __name__ == "__main__":
