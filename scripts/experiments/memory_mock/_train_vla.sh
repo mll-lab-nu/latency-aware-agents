@@ -18,6 +18,7 @@ Usage: bash scripts/experiments/memory_mock/train_vla_{temporal,ar1,arma}.sh [--
 Train QwenOFT using the main-paper hist8-v2 learning recipe: 5,000 updates,
 1 GPU x batch 32 x accumulation 4, backend none, seed 42, H8, action horizon 1.
 Mid-training environment evaluation is disabled. No live environment is run.
+Train/eval data loaders use 2 workers each and prefetch 1 to reduce host RAM use.
 Scheduled checkpoint saving and held-out validation at update 5,000 only.
 Only the matching dataset and run identity differ between the three launchers.
 

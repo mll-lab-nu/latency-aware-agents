@@ -96,6 +96,9 @@ def test_all_launchers_prepare_the_same_paper_recipe(collections, tmp_path):
         reference.trainer.distributed_backend = "none"
         reference.trainer.gradient_accumulation_steps = 4
         reference.datasets.vla_data.per_device_batch_size = 32
+        reference.datasets.vla_data.num_workers = 2
+        reference.datasets.vla_data.eval_num_workers = 2
+        reference.datasets.vla_data.prefetch_factor = 1
         assert cfg == reference
         assert cfg.trainer.eval_interval == 5000
         assert not cfg.checkpoint.save_best_model
@@ -157,6 +160,11 @@ def test_launch_and_resume_use_one_gpu_without_deepspeed(collections, tmp_path, 
     assert cfg.datasets.vla_data.per_device_batch_size == 32
     assert cfg.trainer.gradient_accumulation_steps == 4
     assert cfg.trainer.distributed_backend == "none"
+    assert cfg.datasets.vla_data.num_workers == cfg.datasets.vla_data.eval_num_workers == 2
+    assert cfg.datasets.vla_data.prefetch_factor == 1
+    metadata = read_json(run / "run_metadata.json")
+    assert metadata["num_workers_per_rank"] == metadata["eval_num_workers_per_rank"] == 2
+    assert metadata["prefetch_factor"] == 1
     assert cfg.wandb_project is None
     with pytest.raises(ValueError, match="already exists"):
         train_vla.main()

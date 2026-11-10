@@ -152,6 +152,11 @@ def run(args: argparse.Namespace, *, prepare_only: bool = False,
         cfg.trainer.distributed_backend = "none"
         cfg.trainer.gradient_accumulation_steps = 4
         cfg.datasets.vla_data.per_device_batch_size = 32
+        # Spawned loader workers retain their own episode tables. Keep the
+        # large 18k-frame collections from multiplying host RAM across 16 workers.
+        cfg.datasets.vla_data.num_workers = 2
+        cfg.datasets.vla_data.eval_num_workers = 2
+        cfg.datasets.vla_data.prefetch_factor = 1
     if save_interval is not None:
         cfg.trainer.save_interval = save_interval
     if eval_interval is not None:

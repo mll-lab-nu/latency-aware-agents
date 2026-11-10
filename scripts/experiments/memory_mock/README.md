@@ -252,7 +252,7 @@ budget stay the same; execution is no longer the paper's two-GPU DeepSpeed setup
 | Learning rates | Base `3e-5`, Qwen interface `3e-6`, action model `1e-4` |
 | Optimizer | AdamW, betas `(0.9, 0.95)`, epsilon `1e-8`, optimizer weight decay `1e-8` |
 | Schedule/precision | Cosine with minimum LR ratio `1/30`; BF16, backend `none`, gradient checkpointing |
-| Data loading | Shuffle; 16 train/eval workers per GPU; prefetch 4; all training rows |
+| Data loading | Shuffle; **2** train/eval workers; prefetch **1**; all training rows |
 | Checkpoints | Save at update **5,000**, at the end; `save_best_model=false`, `save_final_model=true` |
 | Validation | At update **5,000**, at the end; 50 held-out dataset batches |
 | Environment rollouts | Disabled during and immediately after training |
@@ -264,6 +264,13 @@ do not run the background memory workload alongside training. Each method uses
 its own held-out demonstration split, so validation losses are not a common
 deployment comparison. Realtime evaluation under shared held-out conditions is
 a separate stage.
+
+The single-GPU launchers reduce loader concurrency because spawned workers keep
+their own cached episode tables. With these large collections, the earlier
+16-worker, prefetch-4 setup exhausted host RAM. Two workers and prefetch 1 reduce
+replication and queued batches; the dataset, sample ordering settings, batch size,
+gradient accumulation and optimizer schedule are unchanged. Memory still depends
+on dataset size and other processes on the machine.
 
 On the GPU machine, use the root of the **new 18,000-frame** collections:
 
