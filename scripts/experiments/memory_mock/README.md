@@ -438,6 +438,62 @@ These are fixed-order baselines, not a search over all ARMA orders or a claim th
 ARMA cannot represent bursts. The likelihood implementation uses
 [statsmodels SARIMAX](https://www.statsmodels.org/v0.14.6/generated/statsmodels.tsa.statespace.sarimax.SARIMAX.html).
 
+## Evaluate the trained VLAs in realtime without an injected workload
+
+The three `eval_vla_{temporal,ar1,arma}.sh` launchers download only the selected
+model folder from `talha15032/flappy-irregular-qwenoft`, download/reuse the pinned
+Qwen backbone, and invoke the existing `python -m latency_bench eval` CLI. They
+reuse the installed profiling Conda environment, `starvla_rl_games_openvla`.
+Set `SKIP_INSTALL=0` only if this environment needs the existing installer.
+
+All three run one worker and one environment at **10/10 FPS**, with one current
+image, H8 binary decision history, the latency-neutral prompt, and the step-5000
+weights. Real inference completion determines action availability. There is no
+sampled latency profile and no background memory-copy process. The training
+dataset and optimizer-state directories are not downloaded. The explicit local
+backbone path replaces the training server path embedded in the model config.
+
+```bash
+# On the profiling GPU server, from the repository root. Run sequentially.
+export GPU=0
+export EVAL_OUTPUT_ROOT=/workspace/outputs/irregular_vla_realtime
+bash scripts/experiments/memory_mock/eval_vla_temporal.sh
+bash scripts/experiments/memory_mock/eval_vla_arma.sh
+# After training and uploading ar1/ to the same model repository:
+bash scripts/experiments/memory_mock/eval_vla_ar1.sh
+```
+
+Defaults are `EVAL_EPISODES=100`, `EVAL_MAX_STEPS=3600` **raw frames per episode**,
+and `EVAL_SEED=1000000` (consecutive seeds 1,000,000–1,000,099). The cap is six
+minutes at 10 FPS; death can end an episode earlier. These episode/clock/cap
+settings match the paper's H8 evaluation description and retained H8 evaluation
+config. The retained `evaluations/profile/eval_config.yaml` itself uses simulated
+profile replay, so it is not evidence that those archived scores were measured
+in realtime. The genuine realtime Flappy profiling config also uses a 3,600-frame
+cap, originally at 30 FPS. The **18,000-frame demonstration-collection cap** is
+separate. Override `EVAL_MAX_STEPS` consistently across compared models if using
+a longer evaluation horizon, and report that change.
+
+For a short check before the full evaluation:
+
+```bash
+EVAL_EPISODES=2 bash scripts/experiments/memory_mock/eval_vla_temporal.sh
+```
+
+`HF_MODEL_REPO` and `HF_MODEL_REVISION` override the model source; the actual
+resolved snapshot commit is recorded in `eval_config.yaml` and the evaluator's
+`resolved_config.yaml`. Use the same explicit revision when comparing models if
+the repository may change. `HF_HOME` selects the cache disk. An unuploaded method
+fails before model loading. `--prepare-only` downloads assets and writes config
+using the current Python, without running inference or activating Conda.
+
+Outputs go to `$EVAL_OUTPUT_ROOT/METHOD/EVAL_RUN_ID`, with a fresh UTC timestamp
+as the default ID. A pre-existing directory is rejected to avoid mixing episode
+logs. The ordinary evaluator saves its resolved config, episode metrics, action
+and observation timing records, warmup diagnostics, and return summary. Results
+remain local. This evaluates deployment **without injected contention**; it does
+not test robustness under the irregular workload used to fit the profiles.
+
 ## Run a load
 
 ```bash
