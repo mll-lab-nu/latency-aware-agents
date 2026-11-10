@@ -6,27 +6,34 @@ shift
 case "${METHOD}" in temporal|ar1|arma) ;; *) echo "Unknown method: ${METHOD}" >&2; exit 2 ;; esac
 EXTRA_ARGS=()
 PREPARE_ONLY=0
+CONTENTION=0
 for arg in "$@"; do
     case "${arg}" in
         --prepare-only) PREPARE_ONLY=1; EXTRA_ARGS+=("${arg}") ;;
+        --contention) CONTENTION=1; EXTRA_ARGS+=("${arg}") ;;
         -h|--help)
             cat <<'EOF'
-Usage: bash scripts/experiments/memory_mock/eval_vla_{temporal,ar1,arma}.sh [--prepare-only]
+Usage: bash scripts/experiments/memory_mock/eval_vla_{temporal,ar1,arma}.sh [--prepare-only] [--contention]
 
 Download the selected step-5000 VLA and pinned Qwen backbone, then invoke the
 existing latency_bench realtime evaluator. Flappy runs at 10/10 FPS with H8,
 one image, one inference worker, and a latency-neutral prompt. No simulated
-latency or background memory workload is used. Run models sequentially.
+latency is used. Run models sequentially.
+The *_contention.sh launchers add the original irregular GPU copy workload:
+two 512 MiB buffers; OFF 5-15s; ON 80% 0.2-0.8s / 20% 2-5s. The existing
+coordinator waits for model warmup and stops the workload with evaluation.
 
 Defaults and overrides:
   GPU=0                    One physical GPU, exposed as logical cuda:0.
   EVAL_EPISODES=100         Episodes, ending on death or the frame cap.
   EVAL_MAX_STEPS=3600       Raw frames per episode (six minutes at 10 FPS).
   EVAL_SEED=1000000         Consecutive episode seeds start here.
+  CONTENTION_SEED=20261110  Same fresh workload seed for all three methods.
   HF_MODEL_REPO=talha15032/flappy-irregular-qwenoft
   HF_MODEL_REVISION=main    Resolves to a fixed commit before evaluation.
   HF_HOME                  Optional HF cache location on a disk with space.
   EVAL_OUTPUT_ROOT         Default: <workspace>/outputs/memory_mock/realtime_vlas
+                           Contention default ends in realtime_vlas_contention.
   EVAL_RUN_ID              Default: UTC timestamp; use a fresh ID for each run.
   STARVLA_CONDA_ENV_NAME    Default: starvla_rl_games_openvla.
   SKIP_INSTALL=1           Reuse the profiling environment (default).
@@ -73,7 +80,12 @@ if [[ "${PREPARE_ONLY}" == 0 ]]; then
     export LD_LIBRARY_PATH="${CUDA_HOME}/lib:${CUDA_HOME}/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi
 WORKSPACE_DIR="${WORKSPACE_DIR:-$(dirname "${REPO_ROOT}")}"
-EVAL_OUTPUT_ROOT="${EVAL_OUTPUT_ROOT:-${WORKSPACE_DIR}/outputs/memory_mock/realtime_vlas}"
+DEFAULT_OUTPUT_ROOT="${WORKSPACE_DIR}/outputs/memory_mock/realtime_vlas"
+if [[ "${CONTENTION}" == 1 ]]; then
+    DEFAULT_OUTPUT_ROOT="${DEFAULT_OUTPUT_ROOT}_contention"
+    EXTRA_ARGS+=(--load-seed "${CONTENTION_SEED:-20261110}")
+fi
+EVAL_OUTPUT_ROOT="${EVAL_OUTPUT_ROOT:-${DEFAULT_OUTPUT_ROOT}}"
 EVAL_RUN_ID="${EVAL_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 exec python -m scripts.experiments.memory_mock.eval_vla \
     --method "${METHOD}" --repo-id "${HF_MODEL_REPO:-talha15032/flappy-irregular-qwenoft}" \

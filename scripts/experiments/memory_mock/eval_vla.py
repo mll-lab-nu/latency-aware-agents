@@ -72,7 +72,8 @@ def prepare(args):
         "backbone_artifact": {"source": "hf", "repo_id": BACKBONE_REPO, "revision": BACKBONE_REVISION},
         "evaluation_code_revision": subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip(),
-        "deployment_condition": "realtime_without_injected_workload",
+        "deployment_condition": ("realtime_with_irregular_contention" if args.contention
+                                 else "realtime_without_injected_workload"),
     }
     output.mkdir(parents=True)
     config_path = output / "eval_config.yaml"
@@ -92,12 +93,31 @@ def main():
     parser.add_argument("--seed", type=int, default=1000000)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--contention", action="store_true")
+    parser.add_argument("--load-seed", type=int, default=20261110)
     args = parser.parse_args()
     config_path = prepare(args)
     if args.prepare_only:
         return
-    # Preserve the existing CLI's episode summaries, timing logs and warmup.
-    command = [sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path)]
+    if args.contention:
+        # Reuse the profiling coordinator's warmup/readiness handshake, workload
+        # logs, failure detection and process cleanup. Its worker calls the same
+        # realtime evaluation driver. Keep the exact episode count (no time quota).
+        # 100 x 3600 frames at 10 FPS can take ten hours, before reset/log overhead.
+        run_timeout = int(args.episodes * args.max_steps / 10) + 7200
+        command = [
+            sys.executable, "-m", "scripts.experiments.memory_mock.measure",
+            "--config", str(config_path), "--output", str(config_path.parent / "contention"),
+            "--evaluation-output", str(config_path.parent), "--condition", "irregular",
+            "--episodes", str(args.episodes), "--episode-seed", str(args.seed),
+            "--load-seed", str(args.load_seed), "--buffer-mib", "512",
+            "--off-seconds", "5", "15", "--short-on-seconds", "0.2", "0.8",
+            "--long-on-seconds", "2", "5", "--long-probability", "0.2",
+            "--min-measurement-seconds", "0", "--run-timeout-seconds", str(run_timeout),
+            "--coverage-seconds", str(run_timeout + 1800),
+        ]
+    else:
+        command = [sys.executable, "-m", "latency_bench", "eval", "--config", str(config_path)]
     subprocess.run(command, cwd=REPO_ROOT, check=True)
     print(f"Evaluation complete: {config_path.parent}", flush=True)
 

@@ -12,7 +12,8 @@ from scripts.experiments.memory_mock import eval_vla
 
 
 @pytest.mark.parametrize("method", ["temporal", "ar1", "arma"])
-def test_download_then_realtime_config_preserves_history_and_records_revisions(tmp_path, monkeypatch, method):
+@pytest.mark.parametrize("contention", [False, True])
+def test_download_then_realtime_config_preserves_history_and_records_revisions(tmp_path, monkeypatch, method, contention):
     snapshot = tmp_path / "model-cache" / "snapshots" / ("a" * 40)
     backbone = tmp_path / "backbone-cache" / eval_vla.BACKBONE_REVISION
     backbone.mkdir(parents=True)
@@ -28,7 +29,7 @@ def test_download_then_realtime_config_preserves_history_and_records_revisions(t
 
     monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
     args = Namespace(method=method, repo_id="test/models", revision="main", episodes=100,
-                     max_steps=3600, seed=1000000, output_dir=tmp_path / "eval")
+                     max_steps=3600, seed=1000000, output_dir=tmp_path / "eval", contention=contention)
     path = eval_vla.prepare(args)
     assert len(calls) == 2
     assert all(p.startswith(method + "/") for p in calls[0]["allow_patterns"])
@@ -56,6 +57,8 @@ def test_download_then_realtime_config_preserves_history_and_records_revisions(t
     assert config["evaluation"]["episodes"] == 100
     assert config["evaluation"]["max_env_steps"] == 3600
     assert config["experiment"]["seed"] == 1000000
+    assert config["provenance"]["deployment_condition"] == (
+        "realtime_with_irregular_contention" if contention else "realtime_without_injected_workload")
     with pytest.raises(FileExistsError, match="fresh EVAL_RUN_ID"):
         eval_vla.prepare(args)
 
@@ -87,3 +90,47 @@ def test_main_delegates_to_existing_cli_and_propagates_failure(tmp_path, monkeyp
         eval_vla.main()
     assert calls == [([sys.executable, "-m", "latency_bench", "eval", "--config", str(path)],
                       {"cwd": eval_vla.REPO_ROOT, "check": True})]
+
+
+def test_contention_uses_original_coordinator_without_changing_evaluation_protocol(tmp_path, monkeypatch):
+    import json
+    from scripts.experiments.memory_mock import measure
+    from latency_bench.utils.io import write_yaml
+
+    config = load_config(eval_vla.REPO_ROOT / "configs/examples/flappy/profile_openvla.yaml")
+    config.pop("profiling")
+    config["env"].update(env_fps=10, obs_fps=10, action_history_decisions=8)
+    config["experiment"]["seed"] = 1000000
+    config["evaluation"].update(episodes=100, suites=[])
+    config["logging"]["output_dir"] = str(tmp_path)
+    path = tmp_path / "eval_config.yaml"
+    write_yaml(path, config)
+    monkeypatch.setattr(eval_vla, "prepare", lambda args: path)
+    calls = []
+    original_run = eval_vla.subprocess.run
+    monkeypatch.setattr(eval_vla.subprocess, "run", lambda command, **kwargs: calls.append(command))
+    monkeypatch.setattr(sys, "argv", ["eval_vla", "--method", "arma", "--output-dir", str(tmp_path),
+                                     "--contention", "--load-seed", "20261110"])
+    eval_vla.main()
+    command, = calls
+    assert command[:3] == [sys.executable, "-m", "scripts.experiments.memory_mock.measure"]
+    # Exercise the actual coordinator parser/preparation, stopping before CUDA.
+    monkeypatch.setattr(eval_vla.subprocess, "run", original_run)
+    monkeypatch.setattr(sys, "argv", command[2:])
+    monkeypatch.setattr(measure, "measure", measure.prepare)
+    measure.main()
+    coordinated = load_config(tmp_path / "contention/evaluation.yaml")
+    assert coordinated == config
+    protocol = json.loads((tmp_path / "contention/protocol.json").read_text())
+    assert protocol["condition"] == "irregular"
+    assert protocol["load_seed"] == 20261110
+    assert protocol["buffer_mib_each"] == 512
+    assert protocol["min_measurement_seconds"] == 0
+    assert protocol["run_timeout_seconds"] > 100 * 3600 / 10
+    schedule = json.loads((tmp_path / "contention/schedule.json").read_text())
+    assert schedule["coverage_seconds"] > protocol["run_timeout_seconds"]
+    assert schedule["parameters"] == {
+        "off_seconds": [5., 15.], "short_on_seconds": [.2, .8],
+        "long_on_seconds": [2., 5.], "long_probability": .2,
+        "requested_coverage_seconds": protocol["run_timeout_seconds"] + 1800,
+    }

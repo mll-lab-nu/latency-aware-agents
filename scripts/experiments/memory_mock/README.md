@@ -497,6 +497,59 @@ and observation timing records, warmup diagnostics, and return summary. Results
 remain local. This evaluates deployment **without injected contention**; it does
 not test robustness under the irregular workload used to fit the profiles.
 
+## Evaluate the same VLAs with the original irregular workload
+
+These additional launchers use the same downloads, checkpoint, 10/10 FPS,
+H8 state, neutral prompt, 100 episode seeds and 3,600-frame cap as the clean
+evaluation. The filenames below follow the experiment naming request; the
+second and third select **ARMA** and **AR1**, respectively.
+
+```bash
+# From the repository root on the profiling server; run one model at a time.
+export GPU=0
+export EVAL_EPISODES=100
+export EVAL_MAX_STEPS=3600
+export CONTENTION_SEED=20261110
+export EVAL_OUTPUT_ROOT=/workspace/outputs/irregular_vla_realtime_contention
+unset EVAL_RUN_ID
+bash scripts/experiments/memory_mock/eval_vla_temporal_contention.sh
+bash scripts/experiments/memory_mock/eval_vla_temporal_arma_contention.sh
+bash scripts/experiments/memory_mock/eval_vla_temporal_ar1_contention.sh
+```
+
+The shared launcher uses the existing `memory_mock.measure` coordinator and
+`memory_mock.load` worker from profiling. Work begins after model warmup and
+buffer readiness, on the same physical GPU as inference, and runs continuously
+across episode resets. The coordinator stops its child processes on completion,
+failure or interruption. It uses two 512 MiB buffers, OFF Uniform(5,15) seconds,
+and ON periods drawn 80% from Uniform(0.2,0.8) and 20% from Uniform(2,5).
+These are the original profiling workload settings, not newly tuned parameters.
+The default workload seed is fresh relative to profiling seeds 42–46; use the
+same seed for all models, and repeat with another common seed if needed.
+
+Expected event frequency is about 5.4 ON events/minute, including 1.1 long
+events/minute, with roughly 9.9% wall time ON. A full six-minute episode could
+therefore encounter about 32 events, but short episodes and finite schedules
+can have much less exposure. Do not restart the quiet prefix at every episode.
+The same timeline is shared by seed, but different episode lengths mean events
+will not align with the same game states across models. Inspect actual exposure
+and repeat runs rather than increasing contention until a preferred model wins.
+Matching the workload does not guarantee matching the measured latency
+distribution: hardware, inference model, and the change from 30 to 10 FPS matter.
+
+Contention results default to `<workspace>/outputs/memory_mock/realtime_vlas_contention/`
+unless `EVAL_OUTPUT_ROOT` is set. Each method/run contains the ordinary evaluation
+outputs plus `contention/`: `schedule.json`, `protocol.json`, `hardware.json`,
+`load/load.jsonl`, process logs and the ON/OFF/MIXED latency `report.json`.
+The supervisor prints status every minute; detailed evaluator output is in
+`contention/evaluation_process.log`. The episode count remains exactly the
+requested count: no minimum-duration quota adds episodes. The timeout allows
+the full episode/frame budget at 10 FPS plus two hours for overhead, and the
+frozen schedule extends another 30 minutes beyond that timeout. This avoids
+exhausting profiling's original two-hour schedule during a long evaluation.
+`--prepare-only` downloads and writes the evaluation config without starting
+the workload or evaluation. Keep clean results and compare both conditions.
+
 ## Run a load
 
 ```bash
